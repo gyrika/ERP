@@ -1,0 +1,35 @@
+import type { Cents, MenuItem, OrderLine } from './types.ts';
+
+export const unitPrice = (item: MenuItem, line: Pick<OrderLine, 'size' | 'adds'>): Cents => {
+  const base = item.variants
+    ? (item.variants.find((v) => v.id === line.size) ?? item.variants[0]).price
+    : (item.price ?? 0);
+  const adds = line.adds.reduce((sum, id) => sum + (item.adds.find((o) => o.id === id)?.price ?? 0), 0);
+  return base + adds;
+};
+
+export const lineTotal = (item: MenuItem, line: OrderLine): Cents => unitPrice(item, line) * line.qty;
+
+/** "6,600" — the design shows whole rupees with no currency prefix. */
+export const fmt = (cents: Cents): string => {
+  const rupees = Math.floor(cents / 100);
+  const rest = cents % 100;
+  const body = rupees.toLocaleString('en-US');
+  return rest ? `${body}.${String(rest).padStart(2, '0')}` : body;
+};
+
+/** Menu-card style from the design: whole rupees, no thousands separator ("M 1450"). */
+export const fmtPlain = (cents: Cents): string => String(Math.round(cents / 100));
+
+/** Receipts and exports: "Rs 6,600". */
+export const formatLKR = (cents: Cents): string => `Rs ${fmt(cents)}`;
+
+const NOTES: Cents[] = [100000, 200000, 500000, 1000000, 2000000]; // Rs 1k, 2k, 5k, 10k, 20k
+
+/** Quick cash buttons: exact, next Rs 500, then the notes a customer would hand over. */
+export const quickCashAmounts = (total: Cents): Cents[] => {
+  if (total <= 0) return [];
+  const roundedUp = Math.ceil(total / 50000) * 50000;
+  const notes = NOTES.filter((n) => n >= total);
+  return [...new Set([total, roundedUp, ...notes])].sort((a, b) => a - b).slice(0, 4);
+};
