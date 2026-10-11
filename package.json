@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
+    "test": "npm run test:domain && npm run test:ui",
+    "test:domain": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
     "test:ui": "vitest run"
   },
   "dependencies": {

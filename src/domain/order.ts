@@ -1,5 +1,4 @@
-import { itemById } from './menu.ts';
-import { lineTotal } from './money.ts';
+import { totals } from './totals.ts';
 import type { Cents, LineSpec, Order, OrderLine } from './types.ts';
 
 let seq = 0;
@@ -39,8 +38,8 @@ export const removeLine = (order: Order, id: string): Order => ({
   lines: order.lines.filter((l) => l.id !== id),
 });
 
-export const orderTotal = (order: Order): Cents =>
-  order.lines.reduce((sum, l) => sum + lineTotal(itemById(l.itemId), l), 0);
+/** What the customer pays: menu prices minus any manager adjustments (see totals.ts). */
+export const orderTotal = (order: Order): Cents => totals(order).total;
 
 export const unsentLines = (order: Order): OrderLine[] => order.lines.filter((l) => !l.sent);
 

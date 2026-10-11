@@ -1,6 +1,7 @@
 /**
- * Who is acting. PLACEHOLDER until real PIN login and roles (SCRUM-40, SCRUM-41):
- * swap `requireManager` and `currentCashier` for the real ones; nothing else
+ * Who is acting, and the one interface that answers it. Real PIN login and
+ * roles arrive with the server work (sprint 3, SCRUM-40/41): implement
+ * AuthService for real and swap it in `src/services/auth.ts`. Nothing else
  * should need to change.
  */
 export type Role = 'cashier' | 'manager' | 'owner';
@@ -11,23 +12,14 @@ export interface Actor {
   role: Role;
 }
 
-/** Only managers and owners may change or cancel items already sent to the kitchen. */
-export const canChangeSentItems = (actor: Actor): boolean => actor.role === 'manager' || actor.role === 'owner';
-
-/** Dev-only PINs. Not secrets; removed when SCRUM-40/41 land. */
-export const DEV_PINS: Record<string, Actor> = {
-  '2580': { id: 'dev-manager', name: 'Manager', role: 'manager' },
-  '1111': { id: 'dev-cashier', name: 'Nimal', role: 'cashier' },
-};
-
-export const currentCashier = (): Actor => DEV_PINS['1111'];
-
-/**
- * The single manager check. Resolves to the manager or owner the PIN belongs
- * to, or null for an unknown PIN or a PIN without the right role. Async so the
- * real version can ask the server.
- */
-export async function requireManager(pin: string): Promise<Actor | null> {
-  const actor = DEV_PINS[pin];
-  return actor && canChangeSentItems(actor) ? actor : null;
+export interface AuthService {
+  /** The shop this device belongs to. Stamped on every row that syncs. */
+  shopId(): string;
+  /** Who is signed in at the counter right now. */
+  currentCashier(): Actor;
+  /** The manager or owner this PIN belongs to, or null (unknown PIN, or not allowed). */
+  verifyManagerPin(pin: string): Promise<Actor | null>;
 }
+
+/** Only managers and owners may use manager mode. Menu prices, items and staff are owner-only and not in the app yet. */
+export const canManage = (actor: Actor): boolean => actor.role === 'manager' || actor.role === 'owner';

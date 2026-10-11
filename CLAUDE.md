@@ -1,6 +1,6 @@
 # CheesyBeez ERP — POS module
 
-Product design + engineering for a point-of-sale system for the pizza shop CheesyBeez (Thalwila). It is the first module of a larger ERP. Do not name it "BeePOS". Team of 4, tracked in Jira (space "My Scrum Space", key SCRUM, project named "ERP"). Owner is Anton (computer engineering student, Sri Lanka); he knows MySQL. Tablets at the counter.
+Product design + engineering for a point-of-sale system for the pizza shop CheesyBeez (Thalwila). It is the first module of a larger ERP. Do not name it "BeePOS". Team of 4, tracked in Jira (space "My Scrum Space", key SCRUM, project named "ERP"). Owner is Anton (computer engineering student, Sri Lanka); he knows MySQL. Counter: a shared Windows 10 PC, one screen, keyboard first (touch still works, 48px targets); kitchen on its own screen.
 
 Goal: the most advanced, premium POS the shop could use: faster than any competitor, almost no UI, built around how people actually think.
 
@@ -22,7 +22,9 @@ Goal: the most advanced, premium POS the shop could use: faster than any competi
 - Kitchen works from the SCREEN ONLY: no printed kitchen ticket or cancel slip, and no ticket-printing data. The kitchen needs a screen it can always see (second monitor, spare phone or tablet). Arrivals, changes and cancellations chime and flash until tapped.
 - Hardware-aware: the thermal printer is for the customer receipt and cash drawer only; barcode scanner.
 - Multi-tenant and secure by default: role-based access, audit trail, encrypted data, per-shop isolation (`tenant_id` on every row).
-- Sent items: only a manager/owner (PIN via `requireManager()`) may change or cancel them; the cashier has only the quick Undo right after Send; adding items is open to all. Every change is an event (`order.item_changed` / `order.item_cancelled`: who, when, before/after, reason) in the same log as sends and payments.
+- Sent items: only a manager/owner (PIN via `requireManager()`) may change or cancel them, in manager mode, with a short reason; the cashier has only the quick Undo right after Send; adding items is open to all.
+- Manager mode (Ctrl+M → PIN; Esc or 10 s idle to leave): every manager change goes through `applyManagerChange()` / `manage()`, writes one audited event (who, when, before/after in cents) and returns an Undo. Discounts round once at order level, in integer cents. No confirmation dialogs, no banners, no PIN per action.
+- Auth behind `AuthService` (`src/domain/auth.ts`); swap the fake in `src/services/auth.ts` only. All fake data lives in `src/fake/data.ts`. Every synced row (events, kitchen tickets) carries `shopId`.
 - Orders are identified by number only. No name/phone fields until the CRM + loyalty slice.
 - If a request adds clutter, push back and offer a simpler alternative. Lead with the decision or result; be concise.
 
@@ -37,9 +39,9 @@ Currency LKR, cash-heavy with growing QR/card. Staff have minimal training time.
 - Pure domain logic in `src/domain` (menu, pricing, order math, parser) with tests; UI in `src/ui`.
 - `src/domain/menu.ts` is copied from the printed menus; tests lock the prices. Change it only from the owner's menus.
 - Design source of truth: the screens Register (light/dark), Extras sheet, Kitchen, Owner (tokens already in `src/ui/styles.css`). Kitchen colours: ok #30A46C, warn #E8A94B, bad #E5484D; Done button green.
-- Commands: `npm run dev` · `npm test` (domain) · `npm run test:ui` · `npm run build` (typecheck + build). Run all before finishing.
+- Commands: `npm run dev` · `npm test` (domain + UI) · `npm run build` (typecheck + build). Run all before finishing.
 - Explain tech trade-offs briefly. Accessible, responsive, production-quality code.
 
 ## Status and next
-See `ARCHITECTURE.md` (decisions, build order, open questions). Done: domain core, Register, Extras sheet, payment v0, Kitchen display (`/#kitchen`; "Send to kitchen" fires a ticket before payment, later rounds are "Added" tickets, Undo recalls; same-device tabs via BroadcastChannel), open orders "Waiting to pay", manager PIN changes/cancels with kitchen alerts, order event log. Real PIN login and roles: SCRUM-40, SCRUM-41. **Next: backend/sync** (MySQL + realtime, replaces `src/ui/kitchenStore.ts` so the kitchen works on a separate tablet), then Owner feed, customer receipt printing + cash drawer.
+See `ARCHITECTURE.md` (decisions, build order, open questions). Done: domain core, Register, Extras sheet, payment v0, Kitchen display (`/#kitchen`; "Send to kitchen" fires a ticket before payment, later rounds are "Added" tickets, Undo recalls; same-device tabs via BroadcastChannel), open orders "Waiting to pay", manager mode on branch `manager-mode` (discounts, Free, line adjustments, voids/edits with kitchen alerts, all audited), order event log. Real PIN login and roles: SCRUM-40, SCRUM-41. **Next: backend/sync** (MySQL + realtime, replaces `src/ui/kitchenStore.ts` so the kitchen works on a separate tablet), then Owner feed, customer receipt printing + cash drawer.
 Kitchen design details: header "Kitchen" + clock; ticket = order number + elapsed time (mm:ss) left, items middle (qty × name + size/mods; leave-outs in the urgency colour), Done button right; true-black ground, cards #1C1C1E, 5px left border in the urgency colour.
