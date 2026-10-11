@@ -14,13 +14,13 @@ Goal: the most advanced, premium POS the shop could use: faster than any competi
 - Input by tap, keyboard, or typed shorthand ("2 L devilled chicken no onion, burger"). Screens depend only on `OrderInterpreter` (src/domain/types.ts) so voice/LLM can replace the rules parser later without changing screens.
 - One primary action per screen: "Send to kitchen" while an order has new items, "Charge" once it is all sent (customers eat first, pay after). No confirmation dialogs: instant action + visible Undo.
 - Modifiers appear only after the item is chosen, as big chips, sensible defaults.
-- Payment in one gesture: cash quick amounts + automatic change, card, QR.
+- Payment in one gesture: cash quick amounts + automatic change, bank transfer, card, QR. All four stay on screen; card and QR get real provider integrations later.
 - Default screen = current order + menu, nothing else. Settings/reports/admin live behind a command palette and role views.
 - Kitchen display: ONE column of tickets, colour = urgency only, one tap to bump. Owner view: ONE feed of insights, each with a one-tap action. No chart walls.
 - Offline-first (power/internet are unreliable), silent background sync, real-time between counter, kitchen, owner phone.
 - Anticipation behind a swappable `SuggestionsService`: prep load, stock forecast + supplier order draft, unusual voids/discounts, price/menu suggestions. Upsell prompts subtle and ignorable.
 - Kitchen works from the SCREEN ONLY: no printed kitchen ticket or cancel slip, and no ticket-printing data. The kitchen needs a screen it can always see (second monitor, spare phone or tablet). Arrivals, changes and cancellations chime and flash until tapped.
-- Hardware-aware: the thermal printer is for the customer receipt and cash drawer only; barcode scanner.
+- Hardware-aware: the thermal printer (Xprinter XP-80T, USB, ESC/POS) is for the customer receipt and cash drawer only (drawer on the printer's RJ11 port); barcode scanner. The browser talks to it through a small local helper program on the PC (SCRUM-71), not WebUSB, so the Windows printer driver stays intact.
 - Multi-tenant and secure by default: role-based access, audit trail, encrypted data, per-shop isolation (`tenant_id` on every row).
 - Sent items: only a manager/owner (PIN via `requireManager()`) may change or cancel them, in manager mode, with a short reason; the cashier has only the quick Undo right after Send; adding items is open to all.
 - Manager mode (Ctrl+M → PIN; Esc or 10 s idle to leave): every manager change goes through `applyManagerChange()` / `manage()`, writes one audited event (who, when, before/after in cents) and returns an Undo. Discounts round once at order level, in integer cents. No confirmation dialogs, no banners, no PIN per action.
@@ -32,7 +32,7 @@ Goal: the most advanced, premium POS the shop could use: faster than any competi
 Feedback < 100ms, optimistic updates, skeletons not spinners; 150–250ms purposeful motion; one typeface (DM Sans), strict type scale, touch targets >= 48px; neutral base with one accent, true dark mode; readable at arm's length; fully keyboard-operable and touch-first.
 
 ## Local context
-Currency LKR, cash-heavy with growing QR/card. Staff have minimal training time. English, Sinhala and Tamil labels (si/ta are EMPTY until the owner supplies them — never guess translations).
+Currency LKR. Today: cash and bank transfer (no card machine yet); card and QR come later. Counter PC runs Windows 10 Pro. Staff have minimal training time. English, Sinhala and Tamil labels (si/ta are EMPTY until the owner supplies them — never guess translations).
 
 ## Engineering rules
 - React 19 + TypeScript + Vite. Money is **integer cents** (1 LKR = 100), never floats.

@@ -64,7 +64,7 @@ export interface OrderInterpreter {
 }
 
 /** 'comp' = the order was made free by a manager; nothing is collected. */
-export type Tender = 'cash' | 'card' | 'qr' | 'comp';
+export type Tender = 'cash' | 'transfer' | 'card' | 'qr' | 'comp';
 
 /** Manager discount on the whole order. Percentages round once, at the order level. */
 export type Discount = { kind: 'percent'; pct: number } | { kind: 'comp' };

@@ -43,4 +43,12 @@ Accounts/roles UI, reports, inventory screens, i18n switcher (labels already car
 - Sinhala / Tamil item names (labels exist in the type but are empty; do not guess them)
 - Pasta sauce choice (the photos show white and red sauce; not on the menu, so not modelled)
 - Menu numbers (1-12) are what customers say: support "5 L" as shorthand?
-- Kitchen urgency: amber at 10 min, red at 15 min are placeholders (`src/domain/kitchen.ts`); owner will supply real cook times.
+- Kitchen urgency: amber at 10 min, red at 15 min are placeholders (`src/domain/kitchen.ts`); owner will supply real cook times per item (promised 2026-10-12).
+
+## Answered by the owner (2026-10-12)
+- Printer: Xprinter XP-80T, 80 mm thermal, ESC/POS, USB to the PC. Network port not confirmed.
+- Cash drawer: RJ11 into the printer; opened by an ESC/POS kick command sent with the receipt.
+- Counter PC: Windows 10 Pro (out of Microsoft support since Oct 2025).
+- Payments: no card machine; customers pay cash or bank transfer. "Bank transfer" tender added; Card and QR buttons stay and get real integrations later.
+- Decision: printing and the drawer kick go through a local helper program (SCRUM-71) that sends raw ESC/POS to the Windows printer queue. WebUSB was rejected: it needs the printer's Windows driver replaced, which breaks normal printing.
+- Flow: customers eat first, pay after (confirms Send to kitchen → Charge).

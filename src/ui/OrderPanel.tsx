@@ -20,7 +20,7 @@ const sub = (l: OrderLine): string => {
 
 const itemCount = (o: Order): number => o.lines.reduce((n, l) => n + l.qty, 0);
 const items = (o: Order): string => `${itemCount(o)} ${itemCount(o) === 1 ? 'item' : 'items'}`;
-const TENDER = { cash: 'Cash', card: 'Card', qr: 'QR', comp: 'Free' } as const;
+const TENDER = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free' } as const;
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** Void reasons for a sent line (owner rule: a reason is required). Keys 1-3 pick them. */
