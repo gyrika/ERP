@@ -23,6 +23,12 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
+; The CheesyBeez honeycomb on the Setup.exe file, its pages, and in Windows' list of programs
+; (pictures drawn by scripts/make-icons.mjs).
+SetupIconFile=pos-app\app.ico
+WizardImageFile=wizard.bmp,wizard-2x.bmp
+WizardSmallImageFile=wizard-small.bmp,wizard-small-2x.bmp
+UninstallDisplayIcon={app}\pos-app\CheesyBeezPOS.exe
 OutputDir=Output
 OutputBaseFilename=CheesyBeez-Setup-{#AppVersion}
 Compression=lzma2/max
