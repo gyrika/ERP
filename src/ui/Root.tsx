@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
-import { isCloudSite, isKitchenDevice, ownerToken } from '../services/pairing.ts';
+import { isCloudSite, isKitchenDevice, ownerToken, syncToken } from '../services/pairing.ts';
 import { isDemo } from './storage.ts';
 import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { App } from './App.tsx';
@@ -11,6 +11,7 @@ import { LockScreen } from './LockScreen.tsx';
 import { OwnerView } from './OwnerView.tsx';
 import { OwnerWelcome } from './OwnerWelcome.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
+import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
 
 const KITCHEN = '#kitchen';
@@ -34,6 +35,44 @@ function useIdleLock(enabled: boolean) {
 }
 
 /**
+ * Is this shop set up, and may this device set it up? Asked of the shop server
+ * in the real build only; development and tests keep the fake staff.
+ * 'remote' = a tablet or phone that has not scanned its QR code yet.
+ */
+type SetupCheck = 'checking' | 'none' | 'new' | 'done' | 'remote';
+const checksSetup = () =>
+  !isDemo() && !isCloudSite() && (import.meta.env.PROD || import.meta.env.VITE_SETUP_CHECK === '1');
+
+function useSetupCheck(): SetupCheck {
+  const [check, setCheck] = useState<SetupCheck>(checksSetup() ? 'checking' : 'none');
+  useEffect(() => {
+    if (!checksSetup()) return;
+    fetch('/api/v1/setup', { signal: AbortSignal.timeout(10_000) }).then(
+      async (r) => {
+        if (r.status === 403) setCheck('remote');
+        else if (!r.ok) setCheck('none');
+        else setCheck(((await r.json()) as { done: boolean }).done ? 'done' : 'new');
+      },
+      () => setCheck('none'), // no shop server here (development)
+    );
+  }, []);
+  return check;
+}
+
+/** A tablet or phone that is not connected yet: say so, never show a register. */
+function NotConnected() {
+  return (
+    <main className="lock" aria-label="Not connected">
+      <div className="lock__card owner-welcome">
+        <span className="brand">CheesyBeez</span>
+        <h1 className="lock__title">This device is not connected yet</h1>
+        <p>On the shop PC: Manager mode → Ctrl+K → Shop setup → Devices, then scan the QR code with this device.</p>
+      </div>
+    </main>
+  );
+}
+
+/**
  * Which screen this device shows, and to whom.
  * - A kitchen device (paired as kitchen) shows the Kitchen only, with no login.
  * - On the counter, staff log in with their PIN (SCRUM-40); F4 switches user,
@@ -50,6 +89,7 @@ export function Root() {
   const needsLogin = usesLogin();
   const staff = useSyncExternalStore(subscribeAuth, signedIn);
   const kitchenOnly = isKitchenDevice() || staff?.role === 'kitchen';
+  const setup = useSetupCheck();
   useIdleLock(needsLogin && staff !== null);
 
   useEffect(() => {
@@ -77,6 +117,14 @@ export function Root() {
 
   // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
   if (isCloudSite()) return ownerToken() || isDemo() ? <OwnerView phone /> : <OwnerWelcome />;
+  if (setup === 'checking') return <div className="setup" aria-busy="true" />;
+  if (setup === 'new') return <SetupWizard mode="first" />;
+  if (setup === 'remote' && !syncToken()) return <NotConnected />;
+  if (setup === 'done' && !syncToken()) return <SetupWizard mode="connect" />;
+  // Staff, printer and devices later: the owner, with their PIN (the server checks it too).
+  if (hash === '#setup' && (!needsLogin || staff?.role === 'owner' || staff?.role === 'manager')) {
+    return <SetupWizard mode="manage" onClose={() => show(false)} />;
+  }
   if (hash === '#receipt') return <ReceiptPreview />; // setup page, not a cashier screen
   if (kitchenOnly) return <Kitchen onSwitch={staff ? lock : undefined} />;
   if (inKitchen) return <Kitchen onBack={fromRegister || needsLogin ? () => show(false) : undefined} />;

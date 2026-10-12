@@ -210,6 +210,7 @@ export function App({ onKitchen, onSwitch }: { onKitchen?: () => void; onSwitch?
     list.push(
       { id: 'owner', label: 'Owner view: what needs attention today', run: () => { location.hash = '#owner'; } },
       { id: 'inventory', label: 'Inventory and stock', run: () => { location.hash = '#inventory'; } },
+      { id: 'setup', label: "Shop setup: staff, printer, devices (owner's PIN)", run: () => { location.hash = '#setup'; } },
       { id: 'undo', label: 'Undo last change', hint: 'Ctrl+Z', run: () => reg.undoManager(manager) },
       { id: 'sound', label: sound ? 'Turn sound off' : 'Turn sound on', run: () => { setSoundOn(!sound); setSound(!sound); } },
       { id: 'leave', label: 'Leave manager mode', hint: 'Esc', run: mode.exit },

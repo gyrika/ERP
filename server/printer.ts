@@ -67,3 +67,27 @@ export function dryRunPrinter(dir: string): RawPrinter {
     },
   });
 }
+
+/** The printers Windows (or CUPS) knows, for the wizard to choose from. Empty if it cannot tell. */
+export const listPrinters = (): Promise<string[]> =>
+  new Promise((resolve) => {
+    const [cmd, args] = process.platform === 'win32'
+      ? ['powershell.exe', ['-NoProfile', '-Command', 'Get-Printer | Select-Object -ExpandProperty Name']]
+      : ['lpstat', ['-e']];
+    execFile(cmd, args, { timeout: 10_000, windowsHide: true }, (err, out) => {
+      resolve(err ? [] : String(out).split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+    });
+  });
+
+/**
+ * The printer the server prints to, switchable while it runs: the wizard picks
+ * one and the next receipt goes there, no restart.
+ */
+export function switchablePrinter(initial: RawPrinter) {
+  let current = initial;
+  return {
+    get name() { return current.name; },
+    print: (bytes: Uint8Array) => current.print(bytes),
+    use(p: RawPrinter) { current = p; },
+  };
+}

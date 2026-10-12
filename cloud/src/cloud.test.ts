@@ -22,7 +22,9 @@ async function setup() {
     headers: token ? { authorization: `Bearer ${token}` } : {},
     body: body === undefined ? undefined : JSON.stringify(body),
   }));
-  return { call, db };
+  const del = (path: string, token: string) =>
+    handle(new Request(`https://cloud.test${path}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } }));
+  return { call, del, db };
 }
 
 const synced = (id: string, seq: number, shopId = SHOP): SyncedEvent => ({
@@ -77,4 +79,20 @@ test('the database itself refuses to change or delete an event', async () => {
   await call('/api/v1/replica', 'server-a', { events: [synced('a', 1)] });
   assert.throws(() => db.exec("UPDATE events SET type = 'x'"), /never changed/);
   assert.throws(() => db.exec('DELETE FROM events'), /never deleted/);
+});
+
+test("owners' phones: the shop server adds one, the phone reads, and a lost phone is withdrawn", async () => {
+  const { call, del } = await setup();
+  await call('/api/v1/replica', 'server-a', { events: [synced('a', 1)] });
+  const made = await (await call('/api/v1/devices', 'server-a', {})).json();
+  assert.match(made.token, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal((await call('/api/v1/events', made.token)).status, 200, 'the new phone can read');
+  assert.equal((await call('/api/v1/devices', made.token, {})).status, 403, 'a phone cannot make phones');
+
+  const list = await (await call('/api/v1/devices', 'server-a')).json();
+  assert.ok(list.devices.some((d: { id: string }) => d.id === made.id));
+  assert.equal((await del(`/api/v1/devices/${made.id}`, 'server-b')).status, 404, "another shop's server cannot touch it");
+  assert.equal((await del('/api/v1/devices/dev-server-a', 'server-a')).status, 404, 'never a shop server');
+  assert.equal((await del(`/api/v1/devices/${made.id}`, 'server-a')).status, 200);
+  assert.equal((await call('/api/v1/events', made.token)).status, 401, 'the withdrawn phone is out');
 });

@@ -11,6 +11,7 @@ import {
 import { isPin } from './pins.ts';
 import type { RawPrinter } from './printer.ts';
 import type { ReplicaStatus } from './replicator.ts';
+import { SetupError, isLocal, type SetupApi } from './setup.ts';
 import type { Device, EventStore } from './store.ts';
 import { validatePush } from './validate.ts';
 
@@ -30,6 +31,8 @@ export interface AppOptions {
   onStored?: (tenantId: string) => void;
   /** The cloud copy's state, shown by the health check (null: no cloud copy set up). */
   cloudStatus?: () => ReplicaStatus | null;
+  /** The setup wizard's endpoints (server/setup.ts); answered for this PC only. */
+  setup?: SetupApi;
   now?: () => number;
 }
 
@@ -101,7 +104,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, cloudStatus, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, onStored, cloudStatus, setup, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -142,6 +145,29 @@ export function createApp({ store, staticDir, printer, onStored, cloudStatus, no
       json(res, 200, { ok: true, serverTime: now(), ...(cloud ? { cloud } : {}) });
       return;
     }
+    if (url.pathname === '/api/v1/setup' || url.pathname.startsWith('/api/v1/setup/')) {
+      if (!setup) throw new HttpError(404, 'server', 'no setup here');
+      // Only the shop PC itself: a tablet or phone on the Wi-Fi never sets up or changes the shop.
+      if (!isLocal(req)) throw new HttpError(403, 'forbidden', 'setup is only possible on the shop PC itself');
+      const step = url.pathname.slice('/api/v1/setup'.length);
+      try {
+        if (step === '' && req.method === 'GET') { json(res, 200, await setup.state()); return; }
+        if (req.method !== 'POST') throw new HttpError(405, 'server', 'method not allowed');
+        const body = ((await readBody(req)) ?? {}) as Record<string, unknown>;
+        const routes: Record<string, (b: Record<string, unknown>) => Promise<unknown>> = {
+          '/shop': setup.nameShop, '/printer': setup.setPrinter, '/staff': setup.addStaff, '/staff/list': setup.staff,
+          '/staff/remove': setup.removeStaff, '/pair': setup.pair, '/finish': () => setup.finish(),
+        };
+        const route = routes[step];
+        if (!route) throw new HttpError(404, 'server', 'no such setup step');
+        json(res, 200, await route(body));
+      } catch (e) {
+        if (e instanceof SetupError) { json(res, e.status, { error: e.code, message: e.message }); return; }
+        throw e;
+      }
+      return;
+    }
+
     if (url.pathname === '/api/v1/login' && req.method === 'POST') {
       const device = await authenticate(req, url);
       const t = now();

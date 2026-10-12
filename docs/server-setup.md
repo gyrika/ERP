@@ -4,16 +4,26 @@ The server keeps every order event in MySQL on the counter PC and sends it live 
 paired device (the kitchen, later the owner's phone). It also serves the app itself, so the
 counter just opens `http://localhost:8080`. Design: [sync-contract.md](sync-contract.md).
 
-## Try it without MySQL (any laptop)
+## The quick way: built-in database + setup wizard (default)
 
 ```sh
-npm run build
+npm ci && npm run build
 npm run server
 ```
 
-With no `DATABASE_URL`, events live in memory and are **lost when it stops**. It prints two
-pairing links (counter and kitchen). Open them in two different browsers or laptops: an order
-sent on one shows on the other within a second.
+With no `DATABASE_URL`, the server keeps everything in a built-in database (one SQLite file in
+`server/data/`, created and updated by itself; same tables and append-only rules as MySQL). Open
+`http://localhost:8080` **on that PC**: the setup wizard asks for the shop's name, the receipt
+printer (with a test print), the staff and their PINs (the owner first), and shows QR codes to
+connect a kitchen tablet and the owner's phone. That PC becomes the counter by itself.
+
+- Setup only answers the PC itself: a tablet or phone on the Wi-Fi can never set up or change the shop.
+- Later changes (staff, printer, devices): Manager mode → Ctrl+K → **Shop setup**, with the owner's PIN.
+- Another screen on the same PC: it asks for the owner's PIN once, then it is a counter too.
+- A tablet that has not scanned its code sees "This device is not connected yet", never a register.
+- `MEMORY=1 npm run server` keeps nothing (a quick look); `DATA_DIR=…` moves the data folder.
+
+The MySQL steps below remain for anyone who sets `DATABASE_URL`.
 
 ## Install on the counter PC (Windows 10)
 

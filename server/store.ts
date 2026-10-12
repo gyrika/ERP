@@ -66,13 +66,13 @@ export interface EventStore {
 }
 
 export const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex');
-const newToken = () => randomBytes(32).toString('base64url');
-const newDeviceId = () => `dev-${randomBytes(8).toString('hex')}`;
-const newStaffId = () => `staff-${randomBytes(8).toString('hex')}`;
-const newSessionId = () => randomBytes(16).toString('hex');
+export const newToken = () => randomBytes(32).toString('base64url');
+export const newDeviceId = () => `dev-${randomBytes(8).toString('hex')}`;
+export const newStaffId = () => `staff-${randomBytes(8).toString('hex')}`;
+export const newSessionId = () => randomBytes(16).toString('hex');
 
 /** Tries every active person's hash; a shop has a handful of staff, so this stays well under a second. */
-const findByPin = async <T extends { pin_salt: string; pin_hash: string }>(rows: T[], pin: string): Promise<T | null> => {
+export const findByPin = async <T extends { pin_salt: string; pin_hash: string }>(rows: T[], pin: string): Promise<T | null> => {
   for (const r of rows) if (await pinMatches(pin, r.pin_salt, r.pin_hash)) return r;
   return null;
 };

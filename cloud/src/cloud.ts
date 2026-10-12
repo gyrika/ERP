@@ -103,6 +103,33 @@ export function createCloud(db: D1Like, now: () => number = Date.now) {
       return json(200, { stored, lastSourceSeq: await lastSourceSeq(device.tenantId), serverTime: t });
     }
 
+    // The owners' phones, managed by the shop server (the setup wizard's QR codes, and withdrawing a lost phone).
+    if (url.pathname === '/api/v1/devices' || url.pathname.startsWith('/api/v1/devices/')) {
+      const device = await authenticate(req, ['shop_server']);
+      if (url.pathname === '/api/v1/devices' && req.method === 'GET') {
+        const { results } = await db.prepare(
+          "SELECT id, created_at FROM devices WHERE tenant_id = ? AND kind = 'owner' ORDER BY created_at")
+          .bind(device.tenantId).all<{ id: string; created_at: number }>();
+        return json(200, { devices: results.map((r) => ({ id: r.id, createdAt: r.created_at })) });
+      }
+      if (url.pathname === '/api/v1/devices' && req.method === 'POST') {
+        const bytes = crypto.getRandomValues(new Uint8Array(32));
+        const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const id = `cloud-${[...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+        await db.prepare("INSERT INTO devices (id, tenant_id, kind, token_hash, created_at) VALUES (?, ?, 'owner', ?, ?)")
+          .bind(id, device.tenantId, await sha256Hex(token), now()).run();
+        return json(200, { id, token });
+      }
+      if (req.method === 'DELETE') {
+        const id = decodeURIComponent(url.pathname.slice('/api/v1/devices/'.length));
+        // Only this shop's owner phones: never a shop server, never another shop's device.
+        const r = await db.prepare("DELETE FROM devices WHERE id = ? AND tenant_id = ? AND kind = 'owner'")
+          .bind(id, device.tenantId).run();
+        return json(r.meta.changes ? 200 : 404, { removed: r.meta.changes });
+      }
+      throw new HttpError(405, 'server', 'method not allowed');
+    }
+
     if (url.pathname === '/api/v1/events' && req.method === 'GET') {
       // Reading the copy: the owner's phone later, or a shop server rebuilding itself.
       const device = await authenticate(req, ['shop_server', 'owner']);
