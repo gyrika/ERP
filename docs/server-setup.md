@@ -19,24 +19,27 @@ sent on one shows on the other within a second.
 
 1. **Node.js 22 LTS** from nodejs.org, and **MySQL 8 Community Server** (MySQL Installer,
    "Server only", run as a Windows service that starts automatically).
-2. Create the tables, as the MySQL admin:
+2. **Once, as the MySQL admin** (the only step that needs the admin password): put two long
+   random passwords into a copy of `server/bootstrap.sql` and run it. It creates the database,
+   the app's user `pos_app`, and `pos_migrate`, which only changes the database structure.
    ```sh
-   mysql -u root -p < server/schema.sql
+   mysql -u root -p < server/bootstrap.sql
    ```
-3. Create the app's own MySQL user. It may add and read events but **never change or delete
-   them** (the audit trail, SCRUM-43):
-   ```sql
-   CREATE USER 'pos_app'@'localhost' IDENTIFIED BY '<a long random password>';
-   GRANT SELECT ON cheesybeez.* TO 'pos_app'@'localhost';
-   GRANT INSERT ON cheesybeez.events TO 'pos_app'@'localhost';
-   GRANT INSERT ON cheesybeez.devices TO 'pos_app'@'localhost';
-   GRANT INSERT, UPDATE ON cheesybeez.shops TO 'pos_app'@'localhost';
-   GRANT INSERT, UPDATE ON cheesybeez.staff TO 'pos_app'@'localhost';
-   GRANT INSERT ON cheesybeez.sessions TO 'pos_app'@'localhost';
+3. Create `server/.env.migrate` (git-ignored) with the `pos_migrate` password, then create the
+   tables. This is also how **every later database change** arrives: a new file in
+   `server/migrations/`, applied once by this command, safe to run any time:
    ```
-   `UPDATE` on `shops` exists only because MySQL requires it for the `SELECT … FOR UPDATE` lock
-   that keeps `seq` in order; on `staff` it is for switching someone off. There is no `UPDATE`
-   or `DELETE` on `events` or `sessions`.
+   MIGRATE_DATABASE_URL=mysql://pos_migrate:<migrate password>@localhost:3306/cheesybeez
+   ```
+   ```sh
+   npm run server:migrate
+   ```
+   The migrations also give `pos_app` its rights: it may add and read events but **never change
+   or delete them** (the audit trail, SCRUM-43). `UPDATE` on `shops` exists only because MySQL
+   requires it for the `SELECT … FOR UPDATE` lock that keeps `seq` in order; on `staff` it is for
+   switching someone off. There is no `UPDATE` or `DELETE` on `events` or `sessions`.
+   `pos_migrate` *can* change anything in this database, so keep `server/.env.migrate` with the
+   owner, not on a shared drive.
 4. Create `server/.env` (it is git-ignored; it holds the password):
    ```
    DATABASE_URL=mysql://pos_app:<password>@localhost:3306/cheesybeez

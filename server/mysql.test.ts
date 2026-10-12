@@ -7,7 +7,7 @@ import { PinTaken, mysqlStore } from './store.ts';
 
 /**
  * The MySQL store against a real database. Skipped unless TEST_DATABASE_URL
- * points at a database where server/schema.sql has been run, e.g.
+ * points at a database brought up to date with `npm run server:migrate`, e.g.
  *   TEST_DATABASE_URL=mysql://pos_app:secret@localhost:3306/cheesybeez npm run test:domain
  * Each run uses a fresh shop id, so it never touches real data.
  */
