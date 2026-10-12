@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { Actor, Role } from '../src/domain/auth.ts';
 import type { SyncEvent, SyncedEvent } from '../src/domain/sync.ts';
+import { hashPin, pinMatches } from './pins.ts';
 
 /**
  * Where the server keeps events. The HTTP layer only talks to this
@@ -12,6 +14,23 @@ export interface Device {
   kind: DeviceKind;
 }
 export type DeviceKind = 'counter' | 'kitchen' | 'owner';
+
+export interface StaffMember extends Actor {
+  active: boolean;
+}
+
+/** A PIN login on one device: who, with which role, for how long (server clock). */
+export interface Session {
+  staffId: string;
+  role: Role;
+  startedAt: number;
+  expiresAt: number;
+}
+
+/** Thrown by addStaff: login is by PIN alone, so a PIN may belong to one active person only. */
+export class PinTaken extends Error {
+  constructor() { super('another active staff member already has this PIN'); }
+}
 
 export interface PushResult {
   /** One per event sent, in order, including ones already stored. */
@@ -28,20 +47,71 @@ export interface EventStore {
   lastSeq(tenantId: string): Promise<number>;
   /** Setup only (npm run server:device): registers a device, returns its secret token once. */
   addDevice(tenantId: string, shopName: string, kind: DeviceKind): Promise<{ device: Device; token: string }>;
+
+  // ----- staff and logins (SCRUM-40/41) -----
+  addStaff(tenantId: string, name: string, role: Role, pin: string): Promise<StaffMember>;
+  listStaff(tenantId: string): Promise<StaffMember[]>;
+  /**
+   * Someone leaves: their PIN stops working at once. There is no re-activation:
+   * hashes cannot be compared, so the server could not tell whether the old PIN
+   * now clashes with someone else's. Add them again with a new PIN instead.
+   */
+  deactivateStaff(tenantId: string, staffId: string): Promise<boolean>;
+  /** The active staff member with this PIN, or null. */
+  staffByPin(tenantId: string, pin: string): Promise<StaffMember | null>;
+  startSession(device: Device, staff: Actor, startedAt: number, expiresAt: number): Promise<void>;
+  /** This device's sessions for these people. */
+  sessions(device: Device, staffIds: string[]): Promise<Session[]>;
   close(): Promise<void>;
 }
 
 export const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex');
 const newToken = () => randomBytes(32).toString('base64url');
 const newDeviceId = () => `dev-${randomBytes(8).toString('hex')}`;
+const newStaffId = () => `staff-${randomBytes(8).toString('hex')}`;
+const newSessionId = () => randomBytes(16).toString('hex');
+
+/** Tries every active person's hash; a shop has a handful of staff, so this stays well under a second. */
+const findByPin = async <T extends { pin_salt: string; pin_hash: string }>(rows: T[], pin: string): Promise<T | null> => {
+  for (const r of rows) if (await pinMatches(pin, r.pin_salt, r.pin_hash)) return r;
+  return null;
+};
 
 // ----- memory (tests, and trying the server without MySQL) -----
 
 export function memoryStore(): EventStore {
   const devices = new Map<string, Device>(); // token hash → device
   const events: (SyncedEvent & { tenantId: string })[] = [];
+  const staff: (StaffMember & { tenantId: string; pin_salt: string; pin_hash: string })[] = [];
+  const sessions: (Session & { deviceId: string })[] = [];
   let seq = 0;
+  const pub = ({ id, name, role, active }: StaffMember): StaffMember => ({ id, name, role, active });
   return {
+    async addStaff(tenantId, name, role, pin) {
+      if (await findByPin(staff.filter((m) => m.tenantId === tenantId && m.active), pin)) throw new PinTaken();
+      const { salt, hash } = await hashPin(pin);
+      const m = { id: newStaffId(), name, role, active: true, tenantId, pin_salt: salt, pin_hash: hash };
+      staff.push(m);
+      return pub(m);
+    },
+    async listStaff(tenantId) { return staff.filter((m) => m.tenantId === tenantId).map(pub); },
+    async deactivateStaff(tenantId, staffId) {
+      const m = staff.find((x) => x.tenantId === tenantId && x.id === staffId && x.active);
+      if (!m) return false;
+      m.active = false;
+      return true;
+    },
+    async staffByPin(tenantId, pin) {
+      const m = await findByPin(staff.filter((x) => x.tenantId === tenantId && x.active), pin);
+      return m ? pub(m) : null;
+    },
+    async startSession(device, who, startedAt, expiresAt) {
+      sessions.push({ deviceId: device.id, staffId: who.id, role: who.role, startedAt, expiresAt });
+    },
+    async sessions(device, staffIds) {
+      return sessions.filter((x) => x.deviceId === device.id && staffIds.includes(x.staffId))
+        .map(({ deviceId: _d, ...x }) => x);
+    },
     async deviceByToken(token) { return devices.get(hashToken(token)) ?? null; },
     async push(device, batch, receivedAt) {
       const accepted: PushResult['accepted'] = [];
@@ -169,6 +239,66 @@ export function mysqlStore(pool: Pool): EventStore {
       return { device, token };
     },
 
+    async addStaff(tenantId, name, role, pin) {
+      return inTransaction(async (c) => {
+        // Lock the shop so two people added at once cannot both take the same PIN.
+        await c.query('SELECT id FROM shops WHERE id = ? FOR UPDATE', [tenantId]);
+        const [rows] = await c.query<StaffRow[]>(
+          'SELECT id, name, role, active, pin_salt, pin_hash FROM staff WHERE tenant_id = ? AND active', [tenantId]);
+        if (await findByPin(rows, pin)) throw new PinTaken();
+        const { salt, hash } = await hashPin(pin);
+        const id = newStaffId();
+        await c.query('INSERT INTO staff (id, tenant_id, name, role, pin_salt, pin_hash) VALUES (?, ?, ?, ?, ?, ?)',
+          [id, tenantId, name, role, salt, hash]);
+        return { id, name, role, active: true };
+      });
+    },
+
+    async listStaff(tenantId) {
+      const [rows] = await pool.query<StaffRow[]>(
+        'SELECT id, name, role, active FROM staff WHERE tenant_id = ? ORDER BY active DESC, name', [tenantId]);
+      return rows.map(toStaff);
+    },
+
+    async deactivateStaff(tenantId, staffId) {
+      const [r] = await pool.query<ResultSetHeader>(
+        'UPDATE staff SET active = FALSE WHERE tenant_id = ? AND id = ? AND active', [tenantId, staffId]);
+      return r.affectedRows === 1;
+    },
+
+    async staffByPin(tenantId, pin) {
+      const [rows] = await pool.query<StaffRow[]>(
+        'SELECT id, name, role, active, pin_salt, pin_hash FROM staff WHERE tenant_id = ? AND active', [tenantId]);
+      const m = await findByPin(rows, pin);
+      return m ? toStaff(m) : null;
+    },
+
+    async startSession(device, who, startedAt, expiresAt) {
+      await pool.query(
+        'INSERT INTO sessions (id, tenant_id, device_id, staff_id, role, started_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [newSessionId(), device.tenantId, device.id, who.id, who.role, startedAt, expiresAt]);
+    },
+
+    async sessions(device, staffIds) {
+      if (!staffIds.length) return [];
+      const [rows] = await pool.query<RowDataPacket[]>(
+        'SELECT staff_id, role, started_at, expires_at FROM sessions WHERE device_id = ? AND staff_id IN (?)',
+        [device.id, staffIds]);
+      return rows.map((r) => ({
+        staffId: r.staff_id as string, role: r.role as Role, startedAt: Number(r.started_at), expiresAt: Number(r.expires_at),
+      }));
+    },
+
     async close() { await pool.end(); },
   };
 }
+
+interface StaffRow extends RowDataPacket {
+  id: string;
+  name: string;
+  role: Role;
+  active: number | boolean;
+  pin_salt: string;
+  pin_hash: string;
+}
+const toStaff = (r: StaffRow): StaffMember => ({ id: r.id, name: r.name, role: r.role, active: Boolean(r.active) });

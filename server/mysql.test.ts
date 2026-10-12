@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { createPool } from 'mysql2/promise';
 import type { SyncEvent } from '../src/domain/sync.ts';
-import { mysqlStore } from './store.ts';
+import { PinTaken, mysqlStore } from './store.ts';
 
 /**
  * The MySQL store against a real database. Skipped unless TEST_DATABASE_URL
@@ -39,6 +39,29 @@ test('MySQL store: idempotent push, seq order, tenant isolation, pull paging', {
 
     await store.push(other, [{ ...ev('x'), shopId: otherShop }], 300);
     assert.deepEqual((await store.pull(shop, 0, 100)).map((s) => s.event.id), ['a', 'b', 'c'], 'never another shop\'s events');
+  } finally {
+    await store.close();
+  }
+});
+
+test('MySQL store: staff PINs are unique, hashed, deactivatable; sessions are per device', { skip: !url && 'TEST_DATABASE_URL not set' }, async () => {
+  const store = mysqlStore(createPool({ uri: url!, supportBigNumbers: true }));
+  const shop = `test-${randomBytes(4).toString('hex')}`;
+  try {
+    const { device } = await store.addDevice(shop, 'Test shop', 'counter');
+    const { device: other } = await store.addDevice(shop, 'Test shop', 'counter');
+    const nimal = await store.addStaff(shop, 'Nimal', 'cashier', '1111');
+    await assert.rejects(store.addStaff(shop, 'Kamal', 'cashier', '1111'), PinTaken);
+    assert.equal((await store.staffByPin(shop, '1111'))?.id, nimal.id);
+    assert.equal(await store.staffByPin(shop, '2222'), null);
+
+    await store.startSession(device, nimal, 1000, 2000);
+    assert.deepEqual(await store.sessions(device, [nimal.id]), [{ staffId: nimal.id, role: 'cashier', startedAt: 1000, expiresAt: 2000 }]);
+    assert.deepEqual(await store.sessions(other, [nimal.id]), [], 'a login on one device says nothing about another');
+
+    assert.equal(await store.deactivateStaff(shop, nimal.id), true);
+    assert.equal(await store.staffByPin(shop, '1111'), null);
+    assert.deepEqual((await store.listStaff(shop)).map((s) => s.active), [false]);
   } finally {
     await store.close();
   }

@@ -3,8 +3,8 @@ import {
   PULL_LIMIT, PUSH_BATCH, retryDelayMs, syncStatus,
   type PullResponse, type PushRequest, type PushResponse, type StreamMessage, type SyncStatus, type SyncTransport,
 } from '../domain/sync.ts';
-import { addEvents, markSynced, readAll, readOutbox, subscribeEvents } from '../ui/eventLog.ts';
-import { isDemo, storageKey } from '../ui/storage.ts';
+import { addEvents, markRejected, markSynced, readAll, readOutbox, subscribeEvents } from '../ui/eventLog.ts';
+import { storageKey } from '../ui/storage.ts';
 
 /**
  * Keeps this device's event log in step with the server (docs/sync-contract.md):
@@ -13,26 +13,12 @@ import { isDemo, storageKey } from '../ui/storage.ts';
  * Screens never call this: they read the event log as before.
  */
 
-const TOKEN = 'cb.sync.token';
 const LAST_SEQ = () => storageKey('sync.lastSeq');
 
 const get = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const set = (k: string, v: string): void => { try { localStorage.setItem(k, v); } catch { /* blocked */ } };
 
-/**
- * A pairing link (`?pair=<token>`, printed by `npm run server:device`) is
- * opened once: keep the token, then take it out of the address bar.
- */
-export const pairFromUrl = (): void => {
-  const url = new URL(location.href);
-  const token = url.searchParams.get('pair');
-  if (!token) return;
-  set(TOKEN, token);
-  url.searchParams.delete('pair');
-  history.replaceState(null, '', url.pathname + url.search + url.hash);
-};
-
-export const syncToken = (): string | null => (isDemo() ? null : get(TOKEN));
+export { pairFromUrl, syncToken } from './pairing.ts';
 
 // ----- HTTP + WebSocket transport (same origin: the server also serves the app) -----
 
@@ -105,6 +91,11 @@ export function startSync(transport: SyncTransport, deviceId = 'browser'): () =>
         const res = await transport.push({ deviceId, events: batch });
         if (stopped) return;
         markSynced(res.accepted.map((a) => a.id)); // only what the server confirmed
+        // Refused for good (SCRUM-41): retrying would never succeed, and must not block the rest.
+        if (res.rejected?.length) {
+          console.warn('The server refused these events:', res.rejected);
+          markRejected(res.rejected.map((r) => r.id));
+        }
         pushAttempt = 0;
         setOnline(true);
       }

@@ -31,9 +31,12 @@ sent on one shows on the other within a second.
    GRANT INSERT ON cheesybeez.events TO 'pos_app'@'localhost';
    GRANT INSERT ON cheesybeez.devices TO 'pos_app'@'localhost';
    GRANT INSERT, UPDATE ON cheesybeez.shops TO 'pos_app'@'localhost';
+   GRANT INSERT, UPDATE ON cheesybeez.staff TO 'pos_app'@'localhost';
+   GRANT INSERT ON cheesybeez.sessions TO 'pos_app'@'localhost';
    ```
    `UPDATE` on `shops` exists only because MySQL requires it for the `SELECT … FOR UPDATE` lock
-   that keeps `seq` in order. There is no `UPDATE` or `DELETE` on `events`.
+   that keeps `seq` in order; on `staff` it is for switching someone off. There is no `UPDATE`
+   or `DELETE` on `events` or `sessions`.
 4. Create `server/.env` (it is git-ignored; it holds the password):
    ```
    DATABASE_URL=mysql://pos_app:<password>@localhost:3306/cheesybeez
@@ -56,9 +59,32 @@ sent on one shows on the other within a second.
    ```
    Each prints a link with `?pair=<token>`. Open it on that device; the app keeps the token and
    removes it from the address bar. The server stores only a hash of the token, so a lost link
-   means pairing again.
-7. Start on boot: Task Scheduler → "At log on" → `npm run server` in the project folder (or wrap
+   means pairing again. A kitchen device shows the Kitchen only and needs no login.
+7. Add the staff, each with their own 4-digit PIN (SCRUM-40). Roles: `cashier`, `manager`,
+   `owner`, `kitchen`. Two people can never share a PIN.
+   ```sh
+   npm run server:staff -- add --shop shop-demo-cheesybeez --name Nimal --role cashier --pin <4 digits>
+   npm run server:staff -- list --shop shop-demo-cheesybeez
+   npm run server:staff -- remove --shop shop-demo-cheesybeez --id <id from list>
+   ```
+   Someone who leaves is removed (their PIN stops at once); to bring them back, add them again
+   with a new PIN.
+8. Start on boot: Task Scheduler → "At log on" → `npm run server` in the project folder (or wrap
    it with NSSM as a Windows service). Then Chrome opens `http://localhost:8080` full screen.
+
+## Logins and roles (SCRUM-40/41)
+
+- The counter opens on the PIN screen. Four digits, typed or tapped; the PIN alone says who it is.
+  **F4** (or the name in the corner) switches user; the screen locks itself after 5 quiet minutes.
+  If the Kitchen view is showing when it locks, it stays visible; the Register needs a PIN.
+- After 5 wrong PINs in a row the counter waits 30 seconds before trying again.
+- Roles: a cashier takes orders and payment and does not see the day's takings; a manager
+  also changes, cancels and discounts (manager mode, Ctrl+M, their own PIN); the owner can do
+  everything; a kitchen login sees the Kitchen only.
+- **The server checks it, not just the screen:** each login is recorded (who, which device, until
+  when), and an order event is stored only if its person was logged in on that device at that
+  moment with a role that allows it. Anything else is refused and never stored.
+- Development and `/?demo` keep the fake staff from `src/fake/data.ts`, with no PIN screen.
 
 ## Receipt printer and cash drawer (SCRUM-71)
 

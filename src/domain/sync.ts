@@ -1,3 +1,4 @@
+import type { Actor } from './auth.ts';
 import type { OrderEvent } from './events.ts';
 
 /**
@@ -52,8 +53,25 @@ export interface PushRequest {
   events: SyncEvent[];
 }
 export interface PushResponse {
-  /** One entry per event sent, including ones the server already had (pushing twice is safe). */
+  /** One entry per event stored, including ones the server already had (pushing twice is safe). */
   accepted: { id: string; seq: number }[];
+  /**
+   * Events the server refuses for good (SCRUM-41): the person was not logged in on this
+   * device at that moment, or their role does not allow it. Not stored; never retried.
+   */
+  rejected?: { id: string; reason: string }[];
+  serverTime: number;
+}
+
+/** POST /api/v1/login: a PIN at the counter. `manager` = manager mode (managers and owners only). */
+export interface LoginRequest {
+  pin: string;
+  purpose: 'shift' | 'manager';
+}
+export interface LoginResponse {
+  actor: Actor;
+  /** Server clock: the session ends here (the screen locks well before, after a few quiet minutes). */
+  expiresAt: number;
   serverTime: number;
 }
 
@@ -73,7 +91,7 @@ export type StreamMessage =
 
 /** What the server sends on any 4xx/5xx. */
 export interface ApiError {
-  error: 'unauthorized' | 'wrong_shop' | 'forbidden' | 'invalid_event' | 'printer' | 'server';
+  error: 'unauthorized' | 'wrong_shop' | 'forbidden' | 'invalid_event' | 'printer' | 'wrong_pin' | 'too_many' | 'server';
   message: string;
 }
 

@@ -19,6 +19,12 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (!Number.isSafeInteger(e.orderNumber) || (e.orderNumber as number) < 0) return { reason: `event ${e.id} has no orderNumber` };
     if (!Number.isSafeInteger(e.at)) return { reason: `event ${e.id} has no time` };
     if (e.shopId !== tenantId) return { reason: `event ${e.id} belongs to another shop`, wrongShop: true };
+    if (e.type.startsWith('order.')) {
+      const a = e.actor;
+      if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
+        return { reason: `event ${e.id} does not say who did it` };
+      }
+    }
   }
   return { events: body.events as SyncEvent[] };
 };

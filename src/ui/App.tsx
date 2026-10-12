@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { bareLine, orderTotal, unsentLines } from '../domain/order.ts';
@@ -29,8 +30,11 @@ type Sheet =
 const isTypingTarget = (el: EventTarget | null): boolean =>
   el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 
-/** `onKitchen`: flips the counter screen to the Kitchen view (see Root). */
-export function App({ onKitchen }: { onKitchen?: () => void } = {}) {
+/**
+ * `onKitchen`: flips the counter screen to the Kitchen view (see Root).
+ * `onSwitch`: locks the screen for the next person (real logins only).
+ */
+export function App({ onKitchen, onSwitch }: { onKitchen?: () => void; onSwitch?: () => void } = {}) {
   const reg = useRegister();
   const tickets = useKitchenTickets(); // live, so Cooking turns Done the moment the kitchen taps it
   const [category, setCategory] = useState<CategoryId>('popular');
@@ -225,7 +229,13 @@ export function App({ onKitchen }: { onKitchen?: () => void } = {}) {
           <span className="corner">
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
-            <span className="cashier">{currentCashier().name}</span>
+            {onSwitch
+              ? (
+                <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>
+                  {currentCashier().name} <kbd>F4</kbd>
+                </button>
+              )
+              : <span className="cashier">{currentCashier().name}</span>}
             <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
           </span>
         )}
@@ -253,7 +263,7 @@ export function App({ onKitchen }: { onKitchen?: () => void } = {}) {
         <OrderPanel
           order={reg.order}
           open={reg.open}
-          paidToday={reg.paidToday}
+          paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
           tickets={tickets}
           paid={reg.paid}
           manage={managePanel}

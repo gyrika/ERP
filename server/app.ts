@@ -2,9 +2,13 @@ import { createReadStream, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
+import { managesRole, mayRecord } from '../src/domain/auth.ts';
+import type { OrderEvent } from '../src/domain/events.ts';
 import {
-  PULL_LIMIT, type ApiError, type PullResponse, type PushResponse, type StreamMessage, type SyncedEvent,
+  PULL_LIMIT, type ApiError, type LoginResponse, type PullResponse, type PushResponse, type StreamMessage, type SyncEvent,
+  type SyncedEvent,
 } from '../src/domain/sync.ts';
+import { isPin } from './pins.ts';
 import type { RawPrinter } from './printer.ts';
 import type { Device, EventStore } from './store.ts';
 import { validatePush } from './validate.ts';
@@ -26,6 +30,15 @@ export interface AppOptions {
 
 const MAX_BODY = 1_000_000; // 100 events are far below this
 const MAX_PRINT = 64_000; // a long receipt is ~3 KB of ESC/POS
+
+/** A shift login lasts a working day; manager mode a few minutes (it ends after 10 s idle anyway). */
+export const SHIFT_MS = 14 * 60 * 60_000;
+export const MANAGER_MS = 15 * 60_000;
+/** Device clocks drift a little from the server's; on the counter PC they are the same clock. */
+const CLOCK_SLACK_MS = 2 * 60_000;
+/** Wrong PINs: after this many in a row, the device waits before it may try again. */
+const MAX_WRONG = 5;
+const WRONG_WAIT_MS = 30_000;
 
 class HttpError extends Error {
   status: number;
@@ -86,7 +99,24 @@ const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 export function createApp({ store, staticDir, printer, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
+  /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
+  const wrong = new Map<string, { count: number; until: number }>();
 
+  /**
+   * SCRUM-41, on the server: an order event counts only if its person was logged in
+   * on this device at that moment, with a role that allows it. A kitchen device
+   * may only record kitchen taps. Returns why an event is refused, or null.
+   */
+  const refusal = (device: Device, e: SyncEvent, sessions: Awaited<ReturnType<EventStore['sessions']>>): string | null => {
+    if (e.type.startsWith('kitchen.')) return device.kind === 'owner' ? 'not from this device' : null;
+    if (device.kind !== 'counter') return 'only the counter records orders';
+    const { actor } = e as OrderEvent;
+    const s = sessions.find((x) => x.staffId === actor.id && x.role === actor.role
+      && e.at >= x.startedAt - CLOCK_SLACK_MS && e.at <= x.expiresAt + CLOCK_SLACK_MS);
+    if (!s) return 'that person was not logged in on this device then';
+    if (!mayRecord(s.role, e.type)) return `a ${s.role} may not do this`;
+    return null;
+  };
   const broadcast = (tenantId: string, events: SyncedEvent[]) => {
     for (const st of streams.get(tenantId) ?? []) {
       if (st.held) st.held.push(...events);
@@ -106,6 +136,28 @@ export function createApp({ store, staticDir, printer, now = Date.now }: AppOpti
       json(res, 200, { ok: true, serverTime: now() });
       return;
     }
+    if (url.pathname === '/api/v1/login' && req.method === 'POST') {
+      const device = await authenticate(req, url);
+      const t = now();
+      const w = wrong.get(device.id);
+      if (w && w.until > t) throw new HttpError(429, 'too_many', 'too many wrong PINs: wait a moment');
+      const body = await readBody(req) as { pin?: unknown; purpose?: unknown };
+      const purpose = body?.purpose === 'manager' ? 'manager' : 'shift';
+      const staff = isPin(body?.pin) ? await store.staffByPin(device.tenantId, body.pin) : null;
+      // A cashier's own PIN in the manager box is simply a wrong PIN: it says nothing about who exists.
+      if (!staff || (purpose === 'manager' && !managesRole(staff.role))) {
+        const count = (w?.count ?? 0) + 1;
+        wrong.set(device.id, count >= MAX_WRONG ? { count: 0, until: t + WRONG_WAIT_MS } : { count, until: 0 });
+        throw new HttpError(401, 'wrong_pin', 'wrong PIN');
+      }
+      wrong.delete(device.id);
+      const actor = { id: staff.id, name: staff.name, role: staff.role };
+      const expiresAt = t + (purpose === 'manager' ? MANAGER_MS : SHIFT_MS);
+      await store.startSession(device, actor, t, expiresAt);
+      json(res, 200, { actor, expiresAt, serverTime: t } satisfies LoginResponse);
+      return;
+    }
+
     if (url.pathname === '/api/v1/print' && req.method === 'POST') {
       const device = await authenticate(req, url);
       // Printing opens the cash drawer: only the counter may, never a kitchen tablet or a phone.
@@ -131,9 +183,17 @@ export function createApp({ store, staticDir, printer, now = Date.now }: AppOpti
           ? new HttpError(403, 'wrong_shop', checked.reason)
           : new HttpError(400, 'invalid_event', checked.reason);
       }
-      const { accepted, stored } = await store.push(device, checked.events, now());
+      const people = [...new Set(checked.events.flatMap((e) => ('actor' in e ? [e.actor.id] : [])))];
+      const sessions = await store.sessions(device, people);
+      const rejected: { id: string; reason: string }[] = [];
+      const allowed = checked.events.filter((e) => {
+        const why = refusal(device, e, sessions);
+        if (why) rejected.push({ id: e.id, reason: why });
+        return !why;
+      });
+      const { accepted, stored } = await store.push(device, allowed, now());
       broadcast(device.tenantId, stored);
-      json(res, 200, { accepted, serverTime: now() } satisfies PushResponse);
+      json(res, 200, { accepted, ...(rejected.length ? { rejected } : {}), serverTime: now() } satisfies PushResponse);
       return;
     }
 

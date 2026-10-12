@@ -27,6 +27,6 @@ const store = mysqlStore(createPool({ uri: process.env.DATABASE_URL }));
 const { device, token } = await store.addDevice(values.shop, values.name, values.kind as DeviceKind);
 await store.close();
 
-const hash = device.kind === 'kitchen' ? '#kitchen' : '';
+const extra = device.kind === 'kitchen' ? '&as=kitchen#kitchen' : '';
 console.log(`Device ${device.id} (${device.kind}) added to ${device.tenantId}.`);
-console.log(`Open this once on the device:\n  http://${values.host}/?pair=${token}${hash}`);
+console.log(`Open this once on the device:\n  http://${values.host}/?pair=${token}&shop=${encodeURIComponent(device.tenantId)}${extra}`);

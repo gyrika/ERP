@@ -9,7 +9,7 @@ import { memoryStore, mysqlStore, type EventStore } from './store.ts';
  * Starts the sync server on the counter PC (docs/server-setup.md).
  *   DATABASE_URL  mysql://pos_app:<password>@localhost:3306/cheesybeez
  *                 (omit it to try the server out: memory only, with a counter and a kitchen device
- *                 made up for SHOP_ID, whose pairing links are printed)
+ *                 made up for SHOP_ID, whose pairing links are printed, and try-out staff)
  *   PORT          default 8080
  *   PRINTER       the Windows printer name of the XP-80T, e.g. "XP-80T"
  *                 (omit: dry run, receipts are saved to server/prints/ instead)
@@ -26,8 +26,12 @@ if (url) {
   const shop = process.env.SHOP_ID ?? 'shop-demo-cheesybeez';
   for (const kind of ['counter', 'kitchen'] as const) {
     const { token } = await store.addDevice(shop, 'Try-out', kind);
-    console.log(`  ${kind} pairing link: http://localhost:${port}/?pair=${token}${kind === 'kitchen' ? '#kitchen' : ''}`);
+    console.log(`  ${kind} pairing link: http://localhost:${port}/?pair=${token}&shop=${encodeURIComponent(shop)}${kind === 'kitchen' ? '&as=kitchen#kitchen' : ''}`);
   }
+  // Try-out staff, the same PINs as the app's fake staff (src/fake/data.ts).
+  await store.addStaff(shop, 'Nimal', 'cashier', '1111');
+  await store.addStaff(shop, 'Ravi', 'manager', '2580');
+  console.log('  try-out PINs: 1111 (cashier Nimal), 2580 (manager Ravi)');
 }
 
 const staticDir = fileURLToPath(new URL('../dist', import.meta.url));
