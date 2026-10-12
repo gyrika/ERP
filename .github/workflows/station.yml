@@ -47,6 +47,17 @@ jobs:
         shell: pwsh
         run: ./deploy/station/stage.ps1 -NodeVersion 22.23.3 -AppVersion ${{ steps.version.outputs.value }}
 
+      - name: The nightly backup works with the Node.js inside Setup.exe
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP 'cb-data'
+          New-Item -ItemType Directory -Force $data | Out-Null
+          $node = 'deploy/station/stage/node/node.exe'
+          & $node -e "const { DatabaseSync } = require('node:sqlite'); const d = new DatabaseSync(process.argv[1]); d.exec('PRAGMA journal_mode = WAL; CREATE TABLE events (id TEXT); INSERT INTO events VALUES (1), (2)');" (Join-Path $data 'pos.sqlite')
+          & $node --experimental-strip-types --no-warnings deploy/station/stage/app/server/sqliteBackup.ts $data nightly
+          if ($LASTEXITCODE) { throw "The backup failed ($LASTEXITCODE)" }
+          if (-not (Get-ChildItem (Join-Path $data 'backups') -Filter 'pos-*-nightly.sqlite')) { throw 'No backup file' }
+
       - name: Build the counter app (CheesyBeez POS.exe)
         run: dotnet build deploy/station/pos-app/CheesyBeezPOS.csproj -c Release -o deploy/station/stage/pos-app
 

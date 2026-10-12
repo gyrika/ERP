@@ -10,8 +10,8 @@ vi.mock('./restart.ts', () => ({ restartApp: vi.fn() }));
 interface Person { id: string; name: string; role: string; pin: string; active: boolean }
 
 /** The shop server's setup endpoints, remembering what they are told (and refusing as the real one does). */
-function fakeShopServer({ done = false, status = 200 } = {}) {
-  const s = { version: '1.0.0', done, cloud: false, shop: null as null | { id: string; name: string; place: string }, printer: null as string | null, staff: [] as Person[] };
+function fakeShopServer({ done = false, status = 200, newFails = false } = {}) {
+  const s = { version: '1.0.0', down: false, done, cloud: false, shop: null as null | { id: string; name: string; place: string }, printer: null as string | null, staff: [] as Person[] };
   const pub = () => s.staff.map(({ pin: _p, ...m }) => m);
   const ownerOk = (pin: unknown) => !s.done || s.staff.some((m) => m.active && m.role === 'owner' && m.pin === pin);
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -20,7 +20,7 @@ function fakeShopServer({ done = false, status = 200 } = {}) {
     const step = String(url).replace('/api/v1/setup', '');
     const ok = (b: unknown) => Response.json(b);
     const no = (code: number, message: string) => Response.json({ message }, { status: code });
-    if (String(url) === '/api/v1/health') return ok({ ok: true, version: s.version });
+    if (String(url) === '/api/v1/health') { if (s.down) throw new TypeError('fetch failed'); return ok({ ok: true, version: s.version }); }
     if (step === '') return ok({ done: s.done, shop: s.shop, printer: s.printer, printers: ['XP-80T'], cloud: s.cloud, ...(s.done ? {} : { staff: pub() }) });
     if (!ownerOk(body.ownerPin)) return no(401, "that is not the owner's PIN");
     if (step === '/shop') { const first = !s.shop; s.shop = { id: 'cheesybeez-thalwila', name: body.name, place: body.place }; return ok({ shopId: s.shop.id, ...(first ? { counterToken: 'counter-token' } : {}) }); }
@@ -35,7 +35,12 @@ function fakeShopServer({ done = false, status = 200 } = {}) {
     if (step === '/cloud') { if (body.code !== 'CB-7K3M-Q9XZ') return no(403, 'that shop code is not right'); s.cloud = true; return ok({ cloud: true }); }
     if (step === '/finish') { s.done = true; return ok({ done: true }); }
     if (step === '/update/check') return ok({ current: s.version, latest: '1.0.1', newer: s.version !== '1.0.1' });
-    if (step === '/update/install') { setTimeout(() => { s.version = '1.0.1'; }, 100); return ok({ started: true, from: s.version }); }
+    if (step === '/update/install') {
+      // The installer stops the server; the new version starts, or (newFails) the updater puts the old one back.
+      setTimeout(() => { s.down = true; }, 50);
+      setTimeout(() => { s.down = false; if (!newFails) s.version = '1.0.1'; }, 3500);
+      return ok({ started: true, from: s.version });
+    }
     return no(404, 'no such step');
   }));
   return s;
@@ -135,3 +140,16 @@ test("Shop setup → Updates: the owner's PIN, a newer version, Update now, back
   expect((await screen.findByText(/^Updating to 1.0.1/)).textContent).toContain("don't turn the PC off");
   await vi.waitFor(() => expect(restartApp).toHaveBeenCalled(), { timeout: 8000 }); // the new version answered
 }, 15_000);
+
+test('Update now, and the new version does not start: the owner is told it went back, and that the sales are safe', async () => {
+  const server = fakeShopServer({ done: true, newFails: true });
+  server.staff.push({ id: 'o', name: 'Nisal Vimukthi', role: 'owner', pin: '1234', active: true });
+  const user = userEvent.setup();
+  render(<SetupWizard mode="manage" />);
+  await user.type(await screen.findByLabelText("The owner's PIN"), '1234{Enter}');
+  await user.click(await screen.findByRole('button', { name: 'Updates' }));
+  await user.click(await screen.findByRole('button', { name: 'Update now' }));
+  const alert = await screen.findByRole('alert', {}, { timeout: 12_000 });
+  expect(alert.textContent).toBe('Version 1.0.1 did not start on this PC, so CheesyBeez went back to 1.0.0. All sales are safe. Tell whoever looks after your POS.');
+  expect(restartApp).not.toHaveBeenCalled();
+}, 20_000);

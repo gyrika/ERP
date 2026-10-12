@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -68,6 +68,33 @@ test('SQLite store: a file that survives a restart, and the database refuses to 
     assert.throws(() => raw.exec('DELETE FROM events'), /never deleted/);
     assert.throws(() => raw.exec('DELETE FROM sessions'), /never deleted/);
     raw.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('backups: a checked copy taken while the store is open, the newest 14 kept, nothing to do without a database', async () => {
+  const { backupDatabase } = await import('./sqliteBackup.ts');
+  const dir = mkdtempSync(join(tmpdir(), 'cb-backup-'));
+  try {
+    assert.equal(backupDatabase(dir, 'nightly'), null, 'MySQL shop, or not set up yet');
+    const store = sqliteStore(join(dir, 'pos.sqlite'));
+    const { device } = await store.addDevice(SHOP, 'Shop A', 'counter');
+    await store.push(device, [ev('a'), ev('b')], 1);
+    // The server keeps running (and writing) while the copy is made.
+    const r = backupDatabase(dir, 'before-1.0.4', 14, new Date('2026-10-13T04:00:00Z'))!;
+    assert.match(r.file, /pos-20261013-040000-before-1\.0\.4\.sqlite$/);
+    assert.equal(r.events, 2);
+    await store.push(device, [ev('c')], 2);
+    const copy = new DatabaseSync(r.file, { readOnly: true });
+    assert.equal((copy.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n, 2, 'the moment it was taken');
+    copy.close();
+
+    for (let d = 1; d <= 16; d++) backupDatabase(dir, 'nightly', 14, new Date(Date.UTC(2026, 10, d, 4)));
+    const kept = readdirSync(join(dir, 'backups')).sort();
+    assert.equal(kept.length, 14);
+    assert.equal(kept[0], 'pos-20261103-040000-nightly.sqlite', 'the oldest ones go first');
+    await store.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
