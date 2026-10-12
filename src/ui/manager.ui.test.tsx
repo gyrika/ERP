@@ -224,3 +224,19 @@ test('cashier rules kept: sends share the event log; Undo of a send only straigh
   expect(readEvents().map((e) => e.type)).toEqual(['order.sent']);
   expect(readEvents()[0].shopId).toBeTruthy();
 });
+
+test('light or dark for this screen, from the command palette; it stays after a restart', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await unlock(user);
+  await user.keyboard('{Control>}k{/Control}');
+  await user.keyboard('dark mode{Enter}');
+  expect(document.documentElement.dataset.theme).toBe('dark');
+  expect(localStorage.getItem('cb.theme')).toBe('dark');
+
+  await user.keyboard('{Control>}k{/Control}');
+  expect(screen.getByRole('option', { name: /Dark mode/ }).textContent).toContain('On');
+  await user.keyboard('follow windows{Enter}');
+  expect(document.documentElement.dataset.theme).toBeUndefined();
+  expect(localStorage.getItem('cb.theme')).toBeNull();
+});

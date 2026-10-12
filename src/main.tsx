@@ -7,6 +7,9 @@ import { createRoot } from 'react-dom/client';
 import { httpTransport, pairFromUrl, startSync, syncToken } from './services/syncClient.ts';
 import { setUpOwnerApp } from './services/ownerApp.ts';
 import { Root } from './ui/Root.tsx';
+import { applyTheme } from './ui/theme.ts';
+
+applyTheme(); // light, dark, or following the system: this screen's own choice
 
 // Sync starts only on a paired device (docs/server-setup.md); otherwise the app works on its own, as before.
 pairFromUrl();
