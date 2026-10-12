@@ -63,11 +63,17 @@ let running = false;
 const statusListeners = new Set<() => void>();
 const setOnline = (v: boolean) => { if (online !== v) { online = v; statusListeners.forEach((l) => l()); } };
 
+/** How many different orders still have something the server has not confirmed. */
+const waitingOrders = (): number => {
+  const pending = new Set(readOutbox());
+  return new Set(readAll().filter((e) => pending.has(e.id)).map((e) => e.orderNumber)).size;
+};
+
 /** null when this device does not sync (no pairing yet, or the demo). */
-export function useSyncStatus(): SyncStatus | null {
-  const pending = useSyncExternalStore(subscribeEvents, () => readOutbox().length);
+export function useSyncStatus(): { status: SyncStatus; waitingOrders: number } | null {
+  const waiting = useSyncExternalStore(subscribeEvents, waitingOrders);
   const isOnline = useSyncExternalStore((l) => { statusListeners.add(l); return () => statusListeners.delete(l); }, () => online);
-  return running ? syncStatus(isOnline, pending) : null;
+  return running ? { status: syncStatus(isOnline, waiting), waitingOrders: waiting } : null;
 }
 
 // ----- the loop -----
