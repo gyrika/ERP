@@ -36,10 +36,13 @@ const isTypingTarget = (el: EventTarget | null): boolean =>
  */
 export function App({
   onKitchen,
+  onOwner,
   onSwitch,
   canManageStock = true,
 }: {
   onKitchen?: () => void;
+  /** Opens the Owner view (owners and managers; F3 does the same). */
+  onOwner?: () => void;
   onSwitch?: () => void;
   canManageStock?: boolean;
 } = {}) {
@@ -244,9 +247,7 @@ export function App({
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
             {/* The owner and managers see their own screen without any shortcut. */}
-            {onSwitch && seesTakings(currentCashier().role) && (
-              <a className="corner__key" href="#owner">Owner view</a>
-            )}
+            {onOwner && <button type="button" className="corner__key" onClick={onOwner}>Owner view <kbd>F3</kbd></button>}
             {onSwitch
               ? (
                 <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>

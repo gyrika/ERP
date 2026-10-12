@@ -211,8 +211,34 @@ test('the owner and managers see an Owner view key; a cashier does not', async (
   render(<Root />);
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
-  expect(screen.queryByRole('link', { name: 'Owner view' })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Owner view/ })).toBeNull();
   await user.keyboard('{F4}2580');
   await screen.findByRole('button', { name: 'Ravi: switch user' });
-  expect(screen.getByRole('link', { name: 'Owner view' }).getAttribute('href')).toBe('#owner');
+  expect(screen.getByRole('button', { name: 'Owner view F3' })).toBeTruthy();
+});
+
+test('F3 flips a manager between the Register and the Owner view; a cashier stays on the Register', async () => {
+  pair();
+  const user = userEvent.setup();
+  render(<Root />);
+  const owner = () => screen.queryByRole('main', { name: 'Owner' });
+
+  await user.keyboard('1111');
+  await screen.findByRole('button', { name: 'Nimal: switch user' });
+  expect(screen.queryByRole('button', { name: /^Owner view/ })).toBeNull();
+  await user.keyboard('{F3}');
+  expect(owner()).toBeNull();
+
+  await user.keyboard('{F4}2580');
+  await screen.findByRole('button', { name: 'Ravi: switch user' });
+  await user.keyboard('{F3}');
+  expect(owner()).toBeTruthy();
+  await user.keyboard('{F3}');
+  expect(owner()).toBeNull();
+  expect(panel()).toBeTruthy();
+
+  await user.click(screen.getByRole('button', { name: 'Owner view F3' }));
+  expect(owner()).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Register F3' }));
+  expect(panel()).toBeTruthy();
 });

@@ -10,3 +10,4 @@ dist-cloud
 server/data/
 deploy/station/stage/
 deploy/station/Output/
+cloud/.dev.vars

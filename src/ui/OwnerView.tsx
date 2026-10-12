@@ -50,8 +50,11 @@ function Detail({ insight, onClose }: { insight: Insight; onClose: () => void })
   );
 }
 
-/** `phone`: on the owner's phone (the cloud site): no links to the counter's screens. */
-export function OwnerView({ phone = false }: { phone?: boolean } = {}) {
+/**
+ * `phone`: on the owner's phone (the cloud site): no links to the counter's screens.
+ * `onBack`: back to the Register (F3 does the same).
+ */
+export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?: () => void } = {}) {
   const data = useShopEvents();
   const install = useInstall();
   const [open, setOpen] = useState<string | null>(null);
@@ -76,7 +79,9 @@ export function OwnerView({ phone = false }: { phone?: boolean } = {}) {
             <a href="#setup">Shop setup</a>
             <a href="#inventory">Inventory</a>
             <a href="#suppliers">Suppliers</a>
-            <a href="#">Register</a>
+            {onBack
+              ? <button type="button" className="owner__back" onClick={onBack}>Register <kbd>F3</kbd></button>
+              : <a href="#">Register</a>}
           </nav>
         )}
       </header>

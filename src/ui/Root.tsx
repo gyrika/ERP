@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
 import { isCloudSite, isKitchenDevice, ownerToken, syncToken } from '../services/pairing.ts';
@@ -15,6 +16,14 @@ import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
 
 const KITCHEN = '#kitchen';
+const OWNER = '#owner';
+
+/** Changing screens cross-fades (view transitions, 200 ms in styles.css) where the browser can; instant elsewhere. */
+const withTransition = (change: () => void) => {
+  const d = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+  if (d.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) d.startViewTransition(() => flushSync(change));
+  else change();
+};
 /** "A few quiet minutes" (SCRUM-40): long enough not to nag mid-service. */
 export const IDLE_LOCK_MS = 5 * 60_000;
 
@@ -78,7 +87,8 @@ function NotConnected() {
  * - On the counter, staff log in with their PIN (SCRUM-40); F4 switches user,
  *   and the screen locks itself when quiet. A kitchen login sees the Kitchen only.
  * - Until the kitchen has its own screen, F2 (or the Kitchen key) flips the
- *   counter between Register and Kitchen. The Kitchen stays visible while the
+ *   counter between Register and Kitchen; F3 flips to the Owner view and back
+ *   (owners and managers). The Kitchen stays visible while the
  *   screen is locked; only going back to the Register needs a PIN.
  * Development and the demo have no login (fake staff), as before.
  */
@@ -99,21 +109,25 @@ export function Root() {
   }, []);
 
   const inKitchen = hash === KITCHEN;
-  const show = useCallback((kitchen: boolean) => {
+  /** The Owner view shows the takings: owners and managers only (SCRUM-41). */
+  const seesOwner = !kitchenOnly && (!needsLogin || (staff !== null && seesTakings(staff.role)));
+  const go = useCallback((to: '' | typeof KITCHEN | typeof OWNER) => withTransition(() => {
     // replaceState: flipping all day must not fill the browser history.
-    history.replaceState(null, '', kitchen ? KITCHEN : location.pathname + location.search);
-    setHash(kitchen ? KITCHEN : '');
-    if (kitchen) setFromRegister(true);
-  }, []);
+    history.replaceState(null, '', to || location.pathname + location.search);
+    setHash(to);
+    if (to === KITCHEN) setFromRegister(true);
+  }), []);
+  const show = useCallback((kitchen: boolean) => go(kitchen ? KITCHEN : ''), [go]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'F2' && !kitchenOnly) { e.preventDefault(); show(!inKitchen); }
+      if (e.key === 'F3' && seesOwner) { e.preventDefault(); go(hash === OWNER ? '' : OWNER); }
       if (e.key === 'F4' && needsLogin && staff) { e.preventDefault(); lock(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [inKitchen, show, kitchenOnly, needsLogin, staff]);
+  }, [hash, inKitchen, show, go, seesOwner, kitchenOnly, needsLogin, staff]);
 
   // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
   if (isCloudSite()) return ownerToken() || isDemo() ? <OwnerView phone /> : <OwnerWelcome />;
@@ -132,9 +146,11 @@ export function Root() {
   // Managers and owners only (SCRUM-41); anyone else typing the address gets the Register.
   // The server refuses a cashier's stock events anyway.
   const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
-  // The Owner view shows the takings: owners and managers only (SCRUM-41).
-  if (hash === '#owner' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) return <OwnerView />;
+  if (hash === OWNER && seesOwner) return <OwnerView onBack={() => go('')} />;
   if (hash === '#inventory' && mayManageStock) return <InventoryView />;
   if (hash === '#suppliers' && mayManageStock) return <SupplierView />;
-  return <App onKitchen={() => show(true)} onSwitch={needsLogin ? lock : undefined} canManageStock={mayManageStock} />;
+  return (
+    <App onKitchen={() => show(true)} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}
+      onSwitch={needsLogin ? lock : undefined} canManageStock={mayManageStock} />
+  );
 }

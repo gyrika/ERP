@@ -8,6 +8,7 @@
     "deploy": "npm --prefix .. run build:cloud && wrangler deploy",
     "migrate": "wrangler d1 migrations apply cheesybeez-cloud --remote",
     "migrate:local": "wrangler d1 migrations apply cheesybeez-cloud --local",
+    "migrate:local": "wrangler d1 migrations apply cheesybeez-cloud --local",
     "device": "node --experimental-strip-types --no-warnings addDevice.ts",
     "answers": "wrangler d1 execute cheesybeez-cloud --remote --json --command \"SELECT id, saved_at, body FROM owner_answers ORDER BY id DESC LIMIT 1\""
   },
