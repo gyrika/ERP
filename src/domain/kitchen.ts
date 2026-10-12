@@ -1,4 +1,5 @@
 import { itemById } from './menu.ts';
+import type { SyncEvent } from './sync.ts';
 import type { OrderLine } from './types.ts';
 
 /**
@@ -175,3 +176,44 @@ export const ticketLines = (t: KitchenTicket): TicketLine[] =>
     status: l.cancelled ? 'cancelled' : l.was ? 'changed' : 'ok',
     ...(l.was && !l.cancelled ? { was: view(l.was) } : {}),
   }));
+
+/** Events older than this cannot hold a ticket worth showing; skipping them keeps the fold cheap. */
+export const TICKET_HORIZON_MS = 24 * 60 * 60_000;
+
+/**
+ * The kitchen screen, built from events alone (docs/sync-contract.md): every
+ * device folds the same events in the same order and gets the same tickets,
+ * so nothing ever has to be merged. A manager Undo restores the line exactly
+ * as the kitchen had it before the change it undoes.
+ */
+export const ticketsFromEvents = (events: readonly SyncEvent[], now: number): KitchenTicket[] => {
+  let t: KitchenTicket[] = [];
+  const before = new Map<string, KitchenLine>(); // change event id → the kitchen's line before it
+  for (const e of events) {
+    if (now - e.at > TICKET_HORIZON_MS) continue;
+    switch (e.type) {
+      case 'order.sent':
+        t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn });
+        break;
+      case 'order.send_undone': t = recall(t, e.ticketId); break;
+      case 'order.item_changed':
+      case 'order.item_cancelled': {
+        const was = kitchenLine(t, e.lineId);
+        if (!was) break; // not sent: the kitchen never saw it
+        before.set(e.id, was);
+        t = amendLine(t, e.lineId, e.type === 'order.item_changed' ? e.after : null, e.at);
+        break;
+      }
+      case 'order.change_undone': {
+        const was = before.get(e.undoneEventId);
+        if (was) t = restoreLine(t, was, e.at);
+        break;
+      }
+      case 'kitchen.seen': t = ack(t, e.ticketId, e.at); break;
+      case 'kitchen.bumped': t = bump(t, e.ticketId, e.at); break;
+      case 'kitchen.unbumped': t = unbump(t, e.ticketId); break;
+      default: break; // payments and price changes do not concern the kitchen
+    }
+  }
+  return prune(t, now);
+};

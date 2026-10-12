@@ -1,27 +1,108 @@
-import type { NewOrderEvent, OrderEvent } from '../domain/events.ts';
+import type { OrderEvent } from '../domain/events.ts';
 import { newLineId } from '../domain/order.ts';
+import type { NewSyncEvent, SyncEvent } from '../domain/sync.ts';
 import { shopId } from '../services/auth.ts';
 import { storageKey } from './storage.ts';
 
 /**
- * Append-only order event log on this device. Nothing is ever edited or
- * removed here; slice 4 drains it to MySQL as the sync outbox.
+ * This device's copy of the shop's events, and the sync outbox
+ * (docs/sync-contract.md). Every action is written here first, so a sale
+ * never waits for the network. Events are never edited or removed while
+ * unsent; once the server has them, ones older than KEEP_SYNCED_MS are
+ * dropped (MySQL keeps the full history).
+ *
+ * localStorage, not IndexedDB: synchronous, so screens stay simple; the
+ * durable record is MySQL on the same PC, and trimming keeps us far below
+ * the 5 MB limit. Other tabs hear about changes over BroadcastChannel.
  */
 const KEY = () => storageKey('events.v0');
+const OUTBOX = () => storageKey('outbox.v0');
+const KEEP_SYNCED_MS = 2 * 24 * 60 * 60_000;
 
-export const readEvents = (): OrderEvent[] => {
+const read = <T>(key: string, fallback: T): T => {
   try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(KEY()) ?? '[]');
-    return Array.isArray(parsed) ? (parsed as OrderEvent[]) : [];
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
-    return [];
+    return fallback; // corrupted or unavailable storage: start clean rather than crash
+  }
+};
+const write = (key: string, value: unknown): void => {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full/blocked: the sale must not fail */ }
+};
+
+export const readAll = (): SyncEvent[] => {
+  const parsed = read<unknown>(KEY(), []);
+  return Array.isArray(parsed) ? (parsed as SyncEvent[]) : [];
+};
+
+/** The order events (the audit trail). */
+export const readEvents = (): OrderEvent[] => readAll().filter((e): e is OrderEvent => e.type.startsWith('order.'));
+
+/** Ids written on this device that the server has not confirmed yet, oldest first. */
+export const readOutbox = (): string[] => read<string[]>(OUTBOX(), []);
+
+// ----- change notification (this tab + other tabs on this device) -----
+
+const listeners = new Set<() => void>();
+const hasChannel = typeof BroadcastChannel !== 'undefined';
+let outbound: BroadcastChannel | null = null;
+
+const changed = () => {
+  listeners.forEach((l) => l());
+  if (hasChannel) {
+    outbound ??= new BroadcastChannel(storageKey('events'));
+    outbound.postMessage('changed');
   }
 };
 
-export const appendEvent = (event: NewOrderEvent): OrderEvent => {
-  const full = { ...event, id: newLineId(), shopId: shopId() } as OrderEvent;
-  try {
-    localStorage.setItem(KEY(), JSON.stringify([...readEvents(), full]));
-  } catch { /* storage full/blocked: the sale itself must not fail */ }
+export const subscribeEvents = (onChange: () => void): (() => void) => {
+  listeners.add(onChange);
+  const channel = hasChannel ? new BroadcastChannel(storageKey('events')) : null;
+  const onStorage = (e: StorageEvent) => { if (e.key === KEY()) onChange(); };
+  if (channel) channel.onmessage = onChange;
+  else window.addEventListener('storage', onStorage);
+  return () => {
+    listeners.delete(onChange);
+    channel?.close();
+    window.removeEventListener('storage', onStorage);
+  };
+};
+
+// ----- writes -----
+
+/** A new action on this device: stored, queued for the server, then everyone is told. */
+export const appendEvent = <E extends NewSyncEvent>(event: E): E & { id: string; shopId: string } => {
+  const full = { ...event, id: newLineId(), shopId: shopId() };
+  write(KEY(), [...readAll(), full]);
+  write(OUTBOX(), [...readOutbox(), full.id]);
+  changed();
   return full;
+};
+
+/**
+ * Events already given an id elsewhere (the server, or fixed demo data).
+ * Skips ids this device has, so applying the same event twice is harmless.
+ * `local` = written here and still to be pushed (demo data never is).
+ */
+export const addEvents = (events: readonly SyncEvent[], { local = false } = {}): number => {
+  const all = readAll();
+  const known = new Set(all.map((e) => e.id));
+  const fresh = events.filter((e) => (known.has(e.id) ? false : (known.add(e.id), true)));
+  if (!fresh.length) return 0;
+  write(KEY(), [...all, ...fresh]);
+  if (local) write(OUTBOX(), [...readOutbox(), ...fresh.map((e) => e.id)]);
+  changed();
+  return fresh.length;
+};
+
+/** The server stored these: take them out of the outbox, and let old synced events go. */
+export const markSynced = (ids: readonly string[], now = Date.now()): void => {
+  const done = new Set(ids);
+  const outbox = readOutbox().filter((id) => !done.has(id));
+  write(OUTBOX(), outbox);
+  const pending = new Set(outbox);
+  const all = readAll();
+  const kept = all.filter((e) => pending.has(e.id) || now - e.at < KEEP_SYNCED_MS);
+  if (kept.length !== all.length) write(KEY(), kept);
 };

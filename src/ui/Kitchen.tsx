@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ack, bump, elapsedLabel, needsAttention, queue, ticketLines, unbump, urgency, type LineView,
+  elapsedLabel, needsAttention, queue, ticketLines, urgency, type LineView,
 } from '../domain/kitchen.ts';
 import { chime, useSoundBlocked } from './chime.ts';
-import { updateTickets, useKitchenTickets } from './kitchenStore.ts';
+import { recordKitchen, useKitchenTickets } from './kitchenStore.ts';
+import { SyncSign } from './SyncSign.tsx';
 
 /**
  * Kitchen display. Serves the cook: knows the menu, hands busy, standing back
@@ -92,15 +93,14 @@ export function Kitchen({ onBack }: { onBack?: () => void } = {}) {
   }, [latestAlert]);
 
   const markDone = (id: string, number: number) => {
-    updateTickets((t) => bump(t, id, Date.now()));
+    recordKitchen('kitchen.bumped', { id, number });
     setDone({ id, number });
     if (navigator.vibrate) navigator.vibrate(8);
   };
 
   const undo = useCallback(() => {
     if (done === null) return;
-    const { id } = done;
-    updateTickets((t) => unbump(t, id));
+    recordKitchen('kitchen.unbumped', done);
     setDone(null);
   }, [done]);
 
@@ -131,6 +131,7 @@ export function Kitchen({ onBack }: { onBack?: () => void } = {}) {
       <header className="kitchen__head">
         <h1>Kitchen</h1>
         <span className="kitchen__right">
+          <SyncSign />
           <time className="kitchen__clock num">
             {new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
           </time>
@@ -163,7 +164,7 @@ export function Kitchen({ onBack }: { onBack?: () => void } = {}) {
                   type="button"
                   className="ticket__ack"
                   aria-label={`Seen: ${name}`}
-                  onClick={() => updateTickets((x) => ack(x, t.id, Date.now()))}
+                  onClick={() => recordKitchen('kitchen.seen', t)}
                 />
               )}
               <div className="ticket__meta">

@@ -7,13 +7,17 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:domain && npm run test:ui",
-    "test:domain": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
-    "test:ui": "vitest run"
+    "test:domain": "node --test --experimental-strip-types \"src/**/*.test.ts\" \"server/**/*.test.ts\"",
+    "test:ui": "vitest run",
+    "server": "node --experimental-strip-types --env-file-if-exists=server/.env server/main.ts",
+    "server:device": "node --experimental-strip-types --env-file-if-exists=server/.env server/addDevice.ts"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",
+    "mysql2": "^3.24.5",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
@@ -21,6 +25,7 @@
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.1.2",
     "jsdom": "^29.1.1",
     "typescript": "^7.0.2",
