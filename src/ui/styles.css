@@ -271,6 +271,9 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 /* ---------- sheets ---------- */
 .scrim { position: fixed; inset: 0; background: var(--scrim); animation: fade 160ms linear; }
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 86dvh; display: flex; flex-direction: column; background: var(--surface); border-radius: 22px 22px 0 0; box-shadow: var(--sheet-shadow); animation: sheet-in 240ms var(--ease); }
+/* On the Register a sheet takes the menu's side only and stops at the order panel (404px),
+   so nothing slides under the panel and the order stays in view beside the extras. */
+.register .scrim, .register .sheet { right: 404px; z-index: 2; }
 .sheet__body { flex: 1; min-height: 0; overflow-y: auto; padding: 44px 80px 0; display: flex; flex-direction: column; gap: 34px; }
 .sheet__title { display: flex; align-items: baseline; gap: 16px; }
 .sheet__title h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -1px; }
@@ -469,6 +472,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 
 /* ---------- phones (portrait): order stacks under the menu ---------- */
 @media (max-width: 700px) {
+  .register .scrim, .register .sheet { right: 0; } /* the panel is under the menu here: full width, on top */
   .register__body { flex-direction: column; }
   .register__head, .menu { padding-left: 16px; padding-right: 16px; }
   .menu { flex: 1 1 50%; padding-bottom: 16px; gap: 16px; }
