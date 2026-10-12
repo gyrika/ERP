@@ -36,7 +36,9 @@ async function start(cloudFetch?: typeof fetch, preConnected = Boolean(cloudFetc
 
 test('a new shop: name it (this PC becomes the counter), add staff, finish only with an owner', async () => {
   const s = await start();
-  assert.deepEqual(await s.state(), { done: false, shop: null, printer: null, printers: (await s.state()).printers, cloud: false });
+  // The printer list is whatever this PC has (and Windows may be slow to tell): not compared.
+  const { printers: _printers, ...fresh } = await s.state();
+  assert.deepEqual(fresh, { done: false, shop: null, printer: null, cloud: false });
 
   const named = await s.post('/shop', { name: 'CheesyBeez', place: 'Thalwila' });
   assert.match(named.body.shopId, /^cheesybeez-thalwila-[0-9a-f]{4}$/, 'a short random ending keeps shops apart in the cloud');
