@@ -1,0 +1,71 @@
+# Builds CheesyBeez Station (one Setup.exe) on Windows, after running every test there.
+# - Tag a version (git tag v1.0.0 && git push origin v1.0.0): a GitHub Release with the Setup.exe;
+#   shop PCs pick it up by themselves at 4 am.
+# - A pull request touching the Station or the server, or Actions tab > Run workflow: a test build,
+#   downloadable from the run's page.
+name: CheesyBeez Station
+
+on:
+  push:
+    tags: ['v*']
+  # Every pull request that changes the Station or the server is built and tested on Windows too.
+  pull_request:
+    paths: ['deploy/station/**', '.github/workflows/station.yml', 'server/**', 'package.json', 'package-lock.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test (on Windows)
+        run: npm test
+
+      - name: Build the app
+        run: npm run build
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "0.0.$env:GITHUB_RUN_NUMBER" }
+          "value=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Stage
+        shell: pwsh
+        run: ./deploy/station/stage.ps1 -NodeVersion 22.23.3 -AppVersion ${{ steps.version.outputs.value }}
+
+      - name: Build Setup.exe
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=${{ steps.version.outputs.value }}" deploy\station\CheesyBeez.iss
+          if ($LASTEXITCODE) { throw "ISCC failed ($LASTEXITCODE)" }
+          Get-ChildItem deploy\station\Output
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CheesyBeez-Setup-${{ steps.version.outputs.value }}
+          path: deploy/station/Output/*.exe
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: deploy/station/Output/*.exe
+          body: |
+            CheesyBeez Station ${{ steps.version.outputs.value }}: download **CheesyBeez-Setup-${{ steps.version.outputs.value }}.exe** and double-click it.
+            Windows may say "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
+            Shop PCs that already have CheesyBeez update themselves at 4 am.
