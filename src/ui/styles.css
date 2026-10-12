@@ -439,3 +439,46 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .lock__key:active { transform: scale(0.94); background: var(--chip); }
 .lock__hint { margin: 0; font-size: 14px; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
 @media (prefers-reduced-motion: reduce) { .lock__dots--error, .lock__dots--checking span.on { animation: none; } }
+
+/* Owner view: phone first, one feed, one tap per card. */
+.owner { min-height: 100dvh; background: var(--ground); }
+.owner__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; height: 60px; max-width: 760px; margin: 0 auto; }
+.owner__nav { display: flex; gap: 4px; }
+.owner__nav a { min-height: 48px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 12px; font-size: 14px; font-weight: 500; color: var(--ink-2); text-decoration: none; }
+.owner__nav a:hover { background: var(--chip); color: var(--ink); }
+.owner__main { max-width: 760px; margin: 0 auto; padding: 8px 24px 64px; display: flex; flex-direction: column; gap: 28px; }
+.owner__today { display: flex; flex-direction: column; gap: 6px; animation: rise 220ms var(--ease); }
+.owner__label { font-size: 15px; color: var(--ink-2); }
+.owner__big { font-size: 44px; font-weight: 500; letter-spacing: -1.4px; line-height: 1.1; min-height: 48px; }
+.owner__big.skeleton { width: 220px; border-radius: 12px; }
+.owner__sub { font-size: 16px; color: var(--ink-2); }
+.owner__note { margin: -12px 0 0; font-size: 14px; color: var(--ink-2); }
+.owner__feed { display: flex; flex-direction: column; gap: 12px; }
+.owner__calm { margin: 24px 0; font-size: 18px; color: var(--ink-2); }
+.insight { display: flex; align-items: center; gap: 16px; padding: 18px 18px 18px 22px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); border-left: 5px solid var(--line); animation: rise 220ms var(--ease) both; }
+.insight:nth-child(2) { animation-delay: 40ms; } .insight:nth-child(3) { animation-delay: 80ms; } .insight:nth-child(n + 4) { animation-delay: 120ms; }
+.insight--attention { border-left-color: var(--warn); }
+.insight--good { border-left-color: var(--ok); }
+.insight.skeleton { height: 92px; border-left-color: transparent; }
+.insight__text { flex: 1; min-width: 0; }
+.insight__text h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -0.2px; }
+.insight__text p { margin: 0; font-size: 15px; color: var(--ink-2); }
+.insight__action { flex: none; min-height: 48px; padding: 0 16px; border-radius: 12px; background: var(--chip); font-size: 15px; font-weight: 500; color: var(--ink); }
+.insight__action:hover { filter: brightness(0.97); }
+.owner-sheet .sheet__body { padding: 32px 24px 24px; gap: 20px; max-width: 760px; width: 100%; margin: 0 auto; }
+.owner-sheet .sheet__title h1 { font-size: 22px; letter-spacing: -0.4px; }
+.owner-list { list-style: none; margin: 0; padding: 0; }
+.owner-list li { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.owner-list__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 16px; }
+.owner-list__sub { font-size: 14px; color: var(--ink-2); }
+.owner-list__amount { font-size: 16px; font-weight: 500; }
+@media (max-width: 520px) {
+  .owner__head, .owner__main { padding-left: 16px; padding-right: 16px; }
+  .owner__nav a { padding: 0 8px; }
+  .owner__big { font-size: 38px; }
+  .insight { flex-direction: column; align-items: stretch; }
+}
+/* Loading: the shape of what is coming, never a spinner. */
+.skeleton { background: linear-gradient(90deg, var(--chip) 0%, var(--surface) 50%, var(--chip) 100%); background-size: 200% 100%; animation: skeleton 1.2s ease-in-out infinite; }
+@keyframes skeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .insight { animation: none; } }

@@ -168,3 +168,18 @@ test('inventory: a cashier typing the address gets the Register; a manager gets 
   await user.keyboard('{F4}2580');
   expect(await screen.findByRole('main', { name: 'Inventory' })).toBeTruthy();
 });
+
+test('owner view: a cashier typing the address gets the Register; the owner or a manager gets the feed', async () => {
+  pair();
+  history.replaceState(null, '', '/#owner');
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => (
+    String(url).startsWith('/api/v1/events') ? Response.json({ events: [], lastSeq: 0, more: false, serverTime: 0 }) : server(url, init))));
+  const user = userEvent.setup();
+  render(<Root />);
+  await user.keyboard('1111');
+  await screen.findByRole('button', { name: 'Nimal: switch user' });
+  expect(screen.queryByRole('main', { name: 'Owner' })).toBeNull();
+
+  await user.keyboard('{F4}2580');
+  expect(await screen.findByRole('main', { name: 'Owner' })).toBeTruthy();
+});

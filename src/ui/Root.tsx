@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { managesStock } from '../domain/auth.ts';
+import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
 import { isKitchenDevice } from '../services/pairing.ts';
 import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
@@ -7,6 +7,7 @@ import { App } from './App.tsx';
 import { InventoryView } from './InventoryView.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { LockScreen } from './LockScreen.tsx';
+import { OwnerView } from './OwnerView.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
 import { SupplierView } from './SupplierView.tsx';
 
@@ -79,6 +80,8 @@ export function Root() {
   // Managers and owners only (SCRUM-41); anyone else typing the address gets the Register.
   // The server refuses a cashier's stock events anyway.
   const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
+  // The Owner view shows the takings: owners and managers only (SCRUM-41).
+  if (hash === '#owner' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) return <OwnerView />;
   if (hash === '#inventory' && mayManageStock) return <InventoryView />;
   if (hash === '#suppliers' && mayManageStock) return <SupplierView />;
   return <App onKitchen={() => show(true)} onSwitch={needsLogin ? lock : undefined} />;
