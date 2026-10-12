@@ -42,8 +42,13 @@ export const mayRecord = (role: Role, type: string): boolean => {
   if (type.startsWith('kitchen.')) return true;
   if (CASHIER_EVENTS.has(type)) return role !== 'kitchen';
   if (MANAGER_EVENTS.has(type)) return managesRole(role);
+  // Stock counts and supplier prices are a manager's job (SCRUM-41).
+  if (type.startsWith('stock.')) return managesRole(role);
   return false;
 };
+
+/** Inventory and suppliers: managers and owners only (SCRUM-41). */
+export const managesStock = (role: Role): boolean => managesRole(role);
 
 /** Cashiers do not see the day's takings (SCRUM-41). */
 export const seesTakings = (role: Role): boolean => managesRole(role);

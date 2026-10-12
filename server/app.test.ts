@@ -234,3 +234,20 @@ test('staff: a PIN belongs to one active person; a deactivated PIN stops working
   assert.equal(await store.staffByPin(SHOP, '1111'), null);
   await store.addStaff(SHOP, 'Kamal', 'cashier', '1111'); // free again
 });
+
+test('stock: only a logged-in manager or owner may change it, and only from the counter', async () => {
+  const s = await staffed();
+  await s.login('1111');
+  await s.login('2580');
+  const stock = (id: string, actor: { id: string; name: string; role: string }) =>
+    ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor, type: 'stock.adjusted', itemId: 'inv-0001', deltaPacks: 1 });
+  const r = await (await s.push(s.tokens.counter, [
+    stock('by-cashier', { id: s.cashier.id, name: 'Nimal', role: 'cashier' }),
+    stock('by-manager', { id: s.manager.id, name: 'Ravi', role: 'manager' }),
+  ])).json();
+  assert.deepEqual(r.accepted.map((a: { id: string }) => a.id), ['by-manager']);
+  assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['by-cashier']);
+  const kitchen = await (await s.push(s.tokens.kitchen, [stock('k', { id: s.manager.id, name: 'Ravi', role: 'manager' })])).json();
+  assert.deepEqual(kitchen.rejected.map((x: { id: string }) => x.id), ['k']);
+  await s.stop();
+});

@@ -1,5 +1,6 @@
 import type { Actor } from './auth.ts';
 import type { OrderEvent } from './events.ts';
+import type { Cents } from './types.ts';
 
 /**
  * The sync contract between devices and the server (SCRUM-59, 60, 29, 30).
@@ -23,13 +24,31 @@ export type KitchenEvent =
   | (KitchenBase & { type: 'kitchen.bumped' })
   | (KitchenBase & { type: 'kitchen.unbumped' });
 
+/**
+ * Stock changes (inventory), recorded like sales so they reach MySQL and the cloud
+ * copy with who did them. Not about an order: `orderNumber` is always 0.
+ */
+interface StockBase {
+  id: string;
+  shopId: string;
+  at: number;
+  orderNumber: 0;
+  actor: Actor;
+  itemId: string;
+}
+
+export type StockEvent =
+  | (StockBase & { type: 'stock.adjusted'; deltaPacks: number })
+  | (StockBase & { type: 'stock.price_set'; before: Cents; after: Cents });
+
 /** Everything that syncs. */
-export type SyncEvent = OrderEvent | KitchenEvent;
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;
 
 export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.unbumped'] as const;
+export const STOCK_EVENT_TYPES = ['stock.adjusted', 'stock.price_set'] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',
   'order.line_removed', 'order.line_adjusted', 'order.discount_set', 'order.comped', 'order.change_undone',

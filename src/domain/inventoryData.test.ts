@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
-import { itemById, loadSeed, supplierById, validateSeed } from './inventory.ts';
+import { inventoryFromEvents, itemById, loadSeed, supplierById, validateSeed } from './inventory.ts';
+import { mayRecord } from './auth.ts';
 import { storageKey } from '../ui/storage.ts';
 
 test('T1: suppliers have unique ids', () => {
@@ -102,4 +103,29 @@ test('T15: loadSeed does not overwrite', () => {
 
 test('T16: storage key namespacing', () => {
   assert.equal(storageKey('inventory.v0'), 'cb.inventory.v0');
+});
+
+test('stock is built from events: counts never below zero, last price wins, unknown items ignored', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const flour = SEED_INVENTORY[0].id;
+  const rows = inventoryFromEvents(SEED_INVENTORY, [
+    { ...base, id: 'a', type: 'stock.adjusted', itemId: flour, deltaPacks: 3 },
+    { ...base, id: 'b', type: 'stock.adjusted', itemId: flour, deltaPacks: -5 },
+    { ...base, id: 'c', type: 'stock.adjusted', itemId: flour, deltaPacks: 2 },
+    { ...base, id: 'd', type: 'stock.price_set', itemId: flour, before: 640000, after: 650000 },
+    { ...base, id: 'e', type: 'stock.adjusted', itemId: 'gone', deltaPacks: 9 },
+  ]);
+  const row = rows.find((r) => r.id === flour)!;
+  assert.equal(row.onHandPacks, 2, '3 in, 5 out (floored at 0), 2 in');
+  assert.equal(row.workingPriceCents, 650000);
+  assert.equal(rows.length, SEED_INVENTORY.length);
+  assert.ok(rows.filter((r) => r.id !== flour).every((r) => r.onHandPacks === 0));
+});
+
+test('only managers and owners may change stock', () => {
+  assert.equal(mayRecord('cashier', 'stock.adjusted'), false);
+  assert.equal(mayRecord('kitchen', 'stock.price_set'), false);
+  assert.equal(mayRecord('manager', 'stock.adjusted'), true);
+  assert.equal(mayRecord('owner', 'stock.price_set'), true);
 });
