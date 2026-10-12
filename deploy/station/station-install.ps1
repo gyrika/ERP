@@ -28,4 +28,20 @@ if (-not (Get-NetFirewallRule -DisplayName 'CheesyBeez POS' -ErrorAction Silentl
   New-NetFirewallRule -DisplayName 'CheesyBeez POS' -Direction Inbound -Protocol TCP -LocalPort 8080 -Profile Private -Action Allow | Out-Null
 }
 
+# The counter app shows the POS with Windows' own web engine (WebView2). Windows 10 and 11 normally
+# have it already; if not, Microsoft's small installer fetches it (quietly).
+$webview = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+$present = (Test-Path $webview) -and ((Get-ItemProperty $webview -ErrorAction SilentlyContinue).pv -notin @($null, '', '0.0.0.0'))
+if (-not $present) {
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $boot = Join-Path $env:TEMP 'MicrosoftEdgeWebview2Setup.exe'
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $boot -UseBasicParsing
+    Start-Process -FilePath $boot -ArgumentList '/silent', '/install' -Wait
+  } catch {
+    Add-Content -Path (Join-Path $data 'logs\install.log') -Value "WebView2 could not be installed: $($_.Exception.Message)"
+  }
+}
+
 Start-ScheduledTask -TaskName 'CheesyBeez Station'

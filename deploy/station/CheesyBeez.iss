@@ -42,22 +42,25 @@ Name: "{commonappdata}\CheesyBeez"
 [Files]
 Source: "stage\node\node.exe"; DestDir: "{app}\node"; Flags: ignoreversion
 Source: "stage\app\*"; DestDir: "{app}\app"; Flags: ignoreversion recursesubdirs createallsubdirs
+; The counter app is usually running during an update, which locks its files: those are replaced at the
+; next restart (restartreplace). The POS screens come from the server, so they update at once anyway.
+Source: "stage\pos-app\*"; DestDir: "{app}\pos-app"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace
 Source: "station.cmd"; DestDir: "{app}"; Flags: ignoreversion
-Source: "open-pos.cmd"; DestDir: "{app}"; Flags: ignoreversion
 Source: "station-install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "station-uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "station-update.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\version.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{commondesktop}\CheesyBeez POS"; Filename: "{app}\open-pos.cmd"; WorkingDir: "{app}"; Flags: runminimized
-Name: "{autoprograms}\CheesyBeez POS"; Filename: "{app}\open-pos.cmd"; WorkingDir: "{app}"; Flags: runminimized
-; Whoever logs in to Windows at the counter gets the POS, full screen.
-Name: "{commonstartup}\CheesyBeez POS"; Filename: "{app}\open-pos.cmd"; WorkingDir: "{app}"; Flags: runminimized
+; The counter's app (a real Windows program, not a browser): its own icon, full screen.
+Name: "{commondesktop}\CheesyBeez POS"; Filename: "{app}\pos-app\CheesyBeezPOS.exe"; WorkingDir: "{app}\pos-app"
+Name: "{autoprograms}\CheesyBeez POS"; Filename: "{app}\pos-app\CheesyBeezPOS.exe"; WorkingDir: "{app}\pos-app"
+; Whoever logs in to Windows at the counter gets the POS.
+Name: "{commonstartup}\CheesyBeez POS"; Filename: "{app}\pos-app\CheesyBeezPOS.exe"; WorkingDir: "{app}\pos-app"
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\station-install.ps1"""; Flags: runhidden waituntilterminated; StatusMsg: "Starting CheesyBeez..."
-Filename: "{app}\open-pos.cmd"; Description: "Open CheesyBeez now"; Flags: postinstall nowait shellexec runminimized skipifsilent
+Filename: "{app}\pos-app\CheesyBeezPOS.exe"; Description: "Open CheesyBeez now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\station-uninstall.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "StopStation"
