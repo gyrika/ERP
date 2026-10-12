@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
 import { dryRunPrinter, systemPrinter } from './printer.ts';
+import { startReplicator } from './replicator.ts';
 import { memoryStore, mysqlStore, type EventStore } from './store.ts';
 
 /**
@@ -13,6 +14,9 @@ import { memoryStore, mysqlStore, type EventStore } from './store.ts';
  *   PORT          default 8080
  *   PRINTER       the Windows printer name of the XP-80T, e.g. "XP-80T"
  *                 (omit: dry run, receipts are saved to server/prints/ instead)
+ *   CLOUD_URL, CLOUD_TOKEN, CLOUD_SHOP
+ *                 the cloud copy (SCRUM-61): where to copy this shop's events, as which device,
+ *                 and which shop (npm run device in cloud/ prints all three). Omit: no cloud copy.
  */
 const port = Number(process.env.PORT ?? 8080);
 const url = process.env.DATABASE_URL;
@@ -38,16 +42,25 @@ const staticDir = fileURLToPath(new URL('../dist', import.meta.url));
 const printer = process.env.PRINTER
   ? systemPrinter(process.env.PRINTER)
   : dryRunPrinter(fileURLToPath(new URL('./prints', import.meta.url)));
-const server = createApp({ store, staticDir, printer });
+const cloudEnv = { url: process.env.CLOUD_URL, token: process.env.CLOUD_TOKEN, shop: process.env.CLOUD_SHOP };
+const replicator = cloudEnv.url && cloudEnv.token && cloudEnv.shop
+  ? startReplicator({ store, tenantId: cloudEnv.shop, url: cloudEnv.url.replace(/\/$/, ''), token: cloudEnv.token })
+  : null;
+const server = createApp({
+  store, staticDir, printer,
+  onStored: (tenantId) => { if (tenantId === cloudEnv.shop) replicator?.nudge(); },
+  cloudStatus: () => replicator?.status() ?? null,
+});
 
 server.listen(port, '0.0.0.0', () => {
   const addresses = Object.values(networkInterfaces()).flat()
     .filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => a!.address);
   console.log(`CheesyBeez server on http://localhost:${port}`);
   console.log(`  receipt printer: ${printer.name}`);
+  console.log(`  cloud copy: ${replicator ? `${cloudEnv.shop} -> ${cloudEnv.url}` : 'off (CLOUD_URL not set)'}`);
   for (const a of addresses) console.log(`  kitchen device: http://${a}:${port}/#kitchen`);
 });
 
-const stop = () => server.close(() => { void store.close().then(() => process.exit(0)); });
+const stop = () => { replicator?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

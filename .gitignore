@@ -4,3 +4,5 @@ server/.env
 server/prints/
 server/.env.migrate
 deploy/windows/pairing-link.txt
+cloud/node_modules
+cloud/.wrangler
