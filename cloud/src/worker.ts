@@ -1,4 +1,5 @@
 import { createCloud, type D1Like } from './cloud.ts';
+import { downloadPage, latestRelease } from './download.ts';
 import { answersApi, questionsPage } from './questions.ts';
 
 interface Env {
@@ -39,6 +40,11 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/api/v1/answers') return answersApi(request, env.DB, env.ANSWER_KEY);
     if (url.pathname.startsWith('/api/')) return createCloud(env.DB, { enrolCode: env.ENROL_CODE })(request);
+    if (url.pathname === '/get' || url.pathname === '/download') {
+      return latestRelease().then((rel) => new Response(downloadPage(rel), {
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' },
+      }));
+    }
     if (url.pathname === '/questions') {
       return Promise.resolve(new Response(questionsPage(), {
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' },

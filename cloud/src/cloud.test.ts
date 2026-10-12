@@ -140,3 +140,18 @@ test("the owner's questions: only with the link's key; every save kept, the newe
   const page = questionsPage();
   assert.ok(page.includes('id="tuna"') && page.includes('Pizza 10 min, burger 3 min, pasta 20 min'));
 });
+
+test('the download page: always the newest installer, and a plain fallback if GitHub is away', async () => {
+  const { downloadPage, latestRelease } = await import('./download.ts');
+  const github = (async () => Response.json({ tag_name: 'v1.0.2', assets: [
+    { name: 'notes.txt', size: 1, browser_download_url: 'https://x/notes.txt' },
+    { name: 'CheesyBeez-Setup-1.0.2.exe', size: 25_931_228, browser_download_url: 'https://github.com/gyrika/ERP/releases/download/v1.0.2/CheesyBeez-Setup-1.0.2.exe' },
+  ] })) as unknown as typeof fetch;
+  const rel = await latestRelease(github);
+  assert.deepEqual(rel, { version: '1.0.2', url: 'https://github.com/gyrika/ERP/releases/download/v1.0.2/CheesyBeez-Setup-1.0.2.exe', sizeMb: 25 });
+  const page = downloadPage(rel);
+  assert.ok(page.includes('href="https://github.com/gyrika/ERP/releases/download/v1.0.2/CheesyBeez-Setup-1.0.2.exe"'));
+  assert.ok(page.includes('25 MB · version 1.0.2'));
+  assert.equal(await latestRelease((async () => new Response('', { status: 503 })) as unknown as typeof fetch), null);
+  assert.ok(downloadPage(null).includes('href="https://github.com/gyrika/ERP/releases/latest"'), 'GitHub away: the releases page');
+});
