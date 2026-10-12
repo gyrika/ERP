@@ -42,7 +42,7 @@ Accounts/roles UI, reports, inventory screens, i18n switcher (labels already car
 - Half & half: pricing rule (not built, button omitted)
 - Sinhala / Tamil item names (labels exist in the type but are empty; do not guess them)
 - Pasta sauce choice (the photos show white and red sauce; not on the menu, so not modelled)
-- Menu numbers (1-12) are what customers say: support "5 L" as shorthand?
+- Menu numbers: pizzas are numbered 1-12 in the order of the printed menu (5 = Devilled Chicken, per SCRUM-66). Check against the printed menu; burgers and pasta have no numbers.
 - Kitchen urgency: amber at 10 min, red at 15 min are placeholders (`src/domain/kitchen.ts`); owner will supply real cook times per item (promised 2026-10-12).
 
 ## Answered by the owner (2026-10-12)

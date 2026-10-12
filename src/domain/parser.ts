@@ -16,6 +16,7 @@ const MOD_WORD = /\b(no|without|extra|add|with)\b/;
  */
 export class ShorthandInterpreter implements OrderInterpreter {
   private readonly aliasIndex: { alias: string; item: MenuItem }[];
+  private readonly byNumber: Map<number, MenuItem>;
   /** Menu names containing "and" ("bacon and onion") must survive splitting on "and". */
   private readonly protectedNames: RegExp[];
 
@@ -24,6 +25,7 @@ export class ShorthandInterpreter implements OrderInterpreter {
     this.aliasIndex = menu
       .flatMap((item) => item.aliases.map((alias) => ({ alias, item })))
       .sort((a, b) => b.alias.length - a.alias.length);
+    this.byNumber = new Map(menu.filter((m) => m.number).map((m) => [m.number!, m]));
     this.protectedNames = this.aliasIndex
       .filter(({ alias }) => alias.includes(' and '))
       .map(({ alias }) => new RegExp(`\\b${alias}\\b`, 'g'));
@@ -51,21 +53,33 @@ export class ShorthandInterpreter implements OrderInterpreter {
     const modText = modMatch ? segment.slice(modMatch.index) : '';
 
     let qty = 1;
+    let qtyGiven = false;
+    let qtyIsDigits = false;
+    let menuNo: number | undefined;
     let size: SizeId | undefined;
     const rest: string[] = [];
     for (const t of head.split(/\s+/).filter(Boolean)) {
+      if (/^#\d+$/.test(t)) { menuNo = Number(t.slice(1)); continue; }
       const n = /^\d+$/.test(t) ? Number(t) : /^\d+x$/.test(t) ? Number(t.slice(0, -1)) : NUMBER_WORDS[t];
-      if (n && rest.length === 0 && qty === 1) qty = n;
+      if (n && rest.length === 0 && !qtyGiven) { qty = n; qtyGiven = true; qtyIsDigits = /^\d+$/.test(t); }
+      else if (/^\d+$/.test(t) && rest.length === 0 && menuNo === undefined) menuNo = Number(t);
       else if (SIZE_WORDS[t] && !size) size = SIZE_WORDS[t];
-      else rest.push(t);
+      else if (t !== 'number' && t !== 'x') rest.push(t);
     }
 
+    // No name typed: a lone number is the printed menu number ("5 L"), and with
+    // two numbers the first is the quantity ("2 5 L", "2x 5 L").
     const name = rest.join(' ');
-    const hit = this.aliasIndex.find(
-      ({ alias }) => name === alias || name === alias + 's' || name.startsWith(alias + ' '),
-    );
-    if (!hit) return null;
-    const { item } = hit;
+    let item: MenuItem | undefined;
+    if (name) {
+      item = this.aliasIndex.find(
+        ({ alias }) => name === alias || name === alias + 's' || name.startsWith(alias + ' '),
+      )?.item;
+    } else {
+      if (menuNo === undefined && qtyIsDigits) { menuNo = qty; qty = 1; }
+      item = menuNo === undefined ? undefined : this.byNumber.get(menuNo);
+    }
+    if (!item) return null;
 
     let resolvedSize: SizeId | undefined;
     if (item.variants) {

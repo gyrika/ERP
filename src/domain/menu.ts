@@ -48,10 +48,10 @@ const pizzaSizes = (m: number, l: number): Variant[] => [
 ];
 
 const pizza = (
-  id: string, name: string, description: string, aliases: string[],
+  number: number, id: string, name: string, description: string, aliases: string[],
   m: number, l: number, leaveOut: Option[],
 ): MenuItem => ({
-  id, category: 'pizza', name: { en: name }, description, aliases,
+  id, number, category: 'pizza', name: { en: name }, description, aliases,
   variants: pizzaSizes(m, l), adds: PIZZA_ADDS, leaveOut,
 });
 
@@ -64,23 +64,23 @@ const burger = (
 
 export const MENU: MenuItem[] = [
   // ----- Pizza · Classic -----
-  pizza('margherita', 'Margherita', 'Mozzarella cheese & rich tomato sauce', ['margherita', 'margarita', 'marg'], 1450, 1990, []),
-  pizza('cheese-onion', 'Cheese & Onion', 'Mozzarella cheese with onion', ['cheese and onion', 'cheese onion', 'cheese'], 1450, 1990, [NO.onion]),
-  pizza('veggie', 'Veggie', 'Sweet corn, mushroom, onion, bell pepper & tomato', ['veggie', 'vegetable', 'veg'], 1700, 2500,
+  pizza(1, 'margherita', 'Margherita', 'Mozzarella cheese & rich tomato sauce', ['margherita', 'margarita', 'marg'], 1450, 1990, []),
+  pizza(2, 'cheese-onion', 'Cheese & Onion', 'Mozzarella cheese with onion', ['cheese and onion', 'cheese onion', 'cheese'], 1450, 1990, [NO.onion]),
+  pizza(3, 'veggie', 'Veggie', 'Sweet corn, mushroom, onion, bell pepper & tomato', ['veggie', 'vegetable', 'veg'], 1700, 2500,
     [NO.corn, NO.mushroom, NO.onion, NO.pepper, NO.tomato]),
   // ----- Pizza · Chicken -----
-  pizza('sausages', 'Sausages', 'Chicken sausages, onion & bell pepper', ['sausages', 'sausage'], 1650, 2500, [NO.onion, NO.pepper]),
-  pizza('devilled-chicken', 'Devilled Chicken', 'Devilled chicken, onion, tomato & capsicum', ['devilled chicken', 'devilled', 'devil', 'dc'], 1650, 2500,
+  pizza(4, 'sausages', 'Sausages', 'Chicken sausages, onion & bell pepper', ['sausages', 'sausage'], 1650, 2500, [NO.onion, NO.pepper]),
+  pizza(5, 'devilled-chicken', 'Devilled Chicken', 'Devilled chicken, onion, tomato & capsicum', ['devilled chicken', 'devilled', 'devil', 'dc'], 1650, 2500,
     [NO.onion, NO.tomato, NO.capsicum, NO.spicy]),
-  pizza('bbq-chicken', 'BBQ Chicken', 'BBQ chicken, tomato & capsicum', ['bbq chicken'], 1750, 2500, [NO.tomato, NO.capsicum]),
-  pizza('bbq-sausages', 'BBQ Sausages', 'Cheese sausages, bell pepper & tomato', ['bbq sausages', 'bbq sausage'], 1750, 2500, [NO.pepper, NO.tomato]),
-  pizza('bbq-mix', 'BBQ Mix', 'Chicken, cheese sausages, chicken sausages, bell pepper & tomato', ['bbq mix', 'mix'], 2200, 3200, [NO.pepper, NO.tomato]),
+  pizza(6, 'bbq-chicken', 'BBQ Chicken', 'BBQ chicken, tomato & capsicum', ['bbq chicken'], 1750, 2500, [NO.tomato, NO.capsicum]),
+  pizza(7, 'bbq-sausages', 'BBQ Sausages', 'Cheese sausages, bell pepper & tomato', ['bbq sausages', 'bbq sausage'], 1750, 2500, [NO.pepper, NO.tomato]),
+  pizza(8, 'bbq-mix', 'BBQ Mix', 'Chicken, cheese sausages, chicken sausages, bell pepper & tomato', ['bbq mix', 'mix'], 2200, 3200, [NO.pepper, NO.tomato]),
   // ----- Pizza · Seafood -----
-  pizza('tonno-cipolla', 'Tonno - Cipolla', 'Tuna, onion & bell pepper', ['tonno cipolla', 'tonno', 'cipolla', 'tuna'], 1850, 2700, [NO.onion, NO.pepper]),
-  pizza('seafood', 'Seafood', 'Tuna, prawns, onion, bell pepper & tomato', ['seafood', 'sea food'], 2200, 3200, [NO.onion, NO.pepper, NO.tomato]),
+  pizza(9, 'tonno-cipolla', 'Tonno - Cipolla', 'Tuna, onion & bell pepper', ['tonno cipolla', 'tonno', 'cipolla', 'tuna'], 1850, 2700, [NO.onion, NO.pepper]),
+  pizza(10, 'seafood', 'Seafood', 'Tuna, prawns, onion, bell pepper & tomato', ['seafood', 'sea food'], 2200, 3200, [NO.onion, NO.pepper, NO.tomato]),
   // ----- Pizza · Pork -----
-  pizza('bacon-onion', 'Bacon & Onion', 'Pork bacon, onion & bell pepper', ['bacon and onion', 'bacon onion', 'bacon pizza', 'bacon'], 2200, 3200, [NO.onion, NO.pepper]),
-  pizza('bbq-pork', 'BBQ Pork', 'BBQ pork, bell pepper, capsicum & tomato', ['bbq pork'], 2200, 3200, [NO.pepper, NO.capsicum, NO.tomato]),
+  pizza(11, 'bacon-onion', 'Bacon & Onion', 'Pork bacon, onion & bell pepper', ['bacon and onion', 'bacon onion', 'bacon pizza', 'bacon'], 2200, 3200, [NO.onion, NO.pepper]),
+  pizza(12, 'bbq-pork', 'BBQ Pork', 'BBQ pork, bell pepper, capsicum & tomato', ['bbq pork'], 2200, 3200, [NO.pepper, NO.capsicum, NO.tomato]),
 
   // ----- Burgers -----
   burger('chicken-burger', 'Chicken Burger', 'Chicken patty, burger sauce, onion, tomatoes, lettuce', ['chicken burger', 'burger'], 450,
