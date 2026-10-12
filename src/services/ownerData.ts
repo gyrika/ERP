@@ -1,36 +1,53 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PullResponse, SyncEvent } from '../domain/sync.ts';
 import { demoHistory } from '../fake/history.ts';
 import { readAll, subscribeEvents } from '../ui/eventLog.ts';
 import { isDemo } from '../ui/storage.ts';
-import { syncToken } from './pairing.ts';
+import { ownerToken, syncToken } from './pairing.ts';
 
 /**
  * Everything the Owner view looks at: the shop's whole history of events.
- * - Paired device: from the shop server (the browser keeps only two days).
+ * - The owner's phone: from the cloud copy (same address that served the page).
+ * - The counter (paired): from the shop server (the browser keeps only two days).
  * - The demo: five weeks of made-up trading (src/fake/history.ts).
  * - Development without a server: this browser's own events.
- * Later the owner's phone reads the same from the cloud copy.
+ * Remote sources are read once in full, then only what is new since (phones and
+ * slow shop internet pay for every byte).
  */
-async function fromServer(token: string): Promise<SyncEvent[]> {
-  const out: SyncEvent[] = [];
-  let after = 0;
-  for (;;) {
-    const r = await fetch(`/api/v1/events?after=${after}&limit=500`, {
-      headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000),
-    });
-    if (!r.ok) throw new Error(`server ${r.status}`);
-    const page = (await r.json()) as PullResponse;
-    out.push(...page.events.map((s) => s.event));
-    after = page.lastSeq;
-    if (!page.more) return out;
-  }
+interface Source {
+  /** Events after the cursor, and the new cursor. A full load starts at 0. */
+  next(after: number): Promise<{ events: SyncEvent[]; cursor: number }>;
+  /** Local sources rebuild the whole list each time. */
+  incremental: boolean;
 }
 
-export const loadShopEvents = async (): Promise<SyncEvent[]> => {
-  if (isDemo()) return demoHistory(Date.now());
-  const token = syncToken();
-  return token ? fromServer(token) : readAll();
+const remote = (token: string): Source => ({
+  incremental: true,
+  async next(after) {
+    const events: SyncEvent[] = [];
+    let cursor = after;
+    for (;;) {
+      const r = await fetch(`/api/v1/events?after=${cursor}&limit=500`, {
+        headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000),
+      });
+      if (!r.ok) throw new Error(r.status === 401 ? 'This link is no longer valid.' : `server ${r.status}`);
+      const page = (await r.json()) as PullResponse;
+      events.push(...page.events.map((s) => s.event));
+      cursor = page.lastSeq;
+      if (!page.more) return { events, cursor };
+    }
+  },
+});
+
+const local = (read: () => SyncEvent[]): Source => ({
+  incremental: false,
+  next: async () => ({ events: read(), cursor: 0 }),
+});
+
+export const shopSource = (): Source => {
+  if (isDemo()) return local(() => demoHistory(Date.now()));
+  const token = ownerToken() ?? syncToken();
+  return token ? remote(token) : local(readAll);
 };
 
 export type ShopEvents =
@@ -38,23 +55,35 @@ export type ShopEvents =
   | { state: 'ready'; events: SyncEvent[]; at: number }
   | { state: 'error'; message: string; events?: SyncEvent[]; at?: number };
 
-/** Loads once, then again when this device records something and every minute (insights depend on the time). */
+/** Loads once, then catches up when this device records something, and every minute. */
 export function useShopEvents(): ShopEvents {
   const [data, setData] = useState<ShopEvents>({ state: 'loading' });
-  const last = useRef<SyncEvent[] | undefined>(undefined);
   useEffect(() => {
+    const source = shopSource();
     let alive = true;
+    let events: SyncEvent[] | undefined;
+    let cursor = 0;
+    let busy = false;
     let pending: ReturnType<typeof setTimeout> | undefined;
-    const load = () => {
-      loadShopEvents().then(
-        (events) => { if (alive) { last.current = events; setData({ state: 'ready', events, at: Date.now() }); } },
-        (e: unknown) => { if (alive) setData({ state: 'error', message: String(e), events: last.current, at: Date.now() }); },
-      );
+    const load = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const got = await source.next(source.incremental ? cursor : 0);
+        if (!alive) return;
+        events = source.incremental ? [...(events ?? []), ...got.events] : got.events;
+        cursor = got.cursor;
+        setData({ state: 'ready', events, at: Date.now() });
+      } catch (e) {
+        if (alive) setData({ state: 'error', message: e instanceof Error ? e.message : String(e), events, at: Date.now() });
+      } finally {
+        busy = false;
+      }
     };
-    load();
-    const soon = () => { clearTimeout(pending); pending = setTimeout(load, 1500); };
+    void load();
+    const soon = () => { clearTimeout(pending); pending = setTimeout(() => void load(), 1500); };
     const unsubscribe = subscribeEvents(soon);
-    const every = setInterval(load, 60_000);
+    const every = setInterval(() => void load(), 60_000);
     return () => { alive = false; clearTimeout(pending); clearInterval(every); unsubscribe(); };
   }, []);
   return data;

@@ -9,12 +9,20 @@ import { isDemo } from '../ui/storage.ts';
 const TOKEN = 'cb.sync.token';
 const KIND = 'cb.sync.kind';
 const SHOP = 'cb.sync.shop';
+const OWNER = 'cb.owner.token';
 
 const get = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const set = (k: string, v: string): void => { try { localStorage.setItem(k, v); } catch { /* blocked */ } };
 
 export const pairFromUrl = (): void => {
   const url = new URL(location.href);
+  // The owner's phone: `?owner=<token>` from `npm run device -- --kind owner` (in cloud/).
+  const owner = url.searchParams.get('owner');
+  if (owner) {
+    set(OWNER, owner);
+    url.searchParams.delete('owner');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
   const token = url.searchParams.get('pair');
   if (!token) return;
   set(TOKEN, token);
@@ -34,3 +42,12 @@ export const pairedShop = (): string | null => get(SHOP);
 
 /** A kitchen device shows the kitchen and nothing else, with no login (the server enforces the same). */
 export const isKitchenDevice = (): boolean => syncToken() !== null && get(KIND) === 'kitchen';
+
+/** The owner's phone token for the cloud copy (read-only), if this device has one. */
+export const ownerToken = (): string | null => (isDemo() ? null : get(OWNER));
+
+/**
+ * The cloud build (`npm run build:cloud`, served by the cloud Worker) holds only
+ * the Owner view: nobody on the internet reaches a register there.
+ */
+export const isCloudSite = (): boolean => import.meta.env.VITE_SITE === 'cloud';

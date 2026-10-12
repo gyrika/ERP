@@ -482,3 +482,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .skeleton { background: linear-gradient(90deg, var(--chip) 0%, var(--surface) 50%, var(--chip) 100%); background-size: 200% 100%; animation: skeleton 1.2s ease-in-out infinite; }
 @keyframes skeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .insight { animation: none; } }
+.owner__updated { font-size: 14px; color: var(--ink-3); }
+.owner-welcome { max-width: 360px; text-align: center; }
+.owner-welcome p { margin: 0; font-size: 16px; color: var(--ink-2); line-height: 1.5; }
+.owner-welcome .insight__action { display: inline-flex; align-items: center; text-decoration: none; background: var(--surface); box-shadow: var(--card-shadow); padding: 0 22px; }

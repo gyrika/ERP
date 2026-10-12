@@ -49,7 +49,8 @@ function Detail({ insight, onClose }: { insight: Insight; onClose: () => void })
   );
 }
 
-export function OwnerView() {
+/** `phone`: on the owner's phone (the cloud site): no links to the counter's screens. */
+export function OwnerView({ phone = false }: { phone?: boolean } = {}) {
   const data = useShopEvents();
   const [open, setOpen] = useState<string | null>(null);
   const events = data.state === 'ready' ? data.events : data.state === 'error' ? data.events : undefined;
@@ -66,11 +67,15 @@ export function OwnerView() {
     <div className="owner">
       <header className="owner__head">
         <span className="brand">CheesyBeez</span>
-        <nav className="owner__nav" aria-label="Owner sections">
-          <a href="#inventory">Inventory</a>
-          <a href="#suppliers">Suppliers</a>
-          <a href="#">Register</a>
-        </nav>
+        {phone ? (
+          data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>
+        ) : (
+          <nav className="owner__nav" aria-label="Owner sections">
+            <a href="#inventory">Inventory</a>
+            <a href="#suppliers">Suppliers</a>
+            <a href="#">Register</a>
+          </nav>
+        )}
       </header>
 
       <main className="owner__main" aria-label="Owner">
@@ -93,7 +98,9 @@ export function OwnerView() {
 
         {data.state === 'error' && (
           <p className="owner__note" role="status">
-            {events ? `Can’t reach the shop server: showing ${timeOf(at)}’s figures.` : 'Can’t reach the shop server.'}
+            {data.message.startsWith('This link')
+              ? `${data.message} Ask for a new one.`
+              : `${phone ? 'No connection' : 'Can’t reach the shop server'}${events ? `: showing the figures from ${timeOf(at)}.` : '.'}`}
           </p>
         )}
 
