@@ -5,9 +5,11 @@ import './ui/styles.css';
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './ui/App.tsx';
+import { InventoryView } from './ui/InventoryView.tsx';
 import { Kitchen } from './ui/Kitchen.tsx';
+import { SupplierView } from './ui/SupplierView.tsx';
 
-/** One app, one view per device: the kitchen tablet bookmarks /#kitchen. */
+/** One app, one view per device: kitchen / inventory tablets bookmark their hash. */
 function Root() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -15,7 +17,10 @@ function Root() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
-  return hash === '#kitchen' ? <Kitchen /> : <App />;
+  if (hash === '#kitchen') return <Kitchen />;
+  if (hash === '#inventory') return <InventoryView />;
+  if (hash === '#suppliers') return <SupplierView />;
+  return <App />;
 }
 
 createRoot(document.getElementById('root')!).render(
