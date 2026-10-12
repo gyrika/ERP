@@ -1,5 +1,16 @@
 # Installing the POS on the shop PC (and looking after it from far away)
 
+> **Use CheesyBeez Station (the Setup.exe).** Download `CheesyBeez-Setup-x.y.z.exe` from the
+> repository's **Releases** page and double-click it on the shop PC (Windows 10 or 11). The first
+> time, Windows says "Windows protected your PC": click **More info → Run anyway** (the file is not
+> code-signed). It installs everything, nothing else is needed (no Node.js, no MySQL), then opens
+> the POS on the setup wizard: shop, printer, staff, QR codes for the kitchen tablet and the
+> owner's phone. The shop's data is kept in `C:\ProgramData\CheesyBeez`; logs in its `logs` folder.
+> It updates itself at 4 am from the latest Release. To publish a new version: `git tag v1.0.1 &&
+> git push origin v1.0.1` (GitHub tests it on Windows and builds the Setup.exe).
+>
+> The PowerShell route below is the older way (it uses MySQL); keep it only for a PC that must run MySQL.
+
 The shop is in Thalwila; development happens in Galle. So the shop PC is set up **once**, by
 one script, and after that everything (updates, checks, fixes) is done remotely.
 

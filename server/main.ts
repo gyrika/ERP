@@ -22,7 +22,8 @@ import { memoryStore, mysqlStore, type EventStore } from './store.ts';
  */
 const port = Number(process.env.PORT ?? 8080);
 const dataDir = (process.env.DATA_DIR ?? fileURLToPath(new URL('./data/', import.meta.url))).replace(/[\\/]$/, '');
-const printsDir = fileURLToPath(new URL('./prints', import.meta.url));
+// Dry-run receipts live with the data when there is a data folder (CheesyBeez Station: C:\ProgramData\CheesyBeez).
+const printsDir = process.env.DATA_DIR ? `${dataDir}/prints` : fileURLToPath(new URL('./prints', import.meta.url));
 
 let store: EventStore;
 let storeName: string;

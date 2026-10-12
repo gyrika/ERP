@@ -8,3 +8,5 @@ cloud/node_modules
 cloud/.wrangler
 dist-cloud
 server/data/
+deploy/station/stage/
+deploy/station/Output/
