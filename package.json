@@ -7,7 +7,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:domain && npm run test:ui",
-    "test:domain": "node --test --experimental-strip-types --no-warnings \"src/**/*.test.ts\" \"server/**/*.test.ts\" \"cloud/src/**/*.test.ts\"",
+    "test:domain": "node --test --test-timeout=60000 --test-force-exit --experimental-strip-types --no-warnings \"src/**/*.test.ts\" \"server/**/*.test.ts\" \"cloud/src/**/*.test.ts\"",
     "test:ui": "vitest run",
     "server": "node --experimental-strip-types --no-warnings --env-file-if-exists=server/.env server/main.ts",
     "server:device": "node --experimental-strip-types --env-file-if-exists=server/.env server/addDevice.ts",

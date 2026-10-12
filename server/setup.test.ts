@@ -36,7 +36,9 @@ async function start(cloudFetch?: typeof fetch, preConnected = Boolean(cloudFetc
 
 test('a new shop: name it (this PC becomes the counter), add staff, finish only with an owner', async () => {
   const s = await start();
-  assert.deepEqual(await s.state(), { done: false, shop: null, printer: null, printers: (await s.state()).printers, cloud: false });
+  // The printer list is whatever this PC has (and Windows may be slow to tell): not compared.
+  const { printers: _printers, ...fresh } = await s.state();
+  assert.deepEqual(fresh, { done: false, shop: null, printer: null, cloud: false });
 
   const named = await s.post('/shop', { name: 'CheesyBeez', place: 'Thalwila' });
   assert.match(named.body.shopId, /^cheesybeez-thalwila-[0-9a-f]{4}$/, 'a short random ending keeps shops apart in the cloud');
@@ -126,5 +128,15 @@ test('the cloud step: the shop code connects this shop, and copying starts witho
   assert.equal(s.settings.get().cloudToken, 'new-server-token');
   assert.equal(s.connected(), 1, 'copying started straight away');
   assert.equal((await s.state()).cloud, true);
+  await s.stop();
+});
+
+test("updates: the owner's PIN after setup; development has nothing to install", async () => {
+  const s = await start();
+  await s.post('/shop', { name: 'CheesyBeez', place: 'Thalwila' });
+  await s.post('/staff', { name: 'Nisal Vimukthi', role: 'owner', pin: '1234' });
+  await s.post('/finish');
+  assert.equal((await s.post('/update/check', {})).status, 401);
+  assert.equal((await s.post('/update/install', { ownerPin: '1234' })).status, 409, 'no updates set up here');
   await s.stop();
 });

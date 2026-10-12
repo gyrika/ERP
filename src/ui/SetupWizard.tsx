@@ -20,7 +20,8 @@ const FIRST: Step[] = ['shop', 'printer', 'staff', 'cloud', 'devices'];
 const TITLES: Record<Step, string> = {
   shop: 'Name your shop', printer: 'Your receipt printer', staff: 'Your staff', cloud: 'Connect to the cloud', devices: 'Connect your devices',
 };
-const TAB_LABEL: Record<Exclude<Step, 'shop'>, string> = { staff: 'Staff', printer: 'Printer', cloud: 'Cloud', devices: 'Devices' };
+type Tab = Exclude<Step, 'shop'> | 'updates';
+const TAB_LABEL: Record<Tab, string> = { staff: 'Staff', printer: 'Printer', cloud: 'Cloud', devices: 'Devices', updates: 'Updates' };
 const ROLES: { id: Role; label: string }[] = [
   { id: 'cashier', label: 'Cashier' }, { id: 'manager', label: 'Manager' }, { id: 'owner', label: 'Owner' }, { id: 'kitchen', label: 'Kitchen' },
 ];
@@ -205,6 +206,65 @@ function CloudStep({ connected, ownerPin, onConnected, onNext }: {
   );
 }
 
+/**
+ * Shop setup → Updates: the installed version, GitHub's latest, and "Update now"
+ * (it runs even during service: the owner chose to; the nightly update waits).
+ * The POS restarts by itself; this screen waits for it and reloads.
+ */
+function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
+  const [info, setInfo] = useState<{ current: string; latest: string | null; newer: boolean } | null>(null);
+  const [phase, setPhase] = useState<'checking' | 'idle' | 'updating' | 'slow'>('checking');
+  const [error, setError] = useState('');
+  const check = useCallback(async () => {
+    setPhase('checking');
+    setError('');
+    try { setInfo(await setupClient.checkUpdate(ownerPin)); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    setPhase('idle');
+  }, [ownerPin]);
+  useEffect(() => { void check(); }, [check]);
+
+  const updateNow = async () => {
+    setError('');
+    try { await setupClient.installUpdate(ownerPin); } catch (e) { setError(e instanceof Error ? e.message : String(e)); return; }
+    setPhase('updating');
+    const started = Date.now();
+    const wait = async () => {
+      try {
+        const h = (await (await fetch('/api/v1/health', { signal: AbortSignal.timeout(3000) })).json()) as { version?: string };
+        if (info?.latest && h.version === info.latest) { restartApp(); return; }
+      } catch { /* the server is restarting: keep waiting */ }
+      if (Date.now() - started > 5 * 60_000) { setPhase('slow'); return; }
+      setTimeout(() => void wait(), 3000);
+    };
+    setTimeout(() => void wait(), 3000);
+  };
+
+  return (
+    <div className="setup__form">
+      <p className="setup__lead">Installed: <b>{info?.current ?? '…'}</b>. New versions also install by themselves at 4 am, when the shop is closed.</p>
+      {phase === 'updating' && (
+        <p className="setup__done" role="status">Updating to {info?.latest}… The POS restarts by itself in about a minute. Please don't turn the PC off.</p>
+      )}
+      {phase === 'slow' && (
+        <p className="setup__error" role="alert">This is taking longer than expected. Leave the PC on; if the POS does not come back, restart the PC.</p>
+      )}
+      {phase === 'idle' && info && !info.newer && <p className="setup__done" role="status">You have the latest version.</p>}
+      {phase === 'idle' && info?.newer && (
+        <>
+          <p className="setup__lead" role="status">Version <b>{info.latest}</b> is ready.</p>
+          <p className="setup__row"><button type="button" className="cta" onClick={() => void updateNow()}>Update now</button></p>
+        </>
+      )}
+      {error && <p className="setup__error" role="alert">{error}</p>}
+      {(phase === 'idle' || phase === 'checking') && (
+        <p className="setup__row"><button type="button" className="chip" disabled={phase === 'checking'} onClick={() => void check()}>
+          {phase === 'checking' ? 'Checking…' : 'Check again'}
+        </button></p>
+      )}
+    </div>
+  );
+}
+
 function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPin?: string; onFinish?: () => void }) {
   const [links, setLinks] = useState<{ kitchen?: string; owner?: string }>({});
   const [error, setError] = useState('');
@@ -242,7 +302,7 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
   const [step, setStep] = useState<Step>('shop');
   const [ownerPin, setOwnerPin] = useState<string | undefined>(undefined);
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
-  const [tab, setTab] = useState<Exclude<Step, 'shop'>>('staff');
+  const [tab, setTab] = useState<Tab>('staff');
   const connected = () => { setState((st) => (st ? { ...st, cloud: true } : st)); };
   const [error, setError] = useState('');
 
@@ -278,7 +338,7 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
     body = (
       <>
         <nav className="cats setup__tabs" aria-label="Shop setup">
-          {(['staff', 'printer', 'cloud', 'devices'] as const).map((t) => (
+          {(['staff', 'printer', 'cloud', 'devices', 'updates'] as const).map((t) => (
             <button key={t} type="button" className="pill" aria-pressed={tab === t} onClick={() => setTab(t)}>{TAB_LABEL[t]}</button>
           ))}
         </nav>
@@ -286,6 +346,7 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
         {tab === 'printer' && <PrinterStep state={state} ownerPin={ownerPin} />}
         {tab === 'cloud' && <CloudStep connected={state.cloud} ownerPin={ownerPin} onConnected={connected} />}
         {tab === 'devices' && <DevicesStep state={state} ownerPin={ownerPin} />}
+        {tab === 'updates' && <UpdatesTab ownerPin={ownerPin} />}
       </>
     );
   } else {

@@ -33,6 +33,8 @@ export interface AppOptions {
   cloudStatus?: () => ReplicaStatus | null;
   /** The setup wizard's endpoints (server/setup.ts); answered for this PC only. */
   setup?: SetupApi;
+  /** The installed version, shown by the health check (support from afar, Update now). */
+  version?: () => string;
   now?: () => number;
 }
 
@@ -104,7 +106,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, cloudStatus, setup, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, onStored, cloudStatus, setup, version, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -142,7 +144,7 @@ export function createApp({ store, staticDir, printer, onStored, cloudStatus, se
   const api = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') {
       const cloud = cloudStatus?.() ?? null;
-      json(res, 200, { ok: true, serverTime: now(), ...(cloud ? { cloud } : {}) });
+      json(res, 200, { ok: true, serverTime: now(), ...(version ? { version: version() } : {}), ...(cloud ? { cloud } : {}) });
       return;
     }
     if (url.pathname === '/api/v1/setup' || url.pathname.startsWith('/api/v1/setup/')) {
@@ -157,6 +159,7 @@ export function createApp({ store, staticDir, printer, onStored, cloudStatus, se
         const routes: Record<string, (b: Record<string, unknown>) => Promise<unknown>> = {
           '/shop': setup.nameShop, '/printer': setup.setPrinter, '/staff': setup.addStaff, '/staff/list': setup.staff,
           '/staff/remove': setup.removeStaff, '/pair': setup.pair, '/cloud': setup.connectCloud, '/finish': () => setup.finish(),
+          '/update/check': setup.checkUpdate, '/update/install': setup.installUpdate,
         };
         const route = routes[step];
         if (!route) throw new HttpError(404, 'server', 'no such setup step');
