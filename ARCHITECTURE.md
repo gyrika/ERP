@@ -24,7 +24,7 @@
 1. ✅ Domain core: real menu, pricing, order math, shorthand parser (tested)
 2. ✅ Register + Extras sheet from the design (tap, type, Undo, light/dark)
 3. ✅ Payment v0: cash quick amounts + change, Card, QR (no gateway yet)
-4. Outbox + MySQL sync + realtime
+4. ✅ Outbox + MySQL sync + realtime (`server/`, `src/services/syncClient.ts`; setup in `docs/server-setup.md`). The server runs on the counter PC and also serves the app. Kitchen tickets are folded from events (`ticketsFromEvents`), so `kitchenStore.ts` only reads the event log.
 5. ✅ Kitchen display at `/#kitchen` (one column, oldest first, colour = wait, one-tap Done + Undo, chime + flash until tapped, Changed/Cancelled lines). Manager PIN changes + event log. Built before 4: tickets travel tab-to-tab via BroadcastChannel + localStorage (`src/ui/kitchenStore.ts`); slice 4 replaces only that file.
 6. Owner feed (rules-based insights)
 7. Customer receipt printing (ESC/POS) + cash drawer, scanner. No kitchen printing.

@@ -25,6 +25,15 @@ export type KitchenEvent =
 /** Everything that syncs. */
 export type SyncEvent = OrderEvent | KitchenEvent;
 
+/** An event before the log gives it an id and stamps the shop. */
+export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;
+
+export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.unbumped'] as const;
+export const ORDER_EVENT_TYPES = [
+  'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',
+  'order.line_removed', 'order.line_adjusted', 'order.discount_set', 'order.comped', 'order.change_undone',
+] as const satisfies readonly OrderEvent['type'][];
+
 /** An event as the server hands it back: who wrote it, and where it sits in the shop's history. */
 export interface SyncedEvent {
   event: SyncEvent;

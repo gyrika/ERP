@@ -78,10 +78,22 @@ shop from the token. JSON bodies use the types in `sync.ts`.
 
 Errors: `401 unauthorized` (bad token), `403 wrong_shop`, `400 invalid_event`, `500 server`, body `ApiError`.
 
+## Status (2026-10-12): built
+
+Server in `server/` (setup: [server-setup.md](server-setup.md)), device side in
+`src/services/syncClient.ts` + `src/ui/eventLog.ts`. Kitchen tickets are now folded from events
+(`ticketsFromEvents` in `src/domain/kitchen.ts`); nothing stores tickets any more. Checked with two
+isolated browsers: a ticket reaches the other device in ~0.3 s, Done comes back in ~0.5 s, and an
+order taken offline arrives as soon as the counter reconnects. Where the build differs from the
+plan below, the rule is marked **Changed**.
+
 ## Rules for the device (Danith)
 
 1. **Write locally first, always.** The sale never waits for the network. The local event log is the
    outbox. It must survive a power cut (move it from localStorage to IndexedDB, SCRUM-29).
+   **Changed:** it stays in localStorage (synchronous, so screens stay simple). MySQL on the same PC
+   is the durable copy, and events the server has confirmed are trimmed after 2 days, far below the
+   5 MB limit. Revisit if power cuts lose the last seconds of sales in practice.
 2. **Push** pending events (`pendingEvents()`) right after each new event, and again on reconnect.
    On failure retry with `retryDelayMs(attempt)`. Mark an event done only when its id comes back in
    `accepted`.
@@ -90,8 +102,11 @@ Errors: `401 unauthorized` (bad token), `403 wrong_shop`, `400 invalid_event`, `
 4. **Apply** remote events in `seq` order, skipping ids you already have (`newRemoteEvents()`).
 5. **Clocks:** device clocks are wrong. Kitchen timers count from `receivedAt`, and each screen corrects
    its own "now" with `clockOffsetMs()` from `serverTime`.
+   **Not built yet:** with the kitchen on the counter PC there is one clock. Do it with the kitchen device.
 6. **Show the state** with `syncStatus()`: nothing when synced, a small sign when offline (SCRUM-32).
 7. Only `src/ui/eventLog.ts` and `src/ui/kitchenStore.ts` change. Screens stay the same.
+8. **Pairing:** a device syncs only after its pairing link (`?pair=<token>`) was opened once; the demo
+   never syncs. The stream takes the token as `?token=` because browsers cannot set WebSocket headers.
 
 ## Rules for the server (nilupulbandara40)
 
@@ -99,6 +114,8 @@ Errors: `401 unauthorized` (bad token), `403 wrong_shop`, `400 invalid_event`, `
 2. `POST /events`: in one transaction, first lock the shop with
    `SELECT id FROM shops WHERE id = ? FOR UPDATE`, then insert each event with
    `INSERT ... ON DUPLICATE KEY UPDATE id = id`, then read back the `seq` of every id. After commit,
+   **Changed:** `INSERT IGNORE`, because `ON DUPLICATE KEY UPDATE` needs the UPDATE privilege on
+   `events`, which the app user must not have. Validation runs first, so nothing else gets ignored.
    send each newly stored event to every open stream of the **same** tenant.
    The lock matters: without it, two pushes at once can commit `seq` 8 before 7, and a device that
    already pulled "after 8" would never see 7.

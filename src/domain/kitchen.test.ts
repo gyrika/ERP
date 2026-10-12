@@ -2,8 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BAD_AFTER_MS, KEEP_DONE_MS, WARN_AFTER_MS,
-  ack, amendLine, bump, cookState, kitchenLine, restoreLine, elapsedLabel, fire, needsAttention, prune, queue, recall, ticketLines, unbump, urgency,
+  TICKET_HORIZON_MS, ack, amendLine, bump, cookState, kitchenLine, restoreLine, elapsedLabel, fire, needsAttention, prune, queue, recall,
+  ticketLines, ticketsFromEvents, unbump, urgency,
 } from './kitchen.ts';
+import type { SyncEvent } from './sync.ts';
 import { addLine, bareLine, emptyOrder, markSent, unsentLines } from './order.ts';
 
 const lines = () =>
@@ -167,4 +169,46 @@ test('restoreLine puts a cancelled line back exactly and alerts the kitchen agai
   assert.deepEqual(t[0].lines[1], before);
   assert.equal(t[0].doneAt, undefined);
   assert.equal(needsAttention(t[0]), true);
+});
+
+test('tickets are folded from events: send, change, undo, seen, done, recall', () => {
+  const actor = { id: 's1', name: 'Nimal', role: 'manager' as const };
+  const base = { shopId: SHOP, actor, orderNumber: 1001 };
+  const [line] = lines();
+  const sent = { ...line, sent: true };
+  const bigger = { ...sent, qty: 3 };
+  const audit = { totalBefore: 0, totalAfter: 0 };
+  const ev: SyncEvent[] = [
+    { ...base, id: 'e1', at: 100, type: 'order.sent', ticketId: 't1', lines: [sent], addOn: false },
+    { ...base, id: 'e2', at: 200, type: 'kitchen.seen', ticketId: 't1' },
+    { ...base, ...audit, id: 'e3', at: 300, type: 'order.item_changed', lineId: sent.id, before: sent, after: bigger, reason: 'Customer asked' },
+    { ...base, id: 'e4', at: 350, type: 'order.paid', total: 0, tender: 'cash', tendered: 0 },
+  ];
+
+  let t = ticketsFromEvents(ev, 400);
+  assert.equal(t.length, 1);
+  assert.equal(t[0].changed, true);
+  assert.equal(t[0].lines[0].qty, 3);
+  assert.equal(t[0].lines[0].was?.qty, 2);
+  assert.equal(needsAttention(t[0]), true, 'a change alerts again after it was seen');
+
+  const undone: SyncEvent = { ...base, ...audit, id: 'e5', at: 500, type: 'order.change_undone', undoneEventId: 'e3', undoneType: 'order.item_changed' };
+  t = ticketsFromEvents([...ev, undone], 600);
+  assert.equal(t[0].lines[0].qty, 2);
+  assert.equal(t[0].lines[0].was, undefined, 'Undo puts the line back exactly as the kitchen had it');
+
+  const done: SyncEvent = { ...base, id: 'e6', at: 700, type: 'kitchen.bumped', ticketId: 't1' };
+  assert.equal(queue(ticketsFromEvents([...ev, undone, done], 800)).length, 0);
+  const reopened: SyncEvent = { ...base, id: 'e7', at: 900, type: 'kitchen.unbumped', ticketId: 't1' };
+  assert.equal(queue(ticketsFromEvents([...ev, undone, done, reopened], 1000)).length, 1);
+
+  const recalled: SyncEvent = { ...base, id: 'e8', at: 150, type: 'order.send_undone', ticketId: 't1' };
+  assert.deepEqual(ticketsFromEvents([ev[0], recalled], 200), []);
+});
+
+test('events older than a day are skipped', () => {
+  const actor = { id: 's1', name: 'Nimal', role: 'cashier' as const };
+  const old: SyncEvent = { id: 'e1', shopId: SHOP, actor, orderNumber: 1001, at: 0, type: 'order.sent', ticketId: 't1', lines: lines(), addOn: false };
+  assert.equal(ticketsFromEvents([old], 1000).length, 1);
+  assert.equal(ticketsFromEvents([old], TICKET_HORIZON_MS + 1).length, 0);
 });

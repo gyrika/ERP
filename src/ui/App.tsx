@@ -12,6 +12,7 @@ import { OrderPanel, VOID_REASONS, type ManagePanel } from './OrderPanel.tsx';
 import { PaySheet } from './PaySheet.tsx';
 import { PinSheet } from './PinSheet.tsx';
 import { ShorthandBar, describe } from './ShorthandBar.tsx';
+import { SyncSign } from './SyncSign.tsx';
 import { useKitchenTickets } from './kitchenStore.ts';
 import { setSoundOn, soundOn } from './sound.ts';
 import { useManagerMode } from './useManagerMode.ts';
@@ -210,6 +211,7 @@ export function App({ onKitchen }: { onKitchen?: () => void } = {}) {
         ) : (
           <span className="corner">
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
+            <SyncSign />
             <span className="cashier">{currentCashier().name}</span>
             <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
           </span>
