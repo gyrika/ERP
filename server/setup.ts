@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import type { Role } from '../src/domain/auth.ts';
 import { isPin } from './pins.ts';
@@ -19,8 +20,12 @@ export interface SetupContext {
   usePrinter: (p: RawPrinter) => void;
   printsDir: string;
   port: number;
-  /** The cloud copy, to make owner-phone links (null: not connected). */
-  cloud: { url: string; token: string } | null;
+  /** The cloud copy as it stands now (null: not connected), for owner-phone links. */
+  cloud: () => { url: string; token: string } | null;
+  /** Where a new shop registers itself with the shop code. */
+  cloudUrl: string;
+  /** The wizard connected the cloud: start copying, no restart. */
+  onCloudConnected?: () => void;
   fetch?: typeof fetch;
   now?: () => number;
 }
@@ -102,7 +107,7 @@ export function setupApi(ctx: SetupContext) {
         shop: current,
         printer: s.printer ?? null,
         printers: await listPrinters(),
-        cloud: ctx.cloud !== null,
+        cloud: ctx.cloud() !== null,
         ...(!s.setupDone && current ? { staff: await ctx.store.listStaff(current.id) } : {}),
       };
     },
@@ -114,7 +119,8 @@ export function setupApi(ctx: SetupContext) {
       const place = typeof body.place === 'string' ? body.place.trim().slice(0, 80) : '';
       if (!name) throw new SetupError(400, 'invalid', 'the shop needs a name');
       const existing = shop();
-      const id = existing?.id ?? shopIdFor(name, place);
+      // A short random ending: two shops (or a test install) with the same name never mix in the cloud.
+      const id = existing?.id ?? `${shopIdFor(name, place)}-${randomBytes(3).toString('hex').slice(0, 4)}`;
       ctx.settings.set({ shopId: id, shopName: name, place });
       if (existing) return { shopId: id };
       const { token } = await ctx.store.addDevice(id, `${name} ${place}`.trim(), 'counter');
@@ -171,14 +177,15 @@ export function setupApi(ctx: SetupContext) {
       await authorise(body.ownerPin);
       const s = requireShop();
       if (body.kind === 'owner') {
-        if (!ctx.cloud) throw new SetupError(409, 'not_ready', 'connect the cloud copy first');
-        const r = await http(`${ctx.cloud.url}/api/v1/devices`, {
-          method: 'POST', headers: { authorization: `Bearer ${ctx.cloud.token}`, 'content-type': 'application/json' },
+        const cloud = ctx.cloud();
+        if (!cloud) throw new SetupError(409, 'not_ready', 'connect the cloud copy first');
+        const r = await http(`${cloud.url}/api/v1/devices`, {
+          method: 'POST', headers: { authorization: `Bearer ${cloud.token}`, 'content-type': 'application/json' },
           body: '{}', signal: AbortSignal.timeout(15_000),
         });
         if (!r.ok) throw new SetupError(502, 'not_ready', 'the cloud did not answer: is the internet up?');
         const { token } = (await r.json()) as { token: string };
-        return { link: `${ctx.cloud.url}/?owner=${token}#owner` };
+        return { link: `${cloud.url}/?owner=${token}#owner` };
       }
       if (body.kind === 'kitchen') {
         const host = lanAddress();
@@ -191,6 +198,32 @@ export function setupApi(ctx: SetupContext) {
         return { counterToken: token, shopId: s.id };
       }
       throw new SetupError(400, 'invalid', 'kind must be kitchen, owner or counter');
+    },
+
+    /**
+     * The cloud copy, with the shop code the developer gave: this shop server registers
+     * itself, keeps its key, and starts copying sales straight away.
+     */
+    async connectCloud(body: { code?: unknown; ownerPin?: unknown }) {
+      await authorise(body.ownerPin);
+      const s = requireShop();
+      if (typeof body.code !== 'string' || !body.code.trim()) throw new SetupError(400, 'invalid', 'type the shop code');
+      let r: Response;
+      try {
+        r = await http(`${ctx.cloudUrl}/api/v1/enrol`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code: body.code, shopId: s.id, name: `${s.name} ${s.place}`.trim() }),
+          signal: AbortSignal.timeout(20_000),
+        });
+      } catch {
+        throw new SetupError(502, 'not_ready', 'the cloud did not answer: is the internet up?');
+      }
+      if (r.status === 403) throw new SetupError(403, 'invalid', 'that shop code is not right');
+      if (!r.ok) throw new SetupError(502, 'not_ready', 'the cloud did not answer: try again in a minute');
+      const { token } = (await r.json()) as { token: string };
+      ctx.settings.set({ cloudUrl: ctx.cloudUrl, cloudToken: token });
+      ctx.onCloudConnected?.();
+      return { cloud: true };
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */

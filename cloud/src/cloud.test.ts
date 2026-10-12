@@ -16,7 +16,7 @@ async function setup() {
   await add(SHOP, 'shop_server', 'server-a');
   await add(SHOP, 'owner', 'owner-a');
   await add('shop-b', 'shop_server', 'server-b');
-  const handle = createCloud(d1, () => 9000);
+  const handle = createCloud(d1, { now: () => 9000, enrolCode: 'CB-7K3M-Q9XZ' });
   const call = (path: string, token: string | null, body?: unknown) => handle(new Request(`https://cloud.test${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: token ? { authorization: `Bearer ${token}` } : {},
@@ -95,4 +95,19 @@ test("owners' phones: the shop server adds one, the phone reads, and a lost phon
   assert.equal((await del('/api/v1/devices/dev-server-a', 'server-a')).status, 404, 'never a shop server');
   assert.equal((await del(`/api/v1/devices/${made.id}`, 'server-a')).status, 200);
   assert.equal((await call('/api/v1/events', made.token)).status, 401, 'the withdrawn phone is out');
+});
+
+test('a new shop registers itself with the shop code, and only with it', async () => {
+  const { call } = await setup();
+  const enrol = (code: string, shopId = 'shop-new-ab12') => call('/api/v1/enrol', null, { code, shopId, name: 'CheesyBeez Thalwila' });
+  assert.equal((await enrol('WRONG-CODE')).status, 403);
+  assert.equal((await enrol('')).status, 403);
+  assert.equal((await enrol('cb-7k3m-q9xz', 'Bad Id!')).status, 400);
+  const ok = await enrol(' cb-7k3m-q9xz '); // typed in lower case, with spaces: still right
+  assert.equal(ok.status, 200);
+  const { token } = await ok.json();
+  const state = await (await call('/api/v1/replica', token)).json();
+  assert.equal(state.lastSourceSeq, 0, 'the new shop server can copy its events in');
+  const pushed = await (await call('/api/v1/replica', token, { events: [synced('n1', 1, 'shop-new-ab12')] })).json();
+  assert.equal(pushed.stored, 1);
 });

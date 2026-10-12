@@ -25,7 +25,20 @@
 - Each shop server signs in with its own token (stored in the cloud only as a hash). A shop sees
   only its own events.
 
-## Setting it up for a shop (once)
+## Connecting a shop: the shop code (normal way)
+
+The setup wizard's step 4, **Connect to the cloud**, asks for the **shop code**. Typed in, the shop
+server registers itself with the cloud (`POST /api/v1/enrol`), keeps its key in its settings, and
+starts copying at once; the owner's phone QR code works from then on. Later: Shop setup → Cloud.
+
+- The code is a Worker secret, never in the code or the repo. Give it only to whoever installs a shop.
+  Change it any time (old shops keep working; only new shops need the new code):
+  `npx wrangler secret put ENROL_CODE` (in `cloud/`), then type the new code.
+- Each shop's id ends in 4 random characters (`cheesybeez-thalwila-7b39`), so two shops with the same
+  name, or a test install, never mix in the cloud.
+- On Windows the key is kept in `C:\ProgramData\CheesyBeez`, readable by administrators and Windows only.
+
+## Setting it up for a shop by hand (only for special cases)
 
 From your laptop, in `cloud/` (logged in with `npx wrangler login`):
 

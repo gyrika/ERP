@@ -14,6 +14,9 @@ export interface ShopSettings {
   /** Windows printer name; absent = no printer yet (dry run). */
   printer?: string;
   setupDone?: boolean;
+  /** The cloud copy, once the wizard connected it with the shop code. */
+  cloudUrl?: string;
+  cloudToken?: string;
 }
 
 export function settingsFile(file: string) {

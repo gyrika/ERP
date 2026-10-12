@@ -34,5 +34,6 @@ export const setupClient = {
   removeStaff: (id: string, ownerPin?: string) => call<{ staff: StaffRow[] }>('/staff/remove', { id, ownerPin }),
   pair: (kind: 'kitchen' | 'owner', ownerPin?: string) => call<{ link: string }>('/pair', { kind, ownerPin }),
   pairCounter: (ownerPin: string) => call<{ counterToken: string; shopId: string }>('/pair', { kind: 'counter', ownerPin }),
+  connectCloud: (code: string, ownerPin?: string) => call<{ cloud: boolean }>('/cloud', { code, ownerPin }),
   finish: () => call<{ done: boolean }>('/finish', {}),
 };

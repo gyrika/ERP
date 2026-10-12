@@ -183,3 +183,15 @@ test('owner view: a cashier typing the address gets the Register; the owner or a
   await user.keyboard('{F4}2580');
   expect(await screen.findByRole('main', { name: 'Owner' })).toBeTruthy();
 });
+
+test('the owner and managers see an Owner view key; a cashier does not', async () => {
+  pair();
+  const user = userEvent.setup();
+  render(<Root />);
+  await user.keyboard('1111');
+  await screen.findByRole('button', { name: 'Nimal: switch user' });
+  expect(screen.queryByRole('link', { name: 'Owner view' })).toBeNull();
+  await user.keyboard('{F4}2580');
+  await screen.findByRole('button', { name: 'Ravi: switch user' });
+  expect(screen.getByRole('link', { name: 'Owner view' }).getAttribute('href')).toBe('#owner');
+});

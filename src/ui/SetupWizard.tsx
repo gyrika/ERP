@@ -15,9 +15,12 @@ import { restartApp } from './restart.ts';
  * - connect: a screen on this PC that is not the counter yet (the owner's PIN).
  */
 type Mode = 'first' | 'manage' | 'connect';
-type Step = 'shop' | 'printer' | 'staff' | 'devices';
-const FIRST: Step[] = ['shop', 'printer', 'staff', 'devices'];
-const TITLES: Record<Step, string> = { shop: 'Name your shop', printer: 'Your receipt printer', staff: 'Your staff', devices: 'Connect your devices' };
+type Step = 'shop' | 'printer' | 'staff' | 'cloud' | 'devices';
+const FIRST: Step[] = ['shop', 'printer', 'staff', 'cloud', 'devices'];
+const TITLES: Record<Step, string> = {
+  shop: 'Name your shop', printer: 'Your receipt printer', staff: 'Your staff', cloud: 'Connect to the cloud', devices: 'Connect your devices',
+};
+const TAB_LABEL: Record<Exclude<Step, 'shop'>, string> = { staff: 'Staff', printer: 'Printer', cloud: 'Cloud', devices: 'Devices' };
 const ROLES: { id: Role; label: string }[] = [
   { id: 'cashier', label: 'Cashier' }, { id: 'manager', label: 'Manager' }, { id: 'owner', label: 'Owner' }, { id: 'kitchen', label: 'Kitchen' },
 ];
@@ -159,6 +162,49 @@ function StaffStep({ initial, ownerPin, onNext }: { initial: StaffRow[]; ownerPi
   );
 }
 
+/**
+ * The cloud copy: sales kept off-site, and the owner's phone. The developer gives
+ * the shop code; the shop server registers itself and starts copying at once.
+ */
+function CloudStep({ connected, ownerPin, onConnected, onNext }: {
+  connected: boolean; ownerPin?: string; onConnected: () => void; onNext?: () => void;
+}) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const connect = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try { await setupClient.connectCloud(code, ownerPin); onConnected(); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="setup__form">
+      <p className="setup__lead">A copy of every sale is kept safe on the internet, and the owner sees the shop on their phone from anywhere. Selling never needs the internet.</p>
+      {connected ? (
+        <p className="setup__done" role="status">Connected: sales are copied to the cloud.</p>
+      ) : (
+        <form className="setup__form" onSubmit={(e) => void connect(e)}>
+          <label className="setup__field"><span>Shop code</span>
+            <input autoFocus value={code} placeholder="CB-XXXX-XXXX" autoComplete="off" spellCheck={false}
+              onChange={(e) => setCode(e.target.value.toUpperCase())} /></label>
+          <p className="setup__hint">You get it from whoever set up CheesyBeez for you. The internet must be on.</p>
+          {error && <p className="setup__error" role="alert">{error}</p>}
+          <p className="setup__row"><button type="submit" className="chip chip--solid" disabled={!code.trim() || busy}>{busy ? 'Connecting…' : 'Connect'}</button></p>
+        </form>
+      )}
+      {onNext && (
+        <div className="setup__foot">
+          {!connected && <button type="button" className="linkbtn" onClick={onNext}>Skip for now</button>}
+          <button type="button" className="cta" onClick={onNext} disabled={!connected}>Next</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPin?: string; onFinish?: () => void }) {
   const [links, setLinks] = useState<{ kitchen?: string; owner?: string }>({});
   const [error, setError] = useState('');
@@ -182,7 +228,7 @@ function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPi
       <div className="setup__devices">
         {card('kitchen', 'Kitchen tablet', "Scan it with the tablet's camera. The tablet must be on the shop's Wi-Fi.", true, '')}
         {card('owner', "Owner's phone", "Scan it with the owner's phone. It then shows the Owner view, from anywhere.", state.cloud,
-          'Needs the cloud copy: set it up first (docs/cloud.md).')}
+          'Connect to the cloud first (the step before), then come back here.')}
       </div>
       <p className="setup__hint">You can do this later too: Manager mode → Ctrl+K → Shop setup.</p>
       {error && <p className="setup__error" role="alert">{error}</p>}
@@ -197,6 +243,7 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
   const [ownerPin, setOwnerPin] = useState<string | undefined>(undefined);
   const [staff, setStaff] = useState<StaffRow[] | null>(null);
   const [tab, setTab] = useState<Exclude<Step, 'shop'>>('staff');
+  const connected = () => { setState((st) => (st ? { ...st, cloud: true } : st)); };
   const [error, setError] = useState('');
 
   const reload = useCallback(async () => {
@@ -231,12 +278,13 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
     body = (
       <>
         <nav className="cats setup__tabs" aria-label="Shop setup">
-          {(['staff', 'printer', 'devices'] as const).map((t) => (
-            <button key={t} type="button" className="pill" aria-pressed={tab === t} onClick={() => setTab(t)}>{TITLES[t].replace('Your ', '').replace('Connect your ', '')}</button>
+          {(['staff', 'printer', 'cloud', 'devices'] as const).map((t) => (
+            <button key={t} type="button" className="pill" aria-pressed={tab === t} onClick={() => setTab(t)}>{TAB_LABEL[t]}</button>
           ))}
         </nav>
         {tab === 'staff' && <StaffStep initial={staff ?? []} ownerPin={ownerPin} />}
         {tab === 'printer' && <PrinterStep state={state} ownerPin={ownerPin} />}
+        {tab === 'cloud' && <CloudStep connected={state.cloud} ownerPin={ownerPin} onConnected={connected} />}
         {tab === 'devices' && <DevicesStep state={state} ownerPin={ownerPin} />}
       </>
     );
@@ -250,6 +298,7 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
         {step === 'shop' && <ShopStep state={state} onDone={next} />}
         {step === 'printer' && <PrinterStep state={state} onNext={next} />}
         {step === 'staff' && <StaffStep initial={state.staff ?? []} onNext={next} />}
+        {step === 'cloud' && <CloudStep connected={state.cloud} onConnected={connected} onNext={next} />}
         {step === 'devices' && <DevicesStep state={state} onFinish={() => void finish()} />}
         {error && <p className="setup__error" role="alert">{error}</p>}
         {i > 0 && <button type="button" className="linkbtn setup__back" onClick={() => setStep(FIRST[i - 1])}>Back</button>}

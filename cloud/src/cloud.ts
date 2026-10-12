@@ -49,7 +49,30 @@ export const sha256Hex = async (text: string): Promise<string> => {
 
 const isInt = (v: unknown): v is number => Number.isSafeInteger(v);
 
-export function createCloud(db: D1Like, now: () => number = Date.now) {
+/** A random token: 32 bytes, URL-safe. */
+const newToken = (): string =>
+  btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const newId = (): string => `cloud-${[...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+
+/** Compares without leaking, through timing, how much of a guess was right. */
+const sameText = (a: string, b: string): boolean => {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+};
+
+export interface CloudOptions {
+  now?: () => number;
+  /**
+   * The shop code (a Worker secret, ENROL_CODE): whoever installs a shop types it in the
+   * setup wizard, and the shop server registers itself. Without it, nobody can add a shop.
+   */
+  enrolCode?: string;
+}
+
+export function createCloud(db: D1Like, options: CloudOptions | (() => number) = {}) {
+  const { now = Date.now, enrolCode } = typeof options === 'function' ? { now: options, enrolCode: undefined } : options;
   const authenticate = async (req: Request, allowed: Kind[]): Promise<CloudDevice> => {
     const h = req.headers.get('authorization');
     const token = h?.startsWith('Bearer ') ? h.slice(7) : null;
@@ -103,6 +126,25 @@ export function createCloud(db: D1Like, now: () => number = Date.now) {
       return json(200, { stored, lastSourceSeq: await lastSourceSeq(device.tenantId), serverTime: t });
     }
 
+    // A new shop server registers itself with the shop code (the setup wizard's cloud step).
+    if (url.pathname === '/api/v1/enrol' && req.method === 'POST') {
+      let body: { code?: unknown; shopId?: unknown; name?: unknown };
+      try { body = await req.json(); } catch { throw new HttpError(400, 'invalid_event', 'body is not JSON'); }
+      if (!enrolCode || typeof body.code !== 'string' || !sameText(body.code.trim().toUpperCase(), enrolCode.toUpperCase())) {
+        throw new HttpError(403, 'forbidden', 'that shop code is not right');
+      }
+      if (typeof body.shopId !== 'string' || !/^[a-z0-9-]{1,64}$/.test(body.shopId)) throw new HttpError(400, 'invalid_event', 'bad shop id');
+      const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : body.shopId;
+      const token = newToken();
+      const t = now();
+      await db.batch([
+        db.prepare('INSERT OR IGNORE INTO shops (id, name, created_at) VALUES (?, ?, ?)').bind(body.shopId, name, t),
+        db.prepare("INSERT INTO devices (id, tenant_id, kind, token_hash, created_at) VALUES (?, ?, 'shop_server', ?, ?)")
+          .bind(newId(), body.shopId, await sha256Hex(token), t),
+      ]);
+      return json(200, { token });
+    }
+
     // The owners' phones, managed by the shop server (the setup wizard's QR codes, and withdrawing a lost phone).
     if (url.pathname === '/api/v1/devices' || url.pathname.startsWith('/api/v1/devices/')) {
       const device = await authenticate(req, ['shop_server']);
@@ -113,9 +155,8 @@ export function createCloud(db: D1Like, now: () => number = Date.now) {
         return json(200, { devices: results.map((r) => ({ id: r.id, createdAt: r.created_at })) });
       }
       if (url.pathname === '/api/v1/devices' && req.method === 'POST') {
-        const bytes = crypto.getRandomValues(new Uint8Array(32));
-        const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-        const id = `cloud-${[...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+        const token = newToken();
+        const id = newId();
         await db.prepare("INSERT INTO devices (id, tenant_id, kind, token_hash, created_at) VALUES (?, ?, 'owner', ?, ?)")
           .bind(id, device.tenantId, await sha256Hex(token), now()).run();
         return json(200, { id, token });
