@@ -167,3 +167,13 @@ test('the toast never covers an open sheet', async () => {
   expect(screen.queryByText('Sent 1001 to kitchen')).toBeNull();
   expect(screen.getByRole('button', { name: 'Card' })).toBeTruthy();
 });
+
+test('typing a printed menu number adds that pizza: "5 L" is a large Devilled Chicken', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  expect(screen.getAllByText('5').length).toBeGreaterThan(0); // the number is on the card, so staff learn it
+  await user.keyboard('5');
+  await user.keyboard(' L{Enter}');
+  expect(panel().getByText(/Devilled Chicken/)).toBeTruthy();
+  expect(panel().getByText(/Large/)).toBeTruthy();
+});
