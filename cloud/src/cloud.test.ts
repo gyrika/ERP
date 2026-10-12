@@ -155,3 +155,23 @@ test('the download page: always the newest installer, and a plain fallback if Gi
   assert.equal(await latestRelease((async () => new Response('', { status: 503 })) as unknown as typeof fetch), null);
   assert.ok(downloadPage(null).includes('href="https://github.com/gyrika/ERP/releases/latest"'), 'GitHub away: the releases page');
 });
+
+test("the shop code only makes new shops: an existing one takes back only its own server", async () => {
+  const { call } = await setup();
+  const mine = 's'.repeat(43);
+  const enrol = (shopId: string, secret?: string) => call('/api/v1/enrol', null, { code: 'CB-7K3M-Q9XZ', shopId, name: 'X', secret });
+  // Someone with the shop code and a shop's id: no key to that shop, with or without a secret.
+  assert.equal((await enrol(SHOP)).status, 409);
+  assert.equal((await enrol(SHOP, mine)).status, 409, 'a shop from before secrets: nobody gets back in');
+
+  const first = await (await enrol('shop-new-ab12', mine)).json();
+  assert.equal((await enrol('shop-new-ab12')).status, 409, 'the code alone');
+  assert.equal((await enrol('shop-new-ab12', 'x'.repeat(43))).status, 409, 'someone else\'s secret');
+  // The real server again (its first answer was lost): a fresh key, and the old one stops working.
+  const again = await enrol('shop-new-ab12', mine);
+  assert.equal(again.status, 200);
+  const { token } = await again.json();
+  assert.equal((await call('/api/v1/replica', token)).status, 200);
+  assert.equal((await call('/api/v1/replica', first.token)).status, 401);
+  assert.equal((await call('/api/v1/replica', 'server-a')).status, 200, 'other shops untouched');
+});

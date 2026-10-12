@@ -211,17 +211,20 @@ export function setupApi(ctx: SetupContext) {
       await authorise(body.ownerPin);
       const s = requireShop();
       if (typeof body.code !== 'string' || !body.code.trim()) throw new SetupError(400, 'invalid', 'type the shop code');
+      // Made once and kept before asking, so a lost answer can simply be tried again.
+      const secret = ctx.settings.get().cloudSecret ?? ctx.settings.set({ cloudSecret: randomBytes(32).toString('base64url') }).cloudSecret!;
       let r: Response;
       try {
         r = await http(`${ctx.cloudUrl}/api/v1/enrol`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ code: body.code, shopId: s.id, name: `${s.name} ${s.place}`.trim() }),
+          body: JSON.stringify({ code: body.code, shopId: s.id, name: `${s.name} ${s.place}`.trim(), secret }),
           signal: AbortSignal.timeout(20_000),
         });
       } catch {
         throw new SetupError(502, 'not_ready', 'the cloud did not answer: is the internet up?');
       }
       if (r.status === 403) throw new SetupError(403, 'invalid', 'that shop code is not right');
+      if (r.status === 409) throw new SetupError(409, 'invalid', 'this shop is already connected to the cloud from another computer');
       if (!r.ok) throw new SetupError(502, 'not_ready', 'the cloud did not answer: try again in a minute');
       const { token } = (await r.json()) as { token: string };
       ctx.settings.set({ cloudUrl: ctx.cloudUrl, cloudToken: token });

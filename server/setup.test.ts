@@ -110,7 +110,7 @@ test('only the shop PC itself may set up', () => {
 });
 
 test('the cloud step: the shop code connects this shop, and copying starts without a restart', async () => {
-  const sent: unknown[] = [];
+  const sent: Record<string, unknown>[] = [];
   const cloud = (async (url: string | URL | Request, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body));
     sent.push({ url: String(url), ...body });
@@ -124,7 +124,10 @@ test('the cloud step: the shop code connects this shop, and copying starts witho
   assert.equal(wrong.status, 403);
   assert.equal(wrong.body.message, 'that shop code is not right');
   assert.equal((await s.post('/cloud', { code: 'CB-7K3M-Q9XZ' })).status, 200);
-  assert.deepEqual(sent.at(-1), { url: 'https://cloud.test/api/v1/enrol', code: 'CB-7K3M-Q9XZ', shopId, name: 'CheesyBeez Thalwila' });
+  const secret = s.settings.get().cloudSecret!;
+  assert.ok(secret.length >= 40, "the shop's own secret, kept in its settings");
+  assert.deepEqual(sent.at(-1), { url: 'https://cloud.test/api/v1/enrol', code: 'CB-7K3M-Q9XZ', shopId, name: 'CheesyBeez Thalwila', secret });
+  assert.equal(sent[0].secret, secret, 'the same secret every time: a lost answer can be tried again');
   assert.equal(s.settings.get().cloudToken, 'new-server-token');
   assert.equal(s.connected(), 1, 'copying started straight away');
   assert.equal((await s.state()).cloud, true);

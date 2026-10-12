@@ -17,6 +17,8 @@ export interface ShopSettings {
   /** The cloud copy, once the wizard connected it with the shop code. */
   cloudUrl?: string;
   cloudToken?: string;
+  /** This shop's own secret with the cloud: only this server can connect the shop again. */
+  cloudSecret?: string;
 }
 
 export function settingsFile(file: string) {
