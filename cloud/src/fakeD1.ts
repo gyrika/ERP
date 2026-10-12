@@ -1,11 +1,12 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { D1Like, D1Statement } from './cloud.ts';
 
-/** For tests: D1, as far as the cloud uses it, on Node's own SQLite with the real migration. */
+/** For tests: D1, as far as the cloud uses it, on Node's own SQLite with the real migrations. */
 export function fakeD1() {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(new URL('../migrations/0001_events.sql', import.meta.url), 'utf8'));
+  const dir = new URL('../migrations/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.sql')).sort()) db.exec(readFileSync(new URL(f, dir), 'utf8'));
   type Stmt = D1Statement & { runNow(): { meta: { changes: number } } };
   const statement = (sql: string, values: unknown[] = []): Stmt => {
     const args = values as (string | number | null)[];

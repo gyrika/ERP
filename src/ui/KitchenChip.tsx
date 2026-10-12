@@ -1,4 +1,4 @@
-import { elapsedLabel, queue, urgency, type KitchenTicket } from '../domain/kitchen.ts';
+import { cookTimeMs, elapsedLabel, queue, urgency, type KitchenTicket } from '../domain/kitchen.ts';
 import { useNow } from './Kitchen.tsx';
 
 /**
@@ -17,7 +17,7 @@ export function KitchenChip({ tickets, onOpen }: { tickets: KitchenTicket[]; onO
     : 'Kitchen: nothing cooking';
   return (
     <button type="button" className="corner__key kchip" onClick={onOpen} aria-label={label}>
-      {oldest && <span className={`kchip__dot kchip__dot--${urgency(waited)}`} aria-hidden />}
+      {oldest && <span className={`kchip__dot kchip__dot--${urgency(waited, cookTimeMs(oldest))}`} aria-hidden />}
       <span aria-hidden>
         Kitchen
         {oldest && <span className="num"> · {open.length} · {elapsedLabel(waited)}</span>}

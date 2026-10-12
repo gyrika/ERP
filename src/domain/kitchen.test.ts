@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BAD_AFTER_MS, KEEP_DONE_MS, WARN_AFTER_MS,
+  COOK_MINUTES, KEEP_DONE_MS, cookTimeMs,
   TICKET_HORIZON_MS, ack, amendLine, bump, cookState, kitchenLine, restoreLine, elapsedLabel, fire, needsAttention, prune, queue, recall,
   ticketLines, ticketsFromEvents, unbump, urgency,
 } from './kitchen.ts';
@@ -46,11 +46,25 @@ test('bumping twice keeps the first done time', () => {
   assert.equal(t[0].doneAt, 10);
 });
 
-test('urgency follows wait time', () => {
-  assert.equal(urgency(0), 'ok');
-  assert.equal(urgency(WARN_AFTER_MS - 1), 'ok');
-  assert.equal(urgency(WARN_AFTER_MS), 'warn');
-  assert.equal(urgency(BAD_AFTER_MS), 'bad');
+test("cook times are the owner's: pizza 10, burger 3, pasta 20 minutes", () => {
+  assert.deepEqual(COOK_MINUTES, { pizza: 10, burger: 3, pasta: 20 });
+});
+
+test("a ticket is late after its slowest item's cook time, very late at one and a half times it", () => {
+  const line = (itemId: string, cancelled = false) => ({ id: itemId, itemId, qty: 1, adds: [], outs: [], ...(cancelled ? { cancelled } : {}) });
+  const min = 60_000;
+  assert.equal(cookTimeMs({ lines: [line('chicken-burger')] }), 3 * min);
+  assert.equal(cookTimeMs({ lines: [line('chicken-burger'), line('margherita')] }), 10 * min, 'the pizza sets the pace');
+  assert.equal(cookTimeMs({ lines: [line('italian-pasta'), line('chicken-burger', false)] }), 20 * min);
+  assert.equal(cookTimeMs({ lines: [line('italian-pasta', true), line('chicken-burger')] }), 3 * min, 'a cancelled pasta no longer counts');
+
+  const burger = 3 * min;
+  assert.equal(urgency(burger - 1, burger), 'ok');
+  assert.equal(urgency(burger, burger), 'warn');
+  assert.equal(urgency(4.5 * min - 1, burger), 'warn');
+  assert.equal(urgency(4.5 * min, burger), 'bad');
+  assert.equal(urgency(12 * min, 10 * min), 'warn', 'a pizza at 12 minutes is late, not yet very late');
+  assert.equal(urgency(15 * min, 10 * min), 'bad');
 });
 
 test('elapsed reads mm:ss and keeps counting past an hour', () => {

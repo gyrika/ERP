@@ -49,7 +49,7 @@ Accounts/roles UI, reports, inventory screens, i18n switcher (labels already car
 - Sinhala / Tamil item names (labels exist in the type but are empty; do not guess them)
 - Pasta sauce choice (the photos show white and red sauce; not on the menu, so not modelled)
 - Menu numbers: pizzas are numbered 1-12 in the order of the printed menu (5 = Devilled Chicken, per SCRUM-66). Check against the printed menu; burgers and pasta have no numbers.
-- Kitchen urgency: amber at 10 min, red at 15 min are placeholders (`src/domain/kitchen.ts`); owner will supply real cook times per item (promised 2026-10-12).
+- Kitchen urgency: answered (2026-10-12): pizza 10, burger 3, pasta 20 minutes; amber past a ticket's slowest item, red at 1.5x.
 
 ## Answered by the owner (2026-10-12)
 - Kitchen screen: none yet. Until the owner adds a kitchen device, the kitchen view runs on the counter PC itself: **F2** (or the corner **Kitchen** chip, which shows how many orders are cooking and the oldest wait, dot in the urgency colour) flips the whole screen between Register and Kitchen in the same tab (`src/ui/Root.tsx`). In the Kitchen: **Space** bumps the oldest ticket, **Ctrl+Z** undoes, **Esc**/F2 returns. A device opened straight at `/#kitchen` shows no Register key. Consequence: the sync server (slice 4) is not needed for the kitchen until that device arrives; it is still needed for safe storage, backups and the owner's phone.

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  elapsedLabel, needsAttention, queue, ticketLines, urgency, type LineView,
+  cookTimeMs, elapsedLabel, needsAttention, queue, ticketLines, urgency, type LineView,
 } from '../domain/kitchen.ts';
 import { chime, useSoundBlocked } from './chime.ts';
 import { recordKitchen, useKitchenTickets } from './kitchenStore.ts';
@@ -161,7 +161,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
           return (
             <article
               key={t.id}
-              className={`ticket ticket--${urgency(elapsed)}${alerting ? ' ticket--alert' : ''}`}
+              className={`ticket ticket--${urgency(elapsed, cookTimeMs(t))}${alerting ? ' ticket--alert' : ''}`}
               aria-label={name}
             >
               {alerting && (
