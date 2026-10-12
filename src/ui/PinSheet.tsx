@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { requireManager, type Actor } from '../domain/auth.ts';
+import type { Actor } from '../domain/auth.ts';
+import { requireManager } from '../services/auth.ts';
 
 const PIN_LENGTH = 4;
 

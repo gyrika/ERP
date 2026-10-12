@@ -63,13 +63,26 @@ export interface OrderInterpreter {
   interpret(input: string): OrderDraft | Promise<OrderDraft>;
 }
 
-export type Tender = 'cash' | 'card' | 'qr';
+/** 'comp' = the order was made free by a manager; nothing is collected. */
+export type Tender = 'cash' | 'transfer' | 'card' | 'qr' | 'comp';
+
+/** Manager discount on the whole order. Percentages round once, at the order level. */
+export type Discount = { kind: 'percent'; pct: number } | { kind: 'comp' };
+
+export interface Adjustments {
+  /** Per-line price adjustment, in cents off that line. Never changes the menu price. */
+  lines?: Record<string, Cents>;
+  discount?: Discount;
+}
 
 export interface Order {
   number: number;
   lines: OrderLine[];
   /** When the order first went to the kitchen. Customers eat first and pay after. */
   sentAt?: number;
+  adjust?: Adjustments;
+  /** Latest manager change, shown on the order as "Edited by <name>, <time>". */
+  edited?: { by: string; at: number };
 }
 
 export interface PaidOrder extends Order {

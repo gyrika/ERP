@@ -21,6 +21,7 @@ export interface KitchenLine extends OrderLine {
  */
 export interface KitchenTicket {
   id: string;
+  shopId: string;
   number: number;
   lines: KitchenLine[];
   firedAt: number;
@@ -34,7 +35,7 @@ export interface KitchenTicket {
   doneAt?: number;
 }
 
-export type NewTicket = Pick<KitchenTicket, 'id' | 'number' | 'lines' | 'firedAt' | 'addOn'>;
+export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn'>;
 
 export type Urgency = 'ok' | 'warn' | 'bad';
 
@@ -84,6 +85,21 @@ export const amendLine = (
         return after ? { ...after, id: lineId, was: current } : { ...current, cancelled: true };
       }),
     };
+  });
+
+/** The kitchen's current view of a line (to restore it exactly on a manager Undo). */
+export const kitchenLine = (tickets: KitchenTicket[], lineId: string): KitchenLine | undefined =>
+  tickets.flatMap((t) => t.lines).find((l) => l.id === lineId);
+
+/**
+ * Manager Undo: put a line back exactly as the kitchen had it. The ticket
+ * reopens and alerts again, because the cook last saw it changed or cancelled.
+ */
+export const restoreLine = (tickets: KitchenTicket[], line: KitchenLine, at: number): KitchenTicket[] =>
+  tickets.map((t) => {
+    if (!t.lines.some((l) => l.id === line.id)) return t;
+    const { doneAt: _done, ...open } = t;
+    return { ...open, changed: true, alertAt: at, lines: t.lines.map((l) => (l.id === line.id ? { ...line } : l)) };
   });
 
 /** The kitchen tapped the ticket: stop flashing. */

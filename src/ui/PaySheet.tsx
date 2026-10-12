@@ -44,6 +44,7 @@ export function PaySheet({ total, onPay, onClose }: Props) {
           <section className="group">
             <h2>Other</h2>
             <div className="chips">
+              <button type="button" className="chip chip--solid" onClick={() => onPay('transfer', total)}>Bank transfer</button>
               <button type="button" className="chip chip--solid" onClick={() => onPay('card', total)}>Card</button>
               <button type="button" className="chip chip--solid" onClick={() => onPay('qr', total)}>QR</button>
             </div>

@@ -145,6 +145,17 @@ test('the order list labels unpaid and paid orders clearly', async () => {
   expect(paid.queryByRole('button')).toBeNull(); // nothing left to do on a paid order
 });
 
+test('bank transfer pays the full total in one tap', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await sendThenOpen(user, 1001);
+  await user.click(screen.getByRole('button', { name: 'Bank transfer' }));
+  await user.click(panel().getByRole('button', { name: 'Next order' }));
+  const paid = within(panel().getByRole('region', { name: 'Paid today' }));
+  expect(paid.getByText('Paid · Bank transfer')).toBeTruthy();
+});
+
 test('the toast never covers an open sheet', async () => {
   const user = userEvent.setup();
   render(<App />);

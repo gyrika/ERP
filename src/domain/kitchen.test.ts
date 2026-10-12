@@ -2,13 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BAD_AFTER_MS, KEEP_DONE_MS, WARN_AFTER_MS,
-  ack, amendLine, bump, cookState, elapsedLabel, fire, needsAttention, prune, queue, recall, ticketLines, unbump, urgency,
+  ack, amendLine, bump, cookState, kitchenLine, restoreLine, elapsedLabel, fire, needsAttention, prune, queue, recall, ticketLines, unbump, urgency,
 } from './kitchen.ts';
 import { addLine, bareLine, emptyOrder, markSent, unsentLines } from './order.ts';
 
 const lines = () =>
   addLine(emptyOrder(0), { itemId: 'devilled-chicken', qty: 2, size: 'L', adds: ['full-cheese'], outs: ['no-onion'], note: 'well done' }).lines;
-const ticket = (id: string, number: number, firedAt: number) => ({ id, number, lines: lines(), firedAt });
+const SHOP = 'shop-test';
+const ticket = (id: string, number: number, firedAt: number) => ({ id, shopId: SHOP, number, lines: lines(), firedAt });
 
 test('queue is open tickets, oldest first', () => {
   let t = fire([], ticket('c', 1003, 300));
@@ -97,16 +98,16 @@ test('sending: unsent lines, markSent, and a second round never merges into sent
 const M = (id: string, size: 'M' | 'L' = 'M') => ({ id, itemId: 'margherita', qty: 1, size, adds: [], outs: [], sent: true });
 
 test('a new ticket alerts until the kitchen taps it; Done also counts as seen', () => {
-  let t = fire([], { id: 'a', number: 1, lines: [M('x')], firedAt: 100 });
+  let t = fire([], { shopId: SHOP, id: 'a', number: 1, lines: [M('x')], firedAt: 100 });
   assert.equal(needsAttention(t[0]), true);
   t = ack(t, 'a', 150);
   assert.equal(needsAttention(t[0]), false);
-  const d = bump(fire([], { id: 'b', number: 2, lines: [M('y')], firedAt: 100 }), 'b', 200);
+  const d = bump(fire([], { shopId: SHOP, id: 'b', number: 2, lines: [M('y')], firedAt: 100 }), 'b', 200);
   assert.equal(needsAttention(d[0]), false);
 });
 
 test('a change keeps the old line, marks the ticket Changed, reopens it and alerts again', () => {
-  let t = fire([], { id: 'a', number: 1042, lines: [M('x'), M('y')], firedAt: 100 });
+  let t = fire([], { shopId: SHOP, id: 'a', number: 1042, lines: [M('x'), M('y')], firedAt: 100 });
   t = bump(t, 'a', 200); // kitchen already finished it
   t = amendLine(t, 'x', M('x', 'L'), 300);
   const [k] = t;
@@ -122,7 +123,7 @@ test('a change keeps the old line, marks the ticket Changed, reopens it and aler
 });
 
 test('a cancel strikes the line but keeps it on the ticket', () => {
-  const t = amendLine(fire([], { id: 'a', number: 1, lines: [M('x')], firedAt: 0 }), 'x', null, 50);
+  const t = amendLine(fire([], { shopId: SHOP, id: 'a', number: 1, lines: [M('x')], firedAt: 0 }), 'x', null, 50);
   const [line] = ticketLines(t[0]);
   assert.equal(line.status, 'cancelled');
   assert.equal(line.name, 'Margherita');
@@ -130,8 +131,8 @@ test('a cancel strikes the line but keeps it on the ticket', () => {
 });
 
 test('changing twice compares with the latest version; other tickets are untouched', () => {
-  let t = fire([], { id: 'a', number: 1, lines: [M('x')], firedAt: 0 });
-  t = fire(t, { id: 'b', number: 2, lines: [M('z')], firedAt: 0 });
+  let t = fire([], { shopId: SHOP, id: 'a', number: 1, lines: [M('x')], firedAt: 0 });
+  t = fire(t, { shopId: SHOP, id: 'b', number: 2, lines: [M('z')], firedAt: 0 });
   t = amendLine(t, 'x', M('x', 'L'), 10);
   t = amendLine(t, 'x', { ...M('x', 'L'), qty: 2 }, 20);
   const [line] = ticketLines(t[0]);
@@ -142,9 +143,9 @@ test('changing twice compares with the latest version; other tickets are untouch
 });
 
 test('cookState: cooking while any ticket of the order is open, done when all are bumped', () => {
-  let t = fire([], { id: 'a', number: 1042, lines: [M('x')], firedAt: 0 });
-  t = fire(t, { id: 'b', number: 1042, lines: [M('y')], firedAt: 5, addOn: true });
-  t = fire(t, { id: 'c', number: 1043, lines: [M('z')], firedAt: 5 });
+  let t = fire([], { shopId: SHOP, id: 'a', number: 1042, lines: [M('x')], firedAt: 0 });
+  t = fire(t, { shopId: SHOP, id: 'b', number: 1042, lines: [M('y')], firedAt: 5, addOn: true });
+  t = fire(t, { shopId: SHOP, id: 'c', number: 1043, lines: [M('z')], firedAt: 5 });
   assert.equal(cookState(t, 1042), 'cooking');
   t = bump(t, 'a', 10);
   assert.equal(cookState(t, 1042), 'cooking'); // the added round is still cooking
@@ -153,4 +154,17 @@ test('cookState: cooking while any ticket of the order is open, done when all ar
   assert.equal(cookState(t, 1043), 'cooking');
   assert.equal(cookState(amendLine(t, 'x', null, 30), 1042), 'cooking'); // a manager change reopens it
   assert.equal(cookState(prune(t, 10 ** 12), 1042), 'done'); // pruned hours later: still done
+});
+
+test('restoreLine puts a cancelled line back exactly and alerts the kitchen again', () => {
+  let t = fire([], { shopId: SHOP, id: 'a', number: 1, lines: [M('x'), M('y')], firedAt: 0 });
+  t = ack(t, 'a', 5);
+  const before = kitchenLine(t, 'y')!;
+  t = amendLine(t, 'y', null, 10);
+  assert.equal(ticketLines(t[0])[1].status, 'cancelled');
+  t = restoreLine(bump(ack(t, 'a', 11), 'a', 12), before, 20);
+  assert.equal(ticketLines(t[0])[1].status, 'ok');
+  assert.deepEqual(t[0].lines[1], before);
+  assert.equal(t[0].doneAt, undefined);
+  assert.equal(needsAttention(t[0]), true);
 });
