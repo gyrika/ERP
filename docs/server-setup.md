@@ -81,7 +81,7 @@ Xprinter driver stays installed, so nothing else on the PC breaks. No separate h
 - **Power cut:** every action is saved on the device first (the outbox) and pushed when the
   server is back. MySQL then holds the full history. Put the PC (and later the Wi-Fi router) on
   the UPS (SCRUM-73).
-- **Offline sign:** the Register and the Kitchen show "Offline · saved here" while they cannot
+- **Offline sign:** the Register and the Kitchen show "Offline · 2 orders waiting" while they cannot
   reach the server, and nothing at all when synced (SCRUM-32).
 - **Firewall:** a kitchen tablet needs Windows Firewall to allow Node on port 8080 for
   *private* networks only.

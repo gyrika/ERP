@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { PullResponse, PushRequest, StreamMessage, SyncEvent, SyncTransport } from '../domain/sync.ts';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { startSync } from '../services/syncClient.ts';
+import { SyncSign } from './SyncSign.tsx';
 import { addEvents, appendEvent, readAll, readOutbox } from './eventLog.ts';
 import { readTickets } from './kitchenStore.ts';
 
@@ -8,7 +10,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const flush = () => vi.advanceTimersByTimeAsync(0);
 
@@ -85,4 +87,23 @@ test('events from other devices arrive once and show on the kitchen screen', asy
 test('demo events are never queued for the server', () => {
   addEvents([sent('demo-1', 'tk')]);
   expect(readOutbox()).toEqual([]);
+});
+
+test('offline sign: how many orders wait, and gone once they are sent', async () => {
+  const server = fakeServer();
+  server.setDown(true);
+  const stop = startSync(server.transport);
+  render(<SyncSign />);
+  await act(async () => {
+    appendEvent({ type: 'kitchen.seen', at: 1, orderNumber: 1001, ticketId: 't' });
+    appendEvent({ type: 'kitchen.bumped', at: 2, orderNumber: 1001, ticketId: 't' });
+    appendEvent({ type: 'kitchen.seen', at: 3, orderNumber: 1002, ticketId: 'u' });
+    await flush();
+  });
+  expect(screen.getByRole('status').textContent).toBe('Offline · 2 orders waiting');
+
+  server.setDown(false);
+  await act(() => vi.advanceTimersByTimeAsync(10_000));
+  expect(screen.queryByRole('status')).toBeNull();
+  stop();
 });
