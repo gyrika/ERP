@@ -84,7 +84,11 @@ test('price drawer reports invalid input and saves valid LKR cents', async () =>
 test('supplier cards show primary and backup counts without inventing contact details', () => {
   render(<SupplierView />);
 
+  expect(screen.getByRole('main', { name: 'Suppliers' }).classList.contains('inv-shell')).toBe(true);
+  expect(screen.getByRole('heading', { name: 'Suppliers' }).classList.contains('supplier-heading')).toBe(true);
+
   const primaHeading = screen.getByRole('heading', { name: 'Prima / David Stores' });
+  expect(primaHeading.closest('article')?.classList.contains('inv-card')).toBe(true);
   const prima = within(primaHeading.closest('article')!);
   expect(prima.getByText('Primary items')).toBeTruthy();
   expect(prima.getByText('Backup items')).toBeTruthy();
