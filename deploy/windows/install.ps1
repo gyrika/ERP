@@ -62,49 +62,76 @@ try {
 
   # ---------------------------------------------------------------- MySQL
   Write-Step 'MySQL'
-  $bin = Find-MySqlBin
   $rootPassword = $null
-  if ($bin) {
-    Write-Ok "Found MySQL in $bin."
+  $mysqlPort = 3306
+  $own = Get-Service -Name 'CheesyBeezMySQL' -ErrorAction SilentlyContinue
+  $existing = Find-MySqlBin
+  if ($own) {
+    # Ours, from an earlier run: its port and admin password are on file.
+    $bin = Join-Path $MySqlHome 'bin'
+    $portLine = Select-String -Path (Join-Path $MySqlHome 'my.ini') -Pattern '^port=(\d+)' | Select-Object -First 1
+    if ($portLine) { $mysqlPort = [int]$portLine.Matches[0].Groups[1].Value }
+    if ($own.Status -ne 'Running') { Start-Service 'CheesyBeezMySQL' }
     if (Test-Path $RootPwFile) { $rootPassword = (Get-Content $RootPwFile -Raw).Trim() }
+    Write-Ok "The POS's own MySQL is installed (port $mysqlPort)."
   } else {
-    # Our own MySQL, as a Windows service that starts with the PC. Needs the Microsoft C++ runtime.
-    Write-Note 'MySQL is not installed: installing it for the POS (a few minutes).'
-    $vc = Join-Path $Downloads 'vc_redist.x64.exe'
-    if (-not (Test-Path $vc)) { Get-Download 'https://aka.ms/vs/17/release/vc_redist.x64.exe' $vc }
-    & $vc /install /quiet /norestart | Out-Null   # exit 1638 = already installed, fine
-    $zip = Join-Path $Downloads "mysql-$MySqlVersion-winx64.zip"
-    if (-not (Test-Path $zip)) { Get-Download "https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-$MySqlVersion-winx64.zip" $zip }
-    Expand-Archive -Path $zip -DestinationPath $Base -Force
-    if (Test-Path $MySqlHome) { Remove-Item $MySqlHome -Recurse -Force }
-    Rename-Item (Join-Path $Base "mysql-$MySqlVersion-winx64") $MySqlHome
-    $ini = @"
+    $useExisting = $false
+    if ($existing) {
+      Write-Note "This PC already has a MySQL ($existing)."
+      $pick = Read-Choice 'Which MySQL should the POS use?' @(
+        'A separate one just for the POS (recommended: no password needed, removed cleanly later)',
+        "The existing one (you need its admin password, and it must start with Windows)")
+      $useExisting = ($pick -eq 1)
+    }
+    if ($useExisting) {
+      $bin = $existing
+      # Installed but not running is common (set to start manually): start it, and keep it starting.
+      $svc = Get-Service -Name 'MySQL*' -ErrorAction SilentlyContinue | Select-Object -First 1
+      if (-not $svc) { throw 'That MySQL has no Windows service to start. Run this again and choose a separate MySQL.' }
+      Set-Service -Name $svc.Name -StartupType Automatic
+      if ($svc.Status -ne 'Running') { Start-Service -Name $svc.Name; Write-Ok "Started $($svc.Name)." }
+    } else {
+      # Our own MySQL, as a Windows service that starts with the PC. Next to another MySQL it
+      # takes port 3307, so the two never meet. Needs the Microsoft C++ runtime.
+      if ($existing) { $mysqlPort = 3307 }
+      Write-Note "Installing a MySQL for the POS on port $mysqlPort (a few minutes)."
+      $vc = Join-Path $Downloads 'vc_redist.x64.exe'
+      if (-not (Test-Path $vc)) { Get-Download 'https://aka.ms/vs/17/release/vc_redist.x64.exe' $vc }
+      & $vc /install /quiet /norestart | Out-Null   # exit 1638 = already installed, fine
+      $zip = Join-Path $Downloads "mysql-$MySqlVersion-winx64.zip"
+      if (-not (Test-Path $zip)) { Get-Download "https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-$MySqlVersion-winx64.zip" $zip }
+      Expand-Archive -Path $zip -DestinationPath $Base -Force
+      if (Test-Path $MySqlHome) { Remove-Item $MySqlHome -Recurse -Force }
+      Rename-Item (Join-Path $Base "mysql-$MySqlVersion-winx64") $MySqlHome
+      $ini = @"
 [mysqld]
 basedir=$($MySqlHome -replace '\\', '/')
 datadir=$($MySqlData -replace '\\', '/')
-port=3306
+port=$mysqlPort
+mysqlx=OFF
 bind-address=127.0.0.1
 character-set-server=utf8mb4
 "@
-    [IO.File]::WriteAllText((Join-Path $MySqlHome 'my.ini'), $ini, (New-Object Text.ASCIIEncoding))
-    $bin = Join-Path $MySqlHome 'bin'
-    if (-not (Test-Path $MySqlData)) {
-      Invoke-Native (Join-Path $bin 'mysqld.exe') @("--defaults-file=$MySqlHome\my.ini", '--initialize-insecure', '--console')
+      [IO.File]::WriteAllText((Join-Path $MySqlHome 'my.ini'), $ini, (New-Object Text.ASCIIEncoding))
+      $bin = Join-Path $MySqlHome 'bin'
+      if (-not (Test-Path $MySqlData)) {
+        Invoke-Native (Join-Path $bin 'mysqld.exe') @("--defaults-file=$MySqlHome\my.ini", '--initialize-insecure', '--console')
+      }
+      Invoke-Native (Join-Path $bin 'mysqld.exe') @('--install', 'CheesyBeezMySQL', "--defaults-file=$MySqlHome\my.ini")
+      Start-Service 'CheesyBeezMySQL'
+      $ready = $false
+      for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
+        try { Invoke-MySql -Bin $bin -Port $mysqlPort -User 'root' -Password '' -Sql 'SELECT 1;' | Out-Null; $ready = $true } catch { Start-Sleep -Seconds 1 }
+      }
+      if (-not $ready) { throw 'MySQL did not start. See C:\CheesyBeez\mysql-data\*.err' }
+      # It starts with an empty root password: give it a random one and keep it for the owner.
+      $rootPassword = New-Secret
+      Invoke-MySql -Bin $bin -Port $mysqlPort -User 'root' -Password '' -Sql "ALTER USER 'root'@'localhost' IDENTIFIED BY '$rootPassword';" | Out-Null
+      [IO.File]::WriteAllText($RootPwFile, $rootPassword)
+      Protect-File $RootPwFile
+      Write-Ok "MySQL $MySqlVersion installed as the CheesyBeezMySQL service (port $mysqlPort)."
+      Write-Note "Its admin password is in $RootPwFile (administrators only). Keep a copy with the owner."
     }
-    Invoke-Native (Join-Path $bin 'mysqld.exe') @('--install', 'CheesyBeezMySQL', "--defaults-file=$MySqlHome\my.ini")
-    Start-Service 'CheesyBeezMySQL'
-    $ready = $false
-    for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
-      try { Invoke-MySql -Bin $bin -User 'root' -Password '' -Sql 'SELECT 1;' | Out-Null; $ready = $true } catch { Start-Sleep -Seconds 1 }
-    }
-    if (-not $ready) { throw 'MySQL did not start. See C:\CheesyBeez\mysql-data\*.err' }
-    # It starts with an empty root password: give it a random one and keep it for the owner.
-    $rootPassword = New-Secret
-    Invoke-MySql -Bin $bin -User 'root' -Password '' -Sql "ALTER USER 'root'@'localhost' IDENTIFIED BY '$rootPassword';" | Out-Null
-    [IO.File]::WriteAllText($RootPwFile, $rootPassword)
-    Protect-File $RootPwFile
-    Write-Ok "MySQL $MySqlVersion installed as the CheesyBeezMySQL service."
-    Write-Note "The MySQL admin password is in $RootPwFile (administrators only). Keep a copy with the owner."
   }
 
   # ---------------------------------------------------------------- Database and its two users
@@ -119,9 +146,10 @@ character-set-server=utf8mb4
       Replace('<app password>', $appPw).Replace('<migrate password>', $migratePw)
     # Users that already exist keep their old password, which we do not know: reset both.
     $bootstrap += "`nALTER USER 'pos_app'@'localhost' IDENTIFIED BY '$appPw';`nALTER USER 'pos_migrate'@'localhost' IDENTIFIED BY '$migratePw';`n"
-    Invoke-MySql -Bin $bin -User 'root' -Password $rootPassword -Sql $bootstrap | Out-Null
-    Write-EnvFile $MigrateFile @{ MIGRATE_DATABASE_URL = "mysql://pos_migrate:$migratePw@localhost:3306/cheesybeez" }
-    Write-EnvFile $EnvFile @{ DATABASE_URL = "mysql://pos_app:$appPw@localhost:3306/cheesybeez"; PORT = "$Port" }
+    Invoke-MySql -Bin $bin -Port $mysqlPort -User 'root' -Password $rootPassword -Sql $bootstrap | Out-Null
+    # 127.0.0.1, not localhost: Node tries localhost as IPv6 first, and MySQL listens on IPv4.
+    Write-EnvFile $MigrateFile @{ MIGRATE_DATABASE_URL = "mysql://pos_migrate:$migratePw@127.0.0.1:$mysqlPort/cheesybeez" }
+    Write-EnvFile $EnvFile @{ DATABASE_URL = "mysql://pos_app:$appPw@127.0.0.1:$mysqlPort/cheesybeez"; PORT = "$Port" }
     Write-Ok 'Database and users created; passwords saved for the server (administrators only).'
   }
 
