@@ -18,7 +18,9 @@ Show 'Server' $up ("http://localhost:$Port" + $(if ($up) { '' } else { "  not an
 $task = Get-ScheduledTask -TaskName $TaskServer -ErrorAction SilentlyContinue
 Show 'Starts with PC' ([bool]$task) $(if ($task) { "task: $($task.State)" } else { 'missing: run install.ps1' })
 
-$mysql = Get-Service -Name 'CheesyBeezMySQL', 'MySQL*' -ErrorAction SilentlyContinue | Select-Object -First 1
+# The POS's own MySQL if it has one, otherwise the PC's.
+$mysql = Get-Service -Name 'CheesyBeezMySQL' -ErrorAction SilentlyContinue
+if (-not $mysql) { $mysql = Get-Service -Name 'MySQL*' -ErrorAction SilentlyContinue | Select-Object -First 1 }
 Show 'MySQL' ($mysql -and $mysql.Status -eq 'Running') $(if ($mysql) { "$($mysql.Name): $($mysql.Status)" } else { 'no MySQL service found' })
 
 $commit = (& git.exe -C $Root log -1 --format='%h %cd %s' --date=short 2>$null)

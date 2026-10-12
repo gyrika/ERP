@@ -29,7 +29,7 @@ try {
   if (-not $Force) {
     $m = ConvertFrom-DbUrl (Read-EnvFile (Join-Path $Root 'server\.env.migrate'))['MIGRATE_DATABASE_URL']
     $bin = Find-MySqlBin
-    $last = Invoke-MySql -Bin $bin -User $m.User -Password $m.Password -Database $m.Database `
+    $last = Invoke-MySql -Bin $bin -Port $m.Port -User $m.User -Password $m.Password -Database $m.Database `
       -Sql 'SELECT COALESCE(MAX(received_at), 0) FROM events;'
     $quietMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [int64]"$last".Trim()
     if ($quietMs -lt 15 * 60 * 1000) {

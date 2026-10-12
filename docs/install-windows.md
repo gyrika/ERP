@@ -23,8 +23,11 @@ irm https://raw.githubusercontent.com/gyrika/ERP/main/deploy/windows/get.ps1 | i
 
 It downloads the POS to `C:\CheesyBeez\ERP` and runs `deploy\windows\install.ps1`, which:
 
-- installs **Node.js**, and **MySQL** if the PC has none (as a Windows service that starts with
-  the PC), with random passwords it saves for the server (administrators only);
+- installs **Node.js**, and its **own MySQL** (a Windows service that starts with the PC), with
+  random passwords it saves for the server (administrators only). If the PC already has a MySQL,
+  it asks: a separate one just for the POS on port 3307 (recommended: needs no password, never
+  touches the other one) or the existing one (needs its admin password; it is started and set to
+  start with Windows);
   the MySQL admin password ends up in `C:\CheesyBeez\mysql-root-password.txt` (give the owner a copy);
 - creates the database and its two users, builds the app, applies the database changes;
 - asks **which printer** prints receipts (a numbered list);

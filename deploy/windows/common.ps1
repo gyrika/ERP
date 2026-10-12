@@ -95,10 +95,10 @@ function Find-MySqlBin {
 
 # Runs SQL through the mysql client. The password goes in through MYSQL_PWD, never on the command line.
 function Invoke-MySql {
-  param([string]$Bin, [string]$User, [string]$Password, [string]$Sql, [string]$Database = '')
+  param([string]$Bin, [string]$User, [string]$Password, [string]$Sql, [string]$Database = '', [string]$Port = '3306')
   $env:MYSQL_PWD = $Password
   try {
-    $arguments = @('-u', $User, '-h', '127.0.0.1', '--protocol=TCP', '-N', '-B')
+    $arguments = @('-u', $User, '-h', '127.0.0.1', '-P', $Port, '--protocol=TCP', '-N', '-B')
     if ($Database) { $arguments += $Database }
     $out = $Sql | & (Join-Path $Bin 'mysql.exe') @arguments
     if ($LASTEXITCODE -ne 0) { throw "MySQL refused the command (exit code $LASTEXITCODE)" }

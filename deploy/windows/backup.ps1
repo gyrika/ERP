@@ -14,7 +14,7 @@ $file = Join-Path $Backups ("cheesybeez-{0:yyyy-MM-dd}.sql" -f (Get-Date))
 $env:MYSQL_PWD = $m.Password
 try {
   # --single-transaction: a consistent copy without stopping sales.
-  & (Join-Path $bin 'mysqldump.exe') -u $m.User -h 127.0.0.1 --protocol=TCP --single-transaction --no-tablespaces `
+  & (Join-Path $bin 'mysqldump.exe') -u $m.User -h 127.0.0.1 -P $m.Port --protocol=TCP --single-transaction --no-tablespaces `
     --result-file="$file" $m.Database
   if ($LASTEXITCODE -ne 0) { throw "mysqldump failed (exit code $LASTEXITCODE)" }
 } finally {
