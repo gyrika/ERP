@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { App } from './App.tsx';
 import { Kitchen } from './Kitchen.tsx';
+import { ReceiptPreview } from './ReceiptPreview.tsx';
 
 const KITCHEN = '#kitchen';
 
@@ -39,6 +40,7 @@ export function Root() {
     return () => window.removeEventListener('keydown', onKey);
   }, [inKitchen, show]);
 
+  if (hash === '#receipt') return <ReceiptPreview />; // setup page, not a cashier screen
   return inKitchen
     ? <Kitchen onBack={fromRegister ? () => show(false) : undefined} />
     : <App onKitchen={() => show(true)} />;

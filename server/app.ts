@@ -5,6 +5,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import {
   PULL_LIMIT, type ApiError, type PullResponse, type PushResponse, type StreamMessage, type SyncedEvent,
 } from '../src/domain/sync.ts';
+import type { RawPrinter } from './printer.ts';
 import type { Device, EventStore } from './store.ts';
 import { validatePush } from './validate.ts';
 
@@ -18,10 +19,13 @@ export interface AppOptions {
   store: EventStore;
   /** The built app (vite build → dist). Omit to serve the API only. */
   staticDir?: string;
+  /** The receipt printer on this PC. Omit and printing answers 503. */
+  printer?: RawPrinter;
   now?: () => number;
 }
 
 const MAX_BODY = 1_000_000; // 100 events are far below this
+const MAX_PRINT = 64_000; // a long receipt is ~3 KB of ESC/POS
 
 class HttpError extends Error {
   status: number;
@@ -79,7 +83,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
 
@@ -100,6 +104,21 @@ export function createApp({ store, staticDir, now = Date.now }: AppOptions): Ser
   const api = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') {
       json(res, 200, { ok: true, serverTime: now() });
+      return;
+    }
+    if (url.pathname === '/api/v1/print' && req.method === 'POST') {
+      const device = await authenticate(req, url);
+      // Printing opens the cash drawer: only the counter may, never a kitchen tablet or a phone.
+      if (device.kind !== 'counter') throw new HttpError(403, 'forbidden', 'only the counter prints');
+      const body = await readBody(req);
+      const data = typeof body === 'object' && body !== null ? (body as { data?: unknown }).data : undefined;
+      if (typeof data !== 'string') throw new HttpError(400, 'invalid_event', 'body must be { data: base64 }');
+      const bytes = Buffer.from(data, 'base64');
+      if (!bytes.length || bytes.length > MAX_PRINT) throw new HttpError(400, 'invalid_event', 'receipt is empty or too large');
+      if (!printer) throw new HttpError(503, 'printer', 'no printer set up on this PC');
+      try { await printer.print(bytes); }
+      catch (e) { console.error(e); throw new HttpError(503, 'printer', 'the printer did not take the receipt'); }
+      json(res, 200, { ok: true });
       return;
     }
     if (url.pathname !== '/api/v1/events') throw new HttpError(404, 'server', 'no such endpoint');

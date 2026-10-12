@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'reac
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { bareLine, orderTotal, unsentLines } from '../domain/order.ts';
-import type { MenuItem, OrderLine, SizeId } from '../domain/types.ts';
+import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
+import { canPrint, printReceipt } from '../services/printer.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
 import { ExtrasSheet } from './ExtrasSheet.tsx';
 import { KitchenChip } from './KitchenChip.tsx';
@@ -36,6 +37,18 @@ export function App({ onKitchen }: { onKitchen?: () => void } = {}) {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [typed, setTyped] = useState<string | null>(null); // non-null = shorthand bar open
   const closeSheet = useCallback(() => setSheet(null), []);
+  /** The receipt of the sale on screen: printed by itself at payment, with the drawer for cash. */
+  const [printing, setPrinting] = useState<{ number: number; state: 'printing' | 'printed' | 'failed' } | null>(null);
+  const print = useCallback((paid: PaidOrder, reprint = false) => {
+    if (!canPrint()) return;
+    setPrinting({ number: paid.number, state: 'printing' });
+    void printReceipt(paid, currentCashier().name, { reprint }).then((r) =>
+      setPrinting((p) => (p?.number === paid.number ? { number: paid.number, state: r === 'printed' ? 'printed' : 'failed' } : p)));
+  }, []);
+  const pay = useCallback((tender: Tender, tendered: number) => {
+    const paid = reg.pay(tender, tendered);
+    if (paid) print(paid);
+  }, [reg, print]);
   const total = orderTotal(reg.order);
   const hasNew = unsentLines(reg.order).length > 0;
   /** A waiting order opened from the list, with nothing new on it: Charge, or go back. */
@@ -247,7 +260,9 @@ export function App({ onKitchen }: { onKitchen?: () => void } = {}) {
           onEdit={(line) => setSheet({ kind: 'edit', line })}
           onSend={reg.send}
           onCharge={() => setSheet({ kind: 'pay' })}
-          onCloseFree={() => reg.pay('comp', 0)}
+          onCloseFree={() => pay('comp', 0)}
+          printState={canPrint() && reg.paid && printing?.number === reg.paid.number ? printing.state : null}
+          onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
           onOpen={reg.openOrder}
           onNext={reg.startNew}
           onUndo={reg.undo}
@@ -283,7 +298,7 @@ export function App({ onKitchen }: { onKitchen?: () => void } = {}) {
         />
       )}
       {sheet?.kind === 'pay' && (
-        <PaySheet total={total} onClose={closeSheet} onPay={(tender, tendered) => { reg.pay(tender, tendered); closeSheet(); }} />
+        <PaySheet total={total} onClose={closeSheet} onPay={(tender, tendered) => { pay(tender, tendered); closeSheet(); }} />
       )}
       {sheet?.kind === 'pin' && (
         <PinSheet onClose={closeSheet} onUnlock={(actor) => { closeSheet(); mode.enter(actor); }} />

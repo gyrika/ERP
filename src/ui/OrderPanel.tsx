@@ -72,6 +72,10 @@ interface Props {
   onOpen: (number: number) => void;
   onNext: () => void;
   onUndo: () => void;
+  /** The receipt of the paid order on screen; null when this device does not print. */
+  printState?: 'printing' | 'printed' | 'failed' | null;
+  /** Prints a COPY, without opening the drawer. Absent when this device does not print. */
+  onReprint?: () => void;
 }
 
 function VoidReasons({ lineId, onVoid }: { lineId: string; onVoid: ManagePanel['onVoid'] }) {
@@ -131,7 +135,7 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
  * and changeable, discount chips under the order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onOpen, onNext, onUndo,
+  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onOpen, onNext, onUndo, printState, onReprint,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
@@ -147,7 +151,11 @@ export function OrderPanel({
             {paid.tender === 'cash' ? `Cash ${fmt(paid.tendered)} · ` : `${TENDER[paid.tender]} · `}
             Total {fmt(paid.total)}
           </span>
-          <button type="button" className="linkbtn" onClick={onUndo}>Undo payment</button>
+          <span className="paid__links">
+            <button type="button" className="linkbtn" onClick={onUndo}>Undo payment</button>
+            {onReprint && <button type="button" className="linkbtn" onClick={onReprint}>Print again</button>}
+          </span>
+          {printState === 'failed' && <span className="paid__note">Receipt not printed</span>}
         </div>
         <div className="panel__foot">
           <button type="button" className="cta" autoFocus onClick={onNext}>Next order</button>

@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import type { StreamMessage, SyncEvent } from '../src/domain/sync.ts';
 import { createApp } from './app.ts';
+import type { RawPrinter } from './printer.ts';
 import { memoryStore, type EventStore } from './store.ts';
 
 const SHOP = 'shop-a';
@@ -11,8 +12,8 @@ const SHOP = 'shop-a';
 const ev = (id: string, shopId = SHOP): SyncEvent =>
   ({ id, shopId, at: 1000, orderNumber: 1001, ticketId: 't1', type: 'kitchen.seen' });
 
-async function start(store: EventStore = memoryStore()) {
-  const server = createApp({ store, now: () => 5000 });
+async function start(store: EventStore = memoryStore(), printer?: RawPrinter) {
+  const server = createApp({ store, printer, now: () => 5000 });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const base = `127.0.0.1:${(server.address() as AddressInfo).port}`;
   const counter = await store.addDevice(SHOP, 'Shop A', 'counter');
@@ -110,5 +111,38 @@ test('stream: hello, catch-up, then live events; only to the same shop', async (
 test('stream refuses a bad token', async () => {
   const s = await start();
   await assert.rejects(s.stream('nope'));
+  await s.stop();
+});
+
+test('print: only the counter, bytes delivered as sent, a printer failure is a clear 503', async () => {
+  const printed: number[][] = [];
+  let jammed = false;
+  const printer: RawPrinter = {
+    name: 'test',
+    async print(bytes) { if (jammed) throw new Error('paper out'); printed.push([...bytes]); },
+  };
+  const s = await start(memoryStore(), printer);
+  const data = Buffer.from([0x1b, 0x40, 0x48, 0x69]).toString('base64');
+
+  assert.equal((await s.call('/api/v1/print', s.tokens.counter, { data })).status, 200);
+  assert.deepEqual(printed, [[0x1b, 0x40, 0x48, 0x69]]);
+
+  const kitchen = await s.call('/api/v1/print', s.tokens.kitchen, { data });
+  assert.equal(kitchen.status, 403, 'a kitchen tablet must never open the cash drawer');
+  assert.equal((await s.call('/api/v1/print', null, { data })).status, 401);
+  assert.equal((await s.call('/api/v1/print', s.tokens.counter, { data: '' })).status, 400);
+
+  jammed = true;
+  const failed = await s.call('/api/v1/print', s.tokens.counter, { data });
+  assert.equal(failed.status, 503);
+  assert.equal((await failed.json()).error, 'printer');
+  assert.equal(printed.length, 1);
+  await s.stop();
+});
+
+test('print without a printer set up answers 503', async () => {
+  const s = await start();
+  const r = await s.call('/api/v1/print', s.tokens.counter, { data: Buffer.from('x').toString('base64') });
+  assert.equal(r.status, 503);
   await s.stop();
 });

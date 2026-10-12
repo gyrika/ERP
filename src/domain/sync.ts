@@ -73,7 +73,7 @@ export type StreamMessage =
 
 /** What the server sends on any 4xx/5xx. */
 export interface ApiError {
-  error: 'unauthorized' | 'wrong_shop' | 'invalid_event' | 'server';
+  error: 'unauthorized' | 'wrong_shop' | 'forbidden' | 'invalid_event' | 'printer' | 'server';
   message: string;
 }
 
