@@ -9,6 +9,19 @@
 > It updates itself at 4 am from the latest Release. To publish a new version: `git tag v1.0.1 &&
 > git push origin v1.0.1` (GitHub tests it on Windows and builds the Setup.exe).
 >
+> **Updates never touch the sales.** The program lives in `C:\Program Files\CheesyBeez Station`,
+> the data in `C:\ProgramData\CheesyBeez`. Every night at 4 am, and again right before an update,
+> a checked copy of the database goes to `C:\ProgramData\CheesyBeez\backups` (newest 14 kept). After
+> installing, the updater waits up to 3 minutes for the new version to answer; if it does not, it
+> puts the previous version back by itself and skips that version until a newer one is published.
+> All of it is written in `logs\update.log`. Back up by hand (PowerShell as administrator):
+> `& "C:\Program Files\CheesyBeez Station\node\node.exe" --experimental-strip-types "C:\Program Files\CheesyBeez Station\app\server\sqliteBackup.ts" C:\ProgramData\CheesyBeez manual`
+>
+> **Restoring a backup** (only if the data itself went wrong; it loses the sales made after that
+> backup): `schtasks /End /TN "CheesyBeez Station"`, copy the chosen `backups\pos-….sqlite` over
+> `C:\ProgramData\CheesyBeez\pos.sqlite`, delete `pos.sqlite-wal` and `pos.sqlite-shm` beside it,
+> then `schtasks /Run /TN "CheesyBeez Station"`. The cloud copy still has every sale it received.
+>
 > The PowerShell route below is the older way (it uses MySQL); keep it only for a PC that must run MySQL.
 
 The shop is in Thalwila; development happens in Galle. So the shop PC is set up **once**, by

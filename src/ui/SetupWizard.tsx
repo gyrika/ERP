@@ -209,11 +209,12 @@ function CloudStep({ connected, ownerPin, onConnected, onNext }: {
 /**
  * Shop setup → Updates: the installed version, GitHub's latest, and "Update now"
  * (it runs even during service: the owner chose to; the nightly update waits).
- * The POS restarts by itself; this screen waits for it and reloads.
+ * The POS restarts by itself; this screen waits for it and reloads. If the new version does not
+ * start, the updater puts the old one back (station-update.ps1), and this screen says so.
  */
 function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
   const [info, setInfo] = useState<{ current: string; latest: string | null; newer: boolean } | null>(null);
-  const [phase, setPhase] = useState<'checking' | 'idle' | 'updating' | 'slow'>('checking');
+  const [phase, setPhase] = useState<'checking' | 'idle' | 'updating' | 'slow' | 'back'>('checking');
   const [error, setError] = useState('');
   const check = useCallback(async () => {
     setPhase('checking');
@@ -228,12 +229,15 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
     try { await setupClient.installUpdate(ownerPin); } catch (e) { setError(e instanceof Error ? e.message : String(e)); return; }
     setPhase('updating');
     const started = Date.now();
+    let wentDown = false; // the installer stopped the server: from now on, the old version answering means it went back
     const wait = async () => {
       try {
         const h = (await (await fetch('/api/v1/health', { signal: AbortSignal.timeout(3000) })).json()) as { version?: string };
         if (info?.latest && h.version === info.latest) { restartApp(); return; }
-      } catch { /* the server is restarting: keep waiting */ }
-      if (Date.now() - started > 5 * 60_000) { setPhase('slow'); return; }
+        if (wentDown && h.version === info?.current) { setPhase('back'); return; }
+      } catch { wentDown = true; /* the server is restarting: keep waiting */ }
+      // Going back can take a while: 3 minutes of waiting for the new version, then the old one again.
+      if (Date.now() - started > 10 * 60_000) { setPhase('slow'); return; }
       setTimeout(() => void wait(), 3000);
     };
     setTimeout(() => void wait(), 3000);
@@ -244,6 +248,9 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
       <p className="setup__lead">Installed: <b>{info?.current ?? '…'}</b>. New versions also install by themselves at 4 am, when the shop is closed.</p>
       {phase === 'updating' && (
         <p className="setup__done" role="status">Updating to {info?.latest}… The POS restarts by itself in about a minute. Please don't turn the PC off.</p>
+      )}
+      {phase === 'back' && (
+        <p className="setup__error" role="alert">Version {info?.latest} did not start on this PC, so CheesyBeez went back to {info?.current}. All sales are safe. Tell whoever looks after your POS.</p>
       )}
       {phase === 'slow' && (
         <p className="setup__error" role="alert">This is taking longer than expected. Leave the PC on; if the POS does not come back, restart the PC.</p>
