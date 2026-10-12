@@ -20,7 +20,7 @@ const SAMPLE: Order = {
   adjust: { discount: { kind: 'percent', pct: 10 } },
 };
 
-const samplePaid = (): PaidOrder => {
+export const samplePaid = (): PaidOrder => {
   const total = totals(SAMPLE).total;
   return { ...SAMPLE, total, tender: 'cash', tendered: 1000000, change: 1000000 - total, paidAt: Date.now() };
 };

@@ -51,3 +51,10 @@ export const ownerToken = (): string | null => (isDemo() ? null : get(OWNER));
  * the Owner view: nobody on the internet reaches a register there.
  */
 export const isCloudSite = (): boolean => import.meta.env.VITE_SITE === 'cloud';
+
+/** The setup wizard made this screen the counter (no link to open: the shop PC pairs itself). */
+export const pairAsCounter = (token: string, shopId: string): void => {
+  set(TOKEN, token);
+  set(KIND, 'counter');
+  set(SHOP, shopId);
+};

@@ -31,6 +31,10 @@
    - ✅ Cloud copy first (SCRUM-61, `docs/cloud.md`): Cloudflare Workers + D1, fed by `server/replicator.ts`. The Owner view reads from it, so it works from anywhere.
 7. ✅ Customer receipt printing (ESC/POS) + cash drawer: built and tested without the printer (dry run, bytes locked by tests, preview at `/#receipt`); the server on the counter PC prints through the Windows queue, so the planned separate helper (SCRUM-71) is the server itself. **Left:** a test on the real XP-80T and drawer at the shop. Scanner later. No kitchen printing.
 
+## Shop server storage and setup (2026-10-12)
+- **Built-in SQLite by default** (`server/sqliteStore.ts`, `server/sqlite/*.sql`, applied on start): no database to install on the shop PC. Same `EventStore` interface and append-only rules (triggers) as MySQL; MySQL remains when `DATABASE_URL` is set. Chosen by the user because MySQL was the hardest part to install automatically.
+- **Setup wizard** (`src/ui/SetupWizard.tsx`, `server/setup.ts`, settings in `server/data/settings.json`): shop → printer (switchable while running) → staff (owner first) → devices. Answers localhost only; after setup every change needs the owner's PIN (5 wrong → 30 s). The shop PC pairs itself as the counter; QR codes pair a kitchen tablet (LAN link) and the owner's phone (the shop server asks the cloud, `POST /api/v1/devices`, for a read-only owner token; `DELETE` withdraws a lost phone).
+
 ## Run
 `npm i && npm run dev` · `npm test` (domain + UI) · `npm run test:domain` · `npm run test:ui` · `npm run build` · demo: `/?demo` (manager PIN in `src/fake/data.ts`)
 
