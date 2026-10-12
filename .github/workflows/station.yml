@@ -10,7 +10,7 @@ on:
     tags: ['v*']
   # Every pull request that changes the Station or the server is built and tested on Windows too.
   pull_request:
-    paths: ['deploy/station/**', '.github/workflows/station.yml', 'server/**', 'package.json', 'package-lock.json']
+    paths: ['deploy/station/**', '.github/workflows/station.yml', 'server/**', 'src/**', 'cloud/**', 'public/**', 'index.html', 'package.json', 'package-lock.json']
   workflow_dispatch:
 
 permissions:
@@ -46,6 +46,17 @@ jobs:
       - name: Stage
         shell: pwsh
         run: ./deploy/station/stage.ps1 -NodeVersion 22.23.3 -AppVersion ${{ steps.version.outputs.value }}
+
+      - name: Build the counter app (CheesyBeez POS.exe)
+        run: dotnet build deploy/station/pos-app/CheesyBeezPOS.csproj -c Release -o deploy/station/stage/pos-app
+
+      - name: Check the counter app has everything it needs
+        shell: pwsh
+        run: |
+          Get-ChildItem deploy/station/stage/pos-app -Recurse -File | ForEach-Object { $_.FullName.Replace((Resolve-Path deploy/station/stage/pos-app).Path, '') }
+          foreach ($need in 'CheesyBeezPOS.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll') {
+            if (-not (Get-ChildItem deploy/station/stage/pos-app -Recurse -Filter $need)) { throw "The counter app is missing $need" }
+          }
 
       - name: Build Setup.exe
         shell: pwsh

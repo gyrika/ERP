@@ -8,10 +8,38 @@ interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
 
-/** Cloudflare Workers entry point: the API under /api/, the owner's page for everything else. */
+/**
+ * The owner's app description, per phone. A home-screen app on an iPhone has its own storage, so it
+ * would not know the owner's key: the key rides in the address the app opens (`?k=` → start_url),
+ * exactly as in the QR code it came from.
+ */
+export const ownerManifest = (key: string | null) => ({
+  name: 'CheesyBeez Owner',
+  short_name: 'CheesyBeez',
+  description: "Today's takings and anything that needs you, from anywhere.",
+  start_url: key && /^[A-Za-z0-9_-]{20,64}$/.test(key) ? `/?owner=${key}#owner` : '/#owner',
+  scope: '/',
+  display: 'standalone',
+  orientation: 'portrait',
+  background_color: '#F2F1EF',
+  theme_color: '#F2F1EF',
+  icons: [
+    { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+    { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+    { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+  ],
+});
+
+/** Cloudflare Workers entry point: the API under /api/, the owner's app for everything else. */
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
-    if (new URL(request.url).pathname.startsWith('/api/')) return createCloud(env.DB, { enrolCode: env.ENROL_CODE })(request);
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/')) return createCloud(env.DB, { enrolCode: env.ENROL_CODE })(request);
+    if (url.pathname === '/owner.webmanifest') {
+      return Promise.resolve(new Response(JSON.stringify(ownerManifest(url.searchParams.get('k'))), {
+        headers: { 'content-type': 'application/manifest+json', 'cache-control': 'no-store' },
+      }));
+    }
     return env.ASSETS.fetch(request);
   },
 };

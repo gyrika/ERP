@@ -574,3 +574,5 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 @media (max-width: 520px) { .setup__head, .setup__main { padding-left: 16px; padding-right: 16px; } .setup__foot .cta { min-width: 0; flex: 1; } }
 .setup__lead { margin: 0; font-size: 17px; color: var(--ink-2); line-height: 1.5; }
 .setup__done { margin: 0; padding: 16px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 17px; font-weight: 500; border-left: 5px solid var(--ok); }
+.owner__install { margin: -8px 0 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 12px 12px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 15px; color: var(--ink-2); }
+.owner__install .insight__action { background: var(--ink); color: var(--surface); }

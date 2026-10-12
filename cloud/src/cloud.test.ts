@@ -111,3 +111,13 @@ test('a new shop registers itself with the shop code, and only with it', async (
   const pushed = await (await call('/api/v1/replica', token, { events: [synced('n1', 1, 'shop-new-ab12')] })).json();
   assert.equal(pushed.stored, 1);
 });
+
+test("the owner's app description carries this phone's key, and nothing else", async () => {
+  const { ownerManifest } = await import('./worker.ts');
+  const key = 'A'.repeat(43);
+  assert.equal(ownerManifest(key).start_url, `/?owner=${key}#owner`, "an iPhone home-screen app has its own storage: the key opens it");
+  assert.equal(ownerManifest(null).start_url, '/#owner');
+  assert.equal(ownerManifest('"><script>').start_url, '/#owner', 'anything that is not a key is ignored');
+  assert.equal(ownerManifest(key).display, 'standalone');
+  assert.ok(ownerManifest(key).icons.some((i) => i.purpose === 'maskable'));
+});

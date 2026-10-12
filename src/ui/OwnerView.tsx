@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { rulesSuggestions, type Insight } from '../domain/insights.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import { fmt } from '../domain/money.ts';
+import { useInstall } from '../services/ownerApp.ts';
 import { useShopEvents } from '../services/ownerData.ts';
 
 /**
@@ -52,6 +53,7 @@ function Detail({ insight, onClose }: { insight: Insight; onClose: () => void })
 /** `phone`: on the owner's phone (the cloud site): no links to the counter's screens. */
 export function OwnerView({ phone = false }: { phone?: boolean } = {}) {
   const data = useShopEvents();
+  const install = useInstall();
   const [open, setOpen] = useState<string | null>(null);
   const events = data.state === 'ready' ? data.events : data.state === 'error' ? data.events : undefined;
   const at = (data.state === 'loading' ? undefined : data.at) ?? Date.now();
@@ -96,6 +98,16 @@ export function OwnerView({ phone = false }: { phone?: boolean } = {}) {
             <span className="owner__big skeleton" aria-label="Loading" />
           )}
         </section>
+
+        {phone && install.kind === 'button' && (
+          <p className="owner__install">
+            <span>Put CheesyBeez on your home screen.</span>
+            <button type="button" className="insight__action" onClick={install.install}>Install app</button>
+          </p>
+        )}
+        {phone && install.kind === 'iphone' && (
+          <p className="owner__install">To put it on your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
+        )}
 
         {data.state === 'error' && (
           <p className="owner__note" role="status">
