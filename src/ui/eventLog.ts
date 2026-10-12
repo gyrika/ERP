@@ -17,6 +17,7 @@ import { storageKey } from './storage.ts';
  */
 const KEY = () => storageKey('events.v0');
 const OUTBOX = () => storageKey('outbox.v0');
+const REJECTED = () => storageKey('rejected.v0');
 const KEEP_SYNCED_MS = 2 * 24 * 60 * 60_000;
 
 const read = <T>(key: string, fallback: T): T => {
@@ -105,4 +106,15 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
   const all = readAll();
   const kept = all.filter((e) => pending.has(e.id) || now - e.at < KEEP_SYNCED_MS);
   if (kept.length !== all.length) write(KEY(), kept);
+};
+
+/**
+ * The server refused these for good (not logged in, or not allowed). They leave
+ * the outbox so the rest keeps flowing, and are listed apart for the owner.
+ */
+export const markRejected = (ids: readonly string[]): void => {
+  const gone = new Set(ids);
+  write(OUTBOX(), readOutbox().filter((id) => !gone.has(id)));
+  write(REJECTED(), [...read<string[]>(REJECTED(), []), ...ids]);
+  changed();
 };

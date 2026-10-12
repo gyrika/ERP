@@ -5,7 +5,7 @@ import { WebSocket } from 'ws';
 import type { StreamMessage, SyncEvent } from '../src/domain/sync.ts';
 import { createApp } from './app.ts';
 import type { RawPrinter } from './printer.ts';
-import { memoryStore, type EventStore } from './store.ts';
+import { PinTaken, memoryStore, type EventStore } from './store.ts';
 
 const SHOP = 'shop-a';
 
@@ -145,4 +145,92 @@ test('print without a printer set up answers 503', async () => {
   const r = await s.call('/api/v1/print', s.tokens.counter, { data: Buffer.from('x').toString('base64') });
   assert.equal(r.status, 503);
   await s.stop();
+});
+
+// ----- logins and roles (SCRUM-40/41) -----
+
+const order = (id: string, type: string, actor: { id: string; name: string; role: string }, at = 5000) =>
+  ({ id, shopId: SHOP, at, actor, orderNumber: 1001, type, ticketId: 't', lines: [], addOn: false,
+    totalBefore: 0, totalAfter: 0, before: null, after: { kind: 'percent', pct: 10 } });
+
+async function staffed() {
+  const store = memoryStore();
+  const cashier = await store.addStaff(SHOP, 'Nimal', 'cashier', '1111');
+  const manager = await store.addStaff(SHOP, 'Ravi', 'manager', '2580');
+  const s = await start(store);
+  const login = (pin: string, purpose = 'shift', token = s.tokens.counter) => s.call('/api/v1/login', token, { pin, purpose });
+  return { ...s, store, cashier, manager, login };
+}
+
+test('login: the PIN finds the person; wrong PINs are slowed down', async () => {
+  const s = await staffed();
+  const ok = await s.login('1111');
+  assert.equal(ok.status, 200);
+  assert.deepEqual((await ok.json()).actor, { id: s.cashier.id, name: 'Nimal', role: 'cashier' });
+
+  assert.equal((await s.login('1111', 'manager')).status, 401, "a cashier's PIN does not open manager mode");
+  assert.equal((await s.login('2580', 'manager')).status, 200);
+  assert.equal((await s.login('12a4')).status, 401);
+  for (let i = 0; i < 3; i++) assert.equal((await s.login('9999')).status, 401);
+  // 5 wrong in a row (counting the two above): the device must wait, even with a right PIN.
+  assert.equal((await s.login('9999')).status, 401);
+  const blocked = await s.login('1111');
+  assert.equal(blocked.status, 429);
+  assert.equal((await blocked.json()).error, 'too_many');
+  await s.stop();
+});
+
+test('the server checks roles: a cashier cannot discount, even by sending the event itself', async () => {
+  const s = await staffed();
+  await s.login('1111');
+  const nimal = { id: s.cashier.id, name: 'Nimal', role: 'cashier' };
+  const ravi = { id: s.manager.id, name: 'Ravi', role: 'manager' };
+
+  const r = await (await s.push(s.tokens.counter, [
+    order('sale', 'order.sent', nimal),
+    order('sneaky', 'order.discount_set', nimal),
+    order('forged', 'order.discount_set', ravi), // Ravi never logged in on this device
+    order('liar', 'order.discount_set', { ...nimal, role: 'manager' }), // claims a role it was not given
+  ])).json();
+  assert.deepEqual(r.accepted.map((a: { id: string }) => a.id), ['sale']);
+  assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['sneaky', 'forged', 'liar']);
+
+  await s.login('2580', 'manager');
+  const ok = await (await s.push(s.tokens.counter, [order('real', 'order.discount_set', ravi)])).json();
+  assert.deepEqual(ok.accepted.map((a: { id: string }) => a.id), ['real']);
+  assert.equal(ok.rejected, undefined);
+
+  const pulled = await (await s.call('/api/v1/events', s.tokens.counter)).json();
+  assert.deepEqual(pulled.events.map((e: { event: { id: string } }) => e.event.id), ['sale', 'real'], 'refused events are never stored');
+  await s.stop();
+});
+
+test('a session covers its own time only, and only on the device it was opened on', async () => {
+  const s = await staffed();
+  await s.login('1111');
+  const nimal = { id: s.cashier.id, name: 'Nimal', role: 'cashier' };
+  const r = await (await s.push(s.tokens.counter, [order('early', 'order.sent', nimal, 5000 - 10 * 60_000)])).json();
+  assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['early']);
+  const kitchen = await (await s.push(s.tokens.kitchen, [order('k', 'order.sent', nimal), ev('tap')])).json();
+  assert.deepEqual(kitchen.rejected.map((x: { id: string }) => x.id), ['k'], 'a kitchen device only records kitchen taps');
+  assert.deepEqual(kitchen.accepted.map((a: { id: string }) => a.id), ['tap']);
+  await s.stop();
+});
+
+test('order events must say who did them', async () => {
+  const s = await staffed();
+  const r = await s.push(s.tokens.counter, [{ ...order('x', 'order.sent', { id: 'a', name: 'A', role: 'cashier' }), actor: undefined }]);
+  assert.equal(r.status, 400);
+  await s.stop();
+});
+
+test('staff: a PIN belongs to one active person; a deactivated PIN stops working', async () => {
+  const store = memoryStore();
+  const a = await store.addStaff(SHOP, 'Nimal', 'cashier', '1111');
+  await assert.rejects(store.addStaff(SHOP, 'Kamal', 'cashier', '1111'), PinTaken);
+  await store.addStaff('other-shop', 'Elsewhere', 'cashier', '1111'); // another shop may reuse it
+  assert.equal((await store.staffByPin(SHOP, '1111'))?.id, a.id);
+  assert.equal(await store.deactivateStaff(SHOP, a.id), true);
+  assert.equal(await store.staffByPin(SHOP, '1111'), null);
+  await store.addStaff(SHOP, 'Kamal', 'cashier', '1111'); // free again
 });

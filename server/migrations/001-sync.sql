@@ -1,9 +1,4 @@
--- CheesyBeez POS sync server (docs/sync-contract.md). MySQL 8.
--- Run once as an admin:  mysql -u root -p < server/schema.sql
--- Then create the app user (see docs/server-setup.md): INSERT + SELECT on events only.
-
-CREATE DATABASE IF NOT EXISTS cheesybeez CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-USE cheesybeez;
+-- Sync tables (docs/sync-contract.md). Applied by `npm run server:migrate`.
 
 CREATE TABLE IF NOT EXISTS shops (
   id          VARCHAR(64)  PRIMARY KEY,           -- same string as shopId in the app
@@ -37,3 +32,10 @@ CREATE TABLE IF NOT EXISTS events (
   FOREIGN KEY (tenant_id) REFERENCES shops(id),
   FOREIGN KEY (device_id) REFERENCES devices(id)
 );
+
+-- The app's own user: it may add and read events, never change or delete them (SCRUM-43).
+-- UPDATE on shops only because MySQL needs it for the SELECT ... FOR UPDATE that keeps seq in order.
+GRANT SELECT ON cheesybeez.* TO 'pos_app'@'localhost';
+GRANT INSERT ON cheesybeez.events TO 'pos_app'@'localhost';
+GRANT INSERT ON cheesybeez.devices TO 'pos_app'@'localhost';
+GRANT INSERT, UPDATE ON cheesybeez.shops TO 'pos_app'@'localhost';

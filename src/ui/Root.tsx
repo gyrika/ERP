@@ -1,20 +1,50 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { usesLogin } from '../services/auth.ts';
+import { isKitchenDevice } from '../services/pairing.ts';
+import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { App } from './App.tsx';
 import { Kitchen } from './Kitchen.tsx';
+import { LockScreen } from './LockScreen.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
 
 const KITCHEN = '#kitchen';
+/** "A few quiet minutes" (SCRUM-40): long enough not to nag mid-service. */
+export const IDLE_LOCK_MS = 5 * 60_000;
+
+/** Locks the screen after a quiet spell. Any key or tap counts as activity. */
+function useIdleLock(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled) return;
+    let t = setTimeout(lock, IDLE_LOCK_MS);
+    const awake = () => { clearTimeout(t); t = setTimeout(lock, IDLE_LOCK_MS); };
+    window.addEventListener('keydown', awake, true);
+    window.addEventListener('pointerdown', awake, true);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('keydown', awake, true);
+      window.removeEventListener('pointerdown', awake, true);
+    };
+  }, [enabled]);
+}
 
 /**
- * One app, one view at a time. A kitchen device bookmarks /#kitchen. Until the
- * kitchen has its own screen, the counter PC shows both: F2 (or the Kitchen
- * key) flips the whole screen between Register and Kitchen, in the same tab.
- * The order and the tickets are stored, so flipping loses nothing.
+ * Which screen this device shows, and to whom.
+ * - A kitchen device (paired as kitchen) shows the Kitchen only, with no login.
+ * - On the counter, staff log in with their PIN (SCRUM-40); F4 switches user,
+ *   and the screen locks itself when quiet. A kitchen login sees the Kitchen only.
+ * - Until the kitchen has its own screen, F2 (or the Kitchen key) flips the
+ *   counter between Register and Kitchen. The Kitchen stays visible while the
+ *   screen is locked; only going back to the Register needs a PIN.
+ * Development and the demo have no login (fake staff), as before.
  */
 export function Root() {
   const [hash, setHash] = useState(location.hash);
   /** Came here from the Register, so the Kitchen offers a way back. */
   const [fromRegister, setFromRegister] = useState(false);
+  const needsLogin = usesLogin();
+  const staff = useSyncExternalStore(subscribeAuth, signedIn);
+  const kitchenOnly = isKitchenDevice() || staff?.role === 'kitchen';
+  useIdleLock(needsLogin && staff !== null);
 
   useEffect(() => {
     const onHash = () => setHash(location.hash);
@@ -32,16 +62,16 @@ export function Root() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'F2') return;
-      e.preventDefault();
-      show(!inKitchen);
+      if (e.key === 'F2' && !kitchenOnly) { e.preventDefault(); show(!inKitchen); }
+      if (e.key === 'F4' && needsLogin && staff) { e.preventDefault(); lock(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [inKitchen, show]);
+  }, [inKitchen, show, kitchenOnly, needsLogin, staff]);
 
   if (hash === '#receipt') return <ReceiptPreview />; // setup page, not a cashier screen
-  return inKitchen
-    ? <Kitchen onBack={fromRegister ? () => show(false) : undefined} />
-    : <App onKitchen={() => show(true)} />;
+  if (kitchenOnly) return <Kitchen onSwitch={staff ? lock : undefined} />;
+  if (inKitchen) return <Kitchen onBack={fromRegister || needsLogin ? () => show(false) : undefined} />;
+  if (needsLogin && !staff) return <LockScreen />;
+  return <App onKitchen={() => show(true)} onSwitch={needsLogin ? lock : undefined} />;
 }

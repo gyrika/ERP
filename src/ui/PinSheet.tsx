@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { Actor } from '../domain/auth.ts';
+import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
 import { requireManager } from '../services/auth.ts';
-
-const PIN_LENGTH = 4;
 
 interface Props {
   onUnlock: (manager: Actor) => void;

@@ -1,6 +1,6 @@
 import { escpos, opensDrawer, receipt } from '../domain/receipt.ts';
 import type { PaidOrder } from '../domain/types.ts';
-import { syncToken } from './syncClient.ts';
+import { syncToken } from './pairing.ts';
 
 /**
  * Prints the customer receipt through the server on the counter PC, which

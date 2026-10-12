@@ -10,7 +10,9 @@
     "test:domain": "node --test --experimental-strip-types \"src/**/*.test.ts\" \"server/**/*.test.ts\"",
     "test:ui": "vitest run",
     "server": "node --experimental-strip-types --env-file-if-exists=server/.env server/main.ts",
-    "server:device": "node --experimental-strip-types --env-file-if-exists=server/.env server/addDevice.ts"
+    "server:device": "node --experimental-strip-types --env-file-if-exists=server/.env server/addDevice.ts",
+    "server:staff": "node --experimental-strip-types --env-file-if-exists=server/.env server/staff.ts",
+    "server:migrate": "node --experimental-strip-types --env-file-if-exists=server/.env.migrate server/migrate.ts"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",

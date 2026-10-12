@@ -73,8 +73,11 @@ function LineBody({ v, struck = false, showQty = false }: { v: LineView; struck?
   );
 }
 
-/** `onBack`: shown when the Kitchen shares the counter PC with the Register (F2 flips). */
-export function Kitchen({ onBack }: { onBack?: () => void } = {}) {
+/**
+ * `onBack`: shown when the Kitchen shares the counter PC with the Register (F2 flips).
+ * `onSwitch`: a kitchen login on the counter switches user here (F4).
+ */
+export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: () => void } = {}) {
   const tickets = useKitchenTickets();
   const now = useNow(1000);
   const [done, setDone] = useState<{ id: string; number: number } | null>(null); // last bumped, for Undo
@@ -137,6 +140,9 @@ export function Kitchen({ onBack }: { onBack?: () => void } = {}) {
           </time>
           {onBack && (
             <button type="button" className="corner__key" onClick={onBack}>Register <kbd>F2</kbd></button>
+          )}
+          {onSwitch && (
+            <button type="button" className="corner__key" onClick={onSwitch}>Switch user <kbd>F4</kbd></button>
           )}
         </span>
       </header>
