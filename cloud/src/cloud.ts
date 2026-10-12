@@ -128,20 +128,33 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
 
     // A new shop server registers itself with the shop code (the setup wizard's cloud step).
     if (url.pathname === '/api/v1/enrol' && req.method === 'POST') {
-      let body: { code?: unknown; shopId?: unknown; name?: unknown };
+      let body: { code?: unknown; shopId?: unknown; name?: unknown; secret?: unknown };
       try { body = await req.json(); } catch { throw new HttpError(400, 'invalid_event', 'body is not JSON'); }
       if (!enrolCode || typeof body.code !== 'string' || !sameText(body.code.trim().toUpperCase(), enrolCode.toUpperCase())) {
         throw new HttpError(403, 'forbidden', 'that shop code is not right');
       }
       if (typeof body.shopId !== 'string' || !/^[a-z0-9-]{1,64}$/.test(body.shopId)) throw new HttpError(400, 'invalid_event', 'bad shop id');
       const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : body.shopId;
+      const secret = typeof body.secret === 'string' && body.secret.length >= 32 ? await sha256Hex(body.secret) : null;
+      // The shop code makes NEW shops only. An existing shop takes back only the server holding its own
+      // secret (its answer was lost, or it connects again); that server's old key stops working.
+      const known = await db.prepare('SELECT secret_hash FROM shops WHERE id = ?').bind(body.shopId).first<{ secret_hash: string | null }>();
+      const taken = () => new HttpError(409, 'forbidden', 'that shop is already connected to the cloud');
+      if (known && !(known.secret_hash && secret && sameText(secret, known.secret_hash))) throw taken();
       const token = newToken();
       const t = now();
-      await db.batch([
-        db.prepare('INSERT OR IGNORE INTO shops (id, name, created_at) VALUES (?, ?, ?)').bind(body.shopId, name, t),
-        db.prepare("INSERT INTO devices (id, tenant_id, kind, token_hash, created_at) VALUES (?, ?, 'shop_server', ?, ?)")
-          .bind(newId(), body.shopId, await sha256Hex(token), t),
-      ]);
+      try {
+        await db.batch([
+          known
+            ? db.prepare("DELETE FROM devices WHERE tenant_id = ? AND kind = 'shop_server'").bind(body.shopId)
+            // Plain INSERT: two servers racing for one new id, the second fails and gets nothing.
+            : db.prepare('INSERT INTO shops (id, name, created_at, secret_hash) VALUES (?, ?, ?, ?)').bind(body.shopId, name, t, secret),
+          db.prepare("INSERT INTO devices (id, tenant_id, kind, token_hash, created_at) VALUES (?, ?, 'shop_server', ?, ?)")
+            .bind(newId(), body.shopId, await sha256Hex(token), t),
+        ]);
+      } catch {
+        throw taken();
+      }
       return json(200, { token });
     }
 
