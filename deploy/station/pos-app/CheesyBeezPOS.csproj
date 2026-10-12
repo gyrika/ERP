@@ -24,6 +24,10 @@
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Part of .NET Framework 4.8, but not referenced by default: the "is the server up yet?" check. -->
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="app.ico" />
   </ItemGroup>
 </Project>
