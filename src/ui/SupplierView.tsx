@@ -33,12 +33,12 @@ export function SupplierView() {
   }).sort((a, b) => a.title.localeCompare(b.title)), [items, suppliers]);
 
   return (
-    <div className="inv-page">
+    <div className="inv-page supplier-page">
       <header className="inv-page__head">
         <span className="brand">CheesyBeez</span>
         <nav className="inv-page__nav" aria-label="Inventory sections">
           <a className="inv-page__link" href="#inventory">Inventory</a>
-          <a className="inv-page__link inv-page__link--on" href="#suppliers">Suppliers</a>
+          <a className="inv-page__link inv-page__link--on" href="#suppliers" aria-current="page">Suppliers</a>
           <a className="inv-page__link" href="#">Register</a>
         </nav>
       </header>
