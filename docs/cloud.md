@@ -46,12 +46,31 @@ CLOUD_SHOP=cheesybeez-thalwila
 Check: `http://localhost:8080/api/v1/health` shows `"cloud": { "upToDateAt": …, "lastError": null }`,
 and `status.ps1` shows **Cloud copy: up to date N min ago**.
 
+## The owner's phone
+
+The same address also serves the **owner's page**: a separate build of the app (`npm run build:cloud`)
+that holds only the Owner view, so nobody on the internet reaches a register there.
+
+- Give the owner their link, once (from your laptop, in `cloud/`):
+  ```sh
+  npm run device -- --shop cheesybeez-thalwila --kind owner --url https://cheesybeez-cloud.cheesybeez-cloud.workers.dev
+  ```
+  It prints `…/?owner=<secret>#owner`. Send it privately; opening it on the phone keeps the secret
+  there and removes it from the address bar. "Add to Home Screen" makes it an app icon.
+- The phone reads the cloud copy: the first visit loads the shop's history, then every minute only
+  what is new. The secret can read that shop's events and nothing else; it can never write.
+- **For the examiners:** `https://cheesybeez-cloud.cheesybeez-cloud.workers.dev/?demo#owner` shows the
+  demo feed (made-up sales), no secret needed. The bare address shows a short welcome page.
+- A lost phone: there is no screen yet to withdraw a link; until there is, delete that device's row
+  in D1 (`npx wrangler d1 execute cheesybeez-cloud --remote --command "DELETE FROM devices WHERE id = '…'"`).
+  The phone then shows "This link is no longer valid".
+
 ## Changing the cloud
 
 | What | In `cloud/` |
 |---|---|
 | Run it locally (simulated D1) | `npm run migrate:local` then `npm run dev` (port 8787) |
-| Deploy a new version | `npm run deploy` |
+| Deploy a new version (builds the owner's page too) | `npm run deploy` |
 | Apply a new schema file from `cloud/migrations/` | `npm run migrate` |
 | Look at the data | `npx wrangler d1 execute cheesybeez-cloud --remote --command "SELECT COUNT(*) FROM events"` |
 

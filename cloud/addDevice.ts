@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
  * Registers a device with the cloud copy and prints its settings, once. The
  * token is stored in D1 only as a SHA-256 hash, so a lost token means a new device.
  *   npm run device -- --shop cheesybeez-thalwila --name "CheesyBeez Thalwila"            (the shop server)
- *   npm run device -- --shop cheesybeez-thalwila --kind owner                            (later: the owner's phone)
+ *   npm run device -- --shop cheesybeez-thalwila --kind owner --url <cloud address>     (the owner's phone)
  *   add --local to register in the local test database (wrangler dev) instead of the real one.
  */
 const { values } = parseArgs({
@@ -41,5 +41,6 @@ if (values.kind === 'shop_server') {
   console.log(`CLOUD_TOKEN=${token}`);
   console.log(`CLOUD_SHOP=${shop}`);
 } else {
-  console.log(`\nOwner token (keep it secret): ${token}`);
+  const base = values.url ?? (values.local ? 'http://localhost:8787' : 'https://cheesybeez-cloud.<your-subdomain>.workers.dev');
+  console.log(`\nOpen this once on the owner's phone (it is the key: keep it private):\n  ${base}/?owner=${token}#owner`);
 }

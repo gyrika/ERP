@@ -9,3 +9,10 @@ binding = "DB"
 database_name = "cheesybeez-cloud"
 database_id = "02b0e2d7-482a-4039-8f74-009ed4209045"
 migrations_dir = "migrations"
+
+# The owner's phone page (the cloud build of the app; nothing else of the POS is served here).
+[assets]
+directory = "../dist-cloud"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]

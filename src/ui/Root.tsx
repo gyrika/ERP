@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
-import { isKitchenDevice } from '../services/pairing.ts';
+import { isCloudSite, isKitchenDevice, ownerToken } from '../services/pairing.ts';
+import { isDemo } from './storage.ts';
 import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { App } from './App.tsx';
 import { InventoryView } from './InventoryView.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { LockScreen } from './LockScreen.tsx';
 import { OwnerView } from './OwnerView.tsx';
+import { OwnerWelcome } from './OwnerWelcome.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
 import { SupplierView } from './SupplierView.tsx';
 
@@ -73,6 +75,8 @@ export function Root() {
     return () => window.removeEventListener('keydown', onKey);
   }, [inKitchen, show, kitchenOnly, needsLogin, staff]);
 
+  // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
+  if (isCloudSite()) return ownerToken() || isDemo() ? <OwnerView phone /> : <OwnerWelcome />;
   if (hash === '#receipt') return <ReceiptPreview />; // setup page, not a cashier screen
   if (kitchenOnly) return <Kitchen onSwitch={staff ? lock : undefined} />;
   if (inKitchen) return <Kitchen onBack={fromRegister || needsLogin ? () => show(false) : undefined} />;

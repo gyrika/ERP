@@ -4,8 +4,8 @@
   "type": "module",
   "description": "The cloud copy of every shop's events (SCRUM-61), on Cloudflare Workers + D1.",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "npm --prefix .. run build:cloud && wrangler dev",
+    "deploy": "npm --prefix .. run build:cloud && wrangler deploy",
     "migrate": "wrangler d1 migrations apply cheesybeez-cloud --remote",
     "migrate:local": "wrangler d1 migrations apply cheesybeez-cloud --local",
     "device": "node --experimental-strip-types --no-warnings addDevice.ts"
