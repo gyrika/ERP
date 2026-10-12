@@ -61,9 +61,12 @@ test('an online order: seen at the counter, accepted with a time, in the kitchen
 
   await user.keyboard('{Escape}');
   const panel = within(screen.getByRole('complementary', { name: 'Current order' }));
-  expect(within(panel.getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ })).toBeTruthy();
+  const pickup = new Date(readyBy).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const row = within(panel.getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ });
+  expect(within(row).getByText(`Online · ${pickup}`)).toBeTruthy();
   await user.keyboard('{F2}');
-  expect(within(screen.getByRole('main', { name: 'Orders to make' })).getByRole('article', { name: 'Order 1001' })).toBeTruthy();
+  const ticket = within(within(screen.getByRole('main', { name: 'Orders to make' })).getByRole('article', { name: 'Order 1001' }));
+  expect(ticket.getByText(`Online · pickup ${pickup}`)).toBeTruthy();
 });
 
 test('the switch: not taking orders until the counter says so', async () => {

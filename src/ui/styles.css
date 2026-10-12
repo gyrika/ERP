@@ -235,6 +235,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .waiting--paid .waiting__no, .waiting--paid .waiting__total { color: var(--ink-2); }
 .status { flex: 0 0 auto; align-self: center; margin-left: 10px; padding: 4px 10px; border-radius: 980px; font-size: 12px; font-weight: 600; letter-spacing: 0; white-space: nowrap; vertical-align: middle; }
 .status--unpaid { background: var(--primary); color: var(--on-primary); }
+/* Online orders (cheesybeez.com): the one accent, outlined, so it reads as "where from", not "state". */
+.status--online { border: 1px solid var(--gold); color: var(--gold); padding: 3px 9px; }
 .status--paid { background: var(--chip); color: var(--ink-2); }
 .waiting__row .status { margin-left: 0; }
 /* Kitchen state: outlined, so it never reads as the payment label beside it. */

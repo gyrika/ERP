@@ -126,7 +126,7 @@ const sendUnsent = (s: Snapshot, at: number): { s: Snapshot; order: Order; ticke
 const fireTicket = (ticket: NewTicket) => {
   appendEvent({
     type: 'order.sent', at: ticket.firedAt, actor: currentCashier(), orderNumber: ticket.number,
-    ticketId: ticket.id, lines: ticket.lines, addOn: Boolean(ticket.addOn),
+    ticketId: ticket.id, lines: ticket.lines, addOn: Boolean(ticket.addOn), ...(ticket.online ? { online: ticket.online } : {}),
   });
 };
 
@@ -223,13 +223,14 @@ export function useRegister() {
    * kitchen, waiting to be paid at pickup. The order on screen is left alone (a new one moves
    * up a number). Not undoable here: the customer has already been told.
    */
-  const acceptOnline = useCallback((specs: LineSpec[]): number => {
+  const acceptOnline = useCallback((specs: LineSpec[], pickupBy: number): number => {
     seal();
     const s = ref.current;
     const at = Date.now();
     const number = s.nextNumber;
-    const order = markSent(addLines(emptyOrder(number), specs), at);
-    const ticket: NewTicket = { id: newLineId(), shopId: shopId(), number, lines: order.lines, firedAt: at, addOn: false };
+    const online = { pickupBy };
+    const order = { ...markSent(addLines(emptyOrder(number), specs), at), online };
+    const ticket: NewTicket = { id: newLineId(), shopId: shopId(), number, lines: order.lines, firedAt: at, addOn: false, online };
     const onScreen = !s.paid && s.order.sentAt === undefined && s.order.number === number ? { ...s.order, number: number + 1 } : s.order;
     const next: Snapshot = {
       ...s, order: onScreen, nextNumber: number + 1,

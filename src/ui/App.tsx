@@ -55,8 +55,9 @@ export function App({
   const online = useOnline();
   /** Tells the customer first (with the number this order will get), then sends it to the kitchen. */
   const acceptOnline = useCallback(async (o: OnlineOrder, minutes: number): Promise<string | null> => {
-    const why = await onlineOrders.answer(o.id, { status: 'accepted', orderNumber: reg.nextNumber, readyBy: Date.now() + minutes * 60_000 });
-    if (!why) reg.acceptOnline(o.lines);
+    const readyBy = Date.now() + minutes * 60_000;
+    const why = await onlineOrders.answer(o.id, { status: 'accepted', orderNumber: reg.nextNumber, readyBy });
+    if (!why) reg.acceptOnline(o.lines, readyBy);
     return why;
   }, [reg]);
   const [category, setCategory] = useState<CategoryId>('popular');

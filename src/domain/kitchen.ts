@@ -1,6 +1,6 @@
 import { itemById } from './menu.ts';
 import type { SyncEvent } from './sync.ts';
-import type { Category, OrderLine } from './types.ts';
+import type { Category, OnlineMark, OrderLine } from './types.ts';
 
 /**
  * The kitchen works from the screen only: there is no printed kitchen ticket.
@@ -28,6 +28,8 @@ export interface KitchenTicket {
   firedAt: number;
   /** A later round for an order the kitchen has already seen. */
   addOn?: boolean;
+  /** An online order: the customer comes to collect it by `pickupBy`. */
+  online?: OnlineMark;
   /** A manager changed or cancelled something on it. */
   changed?: boolean;
   /** Last arrival or change. The ticket flashes until `seenAt` catches up. */
@@ -36,7 +38,7 @@ export interface KitchenTicket {
   doneAt?: number;
 }
 
-export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn'>;
+export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn' | 'online'>;
 
 export type Urgency = 'ok' | 'warn' | 'bad';
 
@@ -201,7 +203,7 @@ export const ticketsFromEvents = (events: readonly SyncEvent[], now: number): Ki
     if (now - e.at > TICKET_HORIZON_MS) continue;
     switch (e.type) {
       case 'order.sent':
-        t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn });
+        t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn, ...(e.online ? { online: e.online } : {}) });
         break;
       case 'order.send_undone': t = recall(t, e.ticketId); break;
       case 'order.item_changed':

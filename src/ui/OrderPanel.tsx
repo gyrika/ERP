@@ -32,6 +32,13 @@ export const parseRupees = (raw: string): Cents | null => {
   return m ? Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0')) : null;
 };
 
+/** An order from cheesybeez.com, and when the customer comes for it. */
+function OnlineTag({ order, time = true }: { order: Order; time?: boolean }) {
+  return order.online
+    ? <span className="status status--online" title="Ordered on cheesybeez.com">Online{time && ` · ${clock(order.online.pickupBy)}`}</span>
+    : null;
+}
+
 function Cook({ tickets, number }: { tickets: KitchenTicket[]; number: number }) {
   return cookState(tickets, number) === 'cooking'
     ? <span className="status status--cooking">Cooking</span>
@@ -143,7 +150,7 @@ export function OrderPanel({
     const cashChange = paid.tender === 'cash' && paid.change > 0;
     return (
       <aside className={panelClass} aria-label="Current order">
-        <div className="panel__no num">{paid.number}</div>
+        <div className="panel__no num"><span>{paid.number}<OnlineTag order={paid} time={false} /></span></div>
         <div className="paid" role="status">
           <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
           <span className="paid__big num">{fmt(cashChange ? paid.change : paid.total)}</span>
@@ -177,6 +184,7 @@ export function OrderPanel({
       <div className="panel__no num">
         <span>
           {order.number}
+          <OnlineTag order={order} time={false} />
           {isOpen && <Cook tickets={tickets} number={order.number} />}
           {isOpen && <span className="status status--unpaid">Unpaid</span>}
         </span>
@@ -254,6 +262,7 @@ export function OrderPanel({
                 <span className="waiting__total num">{fmt(orderTotal(o))}</span>
                 <span className="waiting__meta">
                   <span className="waiting__items">{items(o)}</span>
+                  <OnlineTag order={o} />
                   <Cook tickets={tickets} number={o.number} />
                   {o.adjust?.discount && <span className="status status--discount">{discountLabel(o.adjust.discount)}</span>}
                   <span className="status status--unpaid">Unpaid</span>
@@ -272,6 +281,7 @@ export function OrderPanel({
                 <span className="waiting__total num">{fmt(o.total)}</span>
                 <span className="waiting__meta">
                   <span className="waiting__items">{items(o)}</span>
+                  <OnlineTag order={o} />
                   <Cook tickets={tickets} number={o.number} />
                   <span className="status status--paid">Paid · {TENDER[o.tender]}</span>
                 </span>
