@@ -9,6 +9,7 @@ const STAFF: Record<string, Actor> = {
   1111: { id: 's-nimal', name: 'Nimal', role: 'cashier' },
   2580: { id: 's-ravi', name: 'Ravi', role: 'manager' },
   3333: { id: 's-kumar', name: 'Kumar', role: 'kitchen' },
+  8765: { id: 's-owner', name: 'Owner', role: 'owner' },
 };
 
 /** The server's /api/v1/login, as far as the screens can tell. */
@@ -156,7 +157,7 @@ test('manager mode checks the PIN with the server: a cashier’s PIN does not op
   expect(await screen.findByText('Managing · Ravi')).toBeTruthy();
 });
 
-test('inventory: a cashier typing the address gets the Register; a manager gets Inventory', async () => {
+test('cashiers cannot open stock views or see their command; managers can', async () => {
   pair();
   history.replaceState(null, '', '/#inventory');
   const user = userEvent.setup();
@@ -165,8 +166,28 @@ test('inventory: a cashier typing the address gets the Register; a manager gets 
   await screen.findByRole('button', { name: 'Nimal: switch user' });
   expect(screen.queryByRole('main', { name: 'Inventory' })).toBeNull();
 
+  await user.keyboard('{Control>}m{/Control}2580');
+  expect(await screen.findByText('Managing · Ravi')).toBeTruthy();
+  await user.keyboard('{Control>}k{/Control}');
+  expect(screen.getByRole('dialog', { name: 'Commands' })).toBeTruthy();
+  expect(screen.queryByText('Inventory and stock')).toBeNull();
+  expect(screen.queryByText('Suppliers')).toBeNull();
+  await user.keyboard('{Escape}');
+
   await user.keyboard('{F4}2580');
   expect(await screen.findByRole('main', { name: 'Inventory' })).toBeTruthy();
+});
+
+test.each([
+  ['manager', '2580'],
+  ['owner', '8765'],
+])('%s can open the suppliers view', async (_role, pin) => {
+  pair();
+  history.replaceState(null, '', '/#suppliers');
+  const user = userEvent.setup();
+  render(<Root />);
+  await user.keyboard(pin);
+  expect(await screen.findByRole('main', { name: 'Suppliers' })).toBeTruthy();
 });
 
 test('owner view: a cashier typing the address gets the Register; the owner or a manager gets the feed', async () => {

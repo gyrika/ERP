@@ -136,5 +136,5 @@ export function Root() {
   if (hash === '#owner' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) return <OwnerView />;
   if (hash === '#inventory' && mayManageStock) return <InventoryView />;
   if (hash === '#suppliers' && mayManageStock) return <SupplierView />;
-  return <App onKitchen={() => show(true)} onSwitch={needsLogin ? lock : undefined} />;
+  return <App onKitchen={() => show(true)} onSwitch={needsLogin ? lock : undefined} canManageStock={mayManageStock} />;
 }
