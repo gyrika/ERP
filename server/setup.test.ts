@@ -128,3 +128,13 @@ test('the cloud step: the shop code connects this shop, and copying starts witho
   assert.equal((await s.state()).cloud, true);
   await s.stop();
 });
+
+test("updates: the owner's PIN after setup; development has nothing to install", async () => {
+  const s = await start();
+  await s.post('/shop', { name: 'CheesyBeez', place: 'Thalwila' });
+  await s.post('/staff', { name: 'Nisal Vimukthi', role: 'owner', pin: '1234' });
+  await s.post('/finish');
+  assert.equal((await s.post('/update/check', {})).status, 401);
+  assert.equal((await s.post('/update/install', { ownerPin: '1234' })).status, 409, 'no updates set up here');
+  await s.stop();
+});

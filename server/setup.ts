@@ -6,6 +6,7 @@ import { isPin } from './pins.ts';
 import { dryRunPrinter, listPrinters, systemPrinter, type RawPrinter } from './printer.ts';
 import type { Settings } from './settings.ts';
 import { PinTaken, type EventStore, type StaffMember } from './store.ts';
+import type { UpdatesApi } from './updates.ts';
 
 /**
  * The setup wizard's side of the server: the shop, the printer, the staff and
@@ -26,6 +27,8 @@ export interface SetupContext {
   cloudUrl: string;
   /** The wizard connected the cloud: start copying, no restart. */
   onCloudConnected?: () => void;
+  /** CheesyBeez Station's versions ("Update now"). */
+  updates?: UpdatesApi;
   fetch?: typeof fetch;
   now?: () => number;
 }
@@ -224,6 +227,22 @@ export function setupApi(ctx: SetupContext) {
       ctx.settings.set({ cloudUrl: ctx.cloudUrl, cloudToken: token });
       ctx.onCloudConnected?.();
       return { cloud: true };
+    },
+
+    /** Shop setup → Updates: the installed version and GitHub's latest. */
+    async checkUpdate(body: { ownerPin?: unknown }) {
+      await authorise(body.ownerPin);
+      if (!ctx.updates) throw new SetupError(409, 'not_ready', 'no updates here');
+      try { return await ctx.updates.check(); }
+      catch { throw new SetupError(502, 'not_ready', 'GitHub did not answer: is the internet up?'); }
+    },
+
+    /** "Update now": the owner asked, so it runs even during service (the nightly one waits). */
+    async installUpdate(body: { ownerPin?: unknown }) {
+      await authorise(body.ownerPin);
+      if (!ctx.updates) throw new SetupError(409, 'not_ready', 'no updates here');
+      try { ctx.updates.install(); } catch (e) { throw new SetupError(409, 'not_ready', e instanceof Error ? e.message : String(e)); }
+      return { started: true, from: ctx.updates.current() };
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */

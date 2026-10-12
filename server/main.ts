@@ -8,6 +8,7 @@ import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
 import { sqliteStore } from './sqliteStore.ts';
 import { memoryStore, mysqlStore, type EventStore } from './store.ts';
+import { updatesApi } from './updates.ts';
 
 /**
  * Starts the shop server on the counter PC. With nothing configured it keeps
@@ -63,13 +64,20 @@ const startCloud = () => {
 };
 startCloud();
 
+// CheesyBeez Station puts these beside the program ({app}\version.txt, {app}\station-update.ps1).
+const updates = updatesApi({
+  versionFile: fileURLToPath(new URL('../../version.txt', import.meta.url)),
+  updaterScript: fileURLToPath(new URL('../../station-update.ps1', import.meta.url)),
+});
+
 const server = createApp({
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
   printer,
   onStored: (tenantId) => { if (tenantId === cloudShop()) replicator?.nudge(); },
   cloudStatus: () => replicator?.status() ?? null,
-  setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud }),
+  setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates }),
+  version: updates.current,
 });
 
 server.listen(port, '0.0.0.0', () => {
@@ -77,6 +85,7 @@ server.listen(port, '0.0.0.0', () => {
   const lan = Object.values(networkInterfaces()).flat().find((a) => a && a.family === 'IPv4' && !a.internal)?.address;
   console.log(`CheesyBeez server on http://localhost:${port}${lan ? `  (shop Wi-Fi: http://${lan}:${port})` : ''}`);
   console.log(`  shop: ${s.setupDone ? `${s.shopName} (${s.shopId})` : 'not set up yet: open the address above on this PC'}`);
+  console.log(`  version: ${updates.current()}`);
   console.log(`  database: ${storeName}`);
   console.log(`  receipt printer: ${printer.name}`);
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
