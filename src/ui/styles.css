@@ -226,6 +226,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .paid__label { font-size: 15px; color: var(--ink-2); }
 .paid__big { font-size: 64px; font-weight: 500; letter-spacing: -3px; line-height: 1; }
 .paid__sub { font-size: 14px; color: var(--ink-3); }
+.paid__links { display: flex; gap: 24px; }
+.paid__note { font-size: 14px; font-weight: 500; color: var(--bad); }
 .linkbtn:disabled { opacity: 0.35; }
 .linkbtn--danger { color: var(--bad); font-weight: 600; }
 .reason-msg { margin: 0; font-size: 15px; font-weight: 500; color: var(--bad); animation: shake 220ms var(--ease); }
@@ -352,3 +354,16 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .sheet__body { padding-top: 28px; gap: 24px; }
   .toast { left: 16px; right: 16px; bottom: 16px; justify-content: space-between; }
 }
+
+/* /#receipt: the paper as the XP-80T prints it (a picture of the printer's fixed-width font). */
+.rpreview { min-height: 100vh; background: var(--ground); padding: 40px 16px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+.rpreview__head { max-width: 520px; text-align: center; }
+.rpreview__head h1 { margin: 0 0 6px; font-size: 22px; font-weight: 500; letter-spacing: -0.4px; }
+.rpreview__head p { margin: 0; color: var(--ink-2); font-size: 15px; }
+.rpreview__actions { margin-top: 16px !important; display: flex; gap: 12px; align-items: center; justify-content: center; }
+.paper { margin: 0; width: min(100%, calc(48ch + 48px)); padding: 28px 24px 40px; background: #fff; color: #111; border-radius: 4px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 8px 24px rgb(0 0 0 / 0.08);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: clamp(9px, 2.6vw, 14px); line-height: 1.45; overflow-x: auto; }
+.paper__line { white-space: pre; }
+.paper__line--bold { font-weight: 700; }
+.paper__line--big { font-size: 2em; line-height: 1.2; letter-spacing: 0; }

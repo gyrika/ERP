@@ -38,7 +38,10 @@ sent on one shows on the other within a second.
    ```
    DATABASE_URL=mysql://pos_app:<password>@localhost:3306/cheesybeez
    PORT=8080
+   PRINTER=XP-80T
    ```
+   `PRINTER` is the printer's name exactly as Windows shows it (Settings → Printers & scanners).
+   Leave it out until the printer is there: receipts are then saved to `server/prints/` (dry run).
 5. Build and start:
    ```sh
    npm ci
@@ -56,6 +59,22 @@ sent on one shows on the other within a second.
    means pairing again.
 7. Start on boot: Task Scheduler → "At log on" → `npm run server` in the project folder (or wrap
    it with NSSM as a Windows service). Then Chrome opens `http://localhost:8080` full screen.
+
+## Receipt printer and cash drawer (SCRUM-71)
+
+The server prints: the app builds the receipt (`src/domain/receipt.ts`) and the server sends its
+bytes to the Windows printer queue unchanged (`server/rawprint.ps1`, RAW datatype). The normal
+Xprinter driver stays installed, so nothing else on the PC breaks. No separate helper program.
+
+- Paying prints the receipt by itself. **Cash** also opens the drawer, before the paper, so change
+  can be counted at once. Bank transfer and Free print without opening it.
+- **Print again** on the paid screen prints a copy marked COPY and never opens the drawer.
+- Only a device paired as `counter` may print: a kitchen tablet can never open the drawer.
+- Setting it up at the shop: install the Xprinter driver, set `PRINTER` in `server/.env`, restart
+  the server, open `http://localhost:8080/#receipt` and press **Print a test receipt** (it never
+  opens the drawer). Then one real cash sale tests the drawer.
+- If the receipt prints but characters look wrong, the printer's code page differs: everything is
+  plain ASCII already, so check the driver's "raw"/"generic text" setting first.
 
 ## Good to know
 

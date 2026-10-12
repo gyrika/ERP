@@ -27,7 +27,7 @@
 4. ✅ Outbox + MySQL sync + realtime (`server/`, `src/services/syncClient.ts`; setup in `docs/server-setup.md`). The server runs on the counter PC and also serves the app. Kitchen tickets are folded from events (`ticketsFromEvents`), so `kitchenStore.ts` only reads the event log.
 5. ✅ Kitchen display at `/#kitchen` (one column, oldest first, colour = wait, one-tap Done + Undo, chime + flash until tapped, Changed/Cancelled lines). Manager PIN changes + event log. Built before 4: tickets travel tab-to-tab via BroadcastChannel + localStorage (`src/ui/kitchenStore.ts`); slice 4 replaces only that file.
 6. Owner feed (rules-based insights)
-7. Customer receipt printing (ESC/POS) + cash drawer, scanner. No kitchen printing.
+7. ✅ Customer receipt printing (ESC/POS) + cash drawer: built and tested without the printer (dry run, bytes locked by tests, preview at `/#receipt`); the server on the counter PC prints through the Windows queue, so the planned separate helper (SCRUM-71) is the server itself. **Left:** a test on the real XP-80T and drawer at the shop. Scanner later. No kitchen printing.
 
 ## Run
 `npm i && npm run dev` · `npm test` (domain + UI) · `npm run test:domain` · `npm run test:ui` · `npm run build` · demo: `/?demo` (manager PIN in `src/fake/data.ts`)

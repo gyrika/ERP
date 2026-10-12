@@ -218,11 +218,12 @@ export function useRegister() {
     fireTicket(ticket);
   }, [commit]);
 
-  const pay = useCallback((tender: Tender, tendered: number) => {
+  /** Returns the paid order (for its receipt), or undefined when there was nothing to pay. */
+  const pay = useCallback((tender: Tender, tendered: number): PaidOrder | undefined => {
     const total = orderTotal(ref.current.order);
     // A comped order (Free) closes at 0 with tender 'comp'; anything else needs something to pay.
     const comped = ref.current.order.adjust?.discount?.kind === 'comp';
-    if (comped ? tender !== 'comp' || !ref.current.order.lines.length : total <= 0) return;
+    if (comped ? tender !== 'comp' || !ref.current.order.lines.length : total <= 0) return undefined;
     // Anything not yet sent goes to the kitchen first (a sealed send), so
     // undoing the payment later never pulls food back off the kitchen screen.
     const sent = sendUnsent(ref.current, Date.now());
@@ -243,6 +244,7 @@ export function useRegister() {
       sales: [...s.sales, paid],
     }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}`);
     appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered });
+    return paid;
   }, [commit]);
 
   const toastFor = useCallback((message: string) => setToast({ id: ++toastSeq.current, message, manager: true }), []);

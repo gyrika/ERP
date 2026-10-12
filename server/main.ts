@@ -2,6 +2,7 @@ import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
+import { dryRunPrinter, systemPrinter } from './printer.ts';
 import { memoryStore, mysqlStore, type EventStore } from './store.ts';
 
 /**
@@ -10,6 +11,8 @@ import { memoryStore, mysqlStore, type EventStore } from './store.ts';
  *                 (omit it to try the server out: memory only, with a counter and a kitchen device
  *                 made up for SHOP_ID, whose pairing links are printed)
  *   PORT          default 8080
+ *   PRINTER       the Windows printer name of the XP-80T, e.g. "XP-80T"
+ *                 (omit: dry run, receipts are saved to server/prints/ instead)
  */
 const port = Number(process.env.PORT ?? 8080);
 const url = process.env.DATABASE_URL;
@@ -28,12 +31,16 @@ if (url) {
 }
 
 const staticDir = fileURLToPath(new URL('../dist', import.meta.url));
-const server = createApp({ store, staticDir });
+const printer = process.env.PRINTER
+  ? systemPrinter(process.env.PRINTER)
+  : dryRunPrinter(fileURLToPath(new URL('./prints', import.meta.url)));
+const server = createApp({ store, staticDir, printer });
 
 server.listen(port, '0.0.0.0', () => {
   const addresses = Object.values(networkInterfaces()).flat()
     .filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => a!.address);
   console.log(`CheesyBeez server on http://localhost:${port}`);
+  console.log(`  receipt printer: ${printer.name}`);
   for (const a of addresses) console.log(`  kitchen device: http://${a}:${port}/#kitchen`);
 });
 
