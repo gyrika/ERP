@@ -24,6 +24,8 @@ export interface MenuItem {
   name: { en: string; si?: string; ta?: string };
   description: string;
   category: Category;
+  /** Number on the printed menu (pizzas 1-12); customers order by it ("5 L"). */
+  number?: number;
   /** Typed/spoken shorthand that resolves to this item. */
   aliases: string[];
   /** Sized items (pizza, pasta). */

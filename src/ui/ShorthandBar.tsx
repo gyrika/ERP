@@ -61,7 +61,7 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
             if (e.key === 'Enter') submit();
             if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
           }}
-          placeholder="2 L margherita, burger no tomato…"
+          placeholder="5 L, 2 margherita, burger no tomato…"
           aria-label="Type an order"
           spellCheck={false}
           autoComplete="off"

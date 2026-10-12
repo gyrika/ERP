@@ -35,7 +35,10 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, hint }: Pr
         {visible(category).map((item) => (
           <div key={item.id} className="card">
             <button type="button" className="card__title" onClick={() => onCustomise(item)}>
-              <span className="card__name">{item.name.en}</span>
+              <span className="card__name">
+                {item.number !== undefined && <span className="card__no num" aria-hidden="true">{item.number}</span>}
+                {item.name.en}
+              </span>
               <span className="card__desc">{item.description}</span>
             </button>
             <div className="card__prices">

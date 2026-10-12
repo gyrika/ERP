@@ -29,6 +29,36 @@ test('extras map to priced options, unknown ones become a note', () => {
   assert.equal(d.lines[0].note, 'extra pineapple');
 });
 
+test('printed menu numbers: pizzas are 1-12 in menu order, nothing else is numbered', () => {
+  const pizzas = MENU.filter((m) => m.category === 'pizza');
+  assert.deepEqual(pizzas.map((m) => m.number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.equal(itemById('devilled-chicken').number, 5);
+  assert.ok(MENU.filter((m) => m.category !== 'pizza').every((m) => m.number === undefined));
+});
+
+test('order by menu number: "5 L" is a large Devilled Chicken', () => {
+  const line = (s: string) => p.interpret(s).lines[0];
+  assert.deepEqual(line('5 L'), { itemId: 'devilled-chicken', qty: 1, size: 'L', adds: [], outs: [] });
+  assert.deepEqual(line('5'), { itemId: 'devilled-chicken', qty: 1, size: 'M', adds: [], outs: [] });
+  for (const s of ['2 5 L', '2x 5 L', '2 x 5 L', '2 #5 L', 'large 2 #5']) {
+    assert.deepEqual([line(s).itemId, line(s).qty, line(s).size], ['devilled-chicken', 2, 'L'], s);
+  }
+  assert.deepEqual([line('#1').itemId, line('number 12 l').itemId], ['margherita', 'bbq-pork']);
+  assert.deepEqual(line('5 L no onion').outs, ['no-onion']);
+});
+
+test('menu numbers mix with names, and a name after a number is still a quantity', () => {
+  const d = p.interpret('5 L, 2 margherita, 3 large seafood');
+  assert.deepEqual(d.lines.map((l) => [l.itemId, l.qty, l.size]), [
+    ['devilled-chicken', 1, 'L'], ['margherita', 2, 'M'], ['seafood', 3, 'L'],
+  ]);
+});
+
+test('a number not on the menu is surfaced, not guessed', () => {
+  assert.deepEqual(p.interpret('13 L').unresolved, ['13 l']);
+  assert.deepEqual(p.interpret('two L').unresolved, ['two l']);
+});
+
 test('unknown fragments are surfaced, not dropped', () => {
   const d = p.interpret('margherita, gelato');
   assert.equal(d.lines.length, 1);
