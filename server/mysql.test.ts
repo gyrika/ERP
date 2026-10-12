@@ -48,9 +48,10 @@ test('MySQL store: staff PINs are unique, hashed, deactivatable; sessions are pe
   const store = mysqlStore(createPool({ uri: url!, supportBigNumbers: true }));
   const shop = `test-${randomBytes(4).toString('hex')}`;
   try {
+    // Staff first, before the shop has any device: the installer does it in this order.
+    const nimal = await store.addStaff(shop, 'Nimal', 'cashier', '1111');
     const { device } = await store.addDevice(shop, 'Test shop', 'counter');
     const { device: other } = await store.addDevice(shop, 'Test shop', 'counter');
-    const nimal = await store.addStaff(shop, 'Nimal', 'cashier', '1111');
     await assert.rejects(store.addStaff(shop, 'Kamal', 'cashier', '1111'), PinTaken);
     assert.equal((await store.staffByPin(shop, '1111'))?.id, nimal.id);
     assert.equal(await store.staffByPin(shop, '2222'), null);

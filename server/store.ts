@@ -241,6 +241,8 @@ export function mysqlStore(pool: Pool): EventStore {
 
     async addStaff(tenantId, name, role, pin) {
       return inTransaction(async (c) => {
+        // Staff may be added before any device (the installer does): the shop row comes first.
+        await c.query('INSERT IGNORE INTO shops (id, name) VALUES (?, ?)', [tenantId, tenantId]);
         // Lock the shop so two people added at once cannot both take the same PIN.
         await c.query('SELECT id FROM shops WHERE id = ? FOR UPDATE', [tenantId]);
         const [rows] = await c.query<StaffRow[]>(
