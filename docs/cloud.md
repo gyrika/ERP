@@ -85,6 +85,27 @@ needs: missing recipe amounts, menu items, receipt details. The key is a Worker 
 a wrong key shows "This link is not right". Every save is kept (`owner_answers`); the newest is the
 answer. Read it with `npm run answers` (in `cloud/`). New key: `npx wrangler secret put ANSWER_KEY`.
 
+## Online orders (cheesybeez.com)
+
+Customers order ahead on **cheesybeez.com** (or `/order` on any cloud address), collect at the
+shop and pay there. Rules in `src/domain/online.ts`; the cloud side in `cloud/src/online.ts`;
+the shop side in `server/online.ts`; the counter's **Online** key in `src/ui/Online.tsx`; the
+customer page in `src/order/` (built as `order.html` by `npm run build:cloud`).
+
+- **Which shop:** `ORDER_SHOP` in `cloud/wrangler.toml` `[vars]` (the shop id from the setup
+  wizard). Change it to the real shop after the install, then `npm run deploy`.
+- **Open or closed:** the counter switches *Taking orders* on (Register → Online). The site takes
+  orders only while it is on **and** the shop server was heard from in the last 2 minutes (power
+  cut or no internet = closed). It switches itself off between 2 and 6 am.
+- **The flow:** the order chimes at the counter → *Ready in 15/20/30/45 min* accepts it (it goes
+  straight to the kitchen with the next number, which the customer sees) or *Decline* with a
+  reason → the kitchen's **Done** makes it *Ready* on the customer's phone → the payment makes it
+  *Collected*. Unanswered for 10 minutes: the customer is told it expired.
+- **Prices** are always worked out by the cloud from the menu, never taken from the phone.
+- **Floods:** at most 2 orders in play per phone number, 6 an hour per connection, 20 waiting.
+- **Privacy:** the customer's name and phone are kept only with the online order (the Register
+  knows the order by its number), and are blanked after 30 days.
+
 ## Changing the cloud
 
 | What | In `cloud/` |

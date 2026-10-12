@@ -9,6 +9,9 @@ import { canPrint, printReceipt } from '../services/printer.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
 import { ExtrasSheet } from './ExtrasSheet.tsx';
 import { KitchenChip } from './KitchenChip.tsx';
+import { OnlineChip, OnlineSheet, useOnline } from './Online.tsx';
+import { onlineOrders } from '../services/onlineClient.ts';
+import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, type ManagePanel } from './OrderPanel.tsx';
 import { PaySheet } from './PaySheet.tsx';
@@ -26,6 +29,7 @@ type Sheet =
   | { kind: 'edit'; line: OrderLine }
   | { kind: 'pay' }
   | { kind: 'pin' }
+  | { kind: 'online' }
   | null;
 
 const isTypingTarget = (el: EventTarget | null): boolean =>
@@ -49,6 +53,14 @@ export function App({
 } = {}) {
   const reg = useRegister();
   const tickets = useKitchenTickets(); // live, so Cooking turns Done the moment the kitchen taps it
+  const online = useOnline();
+  /** Tells the customer first (with the number this order will get), then sends it to the kitchen. */
+  const acceptOnline = useCallback(async (o: OnlineOrder, minutes: number): Promise<string | null> => {
+    const readyBy = Date.now() + minutes * 60_000;
+    const why = await onlineOrders.answer(o.id, { status: 'accepted', orderNumber: reg.nextNumber, readyBy });
+    if (!why) reg.acceptOnline(o.lines, readyBy);
+    return why;
+  }, [reg]);
   const [category, setCategory] = useState<CategoryId>('popular');
   const [sheet, setSheet] = useState<Sheet>(null);
   const [typed, setTyped] = useState<string | null>(null); // non-null = shorthand bar open
@@ -249,6 +261,7 @@ export function App({
           </span>
         ) : (
           <span className="corner">
+            <OnlineChip state={online} looking={sheet?.kind === 'online'} onOpen={() => setSheet({ kind: 'online' })} />
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
             {/* The owner and managers see their own screen without any shortcut. */}
@@ -334,6 +347,7 @@ export function App({
       {sheet?.kind === 'pay' && (
         <PaySheet total={total} onClose={closeSheet} onPay={(tender, tendered) => { pay(tender, tendered); closeSheet(); }} />
       )}
+      {sheet?.kind === 'online' && <OnlineSheet state={online} onAccept={acceptOnline} onClose={closeSheet} />}
       {sheet?.kind === 'pin' && (
         <PinSheet onClose={closeSheet} onUnlock={(actor) => { closeSheet(); mode.enter(actor); }} />
       )}

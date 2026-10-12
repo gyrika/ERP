@@ -1,5 +1,9 @@
 import { PULL_LIMIT, PUSH_BATCH, type ApiError, type PullResponse, type SyncedEvent } from '../../src/domain/sync.ts';
 import { validatePush } from '../../server/validate.ts';
+import { HttpError, json, sha256Hex } from './http.ts';
+import { onlineRoutes } from './online.ts';
+
+export { sha256Hex };
 
 /**
  * The cloud copy (SCRUM-61). The shop server stays the truth for selling (it
@@ -22,30 +26,13 @@ export interface D1Like {
   batch(statements: D1Statement[]): Promise<{ meta: { changes: number } }[]>;
 }
 
-type Kind = 'shop_server' | 'owner';
-interface CloudDevice { id: string; tenantId: string; kind: Kind }
+export type Kind = 'shop_server' | 'owner';
+export interface CloudDevice { id: string; tenantId: string; kind: Kind }
 
 /** POST /api/v1/replica: events exactly as the shop server holds them, oldest first. */
 export interface ReplicaPush { events: SyncedEvent[] }
 export interface ReplicaState { lastSourceSeq: number; serverTime: number }
 
-class HttpError extends Error {
-  status: number;
-  code: ApiError['error'];
-  constructor(status: number, code: ApiError['error'], message: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
-
-const json = (status: number, body: unknown) =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
-
-export const sha256Hex = async (text: string): Promise<string> => {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-};
 
 const isInt = (v: unknown): v is number => Number.isSafeInteger(v);
 
@@ -69,10 +56,12 @@ export interface CloudOptions {
    * setup wizard, and the shop server registers itself. Without it, nobody can add a shop.
    */
   enrolCode?: string;
+  /** The shop that cheesybeez.com takes online orders for (wrangler.toml ORDER_SHOP). */
+  orderShop?: string;
 }
 
 export function createCloud(db: D1Like, options: CloudOptions | (() => number) = {}) {
-  const { now = Date.now, enrolCode } = typeof options === 'function' ? { now: options, enrolCode: undefined } : options;
+  const { now = Date.now, enrolCode, orderShop } = typeof options === 'function' ? { now: options, enrolCode: undefined, orderShop: undefined } : options;
   const authenticate = async (req: Request, allowed: Kind[]): Promise<CloudDevice> => {
     const h = req.headers.get('authorization');
     const token = h?.startsWith('Bearer ') ? h.slice(7) : null;
@@ -91,6 +80,8 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
 
   const routes = async (req: Request, url: URL): Promise<Response> => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') return json(200, { ok: true, serverTime: now() });
+    const online = await onlineRoutes(req, url, { db, now, orderShop, authenticate });
+    if (online) return online;
 
     if (url.pathname === '/api/v1/replica') {
       const device = await authenticate(req, ['shop_server']);

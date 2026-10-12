@@ -8,6 +8,8 @@ interface Env {
   ENROL_CODE?: string;
   /** The key in the owner's questions link (npx wrangler secret put ANSWER_KEY). */
   ANSWER_KEY?: string;
+  /** The shop that cheesybeez.com takes online orders for (wrangler.toml [vars]). */
+  ORDER_SHOP?: string;
   /** The owner's page: the cloud build of the app (npm run build:cloud), served as static files. */
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
@@ -34,12 +36,19 @@ export const ownerManifest = (key: string | null) => ({
   ],
 });
 
+/** Customers' address: its home page is the ordering page (order.html); /order shows it on any address. */
+const CUSTOMER_HOST = 'cheesybeez.com';
+
 /** Cloudflare Workers entry point: the API under /api/, the owner's app for everything else. */
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.hostname === `www.${CUSTOMER_HOST}`) {
+      return Promise.resolve(Response.redirect(`https://${CUSTOMER_HOST}${url.pathname}${url.search}`, 301));
+    }
+    if (url.hostname === CUSTOMER_HOST && url.pathname === '/') return env.ASSETS.fetch(new Request(new URL('/order', url), request));
     if (url.pathname === '/api/v1/answers') return answersApi(request, env.DB, env.ANSWER_KEY);
-    if (url.pathname.startsWith('/api/')) return createCloud(env.DB, { enrolCode: env.ENROL_CODE })(request);
+    if (url.pathname.startsWith('/api/')) return createCloud(env.DB, { enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP })(request);
     if (url.pathname === '/get' || url.pathname === '/download') {
       return latestRelease().then((rel) => new Response(downloadPage(rel), {
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' },

@@ -96,3 +96,9 @@ test('a reprint is marked COPY', () => {
   assert.equal(lines[2].trim(), 'COPY');
   assert.ok(!receiptText(receipt(pay(plain, 'cash'), { cashier: 'Nimal' })).includes('COPY'));
 });
+
+test('an online order says so on its receipt; a counter order does not', () => {
+  const online = receiptText(receipt(pay({ ...busy, online: { pickupBy: at } }, 'cash'), { cashier: 'Nimal' }));
+  assert.match(online, /Online order: collected/);
+  assert.doesNotMatch(receiptText(receipt(pay(busy, 'cash'), { cashier: 'Nimal' })), /Online/);
+});

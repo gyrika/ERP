@@ -15,4 +15,25 @@ migrations_dir = "migrations"
 directory = "../dist-cloud"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/owner.webmanifest", "/questions", "/get", "/download"]
+run_worker_first = ["/", "/api/*", "/owner.webmanifest", "/questions", "/get", "/download"]
+
+[vars]
+# The shop whose online orders cheesybeez.com takes (its id from the setup wizard). The laptop
+# test shop until the real shop is installed; then change it and deploy.
+ORDER_SHOP = "cheesybeez-thalwila"
+
+# A test copy of the cloud, apart from the shops' live one: its own address and its own empty
+# database. Try changes end to end over the internet before they reach the shop:
+#   npm run deploy:staging  →  https://cheesybeez-cloud-staging.cheesybeez-cloud.workers.dev
+[env.staging]
+name = "cheesybeez-cloud-staging"
+workers_dev = true
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "cheesybeez-cloud-staging"
+database_id = "725a90a0-2357-4a6b-b85e-5e402d73d6fa"
+migrations_dir = "migrations"
+
+[env.staging.vars]
+ORDER_SHOP = "cheesybeez-staging-test-1c7f" # the laptop test shop

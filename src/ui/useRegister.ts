@@ -126,7 +126,7 @@ const sendUnsent = (s: Snapshot, at: number): { s: Snapshot; order: Order; ticke
 const fireTicket = (ticket: NewTicket) => {
   appendEvent({
     type: 'order.sent', at: ticket.firedAt, actor: currentCashier(), orderNumber: ticket.number,
-    ticketId: ticket.id, lines: ticket.lines, addOn: Boolean(ticket.addOn),
+    ticketId: ticket.id, lines: ticket.lines, addOn: Boolean(ticket.addOn), ...(ticket.online ? { online: ticket.online } : {}),
   });
 };
 
@@ -217,6 +217,32 @@ export function useRegister() {
     sendOpen.current = true;
     fireTicket(ticket);
   }, [commit]);
+
+  /**
+   * An online order the counter accepted: it takes the next number and goes straight to the
+   * kitchen, waiting to be paid at pickup. The order on screen is left alone (a new one moves
+   * up a number). Not undoable here: the customer has already been told.
+   */
+  const acceptOnline = useCallback((specs: LineSpec[], pickupBy: number): number => {
+    seal();
+    const s = ref.current;
+    const at = Date.now();
+    const number = s.nextNumber;
+    const online = { pickupBy };
+    const order = { ...markSent(addLines(emptyOrder(number), specs), at), online };
+    const ticket: NewTicket = { id: newLineId(), shopId: shopId(), number, lines: order.lines, firedAt: at, addOn: false, online };
+    const onScreen = !s.paid && s.order.sentAt === undefined && s.order.number === number ? { ...s.order, number: number + 1 } : s.order;
+    const next: Snapshot = {
+      ...s, order: onScreen, nextNumber: number + 1,
+      open: [...s.open, order].sort((a, b) => a.number - b.number),
+      fired: [...s.fired.slice(-(FIRED_KEPT - 1)), ticket.id],
+    };
+    ref.current = next;
+    setSnap(next);
+    setToast({ id: ++toastSeq.current, message: `Online order ${number} sent to kitchen` });
+    fireTicket(ticket);
+    return number;
+  }, [seal]);
 
   /** Returns the paid order (for its receipt), or undefined when there was nothing to pay. */
   const pay = useCallback((tender: Tender, tendered: number): PaidOrder | undefined => {
@@ -365,6 +391,8 @@ export function useRegister() {
     toast,
     canUndo: past.length > 0,
     canUndoManager: () => managerStack.current.length > 0,
-    addSpec, addSpecs, editLine, dropLine, send, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    /** The number the next order (or accepted online order) gets. */
+    nextNumber: snap.nextNumber,
+    addSpec, addSpecs, editLine, dropLine, send, acceptOnline, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

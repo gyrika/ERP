@@ -81,6 +81,7 @@ export function receipt(
     rule(width),
     { text: twoCols(`Order ${paid.number}`, receiptTime(paid.paidAt), width) },
     { text: `Cashier: ${cashier}` },
+    ...(paid.online ? [{ text: 'Online order: collected' }] : []),
     rule(width),
   ];
 

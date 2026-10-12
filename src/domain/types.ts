@@ -85,7 +85,12 @@ export interface Order {
   adjust?: Adjustments;
   /** Latest manager change, shown on the order as "Edited by <name>, <time>". */
   edited?: { by: string; at: number };
+  /** Came from cheesybeez.com: the customer collects it, by the time the counter promised. */
+  online?: OnlineMark;
 }
+
+/** An online order's mark, carried by the order, its kitchen ticket and its send event. */
+export interface OnlineMark { pickupBy: number }
 
 export interface PaidOrder extends Order {
   total: Cents;

@@ -226,3 +226,15 @@ test('events older than a day are skipped', () => {
   assert.equal(ticketsFromEvents([old], 1000).length, 1);
   assert.equal(ticketsFromEvents([old], TICKET_HORIZON_MS + 1).length, 0);
 });
+
+test('an online order keeps its pickup time on the kitchen ticket', () => {
+  const actor = { id: 's', name: 'Nimal', role: 'cashier' as const };
+  const line = { id: 'l1', itemId: 'margherita', qty: 1, size: 'M' as const, adds: [], outs: [], sent: true };
+  const events = [
+    { id: 'e1', shopId: 'shop', type: 'order.sent', at: 1000, actor, orderNumber: 1001, ticketId: 't1', lines: [line], addOn: false, online: { pickupBy: 9000 } },
+    { id: 'e2', shopId: 'shop', type: 'order.sent', at: 1000, actor, orderNumber: 1002, ticketId: 't2', lines: [line], addOn: false },
+  ] as SyncEvent[];
+  const [a, b] = ticketsFromEvents(events, 2000);
+  assert.deepEqual(a.online, { pickupBy: 9000 });
+  assert.equal(b.online, undefined);
+});

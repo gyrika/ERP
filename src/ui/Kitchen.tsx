@@ -177,6 +177,12 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                 <span className="ticket__no num">{t.number}</span>
                 {t.changed && <span className="ticket__tag ticket__tag--changed">Changed</span>}
                 {t.addOn && <span className="ticket__tag">Added</span>}
+                {/* Neutral, like Added: on the kitchen screen colour means urgency only. */}
+                {t.online && !t.addOn && (
+                  <span className="ticket__tag">
+                    Online · pickup {new Date(t.online.pickupBy).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                )}
                 <span className="ticket__time num" aria-label={`Waiting ${elapsedLabel(elapsed)}`}>
                   {elapsedLabel(elapsed)}
                 </span>

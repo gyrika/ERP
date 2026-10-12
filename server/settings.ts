@@ -19,6 +19,8 @@ export interface ShopSettings {
   cloudToken?: string;
   /** This shop's own secret with the cloud: only this server can connect the shop again. */
   cloudSecret?: string;
+  /** The counter is taking online orders from cheesybeez.com. */
+  onlineOpen?: boolean;
 }
 
 export function settingsFile(file: string) {

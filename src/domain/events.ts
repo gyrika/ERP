@@ -1,5 +1,5 @@
 import type { Actor } from './auth.ts';
-import type { Cents, Discount, OrderLine, Tender } from './types.ts';
+import type { Cents, Discount, OnlineMark, OrderLine, Tender } from './types.ts';
 
 /**
  * The order event log: every send, payment and manager change, append-only.
@@ -22,7 +22,7 @@ interface Audited {
 }
 
 export type OrderEvent =
-  | (Base & { type: 'order.sent'; ticketId: string; lines: OrderLine[]; addOn: boolean })
+  | (Base & { type: 'order.sent'; ticketId: string; lines: OrderLine[]; addOn: boolean; online?: OnlineMark })
   | (Base & { type: 'order.send_undone'; ticketId: string })
   | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents })
   | (Base & { type: 'order.payment_undone' })

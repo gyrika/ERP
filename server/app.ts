@@ -9,6 +9,7 @@ import {
   type SyncedEvent,
 } from '../src/domain/sync.ts';
 import { isPin } from './pins.ts';
+import { OnlineError, type Online, type OnlineAnswer } from './online.ts';
 import type { RawPrinter } from './printer.ts';
 import type { ReplicaStatus } from './replicator.ts';
 import { SetupError, isLocal, type SetupApi } from './setup.ts';
@@ -27,8 +28,10 @@ export interface AppOptions {
   staticDir?: string;
   /** The receipt printer on this PC. Omit and printing answers 503. */
   printer?: RawPrinter;
-  /** New events were stored for this shop (the cloud copy follows). */
-  onStored?: (tenantId: string) => void;
+  /** New events were stored for this shop (the cloud copy follows; online orders become ready or collected). */
+  onStored?: (tenantId: string, events: SyncEvent[]) => void;
+  /** Online orders from cheesybeez.com (server/online.ts), once the cloud is connected. */
+  online?: () => Online | null;
   /** The cloud copy's state, shown by the health check (null: no cloud copy set up). */
   cloudStatus?: () => ReplicaStatus | null;
   /** The setup wizard's endpoints (server/setup.ts); answered for this PC only. */
@@ -106,7 +109,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, cloudStatus, setup, version, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -208,6 +211,30 @@ export function createApp({ store, staticDir, printer, onStored, cloudStatus, se
       json(res, 200, { ok: true });
       return;
     }
+    if (url.pathname === '/api/v1/online' || url.pathname.startsWith('/api/v1/online/')) {
+      const device = await authenticate(req, url);
+      // Customers' names and phone numbers: the counter only, never a kitchen tablet or a phone.
+      if (device.kind !== 'counter') throw new HttpError(403, 'forbidden', 'only the counter takes online orders');
+      const o = online?.() ?? null;
+      if (url.pathname === '/api/v1/online' && req.method === 'GET') {
+        json(res, 200, o ? { available: true, ...o.view() } : { available: false, open: false, connected: false, orders: [] });
+        return;
+      }
+      if (!o) throw new HttpError(409, 'server', 'connect the cloud first (Shop setup → Cloud)');
+      if (req.method !== 'POST') throw new HttpError(405, 'server', 'method not allowed');
+      const body = ((await readBody(req)) ?? {}) as Record<string, unknown>;
+      if (url.pathname === '/api/v1/online/open') {
+        o.setOpen(body.open === true);
+        json(res, 200, o.view());
+        return;
+      }
+      const id = url.pathname.slice('/api/v1/online/'.length);
+      if (!/^o-[A-Za-z0-9_-]{8,20}$/.test(id)) throw new HttpError(404, 'server', 'no such online order');
+      try { await o.answer(id, body as unknown as OnlineAnswer); }
+      catch (e) { if (e instanceof OnlineError) throw new HttpError(e.status === 404 ? 404 : 409, 'forbidden', e.message); throw e; }
+      json(res, 200, o.view());
+      return;
+    }
     if (url.pathname !== '/api/v1/events') throw new HttpError(404, 'server', 'no such endpoint');
     const device = await authenticate(req, url);
 
@@ -228,7 +255,7 @@ export function createApp({ store, staticDir, printer, onStored, cloudStatus, se
       });
       const { accepted, stored } = await store.push(device, allowed, now());
       broadcast(device.tenantId, stored);
-      if (stored.length) onStored?.(device.tenantId);
+      if (stored.length) onStored?.(device.tenantId, stored.map((s) => s.event));
       json(res, 200, { accepted, ...(rejected.length ? { rejected } : {}), serverTime: now() } satisfies PushResponse);
       return;
     }
