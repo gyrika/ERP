@@ -6,6 +6,7 @@ import type { MenuItem, OrderLine, SizeId } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
 import { ExtrasSheet } from './ExtrasSheet.tsx';
+import { KitchenChip } from './KitchenChip.tsx';
 import { Menu, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, type ManagePanel } from './OrderPanel.tsx';
 import { PaySheet } from './PaySheet.tsx';
@@ -26,7 +27,8 @@ type Sheet =
 const isTypingTarget = (el: EventTarget | null): boolean =>
   el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 
-export function App() {
+/** `onKitchen`: flips the counter screen to the Kitchen view (see Root). */
+export function App({ onKitchen }: { onKitchen?: () => void } = {}) {
   const reg = useRegister();
   const tickets = useKitchenTickets(); // live, so Cooking turns Done the moment the kitchen taps it
   const [category, setCategory] = useState<CategoryId>('popular');
@@ -207,6 +209,7 @@ export function App() {
           </span>
         ) : (
           <span className="corner">
+            {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <span className="cashier">{currentCashier().name}</span>
             <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
           </span>

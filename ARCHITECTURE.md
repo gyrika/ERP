@@ -46,6 +46,7 @@ Accounts/roles UI, reports, inventory screens, i18n switcher (labels already car
 - Kitchen urgency: amber at 10 min, red at 15 min are placeholders (`src/domain/kitchen.ts`); owner will supply real cook times per item (promised 2026-10-12).
 
 ## Answered by the owner (2026-10-12)
+- Kitchen screen: none yet. Until the owner adds a kitchen device, the kitchen view runs on the counter PC itself: **F2** (or the corner **Kitchen** chip, which shows how many orders are cooking and the oldest wait, dot in the urgency colour) flips the whole screen between Register and Kitchen in the same tab (`src/ui/Root.tsx`). In the Kitchen: **Space** bumps the oldest ticket, **Ctrl+Z** undoes, **Esc**/F2 returns. A device opened straight at `/#kitchen` shows no Register key. Consequence: the sync server (slice 4) is not needed for the kitchen until that device arrives; it is still needed for safe storage, backups and the owner's phone.
 - Printer: Xprinter XP-80T, 80 mm thermal, ESC/POS, USB to the PC. Network port not confirmed.
 - Cash drawer: RJ11 into the printer; opened by an ESC/POS kick command sent with the receipt.
 - Counter PC: Windows 10 Pro (out of Microsoft support since Oct 2025).
