@@ -2,7 +2,9 @@
 name = "cheesybeez-cloud"
 main = "src/worker.ts"
 compatibility_date = "2025-06-01"
-workers_dev = true
+workers_dev = true # the first address; shops installed before the domain still use it
+# The shop's own address (DNS on Cloudflare; the record and HTTPS are made on deploy).
+routes = [{ pattern = "owner.cheesybeez.com", custom_domain = true }]
 
 [[d1_databases]]
 binding = "DB"
