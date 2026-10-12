@@ -81,5 +81,9 @@ test('declining an order the customer can no longer get is refused with a reason
   clock.t = new Date(2026, 9, 14, 3, 0).getTime();
   await online.pollNow();
   assert.equal(isOpen(), false, 'a forgotten switch never takes orders at 3 am');
+  online.setOpen(true); // open late tonight: switched back on at the counter
+  clock.t += 30 * 60_000;
+  await online.pollNow();
+  assert.equal(isOpen(), true, 'once a night only: it stays on');
   online.stop();
 });

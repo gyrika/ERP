@@ -50,6 +50,8 @@ export function startOnline(o: OnlineOptions) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   let polling: Promise<void> | null = null;
+  /** The night online orders last switched themselves off (once a night, so staff can switch them back on). */
+  let closedNight = '';
   /** Answers the cloud has not confirmed yet (the internet was down): sent again on each poll. */
   const owed = new Map<string, OnlineAnswer>();
 
@@ -84,9 +86,14 @@ export function startOnline(o: OnlineOptions) {
   const poll = (): Promise<void> => {
     polling ??= (async () => {
       try {
-        // Close by itself overnight, so a forgotten switch never takes orders at 3 am.
-        const hour = new Date(now()).getHours();
-        if (o.isOpen() && hour >= 2 && hour < 6) o.setOpen(false);
+        // Close by itself once a night, so a forgotten switch never takes orders at 3 am;
+        // a shop open late can switch it back on, and it stays on.
+        const d = new Date(now());
+        const night = d.toDateString();
+        if (d.getHours() >= 2 && d.getHours() < 6 && closedNight !== night) {
+          closedNight = night;
+          if (o.isOpen()) o.setOpen(false);
+        }
         for (const [id, a] of [...owed]) await send(id, a).catch(() => owed.delete(id));
         const r = await post('/api/v1/online/poll', { open: o.isOpen() });
         if (!r.ok) throw new Error(`the cloud answered ${r.status}`);
