@@ -155,3 +155,16 @@ test('manager mode checks the PIN with the server: a cashier’s PIN does not op
   await user.keyboard('2580');
   expect(await screen.findByText('Managing · Ravi')).toBeTruthy();
 });
+
+test('inventory: a cashier typing the address gets the Register; a manager gets Inventory', async () => {
+  pair();
+  history.replaceState(null, '', '/#inventory');
+  const user = userEvent.setup();
+  render(<Root />);
+  await user.keyboard('1111');
+  await screen.findByRole('button', { name: 'Nimal: switch user' });
+  expect(screen.queryByRole('main', { name: 'Inventory' })).toBeNull();
+
+  await user.keyboard('{F4}2580');
+  expect(await screen.findByRole('main', { name: 'Inventory' })).toBeTruthy();
+});

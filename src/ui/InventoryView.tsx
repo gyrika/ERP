@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fmt, formatLKR } from '../domain/money.ts';
 import type { Cents } from '../domain/types.ts';
 import {
-  isLowStock, readItems, useInventory, writeItems, type InventoryRow,
+  adjustStock, isLowStock, setWorkingPrice, useInventory, type InventoryRow,
 } from '../services/inventoryStore.ts';
 import { supplierById } from '../domain/inventory.ts';
 
@@ -107,16 +107,8 @@ export function InventoryView() {
     });
   }, [items, filter, query]);
 
-  const patchItem = (id: string, patch: Partial<InventoryRow>) => {
-    const next = readItems().map((row) => (row.id === id ? { ...row, ...patch } : row));
-    writeItems(next);
-  };
-
-  const bumpStock = (id: string, delta: number) => {
-    const row = readItems().find((i) => i.id === id);
-    if (!row) return;
-    patchItem(id, { onHandPacks: Math.max(0, row.onHandPacks + delta) });
-  };
+  // Each change is an audited event (who, when); the list rebuilds itself from them.
+  const bumpStock = (id: string, delta: number) => adjustStock(id, delta);
 
   return (
     <div className="inv-page">
@@ -223,7 +215,7 @@ export function InventoryView() {
         <PriceDrawer
           item={priceItem}
           onClose={() => setPriceItem(null)}
-          onSave={(cents) => patchItem(priceItem.id, { workingPriceCents: cents })}
+          onSave={(cents) => setWorkingPrice(priceItem.id, cents)}
         />
       )}
     </div>

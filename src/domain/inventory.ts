@@ -1,4 +1,5 @@
 import type { BaseUnit, InventoryItem, Supplier } from './inventoryData.ts';
+import type { SyncEvent } from './sync.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
@@ -70,4 +71,28 @@ export const loadSeed = <T>(
 ): T[] => {
   const existing = read(key);
   return existing.length > 0 ? existing : seed;
+};
+
+/** A stock row: the price-list item plus what is on the shelf, in purchasing packs. */
+export type InventoryRow = InventoryItem & { onHandPacks: number };
+
+export const LOW_STOCK_PACKS = 1;
+
+export const isLowStock = (row: InventoryRow): boolean => row.onHandPacks <= LOW_STOCK_PACKS;
+
+/**
+ * Stock as it stands, built from the price list (in code, like the menu) and
+ * the stock events, oldest first. Counts never go below zero; the last price
+ * set wins. Same events, same result on every device and in the cloud.
+ */
+export const inventoryFromEvents = (items: readonly InventoryItem[], events: readonly SyncEvent[]): InventoryRow[] => {
+  const rows = new Map(items.map((i) => [i.id, { ...i, onHandPacks: 0 }]));
+  for (const e of events) {
+    if (e.type !== 'stock.adjusted' && e.type !== 'stock.price_set') continue;
+    const row = rows.get(e.itemId);
+    if (!row) continue; // an item no longer on the price list
+    if (e.type === 'stock.adjusted') row.onHandPacks = Math.max(0, row.onHandPacks + e.deltaPacks);
+    else row.workingPriceCents = e.after;
+  }
+  return [...rows.values()];
 };
