@@ -34,7 +34,15 @@ const isTypingTarget = (el: EventTarget | null): boolean =>
  * `onKitchen`: flips the counter screen to the Kitchen view (see Root).
  * `onSwitch`: locks the screen for the next person (real logins only).
  */
-export function App({ onKitchen, onSwitch }: { onKitchen?: () => void; onSwitch?: () => void } = {}) {
+export function App({
+  onKitchen,
+  onSwitch,
+  canManageStock = true,
+}: {
+  onKitchen?: () => void;
+  onSwitch?: () => void;
+  canManageStock?: boolean;
+} = {}) {
   const reg = useRegister();
   const tickets = useKitchenTickets(); // live, so Cooking turns Done the moment the kitchen taps it
   const [category, setCategory] = useState<CategoryId>('popular');
@@ -209,14 +217,17 @@ export function App({ onKitchen, onSwitch }: { onKitchen?: () => void; onSwitch?
     reg.open.forEach((o) => list.push({ id: `open-${o.number}`, label: `Open order ${o.number}`, run: () => reg.openOrder(o.number) }));
     list.push(
       { id: 'owner', label: 'Owner view: what needs attention today', run: () => { location.hash = '#owner'; } },
-      { id: 'inventory', label: 'Inventory and stock', run: () => { location.hash = '#inventory'; } },
       { id: 'setup', label: "Shop setup: staff, printer, devices (owner's PIN)", run: () => { location.hash = '#setup'; } },
       { id: 'undo', label: 'Undo last change', hint: 'Ctrl+Z', run: () => reg.undoManager(manager) },
       { id: 'sound', label: sound ? 'Turn sound off' : 'Turn sound on', run: () => { setSoundOn(!sound); setSound(!sound); } },
       { id: 'leave', label: 'Leave manager mode', hint: 'Esc', run: mode.exit },
     );
+    if (canManageStock) {
+      list.push({ id: 'inventory', label: 'Inventory and stock', run: () => { location.hash = '#inventory'; } });
+      list.push({ id: 'suppliers', label: 'Suppliers', run: () => { location.hash = '#suppliers'; } });
+    }
     return list;
-  }, [manager, listing, reg, selectedLine, sound, manage, askAdjust, askVoid, mode.exit]);
+  }, [manager, listing, reg, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit]);
 
   return (
     <div className={`register${manager ? ' register--managing' : ''}`} onClick={onBackground}>
