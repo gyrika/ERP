@@ -32,7 +32,8 @@ const customer = (phone = '0771234567', lines: unknown[] = [pizza]) => ({ name: 
 
 test('closed until the counter switches it on and the shop server is heard from', async () => {
   const { call, clock } = await setup();
-  assert.deepEqual((await call('/api/v1/shop')).body, { name: 'CheesyBeez Thalwila', open: false });
+  const shop = (await call('/api/v1/shop')).body;
+  assert.deepEqual([shop.name, shop.open, shop.menuState], ['CheesyBeez Thalwila', false, { overrides: {}, soldOut: {} }]);
   assert.equal((await call('/api/v1/orders', customer())).status, 409);
 
   await call('/api/v1/online/poll', { open: true }, 'server-a');
@@ -115,4 +116,22 @@ test("a customer's name and phone are blanked after 30 days", async () => {
   clock.t += 31 * 24 * 60 * 60_000;
   await call('/api/v1/online/poll', { open: true }, 'server-a');
   assert.deepEqual({ ...db.prepare('SELECT name, phone, ip_hash FROM online_orders').get() }, { name: '', phone: '', ip_hash: null });
+});
+
+test("online orders follow the owner's menu: new prices, nothing sold out or hidden", async () => {
+  const { call, clock, db } = await setup();
+  const owner = { id: 'o', name: 'Nisal', role: 'owner' };
+  let seq = 0;
+  const menuEvent = (e: object) => db.prepare(`INSERT INTO events (tenant_id, id, source_seq, source_device, type, order_number, at, received_at, copied_at, body)
+    VALUES (?, ?, ?, 'dev', ?, 0, 1, 1, 1, ?)`).run(SHOP, `m${++seq}`, seq, (e as { type: string }).type, JSON.stringify({ id: `m${seq}`, shopId: SHOP, at: 1, orderNumber: 0, actor: owner, ...e }));
+  menuEvent({ type: 'menu.item_set', itemId: 'devilled-chicken', before: {}, after: { prices: { L: 300000 } } });
+  menuEvent({ type: 'menu.sold_out', itemId: 'seafood', until: clock.t + 3_600_000 });
+  menuEvent({ type: 'menu.item_set', itemId: 'chicken-burger', before: {}, after: { hidden: true } });
+  await call('/api/v1/online/poll', { open: true }, 'server-a');
+
+  const shop = (await call('/api/v1/shop')).body;
+  assert.equal(shop.menuState.overrides['devilled-chicken'].prices.L, 300000, 'the page gets the changes');
+  assert.equal((await call('/api/v1/orders', customer())).body.total, 300000, 'priced with the new price');
+  assert.match((await call('/api/v1/orders', customer('0772222222', [{ itemId: 'seafood', qty: 1, size: 'L' }]))).body.message, /sold out today/);
+  assert.match((await call('/api/v1/orders', customer('0773333333', [{ itemId: 'chicken-burger', qty: 1 }]))).body.message, /not on the menu/);
 });

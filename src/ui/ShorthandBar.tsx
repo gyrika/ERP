@@ -43,9 +43,14 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
     Promise.resolve(interpreter.interpret(text)).then((d) => { if (id === latest.current) setDraft(d); });
   }, [text]);
 
+  // Typed items the shop is not offering right now are shown, never added.
+  const offered = (l: LineSpec) => { const i = itemById(l.itemId); return !i.soldOut && !i.hidden; };
+  const ok = draft.lines.filter(offered);
+  const blocked = draft.lines.filter((l) => !offered(l));
+
   const submit = () => {
-    if (!draft.lines.length) return;
-    onSubmit(draft.lines);
+    if (!ok.length) return;
+    onSubmit(ok);
     if (draft.unresolved.length) setText(draft.unresolved.join(', ')); // keep only what needs fixing
     else onClose();
   };
@@ -68,7 +73,10 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
         />
       </div>
       <div className="typebar__preview" aria-live="polite">
-        {draft.lines.map((l, i) => <span key={i}>{describe(l)}</span>)}
+        {ok.map((l, i) => <span key={i}>{describe(l)}</span>)}
+        {blocked.map((l, i) => (
+          <span key={`b${i}`} className="typebar__bad">{itemById(l.itemId).name.en}: {itemById(l.itemId).hidden ? 'not on the menu' : 'sold out'}</span>
+        ))}
         {draft.unresolved.map((u, i) => <span key={`u${i}`} className="typebar__bad">? {u}</span>)}
       </div>
     </div>

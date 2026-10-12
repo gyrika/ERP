@@ -104,7 +104,8 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
   write(OUTBOX(), outbox);
   const pending = new Set(outbox);
   const all = readAll();
-  const kept = all.filter((e) => pending.has(e.id) || now - e.at < KEEP_SYNCED_MS);
+  // Menu changes are the shop's menu itself: kept for good (they are few).
+  const kept = all.filter((e) => pending.has(e.id) || now - e.at < KEEP_SYNCED_MS || e.type.startsWith('menu.'));
   if (kept.length !== all.length) write(KEY(), kept);
 };
 

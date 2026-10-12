@@ -34,6 +34,12 @@ export interface MenuItem {
   price?: Cents;
   adds: Option[];
   leaveOut: Option[];
+  /** The owner took it off the menu (src/domain/menuEdits.ts): kept for old orders, not offered. */
+  hidden?: boolean;
+  /** Sold out for today: shown greyed, cannot be ordered. */
+  soldOut?: boolean;
+  /** The owner changed it from the printed menu. */
+  edited?: boolean;
 }
 
 export interface OrderLine {
@@ -47,6 +53,11 @@ export interface OrderLine {
   note?: string;
   /** Already on a kitchen ticket. Sent lines are locked: the kitchen may be cooking them. */
   sent?: boolean;
+  /**
+   * Unit price (size + extras) when the line went to the kitchen. A later menu price
+   * change never alters an order already sent, its receipt, or past sales.
+   */
+  unit?: Cents;
 }
 
 export type LineSpec = Omit<OrderLine, 'id'>;
