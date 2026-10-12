@@ -50,6 +50,14 @@ jobs:
       - name: Build the counter app (CheesyBeez POS.exe)
         run: dotnet build deploy/station/pos-app/CheesyBeezPOS.csproj -c Release -o deploy/station/stage/pos-app
 
+      - name: Check the counter app has everything it needs
+        shell: pwsh
+        run: |
+          Get-ChildItem deploy/station/stage/pos-app -Recurse -File | ForEach-Object { $_.FullName.Replace((Resolve-Path deploy/station/stage/pos-app).Path, '') }
+          foreach ($need in 'CheesyBeezPOS.exe', 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinForms.dll', 'WebView2Loader.dll') {
+            if (-not (Get-ChildItem deploy/station/stage/pos-app -Recurse -Filter $need)) { throw "The counter app is missing $need" }
+          }
+
       - name: Build Setup.exe
         shell: pwsh
         run: |
