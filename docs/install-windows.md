@@ -61,6 +61,7 @@ Connect with AnyDesk, open PowerShell **as administrator**, then:
 | Add or remove staff | `cd C:\CheesyBeez\ERP` then `npm run server:staff -- add --shop cheesybeez-thalwila --name … --role … --pin …` |
 | Back up right now | `C:\CheesyBeez\ERP\deploy\windows\backup.ps1` |
 | Change the printer | run `install.ps1` again (it keeps everything else) |
+| Remove the POS from a PC (a test PC, an old counter) | `C:\CheesyBeez\ERP\deploy\windows\uninstall.ps1` (asks before deleting any data) |
 
 `status.ps1` shows, in one screen: server, start-up task, MySQL, version, printer (and jobs
 stuck in its queue), last backup, free disk, and the end of the server log.
@@ -78,4 +79,6 @@ Logs of every install and update are in `C:\CheesyBeez\logs`.
   copied there too. Until the cloud copy (SCRUM-61) exists, that is the copy that survives if
   the PC dies.
 - These scripts were written and syntax-checked on Linux; their first real run is on a Windows
-  PC. Try them on any spare Windows PC or laptop before the shop's.
+  PC. Try them first in **Windows Sandbox** (Windows 10/11 Pro: Turn Windows features on or off >
+  Windows Sandbox), which throws everything away when closed, or on a spare PC and then run
+  `uninstall.ps1`. Not in Docker: that tests Linux, not the Windows installer.
