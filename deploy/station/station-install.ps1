@@ -5,6 +5,8 @@ $ErrorActionPreference = 'Stop'
 $app = $PSScriptRoot
 $data = Join-Path $env:ProgramData 'CheesyBeez'
 New-Item -ItemType Directory -Force -Path (Join-Path $data 'logs') | Out-Null
+# The shop's data (sales, staff, the cloud key) is for Windows and administrators only, not every user.
+& icacls.exe $data /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 
 $system = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $always = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable

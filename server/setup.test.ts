@@ -11,13 +11,16 @@ import { settingsFile } from './settings.ts';
 import { isLocal, setupApi, shopIdFor } from './setup.ts';
 import { memoryStore } from './store.ts';
 
-async function start(cloudFetch?: typeof fetch) {
+async function start(cloudFetch?: typeof fetch, preConnected = Boolean(cloudFetch)) {
+  let connected = 0;
   const dir = mkdtempSync(join(tmpdir(), 'cb-setup-'));
   const store = memoryStore();
   const settings = settingsFile(join(dir, 'settings.json'));
   const setup = setupApi({
     store, settings, usePrinter: () => {}, printsDir: join(dir, 'prints'), port: 8080,
-    cloud: cloudFetch ? { url: 'https://cloud.test', token: 'server-token' } : null, fetch: cloudFetch,
+    cloud: () => (preConnected ? { url: 'https://cloud.test', token: 'server-token' } : (settings.get().cloudToken
+      ? { url: settings.get().cloudUrl!, token: settings.get().cloudToken! } : null)),
+    cloudUrl: 'https://cloud.test', fetch: cloudFetch, onCloudConnected: () => { connected += 1; },
   });
   const server = createApp({ store, printer: dryRunPrinter(join(dir, 'prints')), setup });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -28,7 +31,7 @@ async function start(cloudFetch?: typeof fetch) {
   };
   const state = async () => (await fetch(base)).json();
   const stop = async () => { await new Promise<void>((r) => server.close(() => r())); rmSync(dir, { recursive: true, force: true }); };
-  return { post, state, stop, store, settings };
+  return { post, state, stop, store, settings, connected: () => connected };
 }
 
 test('a new shop: name it (this PC becomes the counter), add staff, finish only with an owner', async () => {
@@ -36,7 +39,7 @@ test('a new shop: name it (this PC becomes the counter), add staff, finish only 
   assert.deepEqual(await s.state(), { done: false, shop: null, printer: null, printers: (await s.state()).printers, cloud: false });
 
   const named = await s.post('/shop', { name: 'CheesyBeez', place: 'Thalwila' });
-  assert.equal(named.body.shopId, 'cheesybeez-thalwila');
+  assert.match(named.body.shopId, /^cheesybeez-thalwila-[0-9a-f]{4}$/, 'a short random ending keeps shops apart in the cloud');
   assert.ok((await s.store.deviceByToken(named.body.counterToken))?.kind === 'counter', 'this PC is paired as the counter');
   assert.equal((await s.post('/shop', { name: 'CheesyBeez', place: 'Thalwila' })).body.counterToken, undefined, 'only once');
 
@@ -80,7 +83,7 @@ test('QR links: a kitchen tablet on the Wi-Fi, an owner phone via the cloud', as
 
   const kitchen = await s.post('/pair', { kind: 'kitchen' });
   if (kitchen.status === 200) {
-    assert.match(kitchen.body.link, /^http:\/\/[\d.]+:8080\/\?pair=[\w-]+&shop=cheesybeez-thalwila&as=kitchen#kitchen$/);
+    assert.match(kitchen.body.link, /^http:\/\/[\d.]+:8080\/\?pair=[\w-]+&shop=cheesybeez-thalwila-[0-9a-f]{4}&as=kitchen#kitchen$/);
   } else {
     assert.equal(kitchen.body.error, 'not_ready'); // a machine with no network at all
   }
@@ -102,4 +105,26 @@ test('only the shop PC itself may set up', () => {
   assert.equal(isLocal(req('192.168.1.20')), false, 'a tablet on the Wi-Fi');
   assert.equal(shopIdFor('CheesyBeez', 'Thalwila'), 'cheesybeez-thalwila');
   assert.equal(shopIdFor('Café  Ño!', ''), 'cafe-no');
+});
+
+test('the cloud step: the shop code connects this shop, and copying starts without a restart', async () => {
+  const sent: unknown[] = [];
+  const cloud = (async (url: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    sent.push({ url: String(url), ...body });
+    return body.code === 'CB-7K3M-Q9XZ' ? Response.json({ token: 'new-server-token' }) : Response.json({}, { status: 403 });
+  }) as typeof fetch;
+  const s = await start(cloud, false);
+  const { body: { shopId } } = await s.post('/shop', { name: 'CheesyBeez', place: 'Thalwila' });
+  assert.equal((await s.state()).cloud, false);
+
+  const wrong = await s.post('/cloud', { code: 'NOPE' });
+  assert.equal(wrong.status, 403);
+  assert.equal(wrong.body.message, 'that shop code is not right');
+  assert.equal((await s.post('/cloud', { code: 'CB-7K3M-Q9XZ' })).status, 200);
+  assert.deepEqual(sent.at(-1), { url: 'https://cloud.test/api/v1/enrol', code: 'CB-7K3M-Q9XZ', shopId, name: 'CheesyBeez Thalwila' });
+  assert.equal(s.settings.get().cloudToken, 'new-server-token');
+  assert.equal(s.connected(), 1, 'copying started straight away');
+  assert.equal((await s.state()).cloud, true);
+  await s.stop();
 });

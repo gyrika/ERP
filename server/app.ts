@@ -156,7 +156,7 @@ export function createApp({ store, staticDir, printer, onStored, cloudStatus, se
         const body = ((await readBody(req)) ?? {}) as Record<string, unknown>;
         const routes: Record<string, (b: Record<string, unknown>) => Promise<unknown>> = {
           '/shop': setup.nameShop, '/printer': setup.setPrinter, '/staff': setup.addStaff, '/staff/list': setup.staff,
-          '/staff/remove': setup.removeStaff, '/pair': setup.pair, '/finish': () => setup.finish(),
+          '/staff/remove': setup.removeStaff, '/pair': setup.pair, '/cloud': setup.connectCloud, '/finish': () => setup.finish(),
         };
         const route = routes[step];
         if (!route) throw new HttpError(404, 'server', 'no such setup step');

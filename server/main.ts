@@ -18,7 +18,8 @@ import { memoryStore, mysqlStore, type EventStore } from './store.ts';
  *   MEMORY=1      keep nothing (tests, a quick look)
  *   PORT          default 8080
  *   PRINTER       a printer name, if the wizard has not chosen one
- *   CLOUD_URL, CLOUD_TOKEN, CLOUD_SHOP  the cloud copy (docs/cloud.md)
+ *   CLOUD_URL, CLOUD_TOKEN, CLOUD_SHOP  the cloud copy by hand (docs/cloud.md); normally the
+ *                 wizard connects it with the shop code, and these are not needed
  */
 const port = Number(process.env.PORT ?? 8080);
 const dataDir = (process.env.DATA_DIR ?? fileURLToPath(new URL('./data/', import.meta.url))).replace(/[\\/]$/, '');
@@ -42,20 +43,33 @@ const settings = settingsFile(`${dataDir}/settings.json`);
 const chosen = settings.get().printer ?? process.env.PRINTER;
 const printer = switchablePrinter(chosen ? systemPrinter(chosen) : dryRunPrinter(printsDir));
 
-const cloudUrl = process.env.CLOUD_URL?.replace(/\/$/, '');
-const cloud = cloudUrl && process.env.CLOUD_TOKEN ? { url: cloudUrl, token: process.env.CLOUD_TOKEN } : null;
-const cloudShop = process.env.CLOUD_SHOP ?? settings.get().shopId;
-const replicator = cloud && cloudShop
-  ? startReplicator({ store, tenantId: cloudShop, url: cloud.url, token: cloud.token })
-  : null;
+/** The CheesyBeez cloud copy (docs/cloud.md); a new shop joins it from the setup wizard. */
+const DEFAULT_CLOUD_URL = 'https://cheesybeez-cloud.cheesybeez-cloud.workers.dev';
+const cloudUrl = (process.env.CLOUD_URL || DEFAULT_CLOUD_URL).replace(/\/$/, '');
+/** The cloud link: set by hand in the environment, or by the wizard (kept in the settings). */
+const cloudLink = () => {
+  if (process.env.CLOUD_TOKEN) return { url: cloudUrl, token: process.env.CLOUD_TOKEN };
+  const s = settings.get();
+  return s.cloudUrl && s.cloudToken ? { url: s.cloudUrl, token: s.cloudToken } : null;
+};
+const cloudShop = () => process.env.CLOUD_SHOP || settings.get().shopId; // empty = unset
+let replicator: ReturnType<typeof startReplicator> | null = null;
+/** Copy to the cloud when there is a link and a shop; called again when the wizard connects it. */
+const startCloud = () => {
+  replicator?.stop();
+  const link = cloudLink();
+  const shop = cloudShop();
+  replicator = link && shop ? startReplicator({ store, tenantId: shop, url: link.url, token: link.token }) : null;
+};
+startCloud();
 
 const server = createApp({
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
   printer,
-  onStored: (tenantId) => { if (tenantId === cloudShop) replicator?.nudge(); },
+  onStored: (tenantId) => { if (tenantId === cloudShop()) replicator?.nudge(); },
   cloudStatus: () => replicator?.status() ?? null,
-  setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud }),
+  setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud }),
 });
 
 server.listen(port, '0.0.0.0', () => {
@@ -65,7 +79,7 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  shop: ${s.setupDone ? `${s.shopName} (${s.shopId})` : 'not set up yet: open the address above on this PC'}`);
   console.log(`  database: ${storeName}`);
   console.log(`  receipt printer: ${printer.name}`);
-  console.log(`  cloud copy: ${replicator ? `${cloudShop} -> ${cloud!.url}` : 'off'}`);
+  console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
 const stop = () => { replicator?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };

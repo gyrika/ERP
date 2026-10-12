@@ -10,7 +10,7 @@ interface Person { id: string; name: string; role: string; pin: string; active: 
 
 /** The shop server's setup endpoints, remembering what they are told (and refusing as the real one does). */
 function fakeShopServer({ done = false, status = 200 } = {}) {
-  const s = { done, shop: null as null | { id: string; name: string; place: string }, printer: null as string | null, staff: [] as Person[] };
+  const s = { done, cloud: false, shop: null as null | { id: string; name: string; place: string }, printer: null as string | null, staff: [] as Person[] };
   const pub = () => s.staff.map(({ pin: _p, ...m }) => m);
   const ownerOk = (pin: unknown) => !s.done || s.staff.some((m) => m.active && m.role === 'owner' && m.pin === pin);
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -19,7 +19,7 @@ function fakeShopServer({ done = false, status = 200 } = {}) {
     const step = String(url).replace('/api/v1/setup', '');
     const ok = (b: unknown) => Response.json(b);
     const no = (code: number, message: string) => Response.json({ message }, { status: code });
-    if (step === '') return ok({ done: s.done, shop: s.shop, printer: s.printer, printers: ['XP-80T'], cloud: true, ...(s.done ? {} : { staff: pub() }) });
+    if (step === '') return ok({ done: s.done, shop: s.shop, printer: s.printer, printers: ['XP-80T'], cloud: s.cloud, ...(s.done ? {} : { staff: pub() }) });
     if (!ownerOk(body.ownerPin)) return no(401, "that is not the owner's PIN");
     if (step === '/shop') { const first = !s.shop; s.shop = { id: 'cheesybeez-thalwila', name: body.name, place: body.place }; return ok({ shopId: s.shop.id, ...(first ? { counterToken: 'counter-token' } : {}) }); }
     if (step === '/printer') { s.printer = body.name; return ok({ printer: body.name }); }
@@ -30,6 +30,7 @@ function fakeShopServer({ done = false, status = 200 } = {}) {
     }
     if (step === '/staff/list') return ok({ staff: pub() });
     if (step === '/pair') return ok(body.kind === 'counter' ? { counterToken: 'second-screen', shopId: 'cheesybeez-thalwila' } : { link: `http://10.0.0.5:8080/?pair=k&as=${body.kind}` });
+    if (step === '/cloud') { if (body.code !== 'CB-7K3M-Q9XZ') return no(403, 'that shop code is not right'); s.cloud = true; return ok({ cloud: true }); }
     if (step === '/finish') { s.done = true; return ok({ done: true }); }
     return no(404, 'no such step');
   }));
@@ -73,7 +74,20 @@ test('a new shop: name, printer, staff (owner first), a QR code, finish', async 
   expect((await screen.findByRole('alert')).textContent).toContain('already has that PIN');
 
   await user.click(screen.getByRole('button', { name: 'Next' }));
+  expect(await screen.findByRole('heading', { name: 'Connect to the cloud' })).toBeTruthy();
+  await user.type(screen.getByRole('textbox', { name: 'Shop code' }), 'cb-0000-0000');
+  await user.click(screen.getByRole('button', { name: 'Connect' }));
+  expect((await screen.findByRole('alert')).textContent).toBe('that shop code is not right');
+  await user.clear(screen.getByRole('textbox', { name: 'Shop code' }));
+  await user.type(screen.getByRole('textbox', { name: 'Shop code' }), 'cb-7k3m-q9xz'); // typed in lower case: shown and sent in capitals
+  await user.click(screen.getByRole('button', { name: 'Connect' }));
+  expect(await screen.findByText('Connected: sales are copied to the cloud.')).toBeTruthy();
+  expect(server.cloud).toBe(true);
+  await user.click(screen.getByRole('button', { name: 'Next' }));
+
   expect(await screen.findByRole('heading', { name: 'Connect your devices' })).toBeTruthy();
+  // Connected to the cloud, so the owner's phone can have its QR code too.
+  expect(within(screen.getByRole('region', { name: "Owner's phone" })).getByRole('button', { name: 'Show QR code' })).toBeTruthy();
   await user.click(within(screen.getByRole('region', { name: 'Kitchen tablet' })).getByRole('button', { name: 'Show QR code' }));
   expect(await screen.findByRole('img', { name: 'QR code for the kitchen tablet' })).toBeTruthy();
 

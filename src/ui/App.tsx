@@ -232,6 +232,10 @@ export function App({ onKitchen, onSwitch }: { onKitchen?: () => void; onSwitch?
           <span className="corner">
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
+            {/* The owner and managers see their own screen without any shortcut. */}
+            {onSwitch && seesTakings(currentCashier().role) && (
+              <a className="corner__key" href="#owner">Owner view</a>
+            )}
             {onSwitch
               ? (
                 <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>
