@@ -55,3 +55,14 @@ test('a kitchen device opened at /#kitchen has no Register key', () => {
   expect(kitchen().getByText('No orders waiting')).toBeTruthy();
   expect(screen.queryByRole('button', { name: /^Register/ })).toBeNull();
 });
+
+test('inventory and supplier bookmarks open their respective views', () => {
+  history.replaceState(null, '', '/#inventory');
+  const { unmount } = render(<Root />);
+  expect(screen.getByRole('main', { name: 'Inventory' })).toBeTruthy();
+
+  unmount();
+  history.replaceState(null, '', '/#suppliers');
+  render(<Root />);
+  expect(screen.getByRole('main', { name: 'Suppliers' })).toBeTruthy();
+});

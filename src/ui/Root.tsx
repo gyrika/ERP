@@ -3,9 +3,11 @@ import { usesLogin } from '../services/auth.ts';
 import { isKitchenDevice } from '../services/pairing.ts';
 import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { App } from './App.tsx';
+import { InventoryView } from './InventoryView.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { LockScreen } from './LockScreen.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
+import { SupplierView } from './SupplierView.tsx';
 
 const KITCHEN = '#kitchen';
 /** "A few quiet minutes" (SCRUM-40): long enough not to nag mid-service. */
@@ -73,5 +75,7 @@ export function Root() {
   if (kitchenOnly) return <Kitchen onSwitch={staff ? lock : undefined} />;
   if (inKitchen) return <Kitchen onBack={fromRegister || needsLogin ? () => show(false) : undefined} />;
   if (needsLogin && !staff) return <LockScreen />;
+  if (hash === '#inventory') return <InventoryView />;
+  if (hash === '#suppliers') return <SupplierView />;
   return <App onKitchen={() => show(true)} onSwitch={needsLogin ? lock : undefined} />;
 }
