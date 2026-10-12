@@ -13,7 +13,7 @@ import { updateTickets, useKitchenTickets } from './kitchenStore.ts';
  * and cancellations chime and flash until someone taps the ticket.
  */
 
-const useNow = (everyMs: number): number => {
+export const useNow = (everyMs: number): number => {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), everyMs);
@@ -72,7 +72,8 @@ function LineBody({ v, struck = false, showQty = false }: { v: LineView; struck?
   );
 }
 
-export function Kitchen() {
+/** `onBack`: shown when the Kitchen shares the counter PC with the Register (F2 flips). */
+export function Kitchen({ onBack }: { onBack?: () => void } = {}) {
   const tickets = useKitchenTickets();
   const now = useNow(1000);
   const [done, setDone] = useState<{ id: string; number: number } | null>(null); // last bumped, for Undo
@@ -111,19 +112,32 @@ export function Kitchen() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Escape' && onBack) { e.preventDefault(); onBack(); return; }
+      // Space = the oldest ticket is done. A focused button keeps Space for itself.
+      if (e.key === ' ' && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        const next = open[0];
+        if (next) markDone(next.id, next.number);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo]);
+  });
 
   return (
     <div className="kitchen">
       <header className="kitchen__head">
         <h1>Kitchen</h1>
-        <time className="kitchen__clock num">
-          {new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-        </time>
+        <span className="kitchen__right">
+          <time className="kitchen__clock num">
+            {new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </time>
+          {onBack && (
+            <button type="button" className="corner__key" onClick={onBack}>Register <kbd>F2</kbd></button>
+          )}
+        </span>
       </header>
 
       {soundBlocked && (
