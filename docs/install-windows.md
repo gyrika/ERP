@@ -52,6 +52,12 @@ again: it skips what is done.
 4. Unplug the printer and make a sale: note what the screen says (the printer-status gap in
    SCRUM-71), then plug it back.
 
+## The cloud copy
+
+After the install, connect the shop to the cloud copy so its sales are also kept off-site:
+[cloud.md](cloud.md) ("Setting it up for a shop"). `status.ps1` then shows when the cloud last
+confirmed it has every sale.
+
 ## From Galle, afterwards
 
 Connect with AnyDesk, open PowerShell **as administrator**, then:

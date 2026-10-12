@@ -10,6 +10,7 @@ import {
 } from '../src/domain/sync.ts';
 import { isPin } from './pins.ts';
 import type { RawPrinter } from './printer.ts';
+import type { ReplicaStatus } from './replicator.ts';
 import type { Device, EventStore } from './store.ts';
 import { validatePush } from './validate.ts';
 
@@ -25,6 +26,10 @@ export interface AppOptions {
   staticDir?: string;
   /** The receipt printer on this PC. Omit and printing answers 503. */
   printer?: RawPrinter;
+  /** New events were stored for this shop (the cloud copy follows). */
+  onStored?: (tenantId: string) => void;
+  /** The cloud copy's state, shown by the health check (null: no cloud copy set up). */
+  cloudStatus?: () => ReplicaStatus | null;
   now?: () => number;
 }
 
@@ -96,7 +101,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, onStored, cloudStatus, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -133,7 +138,8 @@ export function createApp({ store, staticDir, printer, now = Date.now }: AppOpti
 
   const api = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') {
-      json(res, 200, { ok: true, serverTime: now() });
+      const cloud = cloudStatus?.() ?? null;
+      json(res, 200, { ok: true, serverTime: now(), ...(cloud ? { cloud } : {}) });
       return;
     }
     if (url.pathname === '/api/v1/login' && req.method === 'POST') {
@@ -193,6 +199,7 @@ export function createApp({ store, staticDir, printer, now = Date.now }: AppOpti
       });
       const { accepted, stored } = await store.push(device, allowed, now());
       broadcast(device.tenantId, stored);
+      if (stored.length) onStored?.(device.tenantId);
       json(res, 200, { accepted, ...(rejected.length ? { rejected } : {}), serverTime: now() } satisfies PushResponse);
       return;
     }

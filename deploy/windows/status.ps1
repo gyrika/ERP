@@ -15,6 +15,21 @@ Write-Host ''
 $up = Test-Server
 Show 'Server' $up ("http://localhost:$Port" + $(if ($up) { '' } else { "  not answering: see $Logs\server.log" }))
 
+# The cloud copy (SCRUM-61): when did the cloud last confirm it has every sale?
+$health = $null
+try { $health = Invoke-RestMethod -Uri "http://localhost:$Port/api/v1/health" -TimeoutSec 3 } catch { }
+if ($health -and $health.cloud) {
+  $c = $health.cloud
+  $ago = $null
+  if ($c.upToDateAt) { $ago = [math]::Round(($health.serverTime - $c.upToDateAt) / 60000) }
+  $fine = ($null -ne $ago) -and ($ago -lt 60)
+  $detail = if ($null -ne $ago) { "up to date $ago min ago" } else { 'not copied yet' }
+  if ($c.lastError) { $detail += "  (now: $($c.lastError))" }
+  Show 'Cloud copy' $fine $detail
+} elseif ($health) {
+  Show 'Cloud copy' $false 'off: no CLOUD_URL in server\.env (see docs/cloud.md)'
+}
+
 $task = Get-ScheduledTask -TaskName $TaskServer -ErrorAction SilentlyContinue
 Show 'Starts with PC' ([bool]$task) $(if ($task) { "task: $($task.State)" } else { 'missing: run install.ps1' })
 

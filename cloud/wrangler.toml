@@ -1,0 +1,11 @@
+# The CheesyBeez cloud copy (SCRUM-61). Deploy from this folder: npm run deploy
+name = "cheesybeez-cloud"
+main = "src/worker.ts"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cheesybeez-cloud"
+database_id = "02b0e2d7-482a-4039-8f74-009ed4209045"
+migrations_dir = "migrations"
