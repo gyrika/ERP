@@ -5,11 +5,9 @@ import { fmt } from '../domain/money.ts';
 import {
   addLine, addLines, emptyOrder, markSent, newLineId, orderTotal, removeLine, unsentLines, updateLine,
 } from '../domain/order.ts';
+import type { NewTicket } from '../domain/kitchen.ts';
 import {
-  amendLine, fire, kitchenLine, recall, restoreLine, type KitchenLine, type NewTicket,
-} from '../domain/kitchen.ts';
-import {
-  applyManagerChange, isRefusal, undoManagerChange, type Applied, type Inverse, type KitchenEffect,
+  applyManagerChange, isRefusal, undoManagerChange, type Applied, type Inverse,
   type ManagerChange, type Refusal,
 } from '../domain/manager.ts';
 import { discountLabel } from '../domain/totals.ts';
@@ -17,17 +15,18 @@ import type { LineSpec, Order, OrderLine, PaidOrder, Tender } from '../domain/ty
 import { demoSnapshot } from '../fake/demo.ts';
 import { currentCashier, shopId } from '../services/auth.ts';
 import { appendEvent } from './eventLog.ts';
-import { readTickets, updateTickets } from './kitchenStore.ts';
 import { isDemo, storageKey } from './storage.ts';
 
 /**
  * Register state. Everything the cashier does is an instant, optimistic local
- * action with a one-step Undo. Persisted to localStorage for now; slice 4
- * replaces this with IndexedDB + an outbox that syncs to MySQL.
+ * action with a one-step Undo. The screen state is a device-local cache in
+ * localStorage; what the shop shares (kitchen, audit) travels as events
+ * through the event log, which is the sync outbox.
  *
  * Customers eat first and pay after: an order is sent to the kitchen, waits in
  * `open` until the customer pays, and can take more rounds in between.
- * Sends, payments and manager changes are written to the event log.
+ * Sends, payments and manager changes are written to the event log; the
+ * kitchen screen is built from those events alone.
  */
 interface Snapshot {
   /** The order on screen: a new one, or an open one being added to or charged. */
@@ -56,9 +55,6 @@ interface ManagerRecord {
   inverse: Inverse;
   eventId: string;
   eventType: string;
-  kitchen?: KitchenEffect;
-  /** How the kitchen showed the line before, to restore it exactly. */
-  kitchenBefore?: KitchenLine;
 }
 
 export type ManageResult = Refusal | { applied: Applied; undo: () => void };
@@ -128,7 +124,6 @@ const sendUnsent = (s: Snapshot, at: number): { s: Snapshot; order: Order; ticke
 };
 
 const fireTicket = (ticket: NewTicket) => {
-  updateTickets((t) => fire(t, ticket));
   appendEvent({
     type: 'order.sent', at: ticket.firedAt, actor: currentCashier(), orderNumber: ticket.number,
     ticketId: ticket.id, lines: ticket.lines, addOn: Boolean(ticket.addOn),
@@ -223,11 +218,12 @@ export function useRegister() {
     fireTicket(ticket);
   }, [commit]);
 
-  const pay = useCallback((tender: Tender, tendered: number) => {
+  /** Returns the paid order (for its receipt), or undefined when there was nothing to pay. */
+  const pay = useCallback((tender: Tender, tendered: number): PaidOrder | undefined => {
     const total = orderTotal(ref.current.order);
     // A comped order (Free) closes at 0 with tender 'comp'; anything else needs something to pay.
     const comped = ref.current.order.adjust?.discount?.kind === 'comp';
-    if (comped ? tender !== 'comp' || !ref.current.order.lines.length : total <= 0) return;
+    if (comped ? tender !== 'comp' || !ref.current.order.lines.length : total <= 0) return undefined;
     // Anything not yet sent goes to the kitchen first (a sealed send), so
     // undoing the payment later never pulls food back off the kitchen screen.
     const sent = sendUnsent(ref.current, Date.now());
@@ -248,6 +244,7 @@ export function useRegister() {
       sales: [...s.sales, paid],
     }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}`);
     appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered });
+    return paid;
   }, [commit]);
 
   const toastFor = useCallback((message: string) => setToast({ id: ++toastSeq.current, message, manager: true }), []);
@@ -262,11 +259,7 @@ export function useRegister() {
     const next = withOrder(s, u.order);
     ref.current = next;
     setSnap(next);
-    if (record.kitchen && record.kitchenBefore) {
-      const before = record.kitchenBefore;
-      updateTickets((t) => restoreLine(t, before, at));
-    }
-    appendEvent(u.event);
+    appendEvent(u.event); // the kitchen restores the line from this event
     toastFor('Undone');
   }, [toastFor]);
 
@@ -280,8 +273,6 @@ export function useRegister() {
   const manage = useCallback((actor: Actor, change: ManagerChange): ManageResult => {
     const s = ref.current;
     const at = Date.now();
-    const lineId = change.kind === 'void' || change.kind === 'edit' ? change.lineId : undefined;
-    const kitchenBefore = lineId ? kitchenLine(readTickets(), lineId) : undefined;
     const r = applyManagerChange(s.order, change, actor, at);
     if (isRefusal(r)) return r;
 
@@ -291,14 +282,10 @@ export function useRegister() {
     ref.current = next;
     setSnap(next);
 
-    if (r.kitchen) {
-      const { lineId: id, after } = r.kitchen;
-      updateTickets((t) => amendLine(t, id, after, at));
-    }
-    const event = appendEvent(r.event);
+    const event = appendEvent(r.event); // the kitchen shows the change from this event
     const record: ManagerRecord = {
       orderNumber: s.order.number, orderAfter: r.order, inverse: r.inverse,
-      eventId: event.id, eventType: event.type, kitchen: r.kitchen, kitchenBefore,
+      eventId: event.id, eventType: event.type,
     };
     managerStack.current.push(record);
 
@@ -361,7 +348,6 @@ export function useRegister() {
     // Undoing a send (only possible straight after it) takes its ticket back off the kitchen screen.
     const recalled = cur.fired.filter((id) => !prev.fired.includes(id));
     if (recalled.length) {
-      updateTickets((t) => recalled.reduce(recall, t));
       recalled.forEach((ticketId) =>
         appendEvent({ type: 'order.send_undone', at, actor, orderNumber: prev.order.number, ticketId }));
     }

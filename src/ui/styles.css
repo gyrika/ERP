@@ -103,6 +103,15 @@ button:active:not(:disabled) { transform: scale(0.97); transition: transform 60m
 .corner__who { font-size: 14px; font-weight: 600; letter-spacing: -0.1px; animation: fade 200ms var(--ease); }
 .corner__key { min-height: 48px; padding: 0 12px; border-radius: 12px; font-size: 14px; font-weight: 500; color: var(--ink-2); display: inline-flex; align-items: center; gap: 8px; }
 .corner__key:hover { background: var(--chip); color: var(--ink); }
+.kchip { margin-right: 6px; }
+.syncsign { font-size: 14px; font-weight: 500; color: var(--ink-2); margin-right: 10px; animation: fade 200ms var(--ease); }
+.kitchen .syncsign { font-size: 18px; color: var(--warn); }
+.kchip__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.kchip__dot--ok { background: var(--ok); }
+.kchip__dot--warn { background: var(--warn); }
+.kchip__dot--bad { background: var(--bad); animation: kchip-pulse 1.6s var(--ease) infinite; }
+@keyframes kchip-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .kchip__dot--bad { animation: none; } }
 kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .chip kbd { margin-right: 8px; }
 .chip[aria-pressed='true'] kbd { border-color: currentColor; color: inherit; opacity: 0.7; }
@@ -156,6 +165,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .card { padding: 20px 20px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: 16px; }
 .card__title { text-align: left; display: flex; flex-direction: column; gap: 4px; min-height: 48px; }
 .card__name { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
+.card__no { color: var(--ink-3); margin-right: 8px; }
 .card__desc { font-size: 12px; color: var(--ink-2); line-height: 1.4; letter-spacing: -0.1px; }
 .card__prices { display: flex; gap: 8px; }
 .price { flex: 1; height: 48px; border-radius: 11px; background: var(--chip); font-size: 15px; font-weight: 500; letter-spacing: -0.2px; }
@@ -216,6 +226,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .paid__label { font-size: 15px; color: var(--ink-2); }
 .paid__big { font-size: 64px; font-weight: 500; letter-spacing: -3px; line-height: 1; }
 .paid__sub { font-size: 14px; color: var(--ink-3); }
+.paid__links { display: flex; gap: 24px; }
+.paid__note { font-size: 14px; font-weight: 500; color: var(--bad); }
 .linkbtn:disabled { opacity: 0.35; }
 .linkbtn--danger { color: var(--bad); font-weight: 600; }
 .reason-msg { margin: 0; font-size: 15px; font-weight: 500; color: var(--bad); animation: shake 220ms var(--ease); }
@@ -256,6 +268,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .kitchen { min-height: 100dvh; display: flex; flex-direction: column; background: var(--ground); }
 .kitchen__head { flex: 0 0 72px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; }
 .kitchen__head h1 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.4px; }
+.kitchen__right { display: flex; align-items: center; gap: 16px; }
 .kitchen__clock { font-size: 22px; color: var(--ink-2); letter-spacing: -0.3px; }
 .kitchen__list { flex: 1; padding: 4px 40px 120px; display: flex; flex-direction: column; gap: 14px; }
 .kitchen__empty { margin: 30vh 0 0; text-align: center; font-size: 22px; color: var(--ink-3); }
@@ -396,3 +409,33 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .sheet__body { padding-top: 28px; gap: 24px; }
   .toast { left: 16px; right: 16px; bottom: 16px; justify-content: space-between; }
 }
+
+/* /#receipt: the paper as the XP-80T prints it (a picture of the printer's fixed-width font). */
+.rpreview { min-height: 100vh; background: var(--ground); padding: 40px 16px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+.rpreview__head { max-width: 520px; text-align: center; }
+.rpreview__head h1 { margin: 0 0 6px; font-size: 22px; font-weight: 500; letter-spacing: -0.4px; }
+.rpreview__head p { margin: 0; color: var(--ink-2); font-size: 15px; }
+.rpreview__actions { margin-top: 16px !important; display: flex; gap: 12px; align-items: center; justify-content: center; }
+.paper { margin: 0; width: min(100%, calc(48ch + 48px)); padding: 28px 24px 40px; background: #fff; color: #111; border-radius: 4px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 8px 24px rgb(0 0 0 / 0.08);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: clamp(9px, 2.6vw, 14px); line-height: 1.45; overflow-x: auto; }
+.paper__line { white-space: pre; }
+.paper__line--bold { font-weight: 700; }
+.paper__line--big { font-size: 2em; line-height: 1.2; letter-spacing: 0; }
+
+/* Lock screen (SCRUM-40): four digits, typed or tapped, nothing else. */
+.lock { min-height: 100dvh; background: var(--ground); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 24px 16px; }
+.lock__card { display: flex; flex-direction: column; align-items: center; gap: 18px; animation: rise 220ms var(--ease); }
+.lock__title { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.4px; }
+.lock__dots { display: flex; gap: 18px; height: 20px; align-items: center; }
+.lock__dots span { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--ink-3); transition: background 120ms var(--ease), border-color 120ms var(--ease); }
+.lock__dots span.on { background: var(--ink); border-color: var(--ink); }
+.lock__dots--checking span.on { animation: kchip-pulse 900ms var(--ease) infinite; }
+.lock__dots--error { animation: shake 220ms var(--ease); }
+.lock__dots--error span { border-color: var(--bad); }
+.lock__msg { margin: 0; min-height: 22px; font-size: 15px; font-weight: 500; color: var(--bad); }
+.lock__keys { display: grid; grid-template-columns: repeat(3, 76px); gap: 12px; }
+.lock__key { height: 76px; border-radius: 50%; background: var(--surface); box-shadow: var(--card-shadow); font-size: 26px; font-weight: 500; color: var(--ink); transition: transform 100ms var(--ease); }
+.lock__key:active { transform: scale(0.94); background: var(--chip); }
+.lock__hint { margin: 0; font-size: 14px; color: var(--ink-3); display: flex; gap: 8px; align-items: center; }
+@media (prefers-reduced-motion: reduce) { .lock__dots--error, .lock__dots--checking span.on { animation: none; } }

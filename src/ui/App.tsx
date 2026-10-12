@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { bareLine, orderTotal, unsentLines } from '../domain/order.ts';
-import type { MenuItem, OrderLine, SizeId } from '../domain/types.ts';
+import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
+import { canPrint, printReceipt } from '../services/printer.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
 import { ExtrasSheet } from './ExtrasSheet.tsx';
+import { KitchenChip } from './KitchenChip.tsx';
 import { Menu, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, type ManagePanel } from './OrderPanel.tsx';
 import { PaySheet } from './PaySheet.tsx';
 import { PinSheet } from './PinSheet.tsx';
 import { ShorthandBar, describe } from './ShorthandBar.tsx';
+import { SyncSign } from './SyncSign.tsx';
 import { useKitchenTickets } from './kitchenStore.ts';
 import { setSoundOn, soundOn } from './sound.ts';
 import { useManagerMode } from './useManagerMode.ts';
@@ -26,13 +30,29 @@ type Sheet =
 const isTypingTarget = (el: EventTarget | null): boolean =>
   el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 
-export function App() {
+/**
+ * `onKitchen`: flips the counter screen to the Kitchen view (see Root).
+ * `onSwitch`: locks the screen for the next person (real logins only).
+ */
+export function App({ onKitchen, onSwitch }: { onKitchen?: () => void; onSwitch?: () => void } = {}) {
   const reg = useRegister();
   const tickets = useKitchenTickets(); // live, so Cooking turns Done the moment the kitchen taps it
   const [category, setCategory] = useState<CategoryId>('popular');
   const [sheet, setSheet] = useState<Sheet>(null);
   const [typed, setTyped] = useState<string | null>(null); // non-null = shorthand bar open
   const closeSheet = useCallback(() => setSheet(null), []);
+  /** The receipt of the sale on screen: printed by itself at payment, with the drawer for cash. */
+  const [printing, setPrinting] = useState<{ number: number; state: 'printing' | 'printed' | 'failed' } | null>(null);
+  const print = useCallback((paid: PaidOrder, reprint = false) => {
+    if (!canPrint()) return;
+    setPrinting({ number: paid.number, state: 'printing' });
+    void printReceipt(paid, currentCashier().name, { reprint }).then((r) =>
+      setPrinting((p) => (p?.number === paid.number ? { number: paid.number, state: r === 'printed' ? 'printed' : 'failed' } : p)));
+  }, []);
+  const pay = useCallback((tender: Tender, tendered: number) => {
+    const paid = reg.pay(tender, tendered);
+    if (paid) print(paid);
+  }, [reg, print]);
   const total = orderTotal(reg.order);
   const hasNew = unsentLines(reg.order).length > 0;
   /** A waiting order opened from the list, with nothing new on it: Charge, or go back. */
@@ -207,7 +227,15 @@ export function App() {
           </span>
         ) : (
           <span className="corner">
-            <span className="cashier">{currentCashier().name}</span>
+            {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
+            <SyncSign />
+            {onSwitch
+              ? (
+                <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>
+                  {currentCashier().name} <kbd>F4</kbd>
+                </button>
+              )
+              : <span className="cashier">{currentCashier().name}</span>}
             <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
           </span>
         )}
@@ -235,14 +263,16 @@ export function App() {
         <OrderPanel
           order={reg.order}
           open={reg.open}
-          paidToday={reg.paidToday}
+          paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
           tickets={tickets}
           paid={reg.paid}
           manage={managePanel}
           onEdit={(line) => setSheet({ kind: 'edit', line })}
           onSend={reg.send}
           onCharge={() => setSheet({ kind: 'pay' })}
-          onCloseFree={() => reg.pay('comp', 0)}
+          onCloseFree={() => pay('comp', 0)}
+          printState={canPrint() && reg.paid && printing?.number === reg.paid.number ? printing.state : null}
+          onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
           onOpen={reg.openOrder}
           onNext={reg.startNew}
           onUndo={reg.undo}
@@ -278,7 +308,7 @@ export function App() {
         />
       )}
       {sheet?.kind === 'pay' && (
-        <PaySheet total={total} onClose={closeSheet} onPay={(tender, tendered) => { reg.pay(tender, tendered); closeSheet(); }} />
+        <PaySheet total={total} onClose={closeSheet} onPay={(tender, tendered) => { pay(tender, tendered); closeSheet(); }} />
       )}
       {sheet?.kind === 'pin' && (
         <PinSheet onClose={closeSheet} onUnlock={(actor) => { closeSheet(); mode.enter(actor); }} />

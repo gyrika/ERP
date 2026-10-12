@@ -2,26 +2,15 @@ import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
 import './ui/styles.css';
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './ui/App.tsx';
-import { InventoryView } from './ui/InventoryView.tsx';
-import { Kitchen } from './ui/Kitchen.tsx';
-import { SupplierView } from './ui/SupplierView.tsx';
+import { httpTransport, pairFromUrl, startSync, syncToken } from './services/syncClient.ts';
+import { Root } from './ui/Root.tsx';
 
-/** One app, one view per device: kitchen / inventory tablets bookmark their hash. */
-function Root() {
-  const [hash, setHash] = useState(location.hash);
-  useEffect(() => {
-    const onHash = () => setHash(location.hash);
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
-  if (hash === '#kitchen') return <Kitchen />;
-  if (hash === '#inventory') return <InventoryView />;
-  if (hash === '#suppliers') return <SupplierView />;
-  return <App />;
-}
+// Sync starts only on a paired device (docs/server-setup.md); otherwise the app works on its own, as before.
+pairFromUrl();
+const token = syncToken();
+if (token) startSync(httpTransport(token));
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

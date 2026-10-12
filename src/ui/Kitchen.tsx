@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ack, bump, elapsedLabel, needsAttention, queue, ticketLines, unbump, urgency, type LineView,
+  elapsedLabel, needsAttention, queue, ticketLines, urgency, type LineView,
 } from '../domain/kitchen.ts';
 import { chime, useSoundBlocked } from './chime.ts';
-import { updateTickets, useKitchenTickets } from './kitchenStore.ts';
+import { recordKitchen, useKitchenTickets } from './kitchenStore.ts';
+import { SyncSign } from './SyncSign.tsx';
 
 /**
  * Kitchen display. Serves the cook: knows the menu, hands busy, standing back
@@ -13,7 +14,7 @@ import { updateTickets, useKitchenTickets } from './kitchenStore.ts';
  * and cancellations chime and flash until someone taps the ticket.
  */
 
-const useNow = (everyMs: number): number => {
+export const useNow = (everyMs: number): number => {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), everyMs);
@@ -72,7 +73,11 @@ function LineBody({ v, struck = false, showQty = false }: { v: LineView; struck?
   );
 }
 
-export function Kitchen() {
+/**
+ * `onBack`: shown when the Kitchen shares the counter PC with the Register (F2 flips).
+ * `onSwitch`: a kitchen login on the counter switches user here (F4).
+ */
+export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: () => void } = {}) {
   const tickets = useKitchenTickets();
   const now = useNow(1000);
   const [done, setDone] = useState<{ id: string; number: number } | null>(null); // last bumped, for Undo
@@ -91,15 +96,14 @@ export function Kitchen() {
   }, [latestAlert]);
 
   const markDone = (id: string, number: number) => {
-    updateTickets((t) => bump(t, id, Date.now()));
+    recordKitchen('kitchen.bumped', { id, number });
     setDone({ id, number });
     if (navigator.vibrate) navigator.vibrate(8);
   };
 
   const undo = useCallback(() => {
     if (done === null) return;
-    const { id } = done;
-    updateTickets((t) => unbump(t, id));
+    recordKitchen('kitchen.unbumped', done);
     setDone(null);
   }, [done]);
 
@@ -111,19 +115,36 @@ export function Kitchen() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Escape' && onBack) { e.preventDefault(); onBack(); return; }
+      // Space = the oldest ticket is done. A focused button keeps Space for itself.
+      if (e.key === ' ' && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        const next = open[0];
+        if (next) markDone(next.id, next.number);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo]);
+  });
 
   return (
     <div className="kitchen">
       <header className="kitchen__head">
         <h1>Kitchen</h1>
-        <time className="kitchen__clock num">
-          {new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-        </time>
+        <span className="kitchen__right">
+          <SyncSign />
+          <time className="kitchen__clock num">
+            {new Date(now).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </time>
+          {onBack && (
+            <button type="button" className="corner__key" onClick={onBack}>Register <kbd>F2</kbd></button>
+          )}
+          {onSwitch && (
+            <button type="button" className="corner__key" onClick={onSwitch}>Switch user <kbd>F4</kbd></button>
+          )}
+        </span>
       </header>
 
       {soundBlocked && (
@@ -149,7 +170,7 @@ export function Kitchen() {
                   type="button"
                   className="ticket__ack"
                   aria-label={`Seen: ${name}`}
-                  onClick={() => updateTickets((x) => ack(x, t.id, Date.now()))}
+                  onClick={() => recordKitchen('kitchen.seen', t)}
                 />
               )}
               <div className="ticket__meta">
