@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { InventoryView } from './InventoryView.tsx';
 import { SupplierView } from './SupplierView.tsx';
@@ -21,6 +21,24 @@ test('inventory filters and searches seeded items by category and name', async (
 
   await user.click(screen.getByRole('button', { name: 'Packaging' }));
   expect(screen.getByText('No items match')).toBeTruthy();
+});
+
+test('inventory filters hide while scrolling down and return while scrolling up', () => {
+  render(<InventoryView />);
+  const scrollArea = screen.getByRole('region', { name: 'Inventory list' });
+  const header = screen.getByRole('searchbox').closest('.inv-command-bar')!;
+
+  scrollArea.scrollTop = 120;
+  fireEvent.scroll(scrollArea);
+  expect(header.classList.contains('inv-command-bar--hidden')).toBe(true);
+
+  scrollArea.scrollTop = 80;
+  fireEvent.scroll(scrollArea);
+  expect(header.classList.contains('inv-command-bar--hidden')).toBe(false);
+
+  scrollArea.scrollTop = 0;
+  fireEvent.scroll(scrollArea);
+  expect(header.classList.contains('inv-command-bar--hidden')).toBe(false);
 });
 
 test('stock stepper updates persistently and low-stock warning follows the threshold', async () => {
