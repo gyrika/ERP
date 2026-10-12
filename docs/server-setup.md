@@ -17,6 +17,9 @@ sent on one shows on the other within a second.
 
 ## Install on the counter PC (Windows 10)
 
+**Use the installer:** [install-windows.md](install-windows.md) does every step below by itself
+(one PowerShell line). The manual steps stay here to explain what it does.
+
 1. **Node.js 22 LTS** from nodejs.org, and **MySQL 8 Community Server** (MySQL Installer,
    "Server only", run as a Windows service that starts automatically).
 2. **Once, as the MySQL admin** (the only step that needs the admin password): put two long
