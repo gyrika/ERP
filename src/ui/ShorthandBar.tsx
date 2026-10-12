@@ -17,7 +17,7 @@ export const describe = (l: LineSpec): string => {
     ...l.outs.map((id) => item.leaveOut.find((o) => o.id === id)?.label),
     l.note,
   ].filter(Boolean);
-  return [`${l.qty > 1 ? `${l.qty} × ` : ''}${item.name.en}`, size, ...mods].join(' · ');
+  return [`${l.qty > 1 ? `${l.qty} × ` : ''}${item.name.en}`, size, ...mods].filter(Boolean).join(' · ');
 };
 
 interface Props {

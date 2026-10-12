@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
 import { dryRunPrinter, switchablePrinter, systemPrinter } from './printer.ts';
+import { startOnline, type Online } from './online.ts';
 import { startReplicator } from './replicator.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
@@ -55,12 +56,19 @@ const cloudLink = () => {
 };
 const cloudShop = () => process.env.CLOUD_SHOP || settings.get().shopId; // empty = unset
 let replicator: ReturnType<typeof startReplicator> | null = null;
-/** Copy to the cloud when there is a link and a shop; called again when the wizard connects it. */
+let online: Online | null = null;
+/** Copy to the cloud, and take online orders, when there is a link and a shop; again when the wizard connects it. */
 const startCloud = () => {
   replicator?.stop();
+  online?.stop();
   const link = cloudLink();
   const shop = cloudShop();
   replicator = link && shop ? startReplicator({ store, tenantId: shop, url: link.url, token: link.token }) : null;
+  online = link && shop ? startOnline({
+    url: link.url, token: link.token,
+    isOpen: () => settings.get().onlineOpen === true,
+    setOpen: (open) => { settings.set({ onlineOpen: open }); },
+  }) : null;
 };
 startCloud();
 
@@ -74,7 +82,8 @@ const server = createApp({
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
   printer,
-  onStored: (tenantId) => { if (tenantId === cloudShop()) replicator?.nudge(); },
+  onStored: (tenantId, events) => { if (tenantId === cloudShop()) { replicator?.nudge(); online?.onEvents(events); } },
+  online: () => online,
   cloudStatus: () => replicator?.status() ?? null,
   setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates }),
   version: updates.current,
@@ -91,6 +100,6 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
-const stop = () => { replicator?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
+const stop = () => { replicator?.stop(); online?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

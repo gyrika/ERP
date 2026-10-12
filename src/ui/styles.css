@@ -108,6 +108,29 @@ button:active:not(:disabled) { transform: scale(0.97); transition: transform 60m
 .corner__key:hover { background: var(--chip); color: var(--ink); }
 a.corner__key { text-decoration: none; }
 .kchip { margin-right: 6px; }
+/* Online orders (cheesybeez.com): a quiet key that pulses only while an order waits for an answer. */
+.ochip__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ochip__dot--on { background: var(--ok); }
+.ochip__dot--warn { background: var(--warn); }
+.ochip__dot--off { border: 1.5px solid var(--ink-3); }
+.ochip--new { color: var(--ink); background: var(--chip); }
+.ochip--new .ochip__dot { background: var(--warn); animation: kchip-pulse 1.2s var(--ease) infinite; }
+@media (prefers-reduced-motion: reduce) { .ochip--new .ochip__dot { animation: none; } }
+.online__switch[aria-pressed='true'] { background: var(--ok-ink); border-color: var(--ok-ink); color: #fff; }
+.online__switch { margin-left: auto; }
+.online__warn { margin: -18px 0 0; font-size: 15px; font-weight: 500; color: var(--warn); }
+.online__empty { margin: 0; color: var(--ink-2); font-size: 15px; }
+.online__order, .online__going { max-width: 720px; } /* the order panel covers the sheet's right side */
+.online__order { display: flex; flex-direction: column; gap: 10px; padding: 18px 0; border-top: 1px solid var(--line); }
+.online__who { display: flex; align-items: baseline; gap: 14px; font-size: 15px; color: var(--ink-2); }
+.online__who b { color: var(--ink); font-size: 18px; font-weight: 600; }
+.online__total { margin-left: auto; }
+.online__lines { margin: 0; padding: 0; list-style: none; font-size: 17px; line-height: 1.5; }
+.online__note { margin: 0; font-size: 15px; color: var(--ink-2); font-style: italic; }
+.online__ask { font-size: 14px; color: var(--ink-2); margin-right: 4px; align-self: center; }
+.online__going { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 16px; }
+.online__going li { display: flex; gap: 10px; align-items: baseline; }
+.online__going span { margin-left: auto; color: var(--ink-2); font-size: 14px; }
 .syncsign { font-size: 14px; font-weight: 500; color: var(--ink-2); margin-right: 10px; animation: fade 200ms var(--ease); }
 .kitchen .syncsign { font-size: 18px; color: var(--warn); }
 .kchip__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
