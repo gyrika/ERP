@@ -39,7 +39,7 @@ const inHex = (x, y, cx, cy, r) => {
  * rounded: corner radius as a fraction of the size (0 = full square, for phones that shape it themselves).
  * scale: how big the cell is (smaller for Android's maskable crop, which keeps only the middle 80%).
  */
-const draw = (size, { rounded, scale }) => {
+const rgba = (size, { rounded, scale }) => {
   const S = 4; // 4x4 samples per pixel: smooth edges
   const out = Buffer.alloc(size * size * 4);
   const R = rounded * size;
@@ -63,7 +63,27 @@ const draw = (size, { rounded, scale }) => {
       out[i + 3] = Math.round(a * 255);
     }
   }
-  return png(size, out);
+  return out;
+};
+const draw = (size, look) => png(size, rgba(size, look));
+
+/** A 24-bit BMP (what the Windows installer's pictures must be): the icon at (x, y) on a plain colour. */
+const bmp = (w, h, ground, icons) => {
+  const pix = Buffer.alloc(w * h * 3);
+  for (let i = 0; i < w * h; i++) [pix[i * 3 + 2], pix[i * 3 + 1], pix[i * 3]] = ground;
+  for (const { size, x, y, look } of icons) {
+    const src = rgba(size, look);
+    for (let py = 0; py < size; py++) for (let px = 0; px < size; px++) {
+      const s = (py * size + px) * 4, d = ((y + py) * w + x + px) * 3, a = src[s + 3] / 255;
+      for (let k = 0; k < 3; k++) pix[d + 2 - k] = Math.round(src[s + k] * a + pix[d + 2 - k] * (1 - a));
+    }
+  }
+  const row = Math.ceil((w * 3) / 4) * 4, out = Buffer.alloc(54 + row * h);
+  out.write('BM', 0, 'ascii'); out.writeUInt32LE(out.length, 2); out.writeUInt32LE(54, 10);
+  out.writeUInt32LE(40, 14); out.writeInt32LE(w, 18); out.writeInt32LE(h, 22);
+  out.writeUInt16LE(1, 26); out.writeUInt16LE(24, 28); out.writeUInt32LE(row * h, 34);
+  for (let y = 0; y < h; y++) pix.copy(out, 54 + (h - 1 - y) * row, y * w * 3, (y + 1) * w * 3); // bottom row first
+  return out;
 };
 
 const ico = (images) => { // PNG-in-ICO (Windows Vista and later)
@@ -87,4 +107,11 @@ writeFileSync('public/icons/maskable-512.png', draw(512, { rounded: 0, scale: 0.
 writeFileSync('public/icons/apple-touch-icon.png', draw(180, { rounded: 0, scale: 1 }));
 writeFileSync('public/icons/favicon-32.png', draw(32, any));
 writeFileSync('deploy/station/pos-app/app.ico', ico([16, 24, 32, 48, 64, 256].map((s) => [s, draw(s, any)])));
+// The installer: its corner picture (on the white page header) and the tall welcome picture, at 100% and 200%.
+const WHITE = [0xff, 0xff, 0xff];
+for (const [n, k] of [['', 1], ['-2x', 2]]) {
+  writeFileSync(`deploy/station/wizard-small${n}.bmp`, bmp(55 * k, 55 * k, WHITE, [{ size: 55 * k, x: 0, y: 0, look: any }]));
+  const w = 164 * k, h = 314 * k, size = 164 * k;
+  writeFileSync(`deploy/station/wizard${n}.bmp`, bmp(w, h, INK, [{ size, x: 0, y: Math.round((h - size) / 2), look: { rounded: 0, scale: 1.1 } }]));
+}
 console.log('icons written');
