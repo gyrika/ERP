@@ -1,6 +1,6 @@
 import { itemById } from './menu.ts';
 import type { SyncEvent } from './sync.ts';
-import type { OrderLine } from './types.ts';
+import type { Category, OrderLine } from './types.ts';
 
 /**
  * The kitchen works from the screen only: there is no printed kitchen ticket.
@@ -40,14 +40,22 @@ export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines'
 
 export type Urgency = 'ok' | 'warn' | 'bad';
 
-/** Placeholders until the owner supplies real cook times (see ARCHITECTURE.md). */
-export const WARN_AFTER_MS = 10 * 60_000;
-export const BAD_AFTER_MS = 15 * 60_000;
+/** How long each kind of item takes, from order to ready (the owner, 2026-10-12). */
+export const COOK_MINUTES: Record<Category, number> = { pizza: 10, burger: 3, pasta: 20 };
+/** Late = past the cook time; very late = past one and a half times it. */
+export const VERY_LATE = 1.5;
 /** Done tickets are kept this long so a mistaken "Done" can be undone, then dropped. */
 export const KEEP_DONE_MS = 60 * 60_000;
 
-export const urgency = (elapsedMs: number): Urgency =>
-  elapsedMs >= BAD_AFTER_MS ? 'bad' : elapsedMs >= WARN_AFTER_MS ? 'warn' : 'ok';
+/** A ticket should be ready after its slowest item (a cancelled line no longer counts). */
+export const cookTimeMs = (t: Pick<KitchenTicket, 'lines'>): number => {
+  const live = t.lines.filter((l) => !l.cancelled);
+  return Math.max(0, ...live.map((l) => COOK_MINUTES[itemById(l.itemId).category])) * 60_000 || COOK_MINUTES.pizza * 60_000;
+};
+
+/** Amber once a ticket passes its cook time, red at one and a half times it. */
+export const urgency = (elapsedMs: number, cookMs: number): Urgency =>
+  elapsedMs >= cookMs * VERY_LATE ? 'bad' : elapsedMs >= cookMs ? 'warn' : 'ok';
 
 /** "04:07". Minutes keep counting past 59 rather than hiding a very late ticket. */
 export const elapsedLabel = (elapsedMs: number): string => {

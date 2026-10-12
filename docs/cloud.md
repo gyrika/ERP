@@ -78,6 +78,13 @@ that holds only the Owner view, so nobody on the internet reaches a register the
   in D1 (`npx wrangler d1 execute cheesybeez-cloud --remote --command "DELETE FROM devices WHERE id = '…'"`).
   The phone then shows "This link is no longer valid".
 
+## The owner's questions page
+
+`/questions?k=<key>` is a plain page (no account, no app) where the owner answers what the POS still
+needs: missing recipe amounts, menu items, receipt details. The key is a Worker secret (`ANSWER_KEY`);
+a wrong key shows "This link is not right". Every save is kept (`owner_answers`); the newest is the
+answer. Read it with `npm run answers` (in `cloud/`). New key: `npx wrangler secret put ANSWER_KEY`.
+
 ## Changing the cloud
 
 | What | In `cloud/` |

@@ -121,3 +121,22 @@ test("the owner's app description carries this phone's key, and nothing else", a
   assert.equal(ownerManifest(key).display, 'standalone');
   assert.ok(ownerManifest(key).icons.some((i) => i.purpose === 'maskable'));
 });
+
+test("the owner's questions: only with the link's key; every save kept, the newest returned", async () => {
+  const { answersApi, questionsPage } = await import('./questions.ts');
+  const { d1, db } = fakeD1();
+  let t = 1000;
+  const ask = (key: string, method = 'GET', body?: unknown) => answersApi(new Request('https://cloud.test/api/v1/answers', {
+    method, headers: { 'x-answer-key': key }, body: body === undefined ? undefined : JSON.stringify(body),
+  }), d1, 'right-key', () => t++);
+  assert.equal((await ask('wrong')).status, 401);
+  assert.deepEqual(await (await ask('right-key')).json(), { savedAt: null, answers: {} });
+  assert.equal((await ask('right-key', 'POST', { answers: { tuna: '40 g / 60 g' } })).status, 200);
+  assert.equal((await ask('right-key', 'POST', { answers: { tuna: '45 g / 60 g', notes: 'hello' } })).status, 200);
+  assert.deepEqual(await (await ask('right-key')).json(), { savedAt: 1001, answers: { tuna: '45 g / 60 g', notes: 'hello' } });
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM owner_answers').get() as { n: number }).n, 2, 'the first answer is kept as history');
+  assert.equal((await ask('right-key', 'POST', { answers: { tuna: 45 } })).status, 400, 'answers are text');
+  assert.equal((await ask('wrong', 'POST', { answers: {} })).status, 401);
+  const page = questionsPage();
+  assert.ok(page.includes('id="tuna"') && page.includes('Pizza 10 min, burger 3 min, pasta 20 min'));
+});
