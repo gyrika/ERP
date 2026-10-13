@@ -1,18 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { UIEvent } from 'react';
 import { fmt, formatLKR } from '../domain/money.ts';
 import type { Cents } from '../domain/types.ts';
-import { supplierById } from '../domain/inventory.ts';
+import { stockStatus, summariseSuppliers, supplierById } from '../domain/inventory.ts';
 import {
   adjustStock,
-  isLowStock,
-  isOutOfStock,
   setWorkingPrice,
   useInventory,
   type InventoryRow,
 } from '../services/inventoryStore.ts';
+import { InventoryHeader } from './InventoryHeader.tsx';
+import { StatusDot } from './StatusDot.tsx';
+import { SupplierCard } from './SupplierCard.tsx';
+import { splitSupplierName } from './supplierName.ts';
 
 type CategoryFilter = 'all' | 'flour' | 'cheese' | 'veg' | 'packaging';
+
+type Mode = 'view' | 'audit';
 
 const FILTERS: { id: CategoryFilter; label: string; match: (category: string) => boolean }[] = [
   { id: 'all', label: 'All', match: () => true },
@@ -44,7 +48,7 @@ function PriceDrawer({
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKeyDown);
@@ -92,9 +96,7 @@ function PriceDrawer({
               <h2 className="inv-drawer__title">{item.name}</h2>
               <p className="inv-drawer__sub">Working price per pack · LKR</p>
             </div>
-            <button className="inv-drawer__close" type="button" aria-label="Close price editor" onClick={onClose}>
-              ×
-            </button>
+            <button className="inv-drawer__close" type="button" aria-label="Close price editor" onClick={onClose}>x</button>
           </header>
 
           <label className="inv-price-field">
@@ -110,7 +112,9 @@ function PriceDrawer({
                 aria-describedby={error ? 'inv-price-error' : undefined}
                 value={value}
                 onChange={(event) => { setValue(event.target.value); setError(''); }}
-                onKeyDown={(event) => { if (event.key === 'Enter') save(); }}
+                onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
+                  if (event.key === 'Enter') save();
+                }}
               />
             </span>
             {error && <span id="inv-price-error" className="inv-price-error" role="alert">{error}</span>}
@@ -133,13 +137,41 @@ function PriceDrawer({
 }
 
 export function InventoryView() {
-  const { items } = useInventory();
+  const { items, suppliers } = useInventory();
   const [filter, setFilter] = useState<CategoryFilter>('all');
   const [query, setQuery] = useState('');
   const [priceItemId, setPriceItemId] = useState<string | null>(null);
   const [headerHidden, setHeaderHidden] = useState(false);
+  const [mode, setMode] = useState<Mode>('view');
   const lastScrollTop = useRef(0);
   const commandBarRef = useRef<HTMLDivElement>(null);
+
+  type InvCommand =
+    | { type: 'adjust'; delta: number; query: string; reason?: 'waste' }
+    | { type: 'none' };
+
+  const parseInvCommand = (input: string): InvCommand => {
+    const trimmed = input.trim();
+    const wasteMatch = /^waste\s+(\d+)\s+(.+)$/i.exec(trimmed);
+    if (wasteMatch) {
+      const num = parseInt(wasteMatch[1], 10);
+      const itemQuery = wasteMatch[2].trim();
+      return { type: 'adjust', delta: -Math.abs(num), query: itemQuery, reason: 'waste' };
+    }
+    return { type: 'none' };
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter') return;
+    const cmd = parseInvCommand(query);
+    if (cmd.type === 'adjust') {
+      const targetItem = items.find((item) => item.name.toLowerCase().includes(cmd.query.toLowerCase()));
+      if (targetItem) {
+        adjustStock(targetItem.id, cmd.delta, cmd.reason);
+        setQuery('');
+      }
+    }
+  };
 
   const priceItem = items.find((item) => item.id === priceItemId) ?? null;
   const supplierName = useCallback(
@@ -160,11 +192,43 @@ export function InventoryView() {
     });
   }, [items, filter, query, supplierName]);
 
-  const outOfStockCount = useMemo(() => items.filter(isOutOfStock).length, [items]);
-  const lowStockCount = useMemo(
-    () => items.filter((item) => isLowStock(item) && !isOutOfStock(item)).length,
-    [items],
+  const summaries = useMemo(
+    () => summariseSuppliers(items, suppliers).sort((a, b) => {
+      const statusRank = { out: 0, low: 1, ok: 2 } as const;
+      const statusDiff = statusRank[a.status] - statusRank[b.status];
+      if (statusDiff !== 0) return statusDiff;
+      const outDiff = b.outCount - a.outCount;
+      if (outDiff !== 0) return outDiff;
+      const lowDiff = b.lowCount - a.lowCount;
+      if (lowDiff !== 0) return lowDiff;
+      return splitSupplierName(a.supplier.name).title.localeCompare(splitSupplierName(b.supplier.name).title);
+    }),
+    [items, suppliers],
   );
+
+  const filteredSuppliers = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return summaries.filter((summary) => {
+      if (!normalizedQuery) return true;
+      return summary.supplier.name.toLowerCase().includes(normalizedQuery)
+        || splitSupplierName(summary.supplier.name).title.toLowerCase().includes(normalizedQuery)
+        || splitSupplierName(summary.supplier.name).detail.toLowerCase().includes(normalizedQuery);
+    });
+  }, [query, summaries]);
+
+  const counters = useMemo(() => ({
+    out: items.filter((item) => stockStatus(item) === 'out').length,
+    low: items.filter((item) => stockStatus(item) === 'low').length,
+    ok: items.filter((item) => stockStatus(item) === 'ok').length,
+  }), [items]);
+
+  const viewCounters = useMemo(() => ({
+    out: summaries.filter((summary) => summary.status === 'out').length,
+    low: summaries.filter((summary) => summary.status === 'low').length,
+    ok: summaries.filter((summary) => summary.status === 'ok').length,
+  }), [summaries]);
+
+  const noStockCounted = items.length > 0 && items.every((item) => stockStatus(item) === 'out');
 
   const savePrice = useCallback((item: InventoryRow, cents: Cents) => {
     setWorkingPrice(item.id, cents);
@@ -185,14 +249,7 @@ export function InventoryView() {
 
   return (
     <div className="inv-page">
-      <header className="inv-page__head">
-        <span className="brand">CheesyBeez</span>
-        <nav className="inv-page__nav" aria-label="Inventory sections">
-          <a className="inv-page__link inv-page__link--on" href="#inventory" aria-current="page">Inventory</a>
-          <a className="inv-page__link" href="#suppliers">Suppliers</a>
-          <a className="inv-page__link" href="#">Register</a>
-        </nav>
-      </header>
+      <InventoryHeader active="inventory" />
 
       <main className="inv-shell" aria-label="Inventory">
         <div
@@ -209,85 +266,106 @@ export function InventoryView() {
           >
             <div className="inv-command-bar__top">
               <label className="inv-search-wrap">
-                <span className="inv-search-icon" aria-hidden="true">⌕</span>
+                <span className="inv-search-icon" aria-hidden="true">search</span>
                 <span className="sr-only">Search inventory</span>
                 <input
                   className="inv-search-input"
                   type="search"
-                  placeholder="Search item, category or supplier"
+                  placeholder={mode === 'view' ? 'Search supplier' : 'Search item, category or supplier'}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={handleKeyDown}
                 />
               </label>
+
               <div className="inv-metrics" aria-live="polite">
-                <span className="inv-metric-badge">
-                  <span className="inv-dot inv-dot--emerald" />
-                  Showing <strong>{visible.length}</strong> of {items.length}
-                </span>
-                {outOfStockCount > 0 && (
-                  <span
-                    className="inv-metric-badge inv-metric-badge--alert"
-                    style={{ borderColor: 'color-mix(in srgb, var(--bad) 65%, var(--line))', color: 'var(--bad)' }}
-                  >
-                    <span className="inv-dot" style={{ background: 'var(--bad)' }} />
-                    {outOfStockCount} out of stock
-                  </span>
+                {mode === 'view' ? (
+                  <>
+                    <span className="inv-metric-badge inv-metric-badge--out">
+                      <StatusDot status="out" />
+                      <strong>{viewCounters.out}</strong> to call
+                    </span>
+                    <span className="inv-metric-badge inv-metric-badge--low">
+                      <StatusDot status="low" />
+                      <strong>{viewCounters.low}</strong> soon
+                    </span>
+                    <span className="inv-metric-badge inv-metric-badge--ok">
+                      <StatusDot status="ok" />
+                      <strong>{viewCounters.ok}</strong> fine
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="inv-metric-badge inv-metric-badge--out">
+                      <StatusDot status="out" />
+                      <strong>{counters.out}</strong> out
+                    </span>
+                    <span className="inv-metric-badge inv-metric-badge--low">
+                      <StatusDot status="low" />
+                      <strong>{counters.low}</strong> low
+                    </span>
+                    <span className="inv-metric-badge inv-metric-badge--ok">
+                      <StatusDot status="ok" />
+                      <strong>{counters.ok}</strong> ok
+                    </span>
+                  </>
                 )}
-                {lowStockCount > 0 && (
-                  <span
-                    className="inv-metric-badge inv-metric-badge--alert"
-                    style={{ borderColor: 'color-mix(in srgb, var(--warn) 65%, var(--line))', color: 'var(--warn)' }}
-                  >
-                    <span className="inv-dot inv-dot--amber" />
-                    {lowStockCount} low stock
-                  </span>
-                )}
+              </div>
+
+              <div className="inv-mode" aria-label="Inventory view mode">
+                <button type="button" className="pill" aria-pressed={mode === 'view'} onClick={() => setMode('view')}>
+                  View
+                </button>
+                <button type="button" className="pill" aria-pressed={mode === 'audit'} onClick={() => setMode('audit')}>
+                  Audit
+                </button>
               </div>
             </div>
 
-            <div className="inv-categories" aria-label="Filter by category">
-              {FILTERS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={`inv-cat-pill${filter === option.id ? ' inv-cat-pill--active' : ''}`}
-                  aria-pressed={filter === option.id}
-                  onClick={() => setFilter(option.id)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            {mode === 'audit' && (
+              <div className="inv-categories" aria-label="Filter by category">
+                {FILTERS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`inv-cat-pill${filter === option.id ? ' inv-cat-pill--active' : ''}`}
+                    aria-pressed={filter === option.id}
+                    onClick={() => setFilter(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="inv-workspace">
-            <ul className="inv-grid" aria-label="Inventory items">
-              {visible.map((item) => {
-                const empty = isOutOfStock(item);
-                const low = isLowStock(item) && !empty;
-                const selected = priceItemId === item.id;
-                return (
-                  <li
-                    key={item.id}
-                    className={`inv-card${low ? ' inv-card--low' : ''}${selected ? ' inv-card--selected' : ''}`}
-                    style={empty ? { borderColor: 'var(--bad)' } : undefined}
-                  >
-                    <div>
-                      <div className="inv-card__header">
-                        <h2 className="inv-card__title">{item.name}</h2>
-                        <span className={`inv-badge${empty || low ? ' inv-badge--alert' : ' inv-badge--neutral'}`}>
-                          {empty ? 'Out of stock' : low ? 'Low stock' : 'In stock'}
-                        </span>
-                      </div>
-                      <p className="inv-card__sub">{item.category} · {item.note ?? supplierName(item.mainSupplierId)}</p>
-                      <p className="inv-card__meta">
-                        Pack: {item.packQty} {item.baseUnit} · Supplier: {supplierName(item.mainSupplierId)}
-                      </p>
-                    </div>
+            {mode === 'view' ? (
+              <>
+                {noStockCounted && <div className="inv-notice">No stock counted yet. Switch to Audit and enter what's on the shelf.</div>}
+                <div className="sup-grid">
+                  {filteredSuppliers.length > 0 ? filteredSuppliers.map((summary) => (
+                    <SupplierCard key={summary.supplier.id} summary={summary} variant="restock" />
+                  )) : <div className="inv-empty">No suppliers match</div>}
+                </div>
+              </>
+            ) : (
+              <ul className="inv-rows" aria-label="Inventory items">
+                {visible.map((item) => {
+                  const status = stockStatus(item);
+                  const selected = priceItemId === item.id;
+                  return (
+                    <li key={item.id} className={`inv-row inv-row--${status}${selected ? ' inv-row--selected' : ''}`}>
+                      <StatusDot status={status} />
 
-                    <div className="inv-card__footer">
-                      <div className="inv-stock">
-                        <span className="inv-stock__label">On hand</span>
+                      <div className="inv-row__main">
+                        <div className="inv-row__name" title={item.note ?? undefined}>{item.name}</div>
+                        <div className="inv-row__sub">
+                          {item.category} · {item.packQty} {item.baseUnit} per pack · {supplierName(item.mainSupplierId)}
+                        </div>
+                      </div>
+
+                      <div className="inv-row__actions">
                         <div className="inv-stepper" aria-label={`Stock of ${item.name}`}>
                           <button
                             className="inv-stepper__btn"
@@ -296,7 +374,7 @@ export function InventoryView() {
                             disabled={item.onHandPacks <= 0}
                             onClick={() => adjustStock(item.id, -1)}
                           >
-                            −
+                            -
                           </button>
                           <span className="inv-stepper__val">{item.onHandPacks}</span>
                           <button
@@ -308,23 +386,22 @@ export function InventoryView() {
                             +
                           </button>
                         </div>
-                        <span className="inv-stock__unit">packs</span>
+                        <button
+                          className={`inv-price-trigger${selected ? ' inv-price-trigger--active' : ''}`}
+                          type="button"
+                          aria-label={`Edit price for ${item.name}, ${formatLKR(item.workingPriceCents)}`}
+                          onClick={() => setPriceItemId(item.id)}
+                        >
+                          <span>{formatLKR(item.workingPriceCents)}</span>
+                          <span aria-hidden="true">edit</span>
+                        </button>
                       </div>
-                      <button
-                        className={`inv-price-trigger${selected ? ' inv-price-trigger--active' : ''}`}
-                        type="button"
-                        aria-label={`Edit price for ${item.name}, ${formatLKR(item.workingPriceCents)}`}
-                        onClick={() => setPriceItemId(item.id)}
-                      >
-                        <span>{formatLKR(item.workingPriceCents)}</span>
-                        <span aria-hidden="true">✎</span>
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-              {visible.length === 0 && <li className="inv-empty">No items match</li>}
-            </ul>
+                    </li>
+                  );
+                })}
+                {visible.length === 0 && <li className="inv-empty">No items match</li>}
+              </ul>
+            )}
 
             {priceItem && (
               <PriceDrawer

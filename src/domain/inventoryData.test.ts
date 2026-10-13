@@ -177,3 +177,130 @@ test('T19: validateSeed handles optional phone property', () => {
   assert.ok(errors.some((e) => e.includes('invalid phone')));
 });
 
+test('T20: order dispatch deducts ingredients from inventory via RECIPES and calculates packs dynamically', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 101, actor, at: 100 };
+  const flour = itemById('inv-0001')!; // packQty: 25000g
+  const mozz = itemById('inv-0006')!;  // packQty: 2000g
+
+  const rows = inventoryFromEvents(SEED_INVENTORY, [
+    { ...base, id: 'adj-1', orderNumber: 0 as const, type: 'stock.adjusted', itemId: flour.id, deltaPacks: 1 },
+    { ...base, id: 'adj-2', orderNumber: 0 as const, type: 'stock.adjusted', itemId: mozz.id, deltaPacks: 2 },
+    {
+      ...base,
+      id: 'sent-1',
+      type: 'order.sent',
+      ticketId: 't-1',
+      addOn: false,
+      lines: [
+        { id: 'line-1', itemId: 'margherita', qty: 2, size: 'M', adds: [], outs: [] },
+      ],
+    },
+  ]);
+
+  const flourRow = rows.find((r) => r.id === flour.id)!;
+  const mozzRow = rows.find((r) => r.id === mozz.id)!;
+
+  // Margherita M per pizza: 180g flour, 150g mozz. For qty 2: 360g flour, 300g mozz.
+  assert.equal(flourRow.onHandBaseUnits, 25000 - 360);
+  assert.equal(flourRow.onHandPacks, 0); // Math.floor(24640 / 25000) = 0
+
+  // mozz: 2 packs * 2000g = 4000g. 4000 - 300 = 3700g.
+  assert.equal(mozzRow.onHandBaseUnits, 4000 - 300);
+  assert.equal(mozzRow.onHandPacks, 1); // Math.floor(3700 / 2000) = 1
+});
+
+test('T21: subtracting stock never drops onHandBaseUnits below zero (clamping at 0)', () => {
+  const actor = { id: 'c', name: 'Kasun', role: 'cashier' as const };
+  const base = { shopId: 's', orderNumber: 102, actor, at: 100 };
+  const flour = itemById('inv-0001')!;
+
+  const rows = inventoryFromEvents(SEED_INVENTORY, [
+    {
+      ...base,
+      id: 'sent-2',
+      type: 'order.sent',
+      ticketId: 't-2',
+      addOn: false,
+      lines: [
+        { id: 'line-2', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] },
+      ],
+    },
+  ]);
+
+  const flourRow = rows.find((r) => r.id === flour.id)!;
+  assert.equal(flourRow.onHandBaseUnits, 0);
+  assert.equal(flourRow.onHandPacks, 0);
+});
+
+test('T22: void and cancellation events restore ingredients back to inventory', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 103, actor, at: 100 };
+  const mozz = itemById('inv-0006')!;
+
+  const rows = inventoryFromEvents(SEED_INVENTORY, [
+    { ...base, id: 'adj-3', orderNumber: 0 as const, type: 'stock.adjusted', itemId: mozz.id, deltaPacks: 1 },
+    {
+      ...base,
+      id: 'sent-3',
+      type: 'order.sent',
+      ticketId: 't-3',
+      addOn: false,
+      lines: [
+        { id: 'line-3', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] },
+      ],
+    },
+    {
+      ...base,
+      id: 'cancel-1',
+      totalBefore: 145000,
+      totalAfter: 0,
+      type: 'order.item_cancelled',
+      lineId: 'line-3',
+      index: 0,
+      reason: 'Customer cancelled',
+      before: { id: 'line-3', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] },
+    },
+    {
+      ...base,
+      id: 'managed-void-1',
+      ...({
+        type: 'order.managed',
+        kind: 'void',
+        lines: [{ id: 'line-4', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] }],
+      } as any),
+    },
+  ]);
+
+  const mozzRow = rows.find((r) => r.id === mozz.id)!;
+  // 1 pack * 2000g = 2000g. 2000 - 150 (sent) + 150 (cancelled) + 150 (managed void) = 2150g
+  assert.equal(mozzRow.onHandBaseUnits, 2150);
+  assert.equal(mozzRow.onHandPacks, 1); // Math.floor(2150 / 2000) = 1
+});
+
+test('T23: large variant uses variant overrides correctly', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 104, actor, at: 100 };
+  const flour = itemById('inv-0001')!;
+
+  const rows = inventoryFromEvents(SEED_INVENTORY, [
+    { ...base, id: 'adj-4', orderNumber: 0 as const, type: 'stock.adjusted', itemId: flour.id, deltaPacks: 1 },
+    {
+      ...base,
+      id: 'sent-4',
+      type: 'order.sent',
+      ticketId: 't-4',
+      addOn: false,
+      lines: [
+        { id: 'line-4', itemId: 'margherita', qty: 1, size: 'L', adds: [], outs: [] },
+      ],
+    },
+  ]);
+
+  const flourRow = rows.find((r) => r.id === flour.id)!;
+  // Large Margherita consumes 260g flour
+  assert.equal(flourRow.onHandBaseUnits, 25000 - 260);
+  assert.equal(flourRow.onHandPacks, 0);
+});
+
+

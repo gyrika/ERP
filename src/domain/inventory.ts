@@ -1,6 +1,8 @@
 import type { BaseUnit, InventoryItem, Supplier } from './inventoryData.ts';
 import type { SyncEvent } from './sync.ts';
+import type { OrderLine } from './types.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
+import { RECIPES } from './recipes.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -77,27 +79,173 @@ export const loadSeed = <T>(
 };
 
 /** A stock row: the price-list item plus what is on the shelf, in purchasing packs. */
-export type InventoryRow = InventoryItem & { onHandPacks: number };
+export type InventoryRow = InventoryItem & { onHandPacks: number; onHandBaseUnits?: number };
 
 export const LOW_STOCK_PACKS = 1;
 
 export const isLowStock = (row: InventoryRow): boolean => row.onHandPacks <= LOW_STOCK_PACKS;
+export type StockStatus = 'out' | 'low' | 'ok';
+export const stockStatus = (row: InventoryRow): StockStatus => {
+  if (isOutOfStock(row)) return 'out';
+  if (isLowStock(row)) return 'low';
+  return 'ok';
+};
+
+
 
 export const isOutOfStock = (row: InventoryRow): boolean => row.onHandPacks === 0;
+
+// Return worst status among a list
+export const worstStatus = (statuses: StockStatus[]): StockStatus => {
+  if (statuses.includes('out')) return 'out';
+  if (statuses.includes('low')) return 'low';
+  return 'ok';
+};
+
+// Summarise suppliers based on items
+export const summariseSuppliers = (items: InventoryRow[], suppliers: Supplier[]) => {
+  return suppliers.map((supplier) => {
+    const primaryItems = items.filter((i) => i.mainSupplierId === supplier.id);
+    const backupItems = items.filter((i) => i.backupSupplierId === supplier.id);
+    const statuses = primaryItems.map(stockStatus);
+    const status = worstStatus(statuses);
+    const outCount = primaryItems.filter(isOutOfStock).length;
+    const lowCount = primaryItems.filter((it) => isLowStock(it) && !isOutOfStock(it)).length;
+    const needItems = primaryItems
+      .filter((it) => isOutOfStock(it) || isLowStock(it))
+      .sort((a, b) => {
+        if (isOutOfStock(a) && !isOutOfStock(b)) return -1;
+        if (!isOutOfStock(a) && isOutOfStock(b)) return 1;
+        if (isLowStock(a) && !isLowStock(b)) return -1;
+        if (!isLowStock(a) && isLowStock(b)) return 1;
+        return 0;
+      });
+    return { supplier, status, outCount, lowCount, primaryItems, needItems, backupItems };
+  });
+};
+
+interface StockAccumulator {
+  item: InventoryItem;
+  workingPriceCents: number;
+  onHandBaseUnits: number;
+}
+
+const getLineIngredients = (
+  line: { itemId: string; qty?: number; size?: string },
+): { inventoryId: string; qtyBaseUnits: number }[] => {
+  const recipe = RECIPES[line.itemId];
+  if (!recipe) return [];
+  const qty = typeof line.qty === 'number' && Number.isFinite(line.qty) && line.qty > 0 ? line.qty : 1;
+  const ingredients: { inventoryId: string; qtyBaseUnits: number }[] = [];
+
+  for (const ing of recipe.baseIngredients) {
+    if (ing.qtyBaseUnits > 0) {
+      ingredients.push({
+        inventoryId: ing.inventoryId,
+        qtyBaseUnits: ing.qtyBaseUnits * qty,
+      });
+    }
+  }
+
+  if (line.size && recipe.variantOverrides) {
+    const variantLines = recipe.variantOverrides[line.size] ?? recipe.variantOverrides[line.size.toUpperCase()];
+    if (variantLines) {
+      for (const ing of variantLines) {
+        if (ing.qtyBaseUnits > 0) {
+          ingredients.push({
+            inventoryId: ing.inventoryId,
+            qtyBaseUnits: ing.qtyBaseUnits * qty,
+          });
+        }
+      }
+    }
+  }
+
+  return ingredients;
+};
+
+const extractVoidedLines = (e: SyncEvent): OrderLine[] => {
+  if (e.type === 'order.item_cancelled') {
+    return e.before ? [e.before] : [];
+  }
+  const anyEvent = e as any;
+  if (anyEvent.type === 'order.managed') {
+    if (anyEvent.kind && anyEvent.kind !== 'void' && anyEvent.kind !== 'cancel' && anyEvent.kind !== 'cancellation') {
+      return [];
+    }
+    if (anyEvent.action && anyEvent.action !== 'void' && anyEvent.action !== 'cancel' && anyEvent.action !== 'cancellation') {
+      return [];
+    }
+    if (Array.isArray(anyEvent.lines)) return anyEvent.lines;
+    if (Array.isArray(anyEvent.voidedLines)) return anyEvent.voidedLines;
+    if (Array.isArray(anyEvent.before)) return anyEvent.before;
+    if (anyEvent.before && typeof anyEvent.before === 'object') return [anyEvent.before];
+    if (anyEvent.line && typeof anyEvent.line === 'object') return [anyEvent.line];
+  }
+  return [];
+};
 
 /**
  * Stock as it stands, built from the price list (in code, like the menu) and
  * the stock events, oldest first. Counts never go below zero; the last price
- * set wins. Same events, same result on every device and in the cloud.
+ * set wins. Real-time ingredient consumption is deducted from sales and restored on voids.
  */
 export const inventoryFromEvents = (items: readonly InventoryItem[], events: readonly SyncEvent[]): InventoryRow[] => {
-  const rows = new Map(items.map((i) => [i.id, { ...i, onHandPacks: 0 }]));
+  const accumulator = new Map<string, StockAccumulator>(
+    items.map((i) => [i.id, { item: i, workingPriceCents: i.workingPriceCents, onHandBaseUnits: 0 }]),
+  );
+
+    const activeRecipes: Record<string, Array<{ inventoryId: string; qtyBaseUnits: number }>> = {};
   for (const e of events) {
-    if (e.type !== 'stock.adjusted' && e.type !== 'stock.price_set') continue;
-    const row = rows.get(e.itemId);
-    if (!row) continue; // an item no longer on the price list
-    if (e.type === 'stock.adjusted') row.onHandPacks = Math.max(0, row.onHandPacks + e.deltaPacks);
-    else row.workingPriceCents = e.after;
+    if (e.type === 'stock.adjusted') {
+      const acc = accumulator.get(e.itemId);
+      if (!acc) continue; // an item no longer on the price list
+      acc.onHandBaseUnits = Math.max(0, acc.onHandBaseUnits + e.deltaPacks * acc.item.packQty);
+    } else if (e.type === 'recipe.updated') {
+      // Update the active recipe ingredients for the given menu item
+      const rev = e as any;
+      activeRecipes[rev.menuItemId] = rev.ingredients;
+    } else if (e.type === 'stock.price_set') {
+      const acc = accumulator.get(e.itemId);
+      if (!acc) continue;
+      acc.workingPriceCents = e.after;
+    } else if (e.type === 'order.sent' || (e as { type: string }).type === 'order.dispatched') {
+      const lines: OrderLine[] = Array.isArray((e as any).lines) ? (e as any).lines : [];
+      for (const line of lines) {
+        // Determine ingredients: use dynamic recipe if present, otherwise static definition
+        const menuId = line.itemId;
+        const qty = typeof line.qty === 'number' && Number.isFinite(line.qty) && line.qty > 0 ? line.qty : 1;
+        let ingredients: { inventoryId: string; qtyBaseUnits: number }[] = [];
+        if (activeRecipes[menuId]) {
+          ingredients = activeRecipes[menuId].map((ing) => ({
+            inventoryId: ing.inventoryId,
+            qtyBaseUnits: ing.qtyBaseUnits * qty,
+          }));
+        } else {
+          ingredients = getLineIngredients(line);
+        }
+        for (const { inventoryId, qtyBaseUnits } of ingredients) {
+          const acc = accumulator.get(inventoryId);
+          if (!acc) continue;
+          acc.onHandBaseUnits = Math.max(0, acc.onHandBaseUnits - qtyBaseUnits);
+        }
+      }
+    } else if (e.type === 'order.item_cancelled' || (e as { type: string }).type === 'order.managed') {
+      const voidedLines = extractVoidedLines(e);
+      for (const line of voidedLines) {
+        for (const { inventoryId, qtyBaseUnits } of getLineIngredients(line)) {
+          const acc = accumulator.get(inventoryId);
+          if (!acc) continue;
+          acc.onHandBaseUnits += qtyBaseUnits;
+        }
+      }
+    }
   }
-  return [...rows.values()];
+
+  return [...accumulator.values()].map((acc) => ({
+    ...acc.item,
+    workingPriceCents: acc.workingPriceCents,
+    onHandBaseUnits: acc.onHandBaseUnits,
+    onHandPacks: acc.item.packQty > 0 ? Math.floor(acc.onHandBaseUnits / acc.item.packQty) : 0,
+  }));
 };

@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import * as inventoryStore from '../services/inventoryStore.ts';
 import { InventoryView } from './InventoryView.tsx';
 import { SupplierView } from './SupplierView.tsx';
 
@@ -11,6 +12,7 @@ test('inventory filters and searches seeded items by category and name', async (
   const user = userEvent.setup();
   render(<InventoryView />);
 
+  await user.click(screen.getByRole('button', { name: 'Audit' }));
   await user.click(screen.getByRole('button', { name: 'Veg' }));
   expect(screen.getByText('Onion')).toBeTruthy();
   expect(screen.queryByText('Pizza Flour')).toBeNull();
@@ -44,23 +46,25 @@ test('inventory filters hide while scrolling down and return while scrolling up'
 test('stock stepper updates persistently and low-stock warning follows the threshold', async () => {
   const user = userEvent.setup();
   const { unmount } = render(<InventoryView />);
+  await user.click(screen.getByRole('button', { name: 'Audit' }));
   const flour = screen.getByText('Pizza Flour').closest('li')!;
 
-  expect(within(flour).getByText('Out of stock')).toBeTruthy();
-  expect(flour.style.borderColor).toBe('var(--bad)');
+  expect(within(flour).getByRole('img', { name: 'Out of stock' })).toBeTruthy();
+  expect(flour.classList.contains('inv-row--out')).toBe(true);
   await user.click(within(flour).getByRole('button', { name: 'Add one pack of Pizza Flour' }));
   expect(within(flour).getByText('1')).toBeTruthy();
-  expect(within(flour).getByText('Low stock')).toBeTruthy();
-  expect(within(flour).queryByText('Out of stock')).toBeNull();
+  expect(within(flour).getByRole('img', { name: 'Low stock' })).toBeTruthy();
+  expect(within(flour).queryByRole('img', { name: 'Out of stock' })).toBeNull();
 
   await user.click(within(flour).getByRole('button', { name: 'Add one pack of Pizza Flour' }));
   expect(within(flour).getByText('2')).toBeTruthy();
-  expect(within(flour).getByText('In stock')).toBeTruthy();
-  expect(within(flour).queryByText('Low stock')).toBeNull();
-  expect(within(flour).queryByText('Out of stock')).toBeNull();
+  expect(within(flour).getByRole('img', { name: 'In stock' })).toBeTruthy();
+  expect(within(flour).queryByRole('img', { name: 'Low stock' })).toBeNull();
+  expect(within(flour).queryByRole('img', { name: 'Out of stock' })).toBeNull();
 
   unmount();
   render(<InventoryView />);
+  await user.click(screen.getByRole('button', { name: 'Audit' }));
   const restored = screen.getByText('Pizza Flour').closest('li')!;
   expect(within(restored).getByText('2')).toBeTruthy();
 });
@@ -68,22 +72,22 @@ test('stock stepper updates persistently and low-stock warning follows the thres
 test('metrics bar distinguishes between out of stock and low stock counts', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
+  await user.click(screen.getByRole('button', { name: 'Audit' }));
 
-  // Initially all 59 items have 0 packs on hand
-  expect(screen.getByText('59 out of stock')).toBeTruthy();
-  expect(screen.queryByText(/low stock/)).toBeNull();
+  expect(screen.getByText((_, element) => element?.textContent?.replace(/\s+/g, ' ').trim() === '59 out')).toBeTruthy();
+  expect(screen.getByText((_, element) => element?.textContent?.replace(/\s+/g, ' ').trim() === '0 low')).toBeTruthy();
 
-  // Increment one item to 1 pack (moves from out of stock to low stock)
   const flour = screen.getByText('Pizza Flour').closest('li')!;
   await user.click(within(flour).getByRole('button', { name: 'Add one pack of Pizza Flour' }));
 
-  expect(screen.getByText('58 out of stock')).toBeTruthy();
-  expect(screen.getByText('1 low stock')).toBeTruthy();
+  expect(screen.getByText((_, element) => element?.textContent?.replace(/\s+/g, ' ').trim() === '58 out')).toBeTruthy();
+  expect(screen.getByText((_, element) => element?.textContent?.replace(/\s+/g, ' ').trim() === '1 low')).toBeTruthy();
 });
 
 test('price drawer reports invalid input and saves valid LKR cents', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
+  await user.click(screen.getByRole('button', { name: 'Audit' }));
 
   await user.click(screen.getByRole('button', { name: /Edit price for Pizza Flour/ }));
   const price = screen.getByRole('textbox', { name: 'Price' });
@@ -107,14 +111,30 @@ test('supplier cards show primary and backup counts without inventing contact de
   expect(screen.getByRole('main', { name: 'Suppliers' }).classList.contains('inv-shell')).toBe(true);
   expect(screen.getByRole('heading', { name: 'Suppliers' }).classList.contains('supplier-heading')).toBe(true);
 
-  const primaHeading = screen.getByRole('heading', { name: 'Prima / David Stores' });
-  expect(primaHeading.closest('article')?.classList.contains('inv-card')).toBe(true);
-  const prima = within(primaHeading.closest('article')!);
-  expect(prima.getByText('Primary items')).toBeTruthy();
-  expect(prima.getByText('Backup items')).toBeTruthy();
-  expect(prima.getByText('Wholesale')).toBeTruthy();
-  expect(prima.getByText('No contact details on file')).toBeTruthy();
+  const ajanthaHeading = screen.getByRole('heading', { name: 'Ajantha' });
+  expect(ajanthaHeading.closest('article')?.classList.contains('sup-card')).toBe(true);
+  const ajantha = within(ajanthaHeading.closest('article')!);
+  expect(ajantha.getByText('Primary items')).toBeTruthy();
+  expect(ajantha.getByText('Backup items')).toBeTruthy();
+  expect(ajantha.getByText('Wholesale')).toBeTruthy();
+  const callLink = ajantha.getByRole('link', { name: 'Call Ajantha' });
+  expect(callLink.getAttribute('href')).toBe('tel:+94773456789');
+  const waLink = ajantha.getByRole('link', { name: 'WhatsApp Ajantha' });
+  expect(waLink.getAttribute('href')).toBe('https://wa.me/94773456789');
 
   const nimmiHeading = screen.getByRole('heading', { name: 'Nimmi veg shop' });
   expect(within(nimmiHeading.closest('article')!).getByText('Thalwila')).toBeTruthy();
 });
+
+test('supplier cards render fallback message when phone is missing', () => {
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
+    items: [],
+    suppliers: [{ id: 'sup_nophone', name: 'No Phone Store (Direct)' }],
+  });
+  render(<SupplierView />);
+  expect(screen.getByText('No phone on file')).toBeTruthy();
+  expect(screen.queryByRole('link', { name: 'Call Supplier' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'WhatsApp' })).toBeNull();
+  spy.mockRestore();
+});
+
