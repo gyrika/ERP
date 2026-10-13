@@ -18,10 +18,14 @@ interface Props {
   hint: string;
 }
 
+/** Sold-out items remain visible but disabled. */
 const visible = (c: CategoryId): MenuItem[] =>
   c === 'popular'
-    ? POPULAR_IDS.map((id) => MENU.find((m) => m.id === id)!).filter(Boolean)
-    : MENU.filter((m) => m.category === c);
+    ? POPULAR_IDS.flatMap((id) => {
+        const item = MENU.find((menuItem) => menuItem.id === id);
+        return item ? [item] : [];
+      })
+    : MENU.filter((item) => item.category === c);
 
 export function Menu({ category, onCategory, onQuickAdd, onCustomise, hint }: Props) {
   const { items: inventoryItems } = useInventory();
