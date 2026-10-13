@@ -8,8 +8,8 @@ import { storageKey } from './storage.ts';
  * This device's copy of the shop's events, and the sync outbox
  * (docs/sync-contract.md). Every action is written here first, so a sale
  * never waits for the network. Events are never edited or removed while
- * unsent; once the server has them, ones older than KEEP_SYNCED_MS are
- * dropped (MySQL keeps the full history).
+ * unsent; once the server has them, routine events older than KEEP_SYNCED_MS
+ * are dropped. Catalog creation events remain so screens can rebuild the list.
  *
  * localStorage, not IndexedDB: synchronous, so screens stay simple; the
  * durable record is MySQL on the same PC, and trimming keeps us far below
@@ -104,7 +104,11 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
   write(OUTBOX(), outbox);
   const pending = new Set(outbox);
   const all = readAll();
-  const kept = all.filter((e) => pending.has(e.id) || now - e.at < KEEP_SYNCED_MS);
+  const kept = all.filter((e) =>
+    pending.has(e.id) ||
+    e.type === 'stock.item_added' ||
+    e.type === 'stock.supplier_added' ||
+    now - e.at < KEEP_SYNCED_MS);
   if (kept.length !== all.length) write(KEY(), kept);
 };
 

@@ -105,25 +105,20 @@ test('price drawer reports invalid input and saves valid LKR cents', async () =>
   expect(screen.getByRole('button', { name: /Edit price for Pizza Flour, Rs 1,250.25/ })).toBeTruthy();
 });
 
-test('supplier cards show primary and backup counts without inventing contact details', () => {
+test('supplier cards show all linked ingredients and contact actions', async () => {
+  const user = userEvent.setup();
   render(<SupplierView />);
 
-  expect(screen.getByRole('main', { name: 'Suppliers' }).classList.contains('inv-shell')).toBe(true);
-  expect(screen.getByRole('heading', { name: 'Suppliers' }).classList.contains('supplier-heading')).toBe(true);
-
-  const ajanthaHeading = screen.getByRole('heading', { name: 'Ajantha' });
-  expect(ajanthaHeading.closest('article')?.classList.contains('sup-card')).toBe(true);
-  const ajantha = within(ajanthaHeading.closest('article')!);
-  expect(ajantha.getByText('Primary items')).toBeTruthy();
-  expect(ajantha.getByText('Backup items')).toBeTruthy();
-  expect(ajantha.getByText('Wholesale')).toBeTruthy();
-  const callLink = ajantha.getByRole('link', { name: 'Call Ajantha' });
+  const main = screen.getByRole('main', { name: 'Suppliers' });
+  expect(main.classList.contains('supplier-grid')).toBe(true);
+  const ajantha = screen.getByRole('button', { name: /Ajantha/ });
+  await user.click(ajantha);
+  expect(within(ajantha.closest('article')!).getByText('Pizza Flour')).toBeTruthy();
+  const contactActions = within(ajantha.closest('article')!);
+  const callLink = contactActions.getByRole('link', { name: 'Call' });
   expect(callLink.getAttribute('href')).toBe('tel:+94773456789');
-  const waLink = ajantha.getByRole('link', { name: 'WhatsApp Ajantha' });
+  const waLink = contactActions.getByRole('link', { name: 'WhatsApp' });
   expect(waLink.getAttribute('href')).toBe('https://wa.me/94773456789');
-
-  const nimmiHeading = screen.getByRole('heading', { name: 'Nimmi veg shop' });
-  expect(within(nimmiHeading.closest('article')!).getByText('Thalwila')).toBeTruthy();
 });
 
 test('supplier cards render fallback message when phone is missing', () => {
@@ -132,9 +127,9 @@ test('supplier cards render fallback message when phone is missing', () => {
     suppliers: [{ id: 'sup_nophone', name: 'No Phone Store (Direct)' }],
   });
   render(<SupplierView />);
+  fireEvent.click(screen.getByRole('button', { name: /No Phone Store/ }));
   expect(screen.getByText('No phone on file')).toBeTruthy();
   expect(screen.queryByRole('link', { name: 'Call Supplier' })).toBeNull();
   expect(screen.queryByRole('link', { name: 'WhatsApp' })).toBeNull();
   spy.mockRestore();
 });
-

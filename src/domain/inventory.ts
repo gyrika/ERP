@@ -40,11 +40,12 @@ export const validateSeed = (data: SeedData): string[] => {
     if (!Number.isInteger(i.workingPriceCents) || i.workingPriceCents < 0) {
       errors.push(`${i.id}: workingPriceCents must be a non-negative integer`);
     }
-    if (!supplierIds.has(i.mainSupplierId)) {
-      errors.push(`${i.id}: unknown mainSupplierId ${i.mainSupplierId}`);
+    if (!i.supplierIds.length) errors.push(`${i.id}: must have at least one supplier`);
+    if (new Set(i.supplierIds).size !== i.supplierIds.length) {
+      errors.push(`${i.id}: duplicate supplier id`);
     }
-    if (i.backupSupplierId !== null && !supplierIds.has(i.backupSupplierId)) {
-      errors.push(`${i.id}: unknown backupSupplierId ${i.backupSupplierId}`);
+    for (const supplierId of i.supplierIds) {
+      if (!supplierIds.has(supplierId)) errors.push(`${i.id}: unknown supplier ${supplierId}`);
     }
   }
 
@@ -95,6 +96,16 @@ export const stockStatus = (row: InventoryRow): StockStatus => {
 
 export const isOutOfStock = (row: InventoryRow): boolean => row.onHandPacks === 0;
 
+export const suppliersFromEvents = (suppliers: readonly Supplier[], events: readonly SyncEvent[]): Supplier[] => {
+  const byId = new Map(suppliers.map((supplier) => [supplier.id, supplier]));
+  for (const event of events) {
+    if (event.type === 'stock.supplier_added' && !byId.has(event.supplier.id)) {
+      byId.set(event.supplier.id, event.supplier);
+    }
+  }
+  return [...byId.values()];
+};
+
 // Return worst status among a list
 export const worstStatus = (statuses: StockStatus[]): StockStatus => {
   if (statuses.includes('out')) return 'out';
@@ -105,13 +116,12 @@ export const worstStatus = (statuses: StockStatus[]): StockStatus => {
 // Summarise suppliers based on items
 export const summariseSuppliers = (items: InventoryRow[], suppliers: Supplier[]) => {
   return suppliers.map((supplier) => {
-    const primaryItems = items.filter((i) => i.mainSupplierId === supplier.id);
-    const backupItems = items.filter((i) => i.backupSupplierId === supplier.id);
-    const statuses = primaryItems.map(stockStatus);
+    const suppliedItems = items.filter((i) => i.supplierIds.includes(supplier.id));
+    const statuses = suppliedItems.map(stockStatus);
     const status = worstStatus(statuses);
-    const outCount = primaryItems.filter(isOutOfStock).length;
-    const lowCount = primaryItems.filter((it) => isLowStock(it) && !isOutOfStock(it)).length;
-    const needItems = primaryItems
+    const outCount = suppliedItems.filter(isOutOfStock).length;
+    const lowCount = suppliedItems.filter((it) => isLowStock(it) && !isOutOfStock(it)).length;
+    const needItems = suppliedItems
       .filter((it) => isOutOfStock(it) || isLowStock(it))
       .sort((a, b) => {
         if (isOutOfStock(a) && !isOutOfStock(b)) return -1;
@@ -120,9 +130,12 @@ export const summariseSuppliers = (items: InventoryRow[], suppliers: Supplier[])
         if (!isLowStock(a) && isLowStock(b)) return 1;
         return 0;
       });
-    return { supplier, status, outCount, lowCount, primaryItems, needItems, backupItems };
+    return { supplier, status, outCount, lowCount, suppliedItems, needItems };
   });
 };
+
+export type SupplierSummary = ReturnType<typeof summariseSuppliers>[number];
+
 
 interface StockAccumulator {
   item: InventoryItem;
@@ -192,12 +205,31 @@ const extractVoidedLines = (e: SyncEvent): OrderLine[] => {
  */
 export const inventoryFromEvents = (items: readonly InventoryItem[], events: readonly SyncEvent[]): InventoryRow[] => {
   const accumulator = new Map<string, StockAccumulator>(
-    items.map((i) => [i.id, { item: i, workingPriceCents: i.workingPriceCents, onHandBaseUnits: 0 }]),
+    items.map((i) => [i.id, {
+      item: { ...i, supplierIds: [...i.supplierIds] },
+      workingPriceCents: i.workingPriceCents,
+      onHandBaseUnits: 0,
+    }]),
   );
 
-    const activeRecipes: Record<string, Array<{ inventoryId: string; qtyBaseUnits: number }>> = {};
+  const activeRecipes: Record<string, Array<{ inventoryId: string; qtyBaseUnits: number }>> = {};
   for (const e of events) {
-    if (e.type === 'stock.adjusted') {
+    if (e.type === 'stock.item_added') {
+      if (!accumulator.has(e.item.id)) {
+        accumulator.set(e.item.id, {
+          item: { ...e.item, supplierIds: [...e.item.supplierIds] },
+          workingPriceCents: e.item.workingPriceCents,
+          onHandBaseUnits: 0,
+        });
+      }
+    } else if (e.type === 'stock.supplier_added') {
+      for (const itemId of e.linkedItemIds) {
+        const acc = accumulator.get(itemId);
+        if (acc && !acc.item.supplierIds.includes(e.supplier.id)) {
+          acc.item.supplierIds.push(e.supplier.id);
+        }
+      }
+    } else if (e.type === 'stock.adjusted') {
       const acc = accumulator.get(e.itemId);
       if (!acc) continue; // an item no longer on the price list
       acc.onHandBaseUnits = Math.max(0, acc.onHandBaseUnits + e.deltaPacks * acc.item.packQty);

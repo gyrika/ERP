@@ -66,3 +66,32 @@ test('inventory and supplier bookmarks open their respective views', () => {
   render(<Root />);
   expect(screen.getByRole('main', { name: 'Suppliers' })).toBeTruthy();
 });
+
+test('finding an ingredient supplier routes to the filtered supplier view', async () => {
+  history.replaceState(null, '', '/#inventory');
+  const user = userEvent.setup();
+  render(<Root />);
+
+  await user.click(screen.getAllByRole('button', { name: 'Find Supplier' })[0]);
+
+  expect(location.hash).toBe('#suppliers');
+  expect(screen.getByRole('heading', { name: 'Targeted Suppliers' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Prima/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Ajantha/ })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Nimmi veg shop/ })).toBeNull();
+});
+
+test('inventory and suppliers link to each other and to the Owner view', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#inventory');
+  render(<Root />);
+
+  await user.click(screen.getByRole('link', { name: 'Suppliers' }));
+  expect(await screen.findByRole('main', { name: 'Suppliers' })).toBeTruthy();
+  await user.click(screen.getByRole('link', { name: 'Inventory' }));
+  expect(await screen.findByRole('main', { name: 'Inventory' })).toBeTruthy();
+  await user.click(screen.getByRole('link', { name: 'Suppliers' }));
+  await user.click(await screen.findByRole('button', { name: 'Owner view' }));
+
+  expect(await screen.findByRole('main', { name: 'Owner' })).toBeTruthy();
+});

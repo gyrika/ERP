@@ -25,6 +25,27 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         return { reason: `event ${e.id} does not say who did it` };
       }
     }
+    if (e.type === 'stock.item_added') {
+      const item = e.item;
+      if (
+        !isObj(item) || !shortString(item.id) || !shortString(item.name, 120) ||
+        !shortString(item.category, 80) || !Array.isArray(item.supplierIds) ||
+        item.supplierIds.length === 0 || !item.supplierIds.every((id) => shortString(id)) ||
+        new Set(item.supplierIds).size !== item.supplierIds.length ||
+        !['g', 'ml', 'pcs', 'sheets'].includes(String(item.baseUnit)) ||
+        typeof item.packQty !== 'number' || !Number.isFinite(item.packQty) || item.packQty <= 0 ||
+        !Number.isSafeInteger(item.workingPriceCents) || (item.workingPriceCents as number) < 0
+      ) return { reason: `event ${e.id} has an invalid ingredient` };
+    }
+    if (e.type === 'stock.supplier_added') {
+      const supplier = e.supplier;
+      if (
+        !isObj(supplier) || !shortString(supplier.id) || !shortString(supplier.name, 120) ||
+        (supplier.phone !== undefined && !shortString(supplier.phone, 40)) ||
+        !Array.isArray(e.linkedItemIds) || !e.linkedItemIds.every((id) => shortString(id)) ||
+        new Set(e.linkedItemIds).size !== e.linkedItemIds.length
+      ) return { reason: `event ${e.id} has an invalid supplier` };
+    }
   }
   return { events: body.events as SyncEvent[] };
 };

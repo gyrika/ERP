@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { readAll, subscribeEvents } from '../ui/eventLog.ts';
-import { inventoryFromEvents, type InventoryRow } from '../domain/inventory.ts';
-import type { Supplier } from '../domain/inventoryData.ts';
+import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
+import { inventoryFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
+import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import type { Cents } from '../domain/types.ts';
-import { appendEvent } from '../ui/eventLog.ts';
 import { currentCashier } from './auth.ts';
 
 /**
@@ -35,7 +34,40 @@ export function useActiveRecipes(): Record<string, Array<{ inventoryId: string; 
   useEffect(() => subscribeEvents(() => setActive(readActiveRecipes())), []);
   return active;
 };
-export const readSuppliers = (): Supplier[] => SEED_SUPPLIERS;
+export const readSuppliers = (): Supplier[] => suppliersFromEvents(SEED_SUPPLIERS, readAll());
+
+export const addSupplier = (supplier: Supplier, linkedItemIds: string[]): void => {
+  const suppliers = readSuppliers();
+  const items = readItems();
+  if (suppliers.some((existing) => existing.id === supplier.id)) throw new Error('A supplier with this id already exists.');
+  if (suppliers.some((existing) => existing.name.trim().toLowerCase() === supplier.name.trim().toLowerCase())) {
+    throw new Error('A supplier with this name already exists.');
+  }
+  if (!supplier.name.trim()) throw new Error('Enter a supplier name.');
+  if (supplier.name.trim().length > 120) throw new Error('Supplier name must be 120 characters or fewer.');
+  if (supplier.phone !== undefined && !supplier.phone.trim()) throw new Error('Enter a phone number or leave it blank.');
+  if (supplier.phone && supplier.phone.trim().length > 40) throw new Error('Phone number must be 40 characters or fewer.');
+  if (new Set(linkedItemIds).size !== linkedItemIds.length) throw new Error('An ingredient is selected more than once.');
+  if (linkedItemIds.some((id) => !items.some((item) => item.id === id))) throw new Error('A selected ingredient no longer exists.');
+
+  appendEvent({
+    type: 'stock.supplier_added',
+    at: Date.now(),
+    orderNumber: 0,
+    actor: currentCashier(),
+    supplier: { ...supplier, name: supplier.name.trim(), ...(supplier.phone ? { phone: supplier.phone.trim() } : {}) },
+    linkedItemIds,
+  });
+};
+
+export const addInventoryItem = (item: InventoryItem): void => {
+  const items = readItems();
+  if (items.some((existing) => existing.id === item.id)) throw new Error('An ingredient with this id already exists.');
+  if (item.name.trim().length > 120) throw new Error('Ingredient name must be 120 characters or fewer.');
+  const errors = validateSeed({ suppliers: readSuppliers(), items: [...items, item] });
+  if (errors.length) throw new Error(errors.join(' '));
+  appendEvent({ type: 'stock.item_added', at: Date.now(), orderNumber: 0, actor: currentCashier(), item });
+};
 
 /** One pack in (+1) or out (-1). Taking from an empty shelf records nothing. */
 export const adjustStock = (itemId: string, deltaPacks: number, reason?: string): void => {
@@ -58,6 +90,10 @@ export const setWorkingPrice = (itemId: string, cents: Cents): void => {
 
 export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[] } {
   const [items, setItems] = useState(readItems);
-  useEffect(() => subscribeEvents(() => setItems(readItems())), []);
-  return { items, suppliers: SEED_SUPPLIERS };
+  const [suppliers, setSuppliers] = useState(readSuppliers);
+  useEffect(() => subscribeEvents(() => {
+    setItems(readItems());
+    setSuppliers(readSuppliers());
+  }), []);
+  return { items, suppliers };
 }

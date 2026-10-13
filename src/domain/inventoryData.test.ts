@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
-import { inventoryFromEvents, isLowStock, isOutOfStock, itemById, loadSeed, supplierById, validateSeed } from './inventory.ts';
+import { inventoryFromEvents, isLowStock, isOutOfStock, itemById, loadSeed, summariseSuppliers, supplierById, validateSeed } from './inventory.ts';
 import { mayRecord } from './auth.ts';
 import { storageKey } from '../ui/storage.ts';
 
@@ -13,18 +13,17 @@ test('T2: items have unique ids', () => {
   assert.equal(new Set(SEED_INVENTORY.map((i) => i.id)).size, SEED_INVENTORY.length);
 });
 
-test('T3: every mainSupplierId resolves', () => {
+test('T3: every item supplier resolves', () => {
   for (const item of SEED_INVENTORY) {
-    assert.ok(supplierById(item.mainSupplierId), `${item.id}: main ${item.mainSupplierId}`);
+    assert.ok(item.supplierIds.length > 0, `${item.id}: no suppliers`);
+    for (const supplierId of item.supplierIds) {
+      assert.ok(supplierById(supplierId), `${item.id}: supplier ${supplierId}`);
+    }
   }
 });
 
-test('T4: nullable backup suppliers are handled', () => {
-  assert.ok(SEED_INVENTORY.some((i) => i.backupSupplierId === null));
-  for (const item of SEED_INVENTORY) {
-    if (item.backupSupplierId === null) continue;
-    assert.ok(supplierById(item.backupSupplierId), `${item.id}: backup ${item.backupSupplierId}`);
-  }
+test('T4: inventory items support independent multiple suppliers', () => {
+  assert.ok(SEED_INVENTORY.some((item) => item.supplierIds.length > 1));
 });
 
 test('T5: all workingPriceCents are non-negative integers', () => {
@@ -55,7 +54,7 @@ test('T8: required fields are present', () => {
     assert.ok(i.name.trim());
     assert.ok(i.category.trim());
     assert.ok(i.baseUnit);
-    assert.ok(i.mainSupplierId.trim());
+    assert.ok(i.supplierIds.length > 0);
   }
 });
 
@@ -123,10 +122,41 @@ test('stock is built from events: counts never below zero, last price wins, unkn
   assert.ok(rows.filter((r) => r.id !== flour).every((r) => r.onHandPacks === 0));
 });
 
+test('creation events add ingredients and independent supplier links without mutating seed data', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const flour = SEED_INVENTORY[0];
+  const supplier = { id: 'sup_extra', name: 'Fresh Farms' };
+  const newItem = {
+    id: 'inv-extra',
+    name: 'Sea Salt',
+    category: 'General',
+    baseUnit: 'pcs' as const,
+    packQty: 1,
+    supplierIds: [supplier.id],
+    workingPriceCents: 0,
+  };
+  const rows = inventoryFromEvents(SEED_INVENTORY, [
+    { ...base, id: 'supplier-added', type: 'stock.supplier_added', supplier, linkedItemIds: [flour.id] },
+    { ...base, id: 'item-added', type: 'stock.item_added', item: newItem },
+    { ...base, id: 'stock-added', type: 'stock.adjusted', itemId: newItem.id, deltaPacks: 2 },
+  ]);
+
+  assert.deepEqual(flour.supplierIds, ['sup_prima', 'sup_ajantha']);
+  assert.deepEqual(rows.find((item) => item.id === flour.id)?.supplierIds, ['sup_prima', 'sup_ajantha', supplier.id]);
+  assert.equal(rows.find((item) => item.id === newItem.id)?.onHandPacks, 2);
+  const supplierSummary = summariseSuppliers(rows, [...SEED_SUPPLIERS, supplier]).find((summary) => summary.supplier.id === supplier.id);
+  assert.deepEqual(supplierSummary?.suppliedItems.map((item) => item.id), [flour.id, newItem.id]);
+});
+
 test('only managers and owners may change stock', () => {
   assert.equal(mayRecord('cashier', 'stock.adjusted'), false);
   assert.equal(mayRecord('kitchen', 'stock.price_set'), false);
+  assert.equal(mayRecord('cashier', 'stock.item_added'), false);
+  assert.equal(mayRecord('cashier', 'stock.supplier_added'), false);
   assert.equal(mayRecord('manager', 'stock.adjusted'), true);
+  assert.equal(mayRecord('manager', 'stock.item_added'), true);
+  assert.equal(mayRecord('manager', 'stock.supplier_added'), true);
   assert.equal(mayRecord('owner', 'stock.price_set'), true);
 });
 
@@ -163,7 +193,7 @@ test('T19: validateSeed handles optional phone property', () => {
   assert.equal(
     validateSeed({
       suppliers: [supplierWithoutPhone],
-      items: [{ ...SEED_INVENTORY[0], mainSupplierId: 'sup_test', backupSupplierId: null }],
+      items: [{ ...SEED_INVENTORY[0], supplierIds: ['sup_test'] }],
     }).length,
     0,
   );
@@ -172,7 +202,7 @@ test('T19: validateSeed handles optional phone property', () => {
   const supplierWithBlankPhone = { id: 'sup_blank', name: 'Blank Phone Supplier', phone: '   ' };
   const errors = validateSeed({
     suppliers: [supplierWithBlankPhone],
-    items: [{ ...SEED_INVENTORY[0], mainSupplierId: 'sup_blank', backupSupplierId: null }],
+    items: [{ ...SEED_INVENTORY[0], supplierIds: ['sup_blank'] }],
   });
   assert.ok(errors.some((e) => e.includes('invalid phone')));
 });
@@ -302,5 +332,3 @@ test('T23: large variant uses variant overrides correctly', () => {
   assert.equal(flourRow.onHandBaseUnits, 25000 - 260);
   assert.equal(flourRow.onHandPacks, 0);
 });
-
-

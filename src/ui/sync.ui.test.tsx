@@ -3,7 +3,7 @@ import type { PullResponse, PushRequest, StreamMessage, SyncEvent, SyncTransport
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { startSync } from '../services/syncClient.ts';
 import { SyncSign } from './SyncSign.tsx';
-import { addEvents, appendEvent, readAll, readOutbox } from './eventLog.ts';
+import { addEvents, appendEvent, markSynced, readAll, readOutbox } from './eventLog.ts';
 import { readTickets } from './kitchenStore.ts';
 
 beforeEach(() => {
@@ -87,6 +87,44 @@ test('events from other devices arrive once and show on the kitchen screen', asy
 test('demo events are never queued for the server', () => {
   addEvents([sent('demo-1', 'tk')]);
   expect(readOutbox()).toEqual([]);
+});
+
+test('synced catalog creation events stay local after routine events are pruned', () => {
+  const actor = { id: 'manager', name: 'Ravi', role: 'manager' as const };
+  addEvents([
+    {
+      id: 'old-item',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.item_added',
+      item: {
+        id: 'inv-new',
+        name: 'Sea Salt',
+        category: 'General',
+        baseUnit: 'pcs',
+        packQty: 1,
+        supplierIds: ['sup-new'],
+        workingPriceCents: 0,
+      },
+    },
+    {
+      id: 'old-supplier',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.supplier_added',
+      supplier: { id: 'sup-new', name: 'Fresh Farms' },
+      linkedItemIds: [],
+    },
+    { ...sent('old-order', 'old-ticket'), at: 1 },
+  ]);
+
+  markSynced([], Date.now());
+
+  expect(readAll().map((event) => event.id)).toEqual(['old-item', 'old-supplier']);
 });
 
 test('offline sign: how many orders wait, and gone once they are sent', async () => {

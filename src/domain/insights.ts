@@ -235,7 +235,6 @@ const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock']): Ins
   const counted = new Set(events.flatMap((e) => (e.type === 'stock.adjusted' ? [e.itemId] : [])));
   const low = inventoryFromEvents(stock.items, events).filter((r) => counted.has(r.id) && isLowStock(r));
   if (!low.length) return null;
-  const supplier = (id: string) => stock.suppliers.find((s) => s.id === id)?.name ?? id;
   const names = low.slice(0, 3).map((r) => r.name).join(', ');
   return {
     id: 'running-low',
@@ -244,8 +243,12 @@ const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock']): Ins
     detail: `${names}${low.length > 3 ? ` and ${low.length - 3} more` : ''}.`,
     action: {
       label: 'Order list',
-      items: [...low].sort((a, b) => supplier(a.mainSupplierId).localeCompare(supplier(b.mainSupplierId)))
-        .map((r) => ({ primary: r.name, secondary: `${plural(r.onHandPacks, 'pack')} left · ${supplier(r.mainSupplierId)}` })),
+      items: [...low].sort((a, b) => a.name.localeCompare(b.name))
+        .map((r) => ({
+          primary: r.name,
+          secondary: `${plural(r.onHandPacks, 'pack')} left · ${r.supplierIds.map((id) =>
+            stock.suppliers.find((s) => s.id === id)?.name ?? id).join(', ')}`,
+        })),
     },
   };
 };
