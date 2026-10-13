@@ -5,6 +5,7 @@ import { inventoryFromEvents, suppliersFromEvents } from '../domain/inventory.ts
 import { fmt } from '../domain/money.ts';
 import { useInstall } from '../services/ownerApp.ts';
 import { useShopEvents } from '../services/ownerData.ts';
+import { OwnerNav } from './OwnerNav.tsx';
 
 /**
  * The Owner view. Serves the owner: they know the shop, not the screens, and
@@ -77,22 +78,12 @@ export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?:
 
   return (
     <div className="owner">
-      <header className="owner__head">
-        <span className="brand">CheesyBeez</span>
-        {phone ? (
-          data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>
-        ) : (
-          <nav className="owner__nav" aria-label="Owner sections">
-            <a href="#menu">Menu</a>
-            <a href="#setup">Shop setup</a>
-            <a href="#inventory">Inventory</a>
-            <a href="#suppliers">Suppliers</a>
-            {onBack
-              ? <button type="button" className="owner__back" onClick={onBack}>Register <kbd>F3</kbd></button>
-              : <a href="#">Register</a>}
-          </nav>
-        )}
-      </header>
+      {phone ? (
+        <header className="owner__head">
+          <span className="brand">CheesyBeez</span>
+          {data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>}
+        </header>
+      ) : <OwnerNav current="owner" onRegister={onBack} />}
 
       <main className="owner__main" aria-label="Owner">
         <section className="owner__today" aria-label="Today">

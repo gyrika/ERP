@@ -162,14 +162,14 @@ export function Root() {
   const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
   if (hash === OWNER && seesOwner) return <OwnerView onBack={() => go('')} />;
   if (hash === '#inventory' && mayManageStock) {
-    return <InventoryView onFindSupplier={findSupplier} onOwnerView={seesOwner ? () => go(OWNER) : undefined} />;
+    return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;
   }
   // The owner changes the menu; managers can mark items sold out during service.
   if (hash === '#menu' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
     return <MenuView owner={!needsLogin || staff?.role === 'owner'} onBack={() => go('')} />;
   }
   if (hash === '#suppliers' && mayManageStock) {
-    return <SupplierView filterIngredientId={filterIngredientId} onOwnerView={seesOwner ? () => go(OWNER) : undefined} />;
+    return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;
   }
   return (
     <App onKitchen={() => show(true)} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}

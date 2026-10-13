@@ -104,17 +104,20 @@ test('adding a supplier with a new ingredient updates Inventory and Find Supplie
   expect(within(supplierToggle.closest('article') as HTMLElement).getByText('End-to-end Flour')).toBeTruthy();
 });
 
-test('inventory and suppliers link to each other and to the Owner view', async () => {
+test('one nav bar on every owner screen: same links, the current one marked, Register goes back', async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#inventory');
   render(<Root />);
+  const nav = () => within(screen.getByRole('navigation', { name: 'Owner sections' }));
+  const current = () => nav().getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent);
+  const links = ['Owner', 'Menu', 'Inventory', 'Suppliers', 'Shop setup'];
 
-  await user.click(screen.getByRole('link', { name: 'Suppliers' }));
-  expect(await screen.findByRole('main', { name: 'Suppliers' })).toBeTruthy();
-  await user.click(screen.getByRole('link', { name: 'Inventory' }));
-  expect(await screen.findByRole('main', { name: 'Inventory' })).toBeTruthy();
-  await user.click(screen.getByRole('link', { name: 'Suppliers' }));
-  await user.click(await screen.findByRole('button', { name: 'Owner view' }));
-
-  expect(await screen.findByRole('main', { name: 'Owner' })).toBeTruthy();
+  for (const [link, main] of [['Suppliers', 'Suppliers'], ['Owner', 'Owner'], ['Menu', 'Menu'], ['Shop setup', 'Shop setup'], ['Inventory', 'Inventory']]) {
+    await user.click(nav().getByRole('link', { name: link }));
+    expect(await screen.findByRole('main', { name: main })).toBeTruthy();
+    expect(nav().getAllByRole('link').map((a) => a.textContent)).toEqual(links);
+    expect(current()).toEqual([link]);
+  }
+  await user.click(nav().getByRole('button', { name: 'Register' }));
+  expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();
 });

@@ -8,6 +8,7 @@ import {
 import { stockStatus } from '../domain/inventory.ts';
 import { fmt } from '../domain/money.ts';
 import { AddIngredientModal } from './AddIngredientModal.tsx';
+import { OwnerNav } from './OwnerNav.tsx';
 import { formatQuantity } from './quantity.ts';
 import { StatusDot } from './StatusDot.tsx';
 import { StockSheet } from './StockSheet.tsx';
@@ -15,10 +16,10 @@ import { StockSheet } from './StockSheet.tsx';
 
 export function InventoryView({
   onFindSupplier,
-  onOwnerView,
+  onRegister,
 }: {
   onFindSupplier?: (id: string) => void;
-  onOwnerView?: () => void;
+  onRegister?: () => void;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);
   const [archived, setArchived] = useState<{ id: string; name: string } | null>(null);
@@ -63,16 +64,11 @@ export function InventoryView({
 
   return (
     <div className="inv-page">
-      <header className="inv-page__head">
+      <OwnerNav current="inventory" onRegister={onRegister} />
+      <div className="inv-page__head">
          <h1 className="supplier-heading">Inventory Dashboard</h1>
-         <nav className="inv-page__nav" aria-label="Inventory navigation">
-           <a className="inv-page__link" href="#suppliers">Suppliers</a>
-           {onOwnerView && (
-             <button type="button" className="inv-page__link" onClick={onOwnerView}>Owner view</button>
-           )}
-         </nav>
          <button type="button" className="insight__action" onClick={() => setShowAdd(true)}>+ Add Ingredient</button>
-      </header>
+      </div>
 
       {(archived || error) && (
         <div className={`inv-notice${error ? ' inv-notice--error' : ''}`} role={error ? 'alert' : 'status'}>

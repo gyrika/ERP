@@ -239,6 +239,6 @@ test('F3 flips a manager between the Register and the Owner view; a cashier stay
 
   await user.click(screen.getByRole('button', { name: 'Owner view F3' }));
   expect(owner()).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Register F3' }));
+  await user.click(screen.getByRole('button', { name: 'Register' }));
   expect(panel()).toBeTruthy();
 });

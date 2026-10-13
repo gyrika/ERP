@@ -6,6 +6,7 @@ import { setupClient, type SetupState, type StaffRow } from '../services/setupCl
 import { QrCode } from './QrCode.tsx';
 import { samplePaid } from './ReceiptPreview.tsx';
 import { restartApp } from './restart.ts';
+import { OwnerNav } from './OwnerNav.tsx';
 
 /**
  * Setting up the shop, on the shop PC itself. Serves whoever sets it up,
@@ -437,10 +438,11 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
 
   return (
     <div className="setup">
-      <header className="setup__head">
-        <span className="brand">CheesyBeez</span>
-        {mode === 'manage' && onClose && <button type="button" className="corner__key" onClick={onClose}>Done</button>}
-      </header>
+      {mode === 'manage' ? <OwnerNav current="setup" onRegister={onClose} /> : (
+        <header className="setup__head">
+          <span className="brand">CheesyBeez</span>
+        </header>
+      )}
       <main className="setup__main" aria-label="Shop setup">{body}</main>
     </div>
   );

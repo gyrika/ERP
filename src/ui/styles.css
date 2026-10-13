@@ -659,10 +659,11 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 
 /* Owner view: phone first, one feed, one tap per card. */
 .owner { min-height: 100dvh; background: var(--ground); }
-.owner__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; height: 60px; max-width: 760px; margin: 0 auto; }
+.owner__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; height: 60px; flex: none; width: 100%; max-width: 760px; margin: 0 auto; }
 .owner__nav { display: flex; gap: 4px; }
 .owner__nav a { min-height: 48px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 12px; font-size: 14px; font-weight: 500; color: var(--ink-2); text-decoration: none; }
 .owner__nav a:hover { background: var(--chip); color: var(--ink); }
+.owner__nav a[aria-current='page'] { background: var(--chip); color: var(--ink); }
 /* #menu: the owner's menu. One calm list; the editor is a sheet. */
 .menuv { max-width: 960px; }
 .menuv__title { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -1px; }

@@ -8,15 +8,16 @@ import {
 import { summariseSuppliers } from '../domain/inventory.ts';
 import { SupplierCard } from './SupplierCard.tsx';
 import { AddSupplierModal } from './AddSupplierModal.tsx';
+import { OwnerNav } from './OwnerNav.tsx';
 
 type ArchivedSupplier = { id: string; name: string };
 
 export function SupplierView({
   filterIngredientId = null,
-  onOwnerView,
+  onRegister,
 }: {
   filterIngredientId?: string | null;
-  onOwnerView?: () => void;
+  onRegister?: () => void;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);
   const [archived, setArchived] = useState<ArchivedSupplier | null>(null);
@@ -63,18 +64,13 @@ export function SupplierView({
 
   return (
     <div className="inv-page">
-      <header className="inv-page__head">
+      <OwnerNav current="suppliers" onRegister={onRegister} />
+      <div className="inv-page__head">
          <h1 className="supplier-heading">
            {filterIngredientId ? 'Targeted Suppliers' : 'All Suppliers'}
          </h1>
-         <nav className="inv-page__nav" aria-label="Supplier navigation">
-           <a className="inv-page__link" href="#inventory">Inventory</a>
-           {onOwnerView && (
-             <button type="button" className="inv-page__link" onClick={onOwnerView}>Owner view</button>
-           )}
-         </nav>
          <button type="button" className="insight__action" onClick={() => setShowAdd(true)}>+ Add Supplier</button>
-      </header>
+      </div>
 
       {(archived || error) && (
         <div className={`inv-notice${error ? ' inv-notice--error' : ''}`} role={error ? 'alert' : 'status'}>
