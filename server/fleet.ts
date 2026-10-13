@@ -15,7 +15,7 @@ export function createFleet(o: FleetOptions) {
   const http = o.fetch ?? fetch;
   const get = async (path: string): Promise<unknown> => {
     const r = await http(`${o.url}${path}`, { headers: { authorization: `Bearer ${o.key}` }, signal: AbortSignal.timeout(20_000) });
-    if (r.status === 403) throw new Error('the cloud did not accept CLOUD_ADMIN_KEY: run npm run admin-key again and copy the new password');
+    if (r.status === 403) throw new Error('the cloud did not accept the admin password (CLOUD_ADMIN_KEY): run npm run admin-key in cloud/ again');
     if (!r.ok) throw new Error(`the cloud answered ${r.status}`);
     return r.json();
   };
