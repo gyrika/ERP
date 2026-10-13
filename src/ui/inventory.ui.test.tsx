@@ -11,7 +11,7 @@ beforeEach(() => localStorage.clear());
 
 /** A stock row as the screens get it. */
 const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
-  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true });
+  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null });
 afterEach(cleanup);
 
 test('every seeded ingredient is listed once, with all of its suppliers', () => {
@@ -29,18 +29,18 @@ test('Find Supplier hands the ingredient to the supplier board, and only shows w
   const { unmount } = render(<InventoryView onFindSupplier={onFindSupplier} />);
 
   const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
-  await user.click(within(flour).getByRole('button', { name: 'Find Supplier' }));
+  await user.click(within(flour).getByRole('button', { name: 'Find supplier' }));
   expect(onFindSupplier).toHaveBeenCalledExactlyOnceWith('inv-0001');
 
   unmount();
   render(<InventoryView />);
-  expect(screen.queryByRole('button', { name: 'Find Supplier' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Find supplier' })).toBeNull();
 });
 
-test('the status dot follows the low-stock threshold live as packs are counted', () => {
+test('the stock status follows the low-stock threshold live as packs are counted', () => {
   render(<InventoryView />);
   const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
-  const status = () => within(flour).getByRole('img').getAttribute('aria-label');
+  const status = () => flour.querySelector('.inv-row__status')!.textContent;
 
   expect(status()).toBe('Not counted yet'); // unknown, never shown as out
   act(() => inventoryStore.adjustStock('inv-0001', 1));
@@ -61,7 +61,7 @@ test('counted stock survives a reload', () => {
 
   const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
   expect(within(flour).getByLabelText('Available stock and pack size').textContent).toContain('50 kg / 25 kg');
-  expect(within(flour).getByRole('img', { name: 'In stock' })).toBeTruthy();
+  expect(within(flour).getByText('In stock')).toBeTruthy();
 });
 
 test('an ingredient whose only supplier is removed says it has no active suppliers', () => {
@@ -109,7 +109,7 @@ test('a supplier number the manager typed the local way calls, and opens WhatsAp
   expect(card.getByRole('link', { name: 'WhatsApp' }).getAttribute('href')).toBe('https://wa.me/94771234567');
 });
 
-test('supplier status reflects its lowest-stock ingredient', () => {
+test('supplier cards show the name only, no status dot or plus mark', () => {
   const lowItem = { ...stocked(SEED_INVENTORY[0], 1), supplierIds: ['sup-low'] };
   const outItem = { ...stocked(SEED_INVENTORY[1], 0), supplierIds: ['sup-out'] };
   const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
@@ -123,8 +123,10 @@ test('supplier status reflects its lowest-stock ingredient', () => {
 
   const lowSupplier = screen.getByRole('button', { name: 'Expand Low Supplier' }).closest('article');
   const outSupplier = screen.getByRole('button', { name: 'Expand Out Supplier' }).closest('article');
-  expect(within(lowSupplier!).getByRole('img', { name: 'Low stock' })).toBeTruthy();
-  expect(within(outSupplier!).getByRole('img', { name: 'Out of stock' })).toBeTruthy();
+  for (const card of [lowSupplier!, outSupplier!]) {
+    expect(within(card).queryByRole('img')).toBeNull();
+    expect(card.textContent).not.toMatch(/[+−]/);
+  }
   spy.mockRestore();
 });
 

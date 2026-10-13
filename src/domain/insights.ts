@@ -3,6 +3,7 @@ import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
 import { fmt } from './money.ts';
+import { formatQuantity } from './quantity.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine } from './types.ts';
 
@@ -240,10 +241,10 @@ const kitchenSlow = (events: readonly SyncEvent[], now: number): Insight | null 
   };
 };
 
-const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock']): Insight | null => {
+const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock'], now: number): Insight | null => {
   if (!stock) return null;
   // Only items someone has counted: a never-counted item is unknown, not empty.
-  const low = inventoryFromEvents(stock.items, events).filter((r) => !r.archived && r.counted && isLowStock(r));
+  const low = inventoryFromEvents(stock.items, events, { now }).filter((r) => !r.archived && r.counted && isLowStock(r));
   if (!low.length) return null;
   const names = low.slice(0, 3).map((r) => r.name).join(', ');
   return {
@@ -260,6 +261,39 @@ const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock']): Ins
           secondary: `${isOutOfStock(r) ? 'may be out: check the shelf' : `${plural(Math.round(r.onHandPacks * 10) / 10, 'pack')} left`} · ${r.supplierIds.map((id) =>
             stock.suppliers.find((s) => s.id === id)?.name ?? id).join(', ')}`,
         })),
+    },
+  };
+};
+
+/**
+ * Counts this week that found less than the recipes said should be there: waste or
+ * loss. Every shortfall is listed, the costliest first; no made-up "normal" amount.
+ */
+const countedShort = (events: readonly SyncEvent[], stock: ShopData['stock'], now: number): Insight | null => {
+  if (!stock) return null;
+  const since = daysBack(startOfDay(now), 7);
+  const short = new Map<string, number>(); // packs, below zero
+  for (const e of events) {
+    if (e.type !== 'stock.adjusted' || e.reason !== 'audit' || e.at < since || e.at > now) continue;
+    short.set(e.itemId, (short.get(e.itemId) ?? 0) + e.deltaPacks);
+  }
+  const rows = inventoryFromEvents(stock.items, events, { now });
+  const lost = [...short]
+    .map(([id, packs]) => ({ row: rows.find((r) => r.id === id), packs }))
+    .filter((x): x is { row: (typeof rows)[number]; packs: number } => !!x.row && x.packs < 0)
+    .map(({ row, packs }) => ({ row, qty: -packs * row.packQty, cents: Math.round(-packs * row.workingPriceCents) }))
+    .sort((a, b) => b.cents - a.cents || a.row.name.localeCompare(b.row.name));
+  if (!lost.length) return null;
+  const [top] = lost;
+  const total = lost.reduce((n, l) => n + l.cents, 0);
+  return {
+    id: 'counted-short',
+    tone: 'attention',
+    title: `${top.row.name} counted ${formatQuantity(top.qty, top.row.baseUnit)} below expected this week`,
+    detail: `${lost.length > 1 ? `And ${plural(lost.length - 1, 'more item')}. ` : ''}Rs ${fmt(total)} in all: waste or loss.`,
+    action: {
+      label: 'See counts',
+      items: lost.map((l) => ({ primary: l.row.name, secondary: `${formatQuantity(l.qty, l.row.baseUnit)} below expected`, amount: l.cents })),
     },
   };
 };
@@ -319,7 +353,8 @@ export const rulesSuggestions: SuggestionsService = {
       voidsToday(events, sales, now),
       discountsToday(events, sales, now),
       kitchenSlow(events, now),
-      runningLow(events, stock),
+      runningLow(events, stock, now),
+      countedShort(events, stock, now),
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
       notSelling(events, sales, now),

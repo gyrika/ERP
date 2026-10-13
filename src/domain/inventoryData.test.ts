@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { countDifference, inventoryFromEvents, isLowStock, isOutOfStock, itemById, parsePacks, loadSeed, summariseSuppliers, supplierById, suppliersFromEvents, validateSeed } from './inventory.ts';
 import { mayRecord } from './auth.ts';
+import type { UsageOf } from './stockUsage.ts';
 import { storageKey } from '../ui/storage.ts';
 
 test('T1: suppliers have unique ids', () => {
@@ -236,14 +237,13 @@ test('T19: validateSeed handles optional phone property', () => {
   assert.ok(errors.some((e) => e.includes('invalid phone')));
 });
 
-// Test recipes only: the shop's real ones come from the owner's sheet (SCRUM-77).
-const TEST_RECIPES = {
-  margherita: {
-    baseIngredients: [{ inventoryId: 'inv-0009', qtyBaseUnits: 45 }],
-    variantOverrides: { M: [{ inventoryId: 'inv-0006', qtyBaseUnits: 90 }], L: [{ inventoryId: 'inv-0006', qtyBaseUnits: 150 }] },
-  },
-};
 const MOZZ = 'inv-0006'; // 2 kg block
+// A test recipe only (the shop's real ones are in stockUsage.test.ts): sauce, and cheese by size.
+const testUsage: UsageOf = (line) => line.itemId !== 'margherita' ? [] : [
+  { inventoryId: 'inv-0009', qtyBaseUnits: 45 * line.qty },
+  { inventoryId: MOZZ, qtyBaseUnits: (line.size === 'L' ? 150 : 90) * line.qty },
+];
+const TEST_RECIPES = { usageOf: testUsage };
 const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
 const at = 100;
 const stockIn = (id: string, packs: number) =>
@@ -299,7 +299,8 @@ test('T25: selling more than was recorded goes below zero exactly, shows as none
   assert.equal(mozz([...events, stockIn(MOZZ, 1)]), 2000 - 150);
 });
 
-test('T26: no recipe, nothing taken: the shop has no made-up recipes', () => {
+test('T26: a batch he has not confirmed takes nothing: no made-up amounts', () => {
+  // His Margherita uses the Mozzarella Blend, whose batch output he has not confirmed yet.
   assert.equal(inventoryFromEvents(SEED_INVENTORY, [stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'L')])])
     .find((r) => r.id === MOZZ)!.onHandBaseUnits, 2000);
 });

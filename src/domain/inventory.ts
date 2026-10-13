@@ -1,7 +1,8 @@
 import type { BaseUnit, InventoryItem, Supplier } from './inventoryData.ts';
 import type { SyncEvent } from './sync.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
-import { RECIPES, recipeUsage, type RecipeLine, type Recipes } from './recipes.ts';
+import { answersFromEvents, type Answer, type RecipeEvent } from './costing.ts';
+import { bookUsage, type RecipeLine, type UsageOf } from './stockUsage.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -90,7 +91,15 @@ export type InventoryRow = InventoryItem & {
   archived: boolean;
   /** Someone has recorded stock for it. A never-counted item is unknown, not empty. */
   counted: boolean;
+  /** Base units sales took per day, over the last 7 days (fewer when the shop is newer). */
+  usedPerDay: number;
+  /** Days what is left lasts at that rate; null when it is not counted, empty or not used. */
+  lastsDays: number | null;
 };
+
+const DAY = 24 * 60 * 60 * 1000;
+/** How far back "lasts about N days" looks. */
+export const USAGE_DAYS = 7;
 
 export const LOW_STOCK_PACKS = 1;
 
@@ -181,12 +190,14 @@ interface Shelf {
  * remembers exactly what it took. Undo after Send, a cancelled line or a changed
  * line gives that back (a changed line then takes its new recipe); a manager's
  * Undo of that change puts it back as it was. Lines never sent take nothing.
- * Amounts are not clamped, so every give-back is exact.
+ * Amounts are not clamped, so every give-back is exact. What a line takes comes
+ * from the owner's recipes (stockUsage.ts) with his answers as they were when it
+ * was sold, so a later answer never rewrites past sales.
  */
 export const inventoryFromEvents = (
   items: readonly InventoryItem[],
   events: readonly SyncEvent[],
-  recipes: Recipes = RECIPES,
+  { usageOf = bookUsage, now = Date.now() }: { usageOf?: UsageOf; now?: number } = {},
 ): InventoryRow[] => {
   const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
     item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false,
@@ -199,6 +210,11 @@ export const inventoryFromEvents = (
   };
   /** What each sent line took from stock, by line id. */
   const taken = new Map<string, RecipeLine[]>();
+  /** When each line was sent, for the daily rate. */
+  const sentAt = new Map<string, number>();
+  let firstSale: number | null = null;
+  let answers = new Map<string, Answer>();
+  const recipeEvents: RecipeEvent[] = [];
   const ticketLines = new Map<string, string[]>();
   /** For a manager's Undo: what the line had taken before the change (null: nothing). */
   const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null }>();
@@ -241,9 +257,14 @@ export const inventoryFromEvents = (
         if (shelf) shelf.item.workingPriceCents = e.after;
         break;
       }
+      case 'recipe.answer_set':
+        recipeEvents.push(e);
+        answers = answersFromEvents(recipeEvents);
+        break;
       case 'order.sent':
         ticketLines.set(e.ticketId, e.lines.map((l) => l.id));
-        for (const line of e.lines) setLine(line.id, recipeUsage(line, recipes));
+        firstSale = Math.min(firstSale ?? e.at, e.at);
+        for (const line of e.lines) { setLine(line.id, usageOf(line, answers)); sentAt.set(line.id, e.at); }
         break;
       case 'order.send_undone':
         for (const lineId of ticketLines.get(e.ticketId) ?? []) setLine(lineId, null);
@@ -254,7 +275,7 @@ export const inventoryFromEvents = (
         const had = taken.get(e.lineId);
         if (!had) break; // never sent: it took nothing
         beforeChange.set(e.id, { lineId: e.lineId, usage: had });
-        setLine(e.lineId, e.type === 'order.item_changed' ? recipeUsage(e.after, recipes) : null);
+        setLine(e.lineId, e.type === 'order.item_changed' ? usageOf(e.after, answers) : null);
         break;
       }
       case 'order.change_undone': {
@@ -266,11 +287,25 @@ export const inventoryFromEvents = (
     }
   }
 
-  return [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted }) => ({
-    ...item,
-    onHandBaseUnits,
-    onHandPacks: item.packQty > 0 ? Math.max(0, onHandBaseUnits) / item.packQty : 0,
-    archived,
-    counted,
-  }));
+  // The daily rate: what lines sent in the window still take, over the days the shop has sold in it.
+  const used = new Map<string, number>();
+  for (const [lineId, usage] of taken) {
+    const at = sentAt.get(lineId) ?? 0;
+    if (at < now - USAGE_DAYS * DAY || at > now) continue;
+    for (const { inventoryId, qtyBaseUnits } of usage) used.set(inventoryId, (used.get(inventoryId) ?? 0) + qtyBaseUnits);
+  }
+  const days = firstSale === null ? 1 : Math.min(USAGE_DAYS, Math.max(1, (now - firstSale) / DAY));
+
+  return [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted }) => {
+    const usedPerDay = (used.get(item.id) ?? 0) / days;
+    return {
+      ...item,
+      onHandBaseUnits,
+      onHandPacks: item.packQty > 0 ? Math.max(0, onHandBaseUnits) / item.packQty : 0,
+      archived,
+      counted,
+      usedPerDay,
+      lastsDays: counted && onHandBaseUnits > 0 && usedPerDay > 0 ? onHandBaseUnits / usedPerDay : null,
+    };
+  });
 };

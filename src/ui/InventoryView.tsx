@@ -4,14 +4,21 @@ import {
   archiveInventoryItem,
   restoreInventoryItem,
   useInventory,
+  type StockStatus,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
 import { fmt } from '../domain/money.ts';
 import { AddIngredientModal } from './AddIngredientModal.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
-import { formatQuantity } from './quantity.ts';
-import { StatusDot } from './StatusDot.tsx';
+import { formatLasts, formatQuantity } from './quantity.ts';
 import { StockSheet } from './StockSheet.tsx';
+
+const STATUS_LABELS: Record<StockStatus, string> = {
+  out: 'Out of stock',
+  low: 'Low stock',
+  ok: 'In stock',
+  unknown: 'Not counted yet',
+};
 
 
 export function InventoryView({
@@ -106,15 +113,15 @@ export function InventoryView({
                  </div>
                </div>
                <div className="inv-row__quantity" aria-label="Available stock and pack size">
-                 <span>Available / pack size</span>
+                 <span className={`inv-row__status inv-row__status--${status}`}>{STATUS_LABELS[status]}</span>
                  <strong>
                    {formatQuantity(Math.max(0, item.onHandBaseUnits), item.baseUnit)}
                    {' / '}
                    {formatQuantity(item.packQty, item.baseUnit)}
                  </strong>
+                 {formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
                  <span className="inv-row__price">Rs {fmt(item.workingPriceCents)} a pack</span>
                </div>
-               <StatusDot status={status} />
                <div className="inv-row__actions">
                  <button
                    type="button"
@@ -128,14 +135,9 @@ export function InventoryView({
                    <button
                      type="button"
                      className="inv-row__supplier"
-                     aria-label="Find Supplier"
-                     title="Find Supplier"
                      onClick={() => onFindSupplier(item.id)}
                    >
-                     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                       <path d="M3 10.5 12 4l9 6.5" />
-                       <path d="M5 9.5V20h14V9.5M9 20v-6h6v6" />
-                     </svg>
+                     Find supplier
                    </button>
                  )}
                  <button
