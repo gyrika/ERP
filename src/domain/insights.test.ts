@@ -39,6 +39,24 @@ test('the summary counts today only, and a payment undone does not count', () =>
   assert.equal(salesFrom(events).length, 2);
 });
 
+test('order numbers repeat (each screen counts from 1001): every payment is its own sale', () => {
+  const today = new Date(friday); today.setHours(0, 0, 0, 0);
+  const t = today.getTime();
+  const undo = (orderNumber: number, at: number): SyncEvent =>
+    ({ type: 'order.payment_undone', id: `u${orderNumber}-${at}`, shopId: 's', at, actor, orderNumber });
+  const events: SyncEvent[] = [
+    paid(1001, t + 1_000_000, 200000), // the counter
+    paid(1001, t + 2_000_000, 300000), // the same number again, e.g. after a reset or from a second screen
+    paid(1002, t + 3_000_000, 100000),
+    undo(1002, t + 3_100_000), // Undo, then paid again: still one sale
+    paid(1002, t + 3_200_000, 120000),
+    paid(1003, t + 4_000_000, 50000),
+    undo(1003, t + 4_100_000), // undone for good
+  ];
+  assert.deepEqual(rulesSuggestions.summary({ events, now: friday }), { salesCents: 620000, orders: 3, averageCents: 206667 });
+  assert.deepEqual(salesFrom(events).map((s) => s.total), [200000, 300000, 120000]);
+});
+
 test('a new shop: no history, so no "usual" to compare with, and no false alarms', () => {
   const day = new Date(friday); day.setHours(0, 0, 0, 0);
   const events = Array.from({ length: 30 }, (_, i) => paid(i + 1, day.getTime() + (12 * 60 + i) * 60_000, 300000));
