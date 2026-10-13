@@ -26,6 +26,7 @@ test('the demo owner feed: today in one line, then cards with one tap each', asy
     expect.stringMatching(/voids today, \d+ by Ravi$/),
     expect.stringMatching(/^Kitchen slow/),
     '2 items running low',
+    'Food costs: 27 answers to go',
     "BBQ Pork hasn't sold in 2 weeks",
     expect.stringMatching(/best seller$/),
   ]);
@@ -39,9 +40,10 @@ test('the demo owner feed: today in one line, then cards with one tap each', asy
   expect(screen.queryByRole('dialog')).toBeNull();
 });
 
-test('no history yet: a calm screen, not an empty error', async () => {
+test('no history yet: a calm screen, not an empty error; only the food-cost questions wait', async () => {
   history.replaceState(null, '', '/#owner');
   render(<Root />);
-  expect(await screen.findByText('Nothing needs you right now.')).toBeTruthy();
+  const feed = within(await screen.findByRole('region', { name: 'Needs your attention' }));
+  expect((await feed.findAllByRole('article')).map((c) => c.getAttribute('aria-label'))).toEqual(['Food costs: 27 answers to go']);
   expect(screen.getByText('Rs 0')).toBeTruthy();
 });

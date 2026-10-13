@@ -751,6 +751,23 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .menuv__name span { color: var(--ink-2); font-size: 14px; }
 .menuv__tags { display: flex; gap: 6px; }
 .menuv__sold[aria-pressed='true'] { border-color: var(--ink); background: var(--ink); color: var(--ground); }
+.menuv__name .menuv__cost { color: var(--ink-3); font-size: 13px; }
+.menuv__name .menuv__cost b { font-size: inherit; font-weight: 600; color: var(--ink-2); }
+.menuv__gaps { display: flex; align-items: center; gap: 16px; margin: 4px 0 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink-2); font-size: 15px; }
+.menuv__gaps b { color: var(--ink); font-weight: 600; }
+.menuv__gaps .chip { flex: none; margin-left: auto; }
+.costq__q { display: flex; flex-direction: column; gap: 16px; }
+.costq__ask { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.4px; }
+.costq__blocks, .costq__hint, .costq__done { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+.costq__saved { display: flex; align-items: center; gap: 12px; margin: 0; color: var(--ok-ink); font-size: 15px; }
+.costq__saved .linkbtn { min-height: 0; }
+.costq__field { display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); font-size: 14px; font-weight: 500; }
+.costq__field input { min-height: 48px; max-width: 220px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); color: var(--ink); font: inherit; font-size: 17px; }
+.costq__field input:disabled { opacity: 0.4; }
+.costq__price { display: flex; flex-wrap: wrap; gap: 14px; }
+.costq__error { margin: 0; color: var(--bad); font-size: 15px; }
+.costq__actions { display: flex; align-items: center; gap: 16px; }
+.costq__actions .cta { flex: 1; height: 56px; }
 .menued__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
 .menued__grid label { display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); font-size: 14px; font-weight: 500; }
 .menued__grid input { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); color: var(--ink); font: inherit; font-size: 17px; }
