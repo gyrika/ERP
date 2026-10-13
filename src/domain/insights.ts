@@ -1,3 +1,4 @@
+import { costsToAnswer, marginsFell } from './costInsights.ts';
 import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
@@ -309,6 +310,8 @@ export const rulesSuggestions: SuggestionsService = {
       discountsToday(events, sales, now),
       kitchenSlow(events, now),
       runningLow(events, stock),
+      marginsFell(events, stock, now),
+      costsToAnswer(events, stock, now),
       notSelling(events, sales, now),
       bestSeller(events, now),
     ].filter((x): x is Insight => x !== null).sort((a, b) => ORDER[a.tone] - ORDER[b.tone]);

@@ -110,6 +110,7 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
     pending.has(e.id) ||
     now - e.at < KEEP_SYNCED_MS ||
     e.type.startsWith('menu.') ||
+    e.type.startsWith('recipe.') ||
     e.type === 'stock.item_added' ||
     e.type === 'stock.supplier_added' ||
     e.type === 'stock.item_archived' ||

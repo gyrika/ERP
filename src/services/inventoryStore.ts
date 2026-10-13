@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { answersFromEvents, type Answer, type CostContext } from '../domain/costing.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
 import { countDifference, inventoryFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
@@ -181,19 +182,37 @@ const withLocal = (history: readonly SyncEvent[], local: readonly SyncEvent[]): 
 };
 
 /**
- * Stock as it stands, from the whole history. This device's own changes show
- * at once; the history from the server follows (and refreshes every minute).
+ * The shop's whole history plus this device's own new events: this device's
+ * changes show at once; the history from the server follows (refreshed every minute).
  */
-export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[] } {
+function useShopHistory(): SyncEvent[] {
   const shop = useShopEvents();
   const [local, setLocal] = useState(readAll);
   useEffect(() => subscribeEvents(() => setLocal(readAll())), []);
   const history = shop.state === 'loading' ? null : shop.events;
-  return useMemo(() => {
-    const events = withLocal(history ?? [], local);
-    return {
-      items: inventoryFromEvents(SEED_INVENTORY, events).filter((item) => !item.archived),
-      suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
-    };
-  }, [history, local]);
+  return useMemo(() => withLocal(history ?? [], local), [history, local]);
 }
+
+/** Stock as it stands, from the whole history. */
+export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[] } {
+  const events = useShopHistory();
+  return useMemo(() => ({
+    items: inventoryFromEvents(SEED_INVENTORY, events).filter((item) => !item.archived),
+    suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
+  }), [events]);
+}
+
+/** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */
+export function useCostContext(): CostContext {
+  const events = useShopHistory();
+  return useMemo(() => ({
+    items: inventoryFromEvents(SEED_INVENTORY, events),
+    answers: answersFromEvents(events),
+  }), [events]);
+}
+
+/** The owner answers one costing question (or clears it with null). Returns the Undo. */
+export const answerQuestion = (question: string, after: Answer | null, before: Answer | null): (() => void) => {
+  appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), question, before, after });
+  return () => appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), question, before: after, after: before });
+};

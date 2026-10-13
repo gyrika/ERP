@@ -11,3 +11,6 @@ server/data/
 deploy/station/stage/
 deploy/station/Output/
 cloud/.dev.vars
+
+# The owner's spreadsheets: personal data (customer names, phone numbers). Never commit.
+excel/

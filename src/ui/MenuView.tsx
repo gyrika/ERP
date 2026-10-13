@@ -1,9 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { marginOf, menuCost, openQuestions, sizesOf, type CostContext } from '../domain/costing.ts';
 import { MENU, menuItems, menuState } from '../domain/menu.ts';
 import { checkOverride, nextMorning, type ItemOverride } from '../domain/menuEdits.ts';
 import { fmt } from '../domain/money.ts';
 import type { Category, Cents, MenuItem, SizeId } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
+import { useCostContext } from '../services/inventoryStore.ts';
+import { CostQuestions } from './CostQuestions.tsx';
 import { appendEvent } from './eventLog.ts';
 import { useMenu } from './menuStore.ts';
 import { OwnerNav } from './OwnerNav.tsx';
@@ -20,6 +23,36 @@ const SECTIONS: { id: Category; label: string }[] = [
 ];
 const printed = (id: string) => MENU.find((m) => m.id === id)!;
 const prices = (m: MenuItem) => (m.variants ? m.variants.map((v) => `${v.id} ${fmt(v.price)}`).join(' · ') : fmt(m.price ?? 0));
+
+/**
+ * "Cost M 412 · 75%  L 690 · 72%", or "Cost so far M 38 · L 66 · 5 answers to go":
+ * what each size costs to make from the owner's recipes (SCRUM-77).
+ */
+function CostLine({ item, ctx }: { item: MenuItem; ctx: CostContext }) {
+  const sizes = sizesOf(item).map((size) => ({
+    size,
+    price: size ? item.variants!.find((v) => v.id === size)!.price : (item.price ?? 0),
+    cost: menuCost(item.id, size, ctx),
+  }));
+  const gaps = new Set(sizes.flatMap((s) => s.cost.missing)).size;
+  const answers = `${gaps} ${gaps === 1 ? 'answer' : 'answers'}`;
+  if (sizes.every((s) => !s.cost.product)) return <span className="menuv__cost">Cost: which of your recipes is it? ({answers} to go)</span>;
+  return (
+    <span className="menuv__cost num">
+      {gaps ? 'Cost so far ' : 'Cost '}
+      {sizes.map(({ size, price, cost }, i) => {
+        const margin = cost.complete ? marginOf(price, cost.cents) : null;
+        return (
+          <span key={size}>
+            {i > 0 && ' · '}{size && `${size} `}{fmt(Math.round(cost.cents / 100) * 100)}
+            {margin !== null && <b>{` ${Math.round(margin * 100)}%`}</b>}
+          </span>
+        );
+      })}
+      {gaps > 0 && ` · ${answers} to go`}
+    </span>
+  );
+}
 
 /** "1,650" or "1650" → cents, whole rupees only. */
 const toCents = (text: string): Cents | null => {
@@ -170,6 +203,9 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [toast, setToast] = useState<{ id: number; message: string; undo: () => void } | null>(null);
   const items = menuItems().filter((m) => m.category === section);
+  const costs = useCostContext();
+  const [answering, setAnswering] = useState(false);
+  const questions = useMemo(() => openQuestions(menuItems(), costs), [costs]);
 
   useEffect(() => {
     if (!toast) return;
@@ -177,10 +213,14 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
     return () => clearTimeout(t);
   }, [toast]);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !editing) onBack(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (answering) setAnswering(false);
+      else if (!editing) onBack();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editing, onBack]);
+  }, [editing, answering, onBack]);
 
   const said = (message: string, undo: () => void) => setToast({ id: Date.now(), message, undo });
 
@@ -193,6 +233,15 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
           {owner ? 'Change a price, a name or what is on offer. It reaches the counter, the kitchen and cheesybeez.com at once.'
             : 'Mark something sold out for today. Prices and names are changed by the owner.'}
         </p>
+        {owner && questions.length > 0 && (
+          <div className="menuv__gaps">
+            <span>
+              <b>Costs: {questions.length} {questions.length === 1 ? 'answer' : 'answers'} to go.</b>
+              {' '}Your recipes are in; your sheets leave a few things open (like how much sauce a batch makes).
+            </span>
+            <button type="button" className="chip chip--solid" onClick={() => setAnswering(true)}>Answer</button>
+          </div>
+        )}
         <nav className="cats" aria-label="Menu sections">
           {SECTIONS.map((s) => (
             <button key={s.id} type="button" className="pill" aria-pressed={section === s.id} onClick={() => setSection(s.id)}>{s.label}</button>
@@ -205,6 +254,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
                 <b>{m.name.en}</b>
                 {(m.name.si || m.name.ta) && <span>{[m.name.si, m.name.ta].filter(Boolean).join(' · ')}</span>}
                 <span className="num">{prices(m)}</span>
+                <CostLine item={m} ctx={costs} />
               </div>
               <div className="menuv__tags">
                 {m.edited && <span className="status status--paid">Changed</span>}
@@ -227,7 +277,8 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
         </ul>
       </main>
       {editing && <Editor item={editing} onClose={() => setEditing(null)} onSaved={(msg, undo) => { setEditing(null); said(msg, undo); }} />}
-      {toast && !editing && (
+      {answering && <CostQuestions questions={questions} ctx={costs} onClose={() => setAnswering(false)} />}
+      {toast && !editing && !answering && (
         <div className="toast" role="status" key={toast.id}>
           <span>{toast.message}</span>
           <button type="button" onClick={() => { toast.undo(); setToast(null); }}>Undo</button>
