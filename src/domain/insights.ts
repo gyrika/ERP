@@ -1,4 +1,4 @@
-import { inventoryFromEvents, isLowStock } from './inventory.ts';
+import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
 import { fmt } from './money.ts';
@@ -232,8 +232,7 @@ const kitchenSlow = (events: readonly SyncEvent[], now: number): Insight | null 
 const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock']): Insight | null => {
   if (!stock) return null;
   // Only items someone has counted: a never-counted item is unknown, not empty.
-  const counted = new Set(events.flatMap((e) => (e.type === 'stock.adjusted' ? [e.itemId] : [])));
-  const low = inventoryFromEvents(stock.items, events).filter((r) => !r.archived && counted.has(r.id) && isLowStock(r));
+  const low = inventoryFromEvents(stock.items, events).filter((r) => !r.archived && r.counted && isLowStock(r));
   if (!low.length) return null;
   const names = low.slice(0, 3).map((r) => r.name).join(', ');
   return {
@@ -246,7 +245,8 @@ const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock']): Ins
       items: [...low].sort((a, b) => a.name.localeCompare(b.name))
         .map((r) => ({
           primary: r.name,
-          secondary: `${plural(r.onHandPacks, 'pack')} left · ${r.supplierIds.map((id) =>
+          // Stock here is worked out from sales, never seen: out means "go and look", not "stop selling".
+          secondary: `${isOutOfStock(r) ? 'may be out: check the shelf' : `${plural(Math.round(r.onHandPacks * 10) / 10, 'pack')} left`} · ${r.supplierIds.map((id) =>
             stock.suppliers.find((s) => s.id === id)?.name ?? id).join(', ')}`,
         })),
     },

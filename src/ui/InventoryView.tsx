@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   addInventoryItem,
   archiveInventoryItem,
@@ -6,28 +6,12 @@ import {
   useInventory,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
+import { fmt } from '../domain/money.ts';
 import { AddIngredientModal } from './AddIngredientModal.tsx';
+import { formatQuantity } from './quantity.ts';
+import { StatusDot } from './StatusDot.tsx';
+import { StockSheet } from './StockSheet.tsx';
 
-const formatQuantity = (quantity: number, unit: 'g' | 'ml' | 'pcs' | 'sheets'): string => {
-  const scaled = unit === 'g' && quantity >= 1000
-    ? { value: quantity / 1000, unit: 'kg' }
-    : unit === 'ml' && quantity >= 1000
-      ? { value: quantity / 1000, unit: 'L' }
-      : { value: quantity, unit };
-  const value = Number(scaled.value.toFixed(2)).toString();
-  return `${value} ${scaled.unit}`;
-};
-
-// Extracted purely for visual mapping of your existing .dot classes
-const StatusDot = ({ status }: { status: 'out' | 'low' | 'ok' }) => {
-  const statusMap = {
-    out: 'dot--out',
-    low: 'dot--low',
-    ok: 'dot--ok',
-  };
-
-  return <span className={`dot ${statusMap[status]}`} aria-label={`Status: ${status}`} />;
-};
 
 export function InventoryView({
   onFindSupplier,
@@ -39,13 +23,25 @@ export function InventoryView({
   const [showAdd, setShowAdd] = useState(false);
   const [archived, setArchived] = useState<{ id: string; name: string } | null>(null);
   const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [updating, setUpdating] = useState<string | null>(null);
+  /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
+  const [done, setDone] = useState<{ message: string; undo: () => void } | null>(null);
   const { items, suppliers } = useInventory();
-  const supplierNames = new Map(suppliers.map((supplier) => [supplier.id, supplier.name]));
+  const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((item) => [item.name, item.category, ...item.supplierIds.map((id) => supplierNames.get(id) ?? '')]
+      .some((text) => text.toLowerCase().includes(q)));
+  }, [items, query, supplierNames]);
+  const updatingItem = items.find((item) => item.id === updating) ?? null;
 
   const removeItem = (id: string, name: string) => {
     try {
       archiveInventoryItem(id);
       setArchived({ id, name });
+      setDone(null);
       setError('');
     } catch (cause) {
       if (!(cause instanceof Error)) throw cause;
@@ -84,9 +80,25 @@ export function InventoryView({
           {archived && !error && <button type="button" onClick={undoArchive}>Undo</button>}
         </div>
       )}
+      {done && !archived && !error && (
+        <div className="inv-notice" role="status">
+          {done.message}
+          <button type="button" onClick={() => { done.undo(); setDone(null); }}>Undo</button>
+        </div>
+      )}
+
+      <label className="inv-search">
+        <span className="sr-only">Search inventory</span>
+        <input
+          className="inv-modal__input" type="search" value={query} placeholder="Search ingredient, category or supplier"
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setQuery(''); }}
+        />
+      </label>
 
       <main className="inv-rows" aria-label="Inventory">
-        {items.map((item) => {
+        {shown.length === 0 && <p className="inv-empty">No ingredients match “{query.trim()}”.</p>}
+        {shown.map((item) => {
            const status = stockStatus(item);
 
            return (
@@ -100,13 +112,22 @@ export function InventoryView({
                <div className="inv-row__quantity" aria-label="Available stock and pack size">
                  <span>Available / pack size</span>
                  <strong>
-                   {formatQuantity(item.onHandBaseUnits ?? item.onHandPacks * item.packQty, item.baseUnit)}
+                   {formatQuantity(Math.max(0, item.onHandBaseUnits), item.baseUnit)}
                    {' / '}
                    {formatQuantity(item.packQty, item.baseUnit)}
                  </strong>
+                 <span className="inv-row__price">Rs {fmt(item.workingPriceCents)} a pack</span>
                </div>
                <StatusDot status={status} />
                <div className="inv-row__actions">
+                 <button
+                   type="button"
+                   className="inv-row__update"
+                   aria-label={`Update ${item.name}`}
+                   onClick={() => { setUpdating(item.id); setArchived(null); setError(''); }}
+                 >
+                   Update
+                 </button>
                  {onFindSupplier && (
                    <button
                      type="button"
@@ -137,6 +158,13 @@ export function InventoryView({
            );
         })}
       </main>
+      {updatingItem && (
+        <StockSheet
+          item={updatingItem}
+          onClose={() => setUpdating(null)}
+          onDone={(message, undo) => setDone({ message, undo })}
+        />
+      )}
       {showAdd && (
         <AddIngredientModal onClose={() => setShowAdd(false)} onSave={addInventoryItem} />
       )}

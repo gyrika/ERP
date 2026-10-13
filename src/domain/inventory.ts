@@ -1,8 +1,7 @@
 import type { BaseUnit, InventoryItem, Supplier } from './inventoryData.ts';
 import type { SyncEvent } from './sync.ts';
-import type { OrderLine } from './types.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
-import { RECIPES } from './recipes.ts';
+import { RECIPES, recipeUsage, type RecipeLine, type Recipes } from './recipes.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -79,22 +78,48 @@ export const loadSeed = <T>(
   return existing.length > 0 ? existing : seed;
 };
 
-/** A stock row: the price-list item plus what is on the shelf, in purchasing packs. */
-export type InventoryRow = InventoryItem & { onHandPacks: number; onHandBaseUnits?: number; archived?: boolean };
+/**
+ * A stock row: the price-list item plus what is on the shelf. onHandBaseUnits is
+ * exact (g, ml, pcs, sheets) and can go below zero when more was sold than was
+ * recorded; onHandPacks is the same amount in purchasing packs, never below zero,
+ * for showing (2000 g of a 2 kg block = 1 pack, 1500 g = 0.75).
+ */
+export type InventoryRow = InventoryItem & {
+  onHandPacks: number;
+  onHandBaseUnits: number;
+  archived: boolean;
+  /** Someone has recorded stock for it. A never-counted item is unknown, not empty. */
+  counted: boolean;
+};
 
 export const LOW_STOCK_PACKS = 1;
 
+export const isOutOfStock = (row: InventoryRow): boolean => row.onHandBaseUnits <= 0;
 export const isLowStock = (row: InventoryRow): boolean => row.onHandPacks <= LOW_STOCK_PACKS;
-export type StockStatus = 'out' | 'low' | 'ok';
+
+/** A typed number of packs ("2", "1.5", "0"), or null. Never negative. */
+export const parsePacks = (raw: string): number | null => {
+  const text = raw.trim();
+  if (!/^\d+(\.\d{1,3})?$/.test(text)) return null;
+  return Number(text);
+};
+
+/**
+ * A count: the manager says how many packs are on the shelf; the app records the
+ * difference from what it expected (exact, in base units, so a later count of
+ * the same shelf records nothing). Positive: more there than expected.
+ */
+export const countDifference = (row: Pick<InventoryRow, 'onHandBaseUnits' | 'packQty'>, countedPacks: number): number =>
+  (Math.round(countedPacks * row.packQty) - row.onHandBaseUnits) / row.packQty;
+
+/** unknown: nobody has recorded this item yet, so the app cannot say (never shown as out). */
+export type StockStatus = 'out' | 'low' | 'ok' | 'unknown';
 export const stockStatus = (row: InventoryRow): StockStatus => {
+  if (!row.counted) return 'unknown';
   if (isOutOfStock(row)) return 'out';
   if (isLowStock(row)) return 'low';
   return 'ok';
 };
-
-
-
-export const isOutOfStock = (row: InventoryRow): boolean => row.onHandPacks === 0;
 
 export const suppliersFromEvents = (
   suppliers: readonly Supplier[],
@@ -115,185 +140,137 @@ export const suppliersFromEvents = (
   return [...byId.values()].filter((supplier) => includeArchived || !archived.has(supplier.id));
 };
 
-// Return worst status among a list
-export const worstStatus = (statuses: StockStatus[]): StockStatus => {
-  if (statuses.includes('out')) return 'out';
-  if (statuses.includes('low')) return 'low';
-  return 'ok';
-};
+const STATUS_ORDER: Record<StockStatus, number> = { out: 0, low: 1, ok: 2, unknown: 3 };
 
-// Summarise suppliers based on items
-export const summariseSuppliers = (items: InventoryRow[], suppliers: Supplier[]) => {
-  return suppliers.map((supplier) => {
+/** The worst status among a list: out, then low, then ok; unknown only if nothing is known. */
+export const worstStatus = (statuses: StockStatus[]): StockStatus =>
+  statuses.reduce<StockStatus>((worst, s) => (STATUS_ORDER[s] < STATUS_ORDER[worst] ? s : worst), 'unknown');
+
+/** Per supplier: what they supply, and what of it needs ordering (out first, then low). */
+export const summariseSuppliers = (items: InventoryRow[], suppliers: Supplier[]) =>
+  suppliers.map((supplier) => {
     const suppliedItems = items.filter((i) => !i.archived && i.supplierIds.includes(supplier.id));
     const statuses = suppliedItems.map(stockStatus);
-    const status = worstStatus(statuses);
-    const outCount = suppliedItems.filter(isOutOfStock).length;
-    const lowCount = suppliedItems.filter((it) => isLowStock(it) && !isOutOfStock(it)).length;
-    const needItems = suppliedItems
-      .filter((it) => isOutOfStock(it) || isLowStock(it))
-      .sort((a, b) => {
-        if (isOutOfStock(a) && !isOutOfStock(b)) return -1;
-        if (!isOutOfStock(a) && isOutOfStock(b)) return 1;
-        if (isLowStock(a) && !isLowStock(b)) return -1;
-        if (!isLowStock(a) && isLowStock(b)) return 1;
-        return 0;
-      });
-    return { supplier, status, outCount, lowCount, suppliedItems, needItems };
+    return {
+      supplier,
+      status: worstStatus(statuses),
+      outCount: statuses.filter((s) => s === 'out').length,
+      lowCount: statuses.filter((s) => s === 'low').length,
+      suppliedItems,
+      needItems: suppliedItems
+        .filter((item) => STATUS_ORDER[stockStatus(item)] <= STATUS_ORDER.low)
+        .sort((a, b) => STATUS_ORDER[stockStatus(a)] - STATUS_ORDER[stockStatus(b)]),
+    };
   });
-};
 
 export type SupplierSummary = ReturnType<typeof summariseSuppliers>[number];
 
-
-interface StockAccumulator {
+interface Shelf {
   item: InventoryItem;
-  workingPriceCents: number;
   onHandBaseUnits: number;
   archived: boolean;
+  counted: boolean;
 }
-
-const getLineIngredients = (
-  line: { itemId: string; qty?: number; size?: string },
-): { inventoryId: string; qtyBaseUnits: number }[] => {
-  const recipe = RECIPES[line.itemId];
-  if (!recipe) return [];
-  const qty = typeof line.qty === 'number' && Number.isFinite(line.qty) && line.qty > 0 ? line.qty : 1;
-  const ingredients: { inventoryId: string; qtyBaseUnits: number }[] = [];
-
-  for (const ing of recipe.baseIngredients) {
-    if (ing.qtyBaseUnits > 0) {
-      ingredients.push({
-        inventoryId: ing.inventoryId,
-        qtyBaseUnits: ing.qtyBaseUnits * qty,
-      });
-    }
-  }
-
-  if (line.size && recipe.variantOverrides) {
-    const variantLines = recipe.variantOverrides[line.size] ?? recipe.variantOverrides[line.size.toUpperCase()];
-    if (variantLines) {
-      for (const ing of variantLines) {
-        if (ing.qtyBaseUnits > 0) {
-          ingredients.push({
-            inventoryId: ing.inventoryId,
-            qtyBaseUnits: ing.qtyBaseUnits * qty,
-          });
-        }
-      }
-    }
-  }
-
-  return ingredients;
-};
-
-const extractVoidedLines = (e: SyncEvent): OrderLine[] => {
-  if (e.type === 'order.item_cancelled') {
-    return e.before ? [e.before] : [];
-  }
-  const anyEvent = e as any;
-  if (anyEvent.type === 'order.managed') {
-    if (anyEvent.kind && anyEvent.kind !== 'void' && anyEvent.kind !== 'cancel' && anyEvent.kind !== 'cancellation') {
-      return [];
-    }
-    if (anyEvent.action && anyEvent.action !== 'void' && anyEvent.action !== 'cancel' && anyEvent.action !== 'cancellation') {
-      return [];
-    }
-    if (Array.isArray(anyEvent.lines)) return anyEvent.lines;
-    if (Array.isArray(anyEvent.voidedLines)) return anyEvent.voidedLines;
-    if (Array.isArray(anyEvent.before)) return anyEvent.before;
-    if (anyEvent.before && typeof anyEvent.before === 'object') return [anyEvent.before];
-    if (anyEvent.line && typeof anyEvent.line === 'object') return [anyEvent.line];
-  }
-  return [];
-};
 
 /**
  * Stock as it stands, built from the price list (in code, like the menu) and
- * the stock events, oldest first. Counts never go below zero; the last price
- * set wins. Real-time ingredient consumption is deducted from sales and restored on voids.
+ * the shop's events, oldest first. Same events, same result on every device and
+ * in the cloud, like the kitchen tickets.
+ *
+ * Sales: a line takes its recipe from stock when it is sent to the kitchen, and
+ * remembers exactly what it took. Undo after Send, a cancelled line or a changed
+ * line gives that back (a changed line then takes its new recipe); a manager's
+ * Undo of that change puts it back as it was. Lines never sent take nothing.
+ * Amounts are not clamped, so every give-back is exact.
  */
-export const inventoryFromEvents = (items: readonly InventoryItem[], events: readonly SyncEvent[]): InventoryRow[] => {
-  const accumulator = new Map<string, StockAccumulator>(
-    items.map((i) => [i.id, {
-      item: { ...i, supplierIds: [...i.supplierIds] },
-      workingPriceCents: i.workingPriceCents,
-      onHandBaseUnits: 0,
-      archived: false,
-    }]),
-  );
+export const inventoryFromEvents = (
+  items: readonly InventoryItem[],
+  events: readonly SyncEvent[],
+  recipes: Recipes = RECIPES,
+): InventoryRow[] => {
+  const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
+    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false,
+  }]));
+  const take = (usage: readonly RecipeLine[], sign: 1 | -1) => {
+    for (const { inventoryId, qtyBaseUnits } of usage) {
+      const shelf = shelves.get(inventoryId);
+      if (shelf) shelf.onHandBaseUnits -= sign * qtyBaseUnits;
+    }
+  };
+  /** What each sent line took from stock, by line id. */
+  const taken = new Map<string, RecipeLine[]>();
+  const ticketLines = new Map<string, string[]>();
+  /** For a manager's Undo: what the line had taken before the change (null: nothing). */
+  const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null }>();
+  const setLine = (lineId: string, usage: RecipeLine[] | null) => {
+    const had = taken.get(lineId);
+    if (had) take(had, -1);
+    if (usage) { take(usage, 1); taken.set(lineId, usage); } else taken.delete(lineId);
+  };
 
-  const activeRecipes: Record<string, Array<{ inventoryId: string; qtyBaseUnits: number }>> = {};
   for (const e of events) {
-    if (e.type === 'stock.item_added') {
-      if (!accumulator.has(e.item.id)) {
-        accumulator.set(e.item.id, {
-          item: { ...e.item, supplierIds: [...e.item.supplierIds] },
-          workingPriceCents: e.item.workingPriceCents,
-          onHandBaseUnits: 0,
-          archived: false,
-        });
-      }
-    } else if (e.type === 'stock.item_archived' || e.type === 'stock.item_restored') {
-      const acc = accumulator.get(e.itemId);
-      if (acc) acc.archived = e.type === 'stock.item_archived';
-    } else if (e.type === 'stock.supplier_added') {
-      for (const itemId of e.linkedItemIds) {
-        const acc = accumulator.get(itemId);
-        if (acc && !acc.item.supplierIds.includes(e.supplier.id)) {
-          acc.item.supplierIds.push(e.supplier.id);
+    switch (e.type) {
+      case 'stock.item_added':
+        if (!shelves.has(e.item.id)) {
+          shelves.set(e.item.id, {
+            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false,
+          });
         }
+        break;
+      case 'stock.item_archived':
+      case 'stock.item_restored': {
+        const shelf = shelves.get(e.itemId);
+        if (shelf) shelf.archived = e.type === 'stock.item_archived';
+        break;
       }
-    } else if (e.type === 'stock.adjusted') {
-      const acc = accumulator.get(e.itemId);
-      if (!acc) continue; // an item no longer on the price list
-      acc.onHandBaseUnits = Math.max(0, acc.onHandBaseUnits + e.deltaPacks * acc.item.packQty);
-    } else if (e.type === 'recipe.updated') {
-      // Update the active recipe ingredients for the given menu item
-      const rev = e as any;
-      activeRecipes[rev.menuItemId] = rev.ingredients;
-    } else if (e.type === 'stock.price_set') {
-      const acc = accumulator.get(e.itemId);
-      if (!acc) continue;
-      acc.workingPriceCents = e.after;
-    } else if (e.type === 'order.sent' || (e as { type: string }).type === 'order.dispatched') {
-      const lines: OrderLine[] = Array.isArray((e as any).lines) ? (e as any).lines : [];
-      for (const line of lines) {
-        // Determine ingredients: use dynamic recipe if present, otherwise static definition
-        const menuId = line.itemId;
-        const qty = typeof line.qty === 'number' && Number.isFinite(line.qty) && line.qty > 0 ? line.qty : 1;
-        let ingredients: { inventoryId: string; qtyBaseUnits: number }[] = [];
-        if (activeRecipes[menuId]) {
-          ingredients = activeRecipes[menuId].map((ing) => ({
-            inventoryId: ing.inventoryId,
-            qtyBaseUnits: ing.qtyBaseUnits * qty,
-          }));
-        } else {
-          ingredients = getLineIngredients(line);
+      case 'stock.supplier_added':
+        for (const itemId of e.linkedItemIds) {
+          const shelf = shelves.get(itemId);
+          if (shelf && !shelf.item.supplierIds.includes(e.supplier.id)) shelf.item.supplierIds.push(e.supplier.id);
         }
-        for (const { inventoryId, qtyBaseUnits } of ingredients) {
-          const acc = accumulator.get(inventoryId);
-          if (!acc) continue;
-          acc.onHandBaseUnits = Math.max(0, acc.onHandBaseUnits - qtyBaseUnits);
-        }
+        break;
+      case 'stock.adjusted': {
+        const shelf = shelves.get(e.itemId);
+        if (!shelf) break; // an item no longer on the price list
+        shelf.counted = true;
+        shelf.onHandBaseUnits += e.deltaPacks * shelf.item.packQty;
+        break;
       }
-    } else if (e.type === 'order.item_cancelled' || (e as { type: string }).type === 'order.managed') {
-      const voidedLines = extractVoidedLines(e);
-      for (const line of voidedLines) {
-        for (const { inventoryId, qtyBaseUnits } of getLineIngredients(line)) {
-          const acc = accumulator.get(inventoryId);
-          if (!acc) continue;
-          acc.onHandBaseUnits += qtyBaseUnits;
-        }
+      case 'stock.price_set': {
+        const shelf = shelves.get(e.itemId);
+        if (shelf) shelf.item.workingPriceCents = e.after;
+        break;
       }
+      case 'order.sent':
+        ticketLines.set(e.ticketId, e.lines.map((l) => l.id));
+        for (const line of e.lines) setLine(line.id, recipeUsage(line, recipes));
+        break;
+      case 'order.send_undone':
+        for (const lineId of ticketLines.get(e.ticketId) ?? []) setLine(lineId, null);
+        ticketLines.delete(e.ticketId);
+        break;
+      case 'order.item_cancelled':
+      case 'order.item_changed': {
+        const had = taken.get(e.lineId);
+        if (!had) break; // never sent: it took nothing
+        beforeChange.set(e.id, { lineId: e.lineId, usage: had });
+        setLine(e.lineId, e.type === 'order.item_changed' ? recipeUsage(e.after, recipes) : null);
+        break;
+      }
+      case 'order.change_undone': {
+        const was = beforeChange.get(e.undoneEventId);
+        if (was) setLine(was.lineId, was.usage);
+        break;
+      }
+      default: break; // payments, discounts and the kitchen do not move stock
     }
   }
 
-  return [...accumulator.values()].map((acc) => ({
-    ...acc.item,
-    workingPriceCents: acc.workingPriceCents,
-    onHandBaseUnits: acc.onHandBaseUnits,
-    onHandPacks: acc.item.packQty > 0 ? Math.floor(acc.onHandBaseUnits / acc.item.packQty) : 0,
-    archived: acc.archived,
+  return [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted }) => ({
+    ...item,
+    onHandBaseUnits,
+    onHandPacks: item.packQty > 0 ? Math.max(0, onHandBaseUnits) / item.packQty : 0,
+    archived,
+    counted,
   }));
 };

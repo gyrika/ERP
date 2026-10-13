@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
-import { inventoryFromEvents, isLowStock, isOutOfStock, itemById, loadSeed, summariseSuppliers, supplierById, suppliersFromEvents, validateSeed } from './inventory.ts';
+import { countDifference, inventoryFromEvents, isLowStock, isOutOfStock, itemById, parsePacks, loadSeed, summariseSuppliers, supplierById, suppliersFromEvents, validateSeed } from './inventory.ts';
 import { mayRecord } from './auth.ts';
 import { storageKey } from '../ui/storage.ts';
 
@@ -104,7 +104,7 @@ test('T16: storage key namespacing', () => {
   assert.equal(storageKey('inventory.v0'), 'cb.inventory.v0');
 });
 
-test('stock is built from events: counts never below zero, last price wins, unknown items ignored', () => {
+test('stock is built from events: exact amounts, last price wins, unknown items ignored', () => {
   const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
   const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
   const flour = SEED_INVENTORY[0].id;
@@ -116,7 +116,8 @@ test('stock is built from events: counts never below zero, last price wins, unkn
     { ...base, id: 'e', type: 'stock.adjusted', itemId: 'gone', deltaPacks: 9 },
   ]);
   const row = rows.find((r) => r.id === flour)!;
-  assert.equal(row.onHandPacks, 2, '3 in, 5 out (floored at 0), 2 in');
+  assert.equal(row.onHandBaseUnits, 0, '3 in, 5 out, 2 in: exact, so every give-back adds up');
+  assert.equal(row.counted, true);
   assert.equal(row.workingPriceCents, 650000);
   assert.equal(rows.length, SEED_INVENTORY.length);
   assert.ok(rows.filter((r) => r.id !== flour).every((r) => r.onHandPacks === 0));
@@ -193,28 +194,23 @@ test('only managers and owners may change stock', () => {
   assert.equal(mayRecord('owner', 'stock.supplier_archived'), true);
 });
 
-test('T17: all 18 suppliers have realistic Sri Lankan phone numbers', () => {
+test('T17: no made-up supplier phone numbers: a number is added by the manager, or comes from the owner', () => {
   assert.equal(SEED_SUPPLIERS.length, 18);
-  for (const s of SEED_SUPPLIERS) {
-    assert.ok(s.phone, `${s.id}: missing phone`);
-    assert.match(s.phone, /^\+947\d{8}$/, `${s.id}: phone ${s.phone} is not valid Sri Lankan mobile`);
-  }
+  assert.ok(SEED_SUPPLIERS.every((s) => s.phone === undefined));
 });
 
-test('T18: isOutOfStock and isLowStock helper checks', () => {
-  const item = SEED_INVENTORY[0];
-  const outOfStockRow = { ...item, onHandPacks: 0 };
-  const onePackRow = { ...item, onHandPacks: 1 };
-  const twoPacksRow = { ...item, onHandPacks: 2 };
-
-  assert.equal(isOutOfStock(outOfStockRow), true);
-  assert.equal(isLowStock(outOfStockRow), true);
-
-  assert.equal(isOutOfStock(onePackRow), false);
-  assert.equal(isLowStock(onePackRow), true);
-
-  assert.equal(isOutOfStock(twoPacksRow), false);
-  assert.equal(isLowStock(twoPacksRow), false);
+test('T18: out = nothing left (even a part-pack is stock); low = one pack or less', () => {
+  const row = (onHandBaseUnits: number) => {
+    const [r] = inventoryFromEvents([SEED_INVENTORY[0]], []);
+    return { ...r, onHandBaseUnits, onHandPacks: Math.max(0, onHandBaseUnits) / r.packQty };
+  };
+  const pack = SEED_INVENTORY[0].packQty;
+  assert.equal(isOutOfStock(row(0)), true);
+  assert.equal(isOutOfStock(row(-50)), true, 'sold more than was recorded');
+  assert.equal(isOutOfStock(row(pack * 0.1)), false, 'a part-pack still cooks');
+  assert.equal(isLowStock(row(pack)), true);
+  assert.equal(isLowStock(row(pack * 2)), false);
+  assert.equal(row(pack * 0.9).onHandPacks, 0.9, 'packs are not rounded down');
 });
 
 test('T19: validateSeed handles optional phone property', () => {
@@ -240,128 +236,84 @@ test('T19: validateSeed handles optional phone property', () => {
   assert.ok(errors.some((e) => e.includes('invalid phone')));
 });
 
-test('T20: order dispatch deducts ingredients from inventory via RECIPES and calculates packs dynamically', () => {
-  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
-  const base = { shopId: 's', orderNumber: 101, actor, at: 100 };
-  const flour = itemById('inv-0001')!; // packQty: 25000g
-  const mozz = itemById('inv-0006')!;  // packQty: 2000g
+// Test recipes only: the shop's real ones come from the owner's sheet (SCRUM-77).
+const TEST_RECIPES = {
+  margherita: {
+    baseIngredients: [{ inventoryId: 'inv-0009', qtyBaseUnits: 45 }],
+    variantOverrides: { M: [{ inventoryId: 'inv-0006', qtyBaseUnits: 90 }], L: [{ inventoryId: 'inv-0006', qtyBaseUnits: 150 }] },
+  },
+};
+const MOZZ = 'inv-0006'; // 2 kg block
+const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+const at = 100;
+const stockIn = (id: string, packs: number) =>
+  ({ id: `in-${id}`, shopId: 's', at, orderNumber: 0 as const, actor, type: 'stock.adjusted' as const, itemId: id, deltaPacks: packs });
+const pizza = (id: string, size: 'M' | 'L', qty = 1) => ({ id, itemId: 'margherita', qty, size, adds: [], outs: [] });
+const sent = (id: string, ticketId: string, lines: ReturnType<typeof pizza>[]) =>
+  ({ id, shopId: 's', at, orderNumber: 7, actor, type: 'order.sent' as const, ticketId, addOn: false, lines });
+const audited = { shopId: 's', at, orderNumber: 7, actor, totalBefore: 0, totalAfter: 0 };
+const mozz = (events: Parameters<typeof inventoryFromEvents>[1]) =>
+  inventoryFromEvents(SEED_INVENTORY, events, TEST_RECIPES).find((r) => r.id === MOZZ)!.onHandBaseUnits;
 
-  const rows = inventoryFromEvents(SEED_INVENTORY, [
-    { ...base, id: 'adj-1', orderNumber: 0 as const, type: 'stock.adjusted', itemId: flour.id, deltaPacks: 1 },
-    { ...base, id: 'adj-2', orderNumber: 0 as const, type: 'stock.adjusted', itemId: mozz.id, deltaPacks: 2 },
-    {
-      ...base,
-      id: 'sent-1',
-      type: 'order.sent',
-      ticketId: 't-1',
-      addOn: false,
-      lines: [
-        { id: 'line-1', itemId: 'margherita', qty: 2, size: 'M', adds: [], outs: [] },
-      ],
-    },
-  ]);
-
-  const flourRow = rows.find((r) => r.id === flour.id)!;
-  const mozzRow = rows.find((r) => r.id === mozz.id)!;
-
-  // Margherita M per pizza: 180g flour, 150g mozz. For qty 2: 360g flour, 300g mozz.
-  assert.equal(flourRow.onHandBaseUnits, 25000 - 360);
-  assert.equal(flourRow.onHandPacks, 0); // Math.floor(24640 / 25000) = 0
-
-  // mozz: 2 packs * 2000g = 4000g. 4000 - 300 = 3700g.
-  assert.equal(mozzRow.onHandBaseUnits, 4000 - 300);
-  assert.equal(mozzRow.onHandPacks, 1); // Math.floor(3700 / 2000) = 1
+test('T20: a sent line takes its recipe from stock: per size, times the quantity', () => {
+  assert.equal(mozz([stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'M', 2), pizza('l2', 'L')])]), 2000 - 2 * 90 - 150);
 });
 
-test('T21: subtracting stock never drops onHandBaseUnits below zero (clamping at 0)', () => {
-  const actor = { id: 'c', name: 'Kasun', role: 'cashier' as const };
-  const base = { shopId: 's', orderNumber: 102, actor, at: 100 };
-  const flour = itemById('inv-0001')!;
-
-  const rows = inventoryFromEvents(SEED_INVENTORY, [
-    {
-      ...base,
-      id: 'sent-2',
-      type: 'order.sent',
-      ticketId: 't-2',
-      addOn: false,
-      lines: [
-        { id: 'line-2', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] },
-      ],
-    },
-  ]);
-
-  const flourRow = rows.find((r) => r.id === flour.id)!;
-  assert.equal(flourRow.onHandBaseUnits, 0);
-  assert.equal(flourRow.onHandPacks, 0);
+test('T21: Undo after Send gives back exactly what that ticket took', () => {
+  assert.equal(mozz([
+    stockIn(MOZZ, 1),
+    sent('s1', 't1', [pizza('l1', 'M')]),
+    sent('s2', 't2', [pizza('l2', 'L')]),
+    { id: 'u', shopId: 's', at, orderNumber: 7, actor, type: 'order.send_undone', ticketId: 't2' },
+  ]), 2000 - 90);
 });
 
-test('T22: void and cancellation events restore ingredients back to inventory', () => {
-  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
-  const base = { shopId: 's', orderNumber: 103, actor, at: 100 };
-  const mozz = itemById('inv-0006')!;
-
-  const rows = inventoryFromEvents(SEED_INVENTORY, [
-    { ...base, id: 'adj-3', orderNumber: 0 as const, type: 'stock.adjusted', itemId: mozz.id, deltaPacks: 1 },
-    {
-      ...base,
-      id: 'sent-3',
-      type: 'order.sent',
-      ticketId: 't-3',
-      addOn: false,
-      lines: [
-        { id: 'line-3', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] },
-      ],
-    },
-    {
-      ...base,
-      id: 'cancel-1',
-      totalBefore: 145000,
-      totalAfter: 0,
-      type: 'order.item_cancelled',
-      lineId: 'line-3',
-      index: 0,
-      reason: 'Customer cancelled',
-      before: { id: 'line-3', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] },
-    },
-    {
-      ...base,
-      id: 'managed-void-1',
-      ...({
-        type: 'order.managed',
-        kind: 'void',
-        lines: [{ id: 'line-4', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] }],
-      } as any),
-    },
-  ]);
-
-  const mozzRow = rows.find((r) => r.id === mozz.id)!;
-  // 1 pack * 2000g = 2000g. 2000 - 150 (sent) + 150 (cancelled) + 150 (managed void) = 2150g
-  assert.equal(mozzRow.onHandBaseUnits, 2150);
-  assert.equal(mozzRow.onHandPacks, 1); // Math.floor(2150 / 2000) = 1
+test('T22: a cancelled sent line gives back; a manager Undo of the cancel takes it again', () => {
+  const cancel = { ...audited, id: 'c1', type: 'order.item_cancelled' as const, lineId: 'l1', index: 0, before: pizza('l1', 'M'), reason: 'dropped' };
+  const events = [stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'M')]), cancel];
+  assert.equal(mozz(events), 2000);
+  assert.equal(mozz([...events, { ...audited, id: 'u1', type: 'order.change_undone', undoneEventId: 'c1', undoneType: 'order.item_cancelled' }]), 2000 - 90);
 });
 
-test('T23: large variant uses variant overrides correctly', () => {
-  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
-  const base = { shopId: 's', orderNumber: 104, actor, at: 100 };
-  const flour = itemById('inv-0001')!;
+test('T23: a changed sent line swaps its recipe; Undo of the change swaps it back', () => {
+  const change = { ...audited, id: 'ch', type: 'order.item_changed' as const, lineId: 'l1', before: pizza('l1', 'M'), after: pizza('l1', 'L'), reason: 'wanted large' };
+  const events = [stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'M')]), change];
+  assert.equal(mozz(events), 2000 - 150);
+  assert.equal(mozz([...events, { ...audited, id: 'u', type: 'order.change_undone', undoneEventId: 'ch', undoneType: 'order.item_changed' }]), 2000 - 90);
+});
 
-  const rows = inventoryFromEvents(SEED_INVENTORY, [
-    { ...base, id: 'adj-4', orderNumber: 0 as const, type: 'stock.adjusted', itemId: flour.id, deltaPacks: 1 },
-    {
-      ...base,
-      id: 'sent-4',
-      type: 'order.sent',
-      ticketId: 't-4',
-      addOn: false,
-      lines: [
-        { id: 'line-4', itemId: 'margherita', qty: 1, size: 'L', adds: [], outs: [] },
-      ],
-    },
-  ]);
+test('T24: lines never sent take nothing: removing or changing them leaves stock alone', () => {
+  assert.equal(mozz([
+    stockIn(MOZZ, 1),
+    { ...audited, id: 'rm', type: 'order.line_removed', lineId: 'x', index: 0, before: pizza('x', 'L') },
+    { ...audited, id: 'ch', type: 'order.item_changed', lineId: 'y', before: pizza('y', 'M'), after: pizza('y', 'L'), reason: '' },
+  ]), 2000);
+});
 
-  const flourRow = rows.find((r) => r.id === flour.id)!;
-  // Large Margherita consumes 260g flour
-  assert.equal(flourRow.onHandBaseUnits, 25000 - 260);
-  assert.equal(flourRow.onHandPacks, 0);
+test('T25: selling more than was recorded goes below zero exactly, shows as none left, and a delivery adds up', () => {
+  const events = [sent('s1', 't1', [pizza('l1', 'L')])];
+  const [row] = inventoryFromEvents(SEED_INVENTORY, events, TEST_RECIPES).filter((r) => r.id === MOZZ);
+  assert.equal(row.onHandBaseUnits, -150);
+  assert.equal(row.onHandPacks, 0);
+  assert.equal(isOutOfStock(row), true);
+  assert.equal(mozz([...events, stockIn(MOZZ, 1)]), 2000 - 150);
+});
+
+test('T26: no recipe, nothing taken: the shop has no made-up recipes', () => {
+  assert.equal(inventoryFromEvents(SEED_INVENTORY, [stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'L')])])
+    .find((r) => r.id === MOZZ)!.onHandBaseUnits, 2000);
+});
+
+test('T27: packs are typed as plain numbers; a count records only the difference, exactly', () => {
+  assert.equal(parsePacks('2'), 2);
+  assert.equal(parsePacks(' 1.5 '), 1.5);
+  assert.equal(parsePacks('0'), 0);
+  for (const bad of ['', '-1', 'two', '1,5', '1.2345']) assert.equal(parsePacks(bad), null, bad);
+
+  const row = { onHandBaseUnits: 1730, packQty: 2000 }; // the app expects 0.865 of a block
+  assert.equal(countDifference(row, 1), 270 / 2000, 'more on the shelf than expected');
+  assert.equal(countDifference(row, 0.5), -730 / 2000, 'less than expected');
+  const counted = mozz([stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'L')]),
+    { ...stockIn(MOZZ, countDifference({ onHandBaseUnits: 1850, packQty: 2000 }, 0.5)), id: 'count' }]);
+  assert.equal(counted, 1000, 'after a count the stock is what was counted');
 });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { newLineId } from '../domain/order.ts';
-import { useInventory } from '../services/inventoryStore.ts';
+import { useCatalog } from '../services/inventoryStore.ts';
 import { AutoSuggestPills } from './AutoSuggestPills.tsx';
 
 export function AddIngredientModal({
@@ -18,7 +18,7 @@ export function AddIngredientModal({
     workingPriceCents: number;
   }) => void;
 }) {
-  const { suppliers } = useInventory();
+  const { suppliers } = useCatalog();
   const [name, setName] = useState('');
   const [supplierIds, setSupplierIds] = useState<string[]>([]);
   const [error, setError] = useState('');

@@ -3,6 +3,12 @@ import { StatusDot } from './StatusDot.tsx';
 import { stockStatus } from '../domain/inventory.ts';
 import type { SupplierSummary } from '../domain/inventory.ts';
 
+/** WhatsApp links need the country code: 077 123 4567 becomes 94771234567. */
+const whatsAppNumber = (phone: string): string => {
+  const digits = phone.replace(/\D/g, '');
+  return digits.length === 10 && digits.startsWith('0') ? `94${digits.slice(1)}` : digits;
+};
+
 export function SupplierCard({
   summary,
   onArchive,
@@ -53,7 +59,7 @@ export function SupplierCard({
               Call
             </a>
             <a
-              href={`https://wa.me/${supplier.phone.replace(/[^0-9]/g, '')}`}
+              href={`https://wa.me/${whatsAppNumber(supplier.phone)}`}
               className="restock-action restock-action--wa"
               target="_blank"
               rel="noopener noreferrer"

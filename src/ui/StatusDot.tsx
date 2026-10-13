@@ -4,6 +4,7 @@ const LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
   low: 'Low stock',
   ok: 'In stock',
+  unknown: 'Not counted yet',
 };
 
 export function StatusDot({ status, size = 'md' }: { status: StockStatus; size?: 'md' | 'lg' }) {

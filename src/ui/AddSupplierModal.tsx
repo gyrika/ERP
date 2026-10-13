@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useInventory } from '../services/inventoryStore.ts';
+import { useCatalog } from '../services/inventoryStore.ts';
 import { newLineId } from '../domain/order.ts';
 import { AutoSuggestPills } from './AutoSuggestPills.tsx';
 
@@ -14,7 +14,7 @@ export function AddSupplierModal({
     newIngredientNames: string[],
   ) => void;
 }) {
-  const { items } = useInventory();
+  const { items } = useCatalog();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [linkedItemIds, setLinkedItemIds] = useState<string[]>([]);

@@ -193,7 +193,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .card__soldout { position: absolute; top: 14px; right: 14px; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
 .card { padding: 20px 20px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: 16px; }
 .card__soldout { align-self: flex-end; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
-.card--out { opacity: 0.45; pointer-events: none; filter: grayscale(1); }
 .card__title { text-align: left; display: flex; flex-direction: column; gap: 4px; min-height: 48px; }
 .card__name { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
 .card__no { color: var(--ink-3); margin-right: 8px; }
@@ -384,6 +383,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .dot--low { --tone: var(--warn); }
 .dot--out { --tone: var(--bad); }
 .dot--ok { --tone: var(--ok); }
+.dot--unknown { --tone: transparent; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
 .dot--lg { width: 12px; height: 12px; }
 .inv-mode { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border-radius: 980px; background: var(--chip); }
 .inv-notice { display: flex; align-items: center; gap: 12px; margin: 8px 40px 0; padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-2); font-size: 14px; }
@@ -433,6 +433,11 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-row__quantity span { color: var(--ink-3); font-size: 10px; }
 .inv-row__quantity strong { overflow: hidden; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .inv-row__actions { display: flex; align-items: center; gap: 4px; }
+.inv-row__update { min-height: 48px; padding: 0 16px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.inv-row__update:hover { background: var(--chip); }
+.inv-row__quantity .inv-row__price { color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.inv-search { display: block; padding: 8px 52px 0; }
+.inv-empty { margin: 24px 12px; color: var(--ink-2); font-size: 15px; }
 .inv-row__supplier { display: inline-flex; width: 48px; height: 48px; align-items: center; justify-content: center; border: 0; border-radius: 10px; background: transparent; color: var(--ink-2); cursor: pointer; }
 .inv-row__supplier:hover { background: var(--chip); color: var(--ink); }
 .inv-row__supplier svg { width: 22px; height: 22px; }
@@ -569,6 +574,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .inv-page__head { min-height: 76px; height: auto; flex-basis: auto; align-items: flex-start; flex-direction: column; padding: 12px 16px 8px; }
   .inv-notice { margin-left: 16px; margin-right: 16px; }
   .inv-rows { padding: 8px 16px 24px; }
+  .inv-search { padding: 8px 20px 0; }
   .inv-row { grid-template-columns: minmax(0, 1fr) minmax(110px, auto) 16px auto; gap: 8px; padding-right: 4px; padding-left: 4px; }
   .inv-command-bar { padding: 12px 16px; }
   .inv-command-bar__top { align-items: stretch; flex-direction: column; }

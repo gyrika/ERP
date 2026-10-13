@@ -9,9 +9,14 @@ import { Root } from './Root.tsx';
 beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/'); setMenuState(EMPTY_MENU_STATE); });
 afterEach(() => { cleanup(); setMenuState(EMPTY_MENU_STATE); });
 
-test("the owner changes a price and a name: the counter shows it at once", async () => {
+const panel = () => within(screen.getByRole('complementary', { name: 'Current order' }));
+
+test("the owner changes a price and a name: the counter shows it at once; an order already sent keeps its price", async () => {
   const user = userEvent.setup();
   render(<Root />);
+  // An order sent at the printed price (Margherita M 1450).
+  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
 
   history.replaceState(null, '', '/#menu');
   window.dispatchEvent(new HashChangeEvent('hashchange'));
@@ -27,9 +32,10 @@ test("the owner changes a price and a name: the counter shows it at once", async
 
   const e = readAll().find((x) => x.type === 'menu.item_set')!;
   expect(e).toMatchObject({ itemId: 'margherita', before: {}, after: { prices: { M: 160000 }, name: { si: 'මාගරීටා' } } });
+
   await user.keyboard('{Escape}');
   expect(screen.getAllByRole('button', { name: 'M 1600' }).length).toBeGreaterThan(0);
-  expect(screen.getAllByRole('button', { name: 'M 1600' }).length).toBeGreaterThan(0);
+  expect(within(panel().getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ }).textContent).toContain('1,450');
 });
 
 test('sold out for today: greyed on the counter, cannot be added; Undo brings it back', async () => {
@@ -42,7 +48,7 @@ test('sold out for today: greyed on the counter, cannot be added; Undo brings it
   await user.keyboard('{Escape}');
   const card = screen.getByText('BBQ Chicken').closest('.card')!;
   expect(within(card as HTMLElement).getByText('Sold out')).toBeTruthy();
-  expect(within(card as HTMLElement).getByRole('button', { name: 'L 2500' }).getAttribute('aria-disabled')).toBe('true');
+  expect((within(card as HTMLElement).getByRole('button', { name: 'L 2500' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test('hidden items leave the counter; back to the printed menu in one tap', async () => {

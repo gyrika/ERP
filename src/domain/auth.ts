@@ -44,7 +44,6 @@ export const mayRecord = (role: Role, type: string): boolean => {
   if (MANAGER_EVENTS.has(type)) return managesRole(role);
   // Stock counts and supplier prices are a manager's job (SCRUM-41).
   if (type.startsWith('stock.')) return managesRole(role);
-  if (type === 'recipe.updated') return managesRole(role);
   // The menu is the owner's; marking something sold out is a manager's job during service.
   if (type === 'menu.item_set') return role === 'owner';
   if (type === 'menu.sold_out') return managesRole(role);

@@ -50,20 +50,8 @@ export type StockEvent =
   | (StockItemBase & { type: 'stock.item_archived' | 'stock.item_restored' })
   | (StockBase & { type: 'stock.supplier_archived' | 'stock.supplier_restored'; supplierId: string });
 
-// Recipe updated event: dynamic BOM changes
-interface RecipeUpdatedBase {
-  id: string;
-  shopId: string;
-  at: number;
-  orderNumber: 0;
-  actor: Actor;
-  menuItemId: string;
-  ingredients: Array<{ inventoryId: string; qtyBaseUnits: number }>;
-}
-export type RecipeUpdatedEvent = RecipeUpdatedBase & { type: 'recipe.updated' };
-
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
-export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | RecipeUpdatedEvent | MenuEvent;
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;
@@ -73,7 +61,6 @@ export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
 ] as const satisfies readonly StockEvent['type'][];
-export const RECIPE_EVENT_TYPES = ['recipe.updated'] as const satisfies readonly RecipeUpdatedEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',
   'order.line_removed', 'order.line_adjusted', 'order.discount_set', 'order.comped', 'order.change_undone',

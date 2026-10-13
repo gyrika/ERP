@@ -156,16 +156,6 @@ test('synced catalog lifecycle events stay local after routine events are pruned
       supplierId: 'sup-new',
     },
     {
-      id: 'old-recipe',
-      shopId: 'shop',
-      at: 1,
-      orderNumber: 0,
-      actor,
-      type: 'recipe.updated',
-      menuItemId: 'margherita',
-      ingredients: [{ inventoryId: 'inv-new', qtyBaseUnits: 20 }],
-    },
-    {
       id: 'old-menu',
       shopId: 'shop',
       at: 1,
@@ -187,7 +177,6 @@ test('synced catalog lifecycle events stay local after routine events are pruned
     'old-supplier-archive',
     'old-item-restore',
     'old-supplier-restore',
-    'old-recipe',
     'old-menu',
   ]);
 });

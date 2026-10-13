@@ -1,40 +1,30 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { SyncEvent } from '../domain/sync.ts';
 import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
-import { inventoryFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
+import { countDifference, inventoryFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
 import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import type { Cents } from '../domain/types.ts';
 import { currentCashier } from './auth.ts';
 import { newLineId } from '../domain/order.ts';
+import { useShopEvents } from './ownerData.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
  * event log (`inventoryFromEvents`), so every change reaches MySQL and the cloud
  * copy, says who made it, and survives a cleared browser. The price list
  * itself (items, suppliers) comes from the owner's March 2026 sheet, in code.
+ *
+ * This browser keeps only two days of events, but stock needs the whole history
+ * (every count and every sale), so the amounts come from the shop server, like the
+ * Owner view. The ingredient and supplier lists are kept here for good, so the
+ * checks below and the add dialogs work from this device's own copy.
  */
 export { isLowStock, isOutOfStock, LOW_STOCK_PACKS, stockStatus, type StockStatus, type InventoryRow } from '../domain/inventory.ts';
 
 const readAllItems = (): InventoryRow[] => inventoryFromEvents(SEED_INVENTORY, readAll());
+/** The ingredient list (amounts here cover two days only: use useInventory for stock). */
 export const readItems = (): InventoryRow[] => readAllItems().filter((item) => !item.archived);
-
-// Compute active recipes from event log
-export const readActiveRecipes = (): Record<string, Array<{ inventoryId: string; qtyBaseUnits: number }>> => {
-  const active: Record<string, Array<{ inventoryId: string; qtyBaseUnits: number }>> = {};
-  const events = readAll();
-  for (const e of events) {
-    if (e.type === 'recipe.updated') {
-      active[e.menuItemId] = e.ingredients;
-    }
-  }
-  return active;
-};
-
-export function useActiveRecipes(): Record<string, Array<{ inventoryId: string; qtyBaseUnits: number }>> {
-  const [active, setActive] = useState(readActiveRecipes);
-  useEffect(() => subscribeEvents(() => setActive(readActiveRecipes())), []);
-  return active;
-}
 export const readSuppliers = (includeArchived = false): Supplier[] =>
   suppliersFromEvents(SEED_SUPPLIERS, readAll(), includeArchived);
 
@@ -133,13 +123,34 @@ export const restoreSupplier = (supplierId: string): void => {
   appendEvent({ type: 'stock.supplier_restored', at: Date.now(), orderNumber: 0, actor: currentCashier(), supplierId });
 };
 
-/** One pack in (+1) or out (-1). Taking from an empty shelf records nothing. */
-export const adjustStock = (itemId: string, deltaPacks: number, reason?: string): void => {
-  const row = readItems().find((i) => i.id === itemId);
-  if (!row || deltaPacks === 0 || row.onHandPacks + deltaPacks < 0) return;
-  const event: any = { type: 'stock.adjusted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, deltaPacks };
-  if (reason) event.reason = reason;
-  appendEvent(event);
+/** Packs in (+) or out (-), with why. The screen offers "out" only while there is stock. */
+export const adjustStock = (itemId: string, deltaPacks: number, reason?: 'waste' | 'audit' | 'receive'): void => {
+  if (deltaPacks === 0 || !Number.isFinite(deltaPacks) || !readItems().some((i) => i.id === itemId)) return;
+  appendEvent({
+    type: 'stock.adjusted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, deltaPacks,
+    ...(reason ? { reason } : {}),
+  });
+};
+
+/**
+ * A delivery: packs in, and the price paid per pack if it changed (both audited).
+ * 0 packs with a new price just updates the price. Returns the Undo.
+ */
+export const receiveStock = (row: InventoryRow, packs: number, priceCents: Cents): (() => void) => {
+  const before = row.workingPriceCents;
+  if (packs > 0) adjustStock(row.id, packs, 'receive');
+  if (priceCents !== before) setWorkingPrice(row.id, priceCents);
+  return () => {
+    if (packs > 0) adjustStock(row.id, -packs, 'receive');
+    if (priceCents !== before) setWorkingPrice(row.id, before);
+  };
+};
+
+/** A count of the shelf: records only the difference from what was expected. Returns the Undo. */
+export const countStock = (row: InventoryRow, countedPacks: number): (() => void) => {
+  const delta = countDifference(row, countedPacks);
+  adjustStock(row.id, delta, 'audit');
+  return () => adjustStock(row.id, -delta, 'audit');
 };
 
 /** A supplier's new price, audited with the old one (integer cents). */
@@ -152,7 +163,8 @@ export const setWorkingPrice = (itemId: string, cents: Cents): void => {
   });
 };
 
-export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[] } {
+/** The ingredient and supplier lists from this device's copy, for the add dialogs. */
+export function useCatalog(): { items: InventoryRow[]; suppliers: Supplier[] } {
   const [items, setItems] = useState(readItems);
   const [suppliers, setSuppliers] = useState(readSuppliers);
   useEffect(() => subscribeEvents(() => {
@@ -160,4 +172,28 @@ export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[] }
     setSuppliers(readSuppliers());
   }), []);
   return { items, suppliers };
+}
+
+/** The shop's history, then what this device has that the history does not have yet. */
+const withLocal = (history: readonly SyncEvent[], local: readonly SyncEvent[]): SyncEvent[] => {
+  const known = new Set(history.map((e) => e.id));
+  return [...history, ...local.filter((e) => !known.has(e.id))];
+};
+
+/**
+ * Stock as it stands, from the whole history. This device's own changes show
+ * at once; the history from the server follows (and refreshes every minute).
+ */
+export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[] } {
+  const shop = useShopEvents();
+  const [local, setLocal] = useState(readAll);
+  useEffect(() => subscribeEvents(() => setLocal(readAll())), []);
+  const history = shop.state === 'loading' ? null : shop.events;
+  return useMemo(() => {
+    const events = withLocal(history ?? [], local);
+    return {
+      items: inventoryFromEvents(SEED_INVENTORY, events).filter((item) => !item.archived),
+      suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
+    };
+  }, [history, local]);
 }
