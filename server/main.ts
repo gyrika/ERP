@@ -76,6 +76,7 @@ startCloud();
 const updates = updatesApi({
   versionFile: fileURLToPath(new URL('../../version.txt', import.meta.url)),
   updaterScript: fileURLToPath(new URL('../../station-update.ps1', import.meta.url)),
+  statusFile: `${dataDir}/update-status.json`,
 });
 
 const server = createApp({
