@@ -241,6 +241,12 @@ export function setupApi(ctx: SetupContext) {
     },
 
     /** "Update now": the owner asked, so it runs even during service (the nightly one waits). */
+    /** The progress bar: the updater's latest step (null when it has not said anything yet). */
+    async updateStatus(body: { ownerPin?: unknown }) {
+      await authorise(body.ownerPin);
+      return { status: ctx.updates?.status() ?? null };
+    },
+
     async installUpdate(body: { ownerPin?: unknown }) {
       await authorise(body.ownerPin);
       if (!ctx.updates) throw new SetupError(409, 'not_ready', 'no updates here');

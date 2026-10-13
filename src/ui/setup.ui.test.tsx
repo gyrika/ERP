@@ -11,11 +11,12 @@ interface Person { id: string; name: string; role: string; pin: string; active: 
 
 /** The shop server's setup endpoints, remembering what they are told (and refusing as the real one does). */
 function fakeShopServer({ done = false, status = 200, newFails = false } = {}) {
-  const s = { version: '1.0.0', down: false, done, cloud: false, shop: null as null | { id: string; name: string; place: string }, printer: null as string | null, staff: [] as Person[] };
+  const s = { version: '1.0.0', down: false, installedAt: 0, done, cloud: false, shop: null as null | { id: string; name: string; place: string }, printer: null as string | null, staff: [] as Person[] };
   const pub = () => s.staff.map(({ pin: _p, ...m }) => m);
   const ownerOk = (pin: unknown) => !s.done || s.staff.some((m) => m.active && m.role === 'owner' && m.pin === pin);
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (status !== 200) return new Response('{}', { status });
+    if (s.down) throw new TypeError('fetch failed'); // the installer stopped the shop server
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     const step = String(url).replace('/api/v1/setup', '');
     const ok = (b: unknown) => Response.json(b);
@@ -35,10 +36,16 @@ function fakeShopServer({ done = false, status = 200, newFails = false } = {}) {
     if (step === '/cloud') { if (body.code !== 'CB-7K3M-Q9XZ') return no(403, 'that shop code is not right'); s.cloud = true; return ok({ cloud: true }); }
     if (step === '/finish') { s.done = true; return ok({ done: true }); }
     if (step === '/update/check') return ok({ current: s.version, latest: '1.0.1', newer: s.version !== '1.0.1' });
+    // What station-update.ps1 writes as it goes: downloading (real %), then backing up.
+    if (step === '/update/status') {
+      const t = Date.now() - s.installedAt;
+      return ok({ status: s.installedAt ? { phase: t < 1500 ? 'downloading' : 'backup', percent: t < 1500 ? 30 : 61, version: '1.0.1', at: Date.now() } : null });
+    }
     if (step === '/update/install') {
       // The installer stops the server; the new version starts, or (newFails) the updater puts the old one back.
-      setTimeout(() => { s.down = true; }, 50);
-      setTimeout(() => { s.down = false; if (!newFails) s.version = '1.0.1'; }, 3500);
+      s.installedAt = Date.now();
+      setTimeout(() => { s.down = true; }, 2500);
+      setTimeout(() => { s.down = false; if (!newFails) s.version = '1.0.1'; }, 5000);
       return ok({ started: true, from: s.version });
     }
     return no(404, 'no such step');
@@ -137,9 +144,16 @@ test("Shop setup → Updates: the owner's PIN, a newer version, Update now, back
   expect((await screen.findByText(/is ready/)).textContent).toBe('Version 1.0.1 is ready.');
 
   await user.click(screen.getByRole('button', { name: 'Update now' }));
-  expect((await screen.findByText(/^Updating to 1.0.1/)).textContent).toContain("don't turn the PC off");
-  await vi.waitFor(() => expect(restartApp).toHaveBeenCalled(), { timeout: 8000 }); // the new version answered
-}, 15_000);
+  const bar = await screen.findByRole('progressbar', { name: 'Update progress' });
+  await vi.waitFor(() => expect(screen.getByText('Downloading version 1.0.1')).toBeTruthy(), { timeout: 4000 });
+  expect(bar.getAttribute('aria-valuenow')).toBe('30'); // the updater's own download percentage
+  await vi.waitFor(() => expect(screen.getByText('Backing up your sales')).toBeTruthy(), { timeout: 4000 });
+  await vi.waitFor(() => expect(screen.getByText('Installing')).toBeTruthy(), { timeout: 4000 }); // the server is away: it keeps moving
+  expect(Number(bar.getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(65);
+  await vi.waitFor(() => expect(bar.getAttribute('aria-valuenow')).toBe('100'), { timeout: 6000 });
+  expect(screen.getByText('Done: opening the new version')).toBeTruthy();
+  await vi.waitFor(() => expect(restartApp).toHaveBeenCalled(), { timeout: 3000 }); // the new version answered
+}, 25_000);
 
 test('Update now, and the new version does not start: the owner is told it went back, and that the sales are safe', async () => {
   const server = fakeShopServer({ done: true, newFails: true });
