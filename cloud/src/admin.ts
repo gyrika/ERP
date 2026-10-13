@@ -239,7 +239,10 @@ export const adminRoutes = async (req: Request, url: URL, o: AdminOptions): Prom
   if (/^\/admin\/shop\/[a-z0-9-]{1,64}$/.test(url.pathname)) {
     const known = await o.db.prepare('SELECT 1 AS x FROM shops WHERE id = ?').bind(url.pathname.slice('/admin/shop/'.length)).first();
     if (!known) return notFound();
-    const page = await o.app(new Request(new URL('/index.html', url), req));
+    // The app's page as the site's root serves it ('/index.html' would answer with a redirect to '/',
+    // which would take the browser off this shop's address).
+    const page = await o.app(new Request(new URL('/', url), { headers: req.headers }));
+    if (page.status !== 200) return new Response('The Owner view is not available', { status: 502 });
     // The Owner view's own files, but never cached and never sent on as a referrer.
     const headers = new Headers(page.headers);
     headers.set('cache-control', 'no-store');

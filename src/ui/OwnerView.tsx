@@ -4,6 +4,7 @@ import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import { inventoryFromEvents, suppliersFromEvents } from '../domain/inventory.ts';
 import { fmt } from '../domain/money.ts';
 import { useInstall } from '../services/ownerApp.ts';
+import { adminShop } from '../services/pairing.ts';
 import { useShopEvents } from '../services/ownerData.ts';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -58,6 +59,8 @@ function Detail({ insight, onClose }: { insight: Insight; onClose: () => void })
 export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?: () => void } = {}) {
   const data = useShopEvents();
   const install = useInstall();
+  /** The developer's admin view of a shop: not an owner's phone, so no home-screen offer. */
+  const offerInstall = phone && !adminShop();
   const [open, setOpen] = useState<string | null>(null);
   const events = data.state === 'ready' ? data.events : data.state === 'error' ? data.events : undefined;
   const at = (data.state === 'loading' ? undefined : data.at) ?? Date.now();
@@ -103,13 +106,13 @@ export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?:
           )}
         </section>
 
-        {phone && install.kind === 'button' && (
+        {offerInstall && install.kind === 'button' && (
           <p className="owner__install">
             <span>Put CheesyBeez on your home screen.</span>
             <button type="button" className="insight__action" onClick={install.install}>Install app</button>
           </p>
         )}
-        {phone && install.kind === 'iphone' && (
+        {offerInstall && install.kind === 'iphone' && (
           <p className="owner__install">To put it on your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
         )}
 

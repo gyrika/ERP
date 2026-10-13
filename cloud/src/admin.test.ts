@@ -29,7 +29,10 @@ async function setup() {
   const cloud = createCloud(d1, { now: () => NOW });
   const admin = (r: Request) => adminRoutes(r, new URL(r.url), {
     db: d1, key: KEY, latest: async () => '1.0.5', now: () => NOW,
-    app: async () => new Response('<!doctype html><div id="root"></div>', { headers: { 'content-type': 'text/html' } }),
+    // Like Cloudflare's static files: '/index.html' answers with a redirect to '/'.
+    app: async (r: Request) => new URL(r.url).pathname === '/'
+      ? new Response('<!doctype html><div id="root"></div>', { headers: { 'content-type': 'text/html' } })
+      : new Response(null, { status: 307, headers: { location: '/' } }),
   });
   const session = sessionOf((await admin(login(KEY)))!);
   return { cloud, admin, db, session };
@@ -75,7 +78,9 @@ test('the admin reads any shop, and only once signed in', async () => {
 
   const events = await (await admin(req('/admin/api/shops/shop-a/events?after=0', { session })))!.json();
   assert.deepEqual(events.events.map((e: { event: SyncEvent }) => e.event.id), ['p1']);
-  assert.equal((await admin(req('/admin/shop/shop-a', { session })))!.status, 200);
+  const shopPage = (await admin(req('/admin/shop/shop-a', { session })))!;
+  assert.equal(shopPage.status, 200, 'the app itself, never a redirect off the shop\'s address');
+  assert.match(await shopPage.text(), /id="root"/);
   assert.equal((await admin(req('/admin/shop/no-such-shop', { session })))!.status, 404);
 
   for (const path of ['/admin/api/shops/shop-a/events', '/admin/shop/shop-a']) {
