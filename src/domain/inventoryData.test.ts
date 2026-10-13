@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
-import { inventoryFromEvents, itemById, loadSeed, supplierById, validateSeed } from './inventory.ts';
+import { inventoryFromEvents, isLowStock, isOutOfStock, itemById, loadSeed, supplierById, validateSeed } from './inventory.ts';
 import { mayRecord } from './auth.ts';
 import { storageKey } from '../ui/storage.ts';
 
@@ -129,3 +129,51 @@ test('only managers and owners may change stock', () => {
   assert.equal(mayRecord('manager', 'stock.adjusted'), true);
   assert.equal(mayRecord('owner', 'stock.price_set'), true);
 });
+
+test('T17: all 18 suppliers have realistic Sri Lankan phone numbers', () => {
+  assert.equal(SEED_SUPPLIERS.length, 18);
+  for (const s of SEED_SUPPLIERS) {
+    assert.ok(s.phone, `${s.id}: missing phone`);
+    assert.match(s.phone, /^\+947\d{8}$/, `${s.id}: phone ${s.phone} is not valid Sri Lankan mobile`);
+  }
+});
+
+test('T18: isOutOfStock and isLowStock helper checks', () => {
+  const item = SEED_INVENTORY[0];
+  const outOfStockRow = { ...item, onHandPacks: 0 };
+  const onePackRow = { ...item, onHandPacks: 1 };
+  const twoPacksRow = { ...item, onHandPacks: 2 };
+
+  assert.equal(isOutOfStock(outOfStockRow), true);
+  assert.equal(isLowStock(outOfStockRow), true);
+
+  assert.equal(isOutOfStock(onePackRow), false);
+  assert.equal(isLowStock(onePackRow), true);
+
+  assert.equal(isOutOfStock(twoPacksRow), false);
+  assert.equal(isLowStock(twoPacksRow), false);
+});
+
+test('T19: validateSeed handles optional phone property', () => {
+  // Valid with phone
+  assert.equal(validateSeed({ suppliers: SEED_SUPPLIERS, items: SEED_INVENTORY }).length, 0);
+
+  // Valid without phone (optional)
+  const supplierWithoutPhone = { id: 'sup_test', name: 'Test Supplier' };
+  assert.equal(
+    validateSeed({
+      suppliers: [supplierWithoutPhone],
+      items: [{ ...SEED_INVENTORY[0], mainSupplierId: 'sup_test', backupSupplierId: null }],
+    }).length,
+    0,
+  );
+
+  // Invalid with blank phone
+  const supplierWithBlankPhone = { id: 'sup_blank', name: 'Blank Phone Supplier', phone: '   ' };
+  const errors = validateSeed({
+    suppliers: [supplierWithBlankPhone],
+    items: [{ ...SEED_INVENTORY[0], mainSupplierId: 'sup_blank', backupSupplierId: null }],
+  });
+  assert.ok(errors.some((e) => e.includes('invalid phone')));
+});
+

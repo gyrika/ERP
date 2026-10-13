@@ -12,7 +12,7 @@ import { currentCashier } from './auth.ts';
  * copy, says who made it, and survives a cleared browser. The price list
  * itself (items, suppliers) comes from the owner's March 2026 sheet, in code.
  */
-export { isLowStock, LOW_STOCK_PACKS, type InventoryRow } from '../domain/inventory.ts';
+export { isLowStock, isOutOfStock, LOW_STOCK_PACKS, type InventoryRow } from '../domain/inventory.ts';
 
 export const readItems = (): InventoryRow[] => inventoryFromEvents(SEED_INVENTORY, readAll());
 export const readSuppliers = (): Supplier[] => SEED_SUPPLIERS;

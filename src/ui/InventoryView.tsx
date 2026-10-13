@@ -6,6 +6,7 @@ import { supplierById } from '../domain/inventory.ts';
 import {
   adjustStock,
   isLowStock,
+  isOutOfStock,
   setWorkingPrice,
   useInventory,
   type InventoryRow,
@@ -159,7 +160,11 @@ export function InventoryView() {
     });
   }, [items, filter, query, supplierName]);
 
-  const lowStockCount = useMemo(() => items.filter(isLowStock).length, [items]);
+  const outOfStockCount = useMemo(() => items.filter(isOutOfStock).length, [items]);
+  const lowStockCount = useMemo(
+    () => items.filter((item) => isLowStock(item) && !isOutOfStock(item)).length,
+    [items],
+  );
 
   const savePrice = useCallback((item: InventoryRow, cents: Cents) => {
     setWorkingPrice(item.id, cents);
@@ -219,8 +224,20 @@ export function InventoryView() {
                   <span className="inv-dot inv-dot--emerald" />
                   Showing <strong>{visible.length}</strong> of {items.length}
                 </span>
+                {outOfStockCount > 0 && (
+                  <span
+                    className="inv-metric-badge inv-metric-badge--alert"
+                    style={{ borderColor: 'color-mix(in srgb, var(--bad) 65%, var(--line))', color: 'var(--bad)' }}
+                  >
+                    <span className="inv-dot" style={{ background: 'var(--bad)' }} />
+                    {outOfStockCount} out of stock
+                  </span>
+                )}
                 {lowStockCount > 0 && (
-                  <span className="inv-metric-badge inv-metric-badge--alert">
+                  <span
+                    className="inv-metric-badge inv-metric-badge--alert"
+                    style={{ borderColor: 'color-mix(in srgb, var(--warn) 65%, var(--line))', color: 'var(--warn)' }}
+                  >
                     <span className="inv-dot inv-dot--amber" />
                     {lowStockCount} low stock
                   </span>
@@ -246,18 +263,20 @@ export function InventoryView() {
           <div className="inv-workspace">
             <ul className="inv-grid" aria-label="Inventory items">
               {visible.map((item) => {
-                const low = isLowStock(item);
+                const empty = isOutOfStock(item);
+                const low = isLowStock(item) && !empty;
                 const selected = priceItemId === item.id;
                 return (
                   <li
                     key={item.id}
                     className={`inv-card${low ? ' inv-card--low' : ''}${selected ? ' inv-card--selected' : ''}`}
+                    style={empty ? { borderColor: 'var(--bad)' } : undefined}
                   >
                     <div>
                       <div className="inv-card__header">
                         <h2 className="inv-card__title">{item.name}</h2>
-                        <span className={`inv-badge${low ? ' inv-badge--alert' : ' inv-badge--neutral'}`}>
-                          {low ? 'Low stock' : 'In stock'}
+                        <span className={`inv-badge${empty || low ? ' inv-badge--alert' : ' inv-badge--neutral'}`}>
+                          {empty ? 'Out of stock' : low ? 'Low stock' : 'In stock'}
                         </span>
                       </div>
                       <p className="inv-card__sub">{item.category} · {item.note ?? supplierName(item.mainSupplierId)}</p>

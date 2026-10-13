@@ -46,19 +46,39 @@ test('stock stepper updates persistently and low-stock warning follows the thres
   const { unmount } = render(<InventoryView />);
   const flour = screen.getByText('Pizza Flour').closest('li')!;
 
-  expect(within(flour).getByText('Low stock')).toBeTruthy();
+  expect(within(flour).getByText('Out of stock')).toBeTruthy();
+  expect(flour.style.borderColor).toBe('var(--bad)');
   await user.click(within(flour).getByRole('button', { name: 'Add one pack of Pizza Flour' }));
   expect(within(flour).getByText('1')).toBeTruthy();
   expect(within(flour).getByText('Low stock')).toBeTruthy();
+  expect(within(flour).queryByText('Out of stock')).toBeNull();
 
   await user.click(within(flour).getByRole('button', { name: 'Add one pack of Pizza Flour' }));
   expect(within(flour).getByText('2')).toBeTruthy();
+  expect(within(flour).getByText('In stock')).toBeTruthy();
   expect(within(flour).queryByText('Low stock')).toBeNull();
+  expect(within(flour).queryByText('Out of stock')).toBeNull();
 
   unmount();
   render(<InventoryView />);
   const restored = screen.getByText('Pizza Flour').closest('li')!;
   expect(within(restored).getByText('2')).toBeTruthy();
+});
+
+test('metrics bar distinguishes between out of stock and low stock counts', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+
+  // Initially all 59 items have 0 packs on hand
+  expect(screen.getByText('59 out of stock')).toBeTruthy();
+  expect(screen.queryByText(/low stock/)).toBeNull();
+
+  // Increment one item to 1 pack (moves from out of stock to low stock)
+  const flour = screen.getByText('Pizza Flour').closest('li')!;
+  await user.click(within(flour).getByRole('button', { name: 'Add one pack of Pizza Flour' }));
+
+  expect(screen.getByText('58 out of stock')).toBeTruthy();
+  expect(screen.getByText('1 low stock')).toBeTruthy();
 });
 
 test('price drawer reports invalid input and saves valid LKR cents', async () => {

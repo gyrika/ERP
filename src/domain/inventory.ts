@@ -19,6 +19,9 @@ export const validateSeed = (data: SeedData): string[] => {
   for (const s of data.suppliers) {
     if (!s.id.trim()) errors.push('supplier missing id');
     if (!s.name.trim()) errors.push(`supplier ${s.id}: missing name`);
+    if (s.phone !== undefined && (typeof s.phone !== 'string' || !s.phone.trim())) {
+      errors.push(`supplier ${s.id}: invalid phone`);
+    }
     if (supplierIds.has(s.id)) errors.push(`duplicate supplier id: ${s.id}`);
     supplierIds.add(s.id);
   }
@@ -79,6 +82,8 @@ export type InventoryRow = InventoryItem & { onHandPacks: number };
 export const LOW_STOCK_PACKS = 1;
 
 export const isLowStock = (row: InventoryRow): boolean => row.onHandPacks <= LOW_STOCK_PACKS;
+
+export const isOutOfStock = (row: InventoryRow): boolean => row.onHandPacks === 0;
 
 /**
  * Stock as it stands, built from the price list (in code, like the menu) and
