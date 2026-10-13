@@ -1,11 +1,11 @@
-# Every night at 4 am (as SYSTEM): a backup of the shop's data, then, if GitHub has a newer
-# CheesyBeez Station, install it quietly. The installer keeps the shop's data
-# (C:\ProgramData\CheesyBeez) and restarts the POS.
+# Every 5 minutes (as SYSTEM): if GitHub has a newer CheesyBeez Station, install it quietly. The
+# installer keeps the shop's data (C:\ProgramData\CheesyBeez) and restarts the POS.
 # Never during service: it installs nothing if a sale was recorded in the last 15 minutes,
-# unless the owner pressed "Update now" in Shop setup (-Force).
+# unless the owner pressed "Update now" in Shop setup (-Force). At 4 am (-Nightly) it first
+# makes the nightly backup of the shop's data.
 # Safe: another backup right before installing, and if the new version does not answer within
 # 3 minutes, the version that was running is put back by itself. Everything goes in logs\update.log.
-param([switch]$Force)
+param([switch]$Force, [switch]$Nightly)
 $ErrorActionPreference = 'Stop'
 $data = Join-Path $env:ProgramData 'CheesyBeez'
 $log = Join-Path $data 'logs\update.log'
@@ -14,6 +14,7 @@ function Note([string]$text) { Add-Content -Path $log -Value ("[{0:yyyy-MM-dd HH
 # Where the update is, for the progress bar in Shop setup > Updates (the shop server hands it on).
 $statusFile = Join-Path $data 'update-status.json'
 $script:target = ''
+$script:installing = $false
 function Status([string]$phase, [int]$percent) {
   $s = @{ phase = $phase; percent = $percent; version = $script:target; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
   try { [IO.File]::WriteAllText($statusFile, ($s | ConvertTo-Json -Compress)) } catch { }
@@ -81,20 +82,30 @@ function Install([string]$url, [string]$name, [bool]$show = $true) {
 
 try {
   if ($Force) { Status 'checking' 2 }
-  if (-not $Force) { [void](Backup 'nightly') }
+  if ($Nightly) { [void](Backup 'nightly') }
 
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   $current = (Get-Content (Join-Path $PSScriptRoot 'version.txt') -Raw).Trim()
   $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/gyrika/ERP/releases/latest' -Headers @{ 'User-Agent' = 'CheesyBeez-Station' } -TimeoutSec 30
   $latest = $release.tag_name.TrimStart('v')
   $script:target = $latest
-  if ([version]$latest -le [version]$current) { Note "Up to date ($current)."; if ($Force) { Status 'up-to-date' 100 }; exit 0 }
+  # Checked every 5 minutes: only the nightly run and "Update now" say so in the log.
+  if ([version]$latest -le [version]$current) { if ($Nightly -or $Force) { Note "Up to date ($current)." }; if ($Force) { Status 'up-to-date' 100 }; exit 0 }
   $skipFile = Join-Path $data 'update-skip.txt'
-  if ((Test-Path $skipFile) -and (Get-Content $skipFile -Raw).Trim() -eq $latest) { Note "Version $latest did not start here before: waiting for a newer one."; exit 0 }
+  if ((Test-Path $skipFile) -and (Get-Content $skipFile -Raw).Trim() -eq $latest) { if ($Nightly) { Note "Version $latest did not start here before: waiting for a newer one." }; exit 0 }
 
   $busy = Get-ChildItem (Join-Path $data 'pos.sqlite-wal') -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -gt (Get-Date).AddMinutes(-15) }
-  if ($busy -and -not $Force) { Note "Version $latest is ready, but the shop is busy: trying tomorrow."; exit 0 }
+  if ($busy -and -not $Force) {
+    # Said once per version, not every 5 minutes.
+    $waitFile = Join-Path $data 'update-waiting.txt'
+    if (-not ((Test-Path $waitFile) -and (Get-Content $waitFile -Raw).Trim() -eq $latest)) {
+      Note "Version $latest is ready; installing once the counter has been quiet for 15 minutes."
+      Set-Content -Path $waitFile -Value $latest
+    }
+    exit 0
+  }
+  $script:installing = $true
   Status 'downloading' 5
   if ($Force) { Note 'Update now: asked for in Shop setup.' }
 
@@ -120,6 +131,7 @@ try {
   if (Answers $current) { Note "Back on $current (installer exit $code). Version $latest is skipped until a newer one comes out."; Status 'back' 100 }
   else { Note "Going back to $current did not answer either (installer exit $code): needs a look over AnyDesk." }
 } catch {
-  Note "Update failed: $($_.Exception.Message)"
+  # No internet for a 5-minute check is normal: logged only when it matters.
+  if ($Force -or $Nightly -or $script:installing) { Note "Update failed: $($_.Exception.Message)" }
   if ($Force) { Status 'failed' 100 }
 }

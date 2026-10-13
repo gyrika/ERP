@@ -119,7 +119,7 @@ customer page in `src/order/` (built as `order.html` by `npm run build:cloud`).
 rules as the shop server (`server/validate.ts`). An older cloud refuses event types it does not
 know yet, and a refused batch stops the whole copy (and the owner's phone stops updating). So when
 a release adds or changes event types: `npm run deploy:staging`, check it, `npm run deploy`, and
-only then tag `v*` (shop PCs update at 4 am). The cloud must also keep accepting what the
+only then tag `v*` (shop PCs update within minutes, when the counter is quiet). The cloud must also keep accepting what the
 installed version sends.
 
 Tests: `cloud/src/cloud.test.ts` (the Worker on Node's own SQLite with the real schema) and
@@ -128,3 +128,22 @@ Tests: `cloud/src/cloud.test.ts` (the Worker on Node's own SQLite with the real 
 ## Limits (free plan, far above one shop)
 
 100,000 requests a day, 5 GB in D1. One shop sends a few hundred small requests a day.
+
+## Admin view (`/admin`)
+
+The developer's view of every shop: online or not (each shop server checks in every 30 s), the
+version it runs against the latest release, how its last update went, its last sale, and one tap
+into that shop's Owner view (read-only). Shops report through the copy they already make
+(`x-station-version` / `x-station-update` headers on `/api/v1/replica`, stored on `devices`,
+migration `0005`).
+
+Closed unless set up. Cloudflare Access does the sign-in, and the Worker checks Access's signed
+token too, so a dashboard mistake never opens it:
+
+1. Cloudflare dashboard → Zero Trust → Access → Applications → Add → Self-hosted.
+   Domain: `cheesybeez-cloud.cheesybeez-cloud.workers.dev`, path `admin`. Policy: Allow, Emails = yours.
+2. Copy the application's **Audience (AUD) tag**, and your team domain (`<team>.cloudflareaccess.com`).
+3. In `cloud/`: `npx wrangler secret put ACCESS_TEAM` (the team domain) and
+   `npx wrangler secret put ACCESS_AUD` (the tag).
+
+Without both secrets `/admin` answers 404.

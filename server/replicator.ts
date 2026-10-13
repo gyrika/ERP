@@ -9,7 +9,8 @@ import type { EventStore } from './store.ts';
  * (by the shop's own seq), then sends everything newer in batches. So a
  * restart, a power cut or a lost reply can never skip or double anything.
  * Runs straight after new sales (nudge) and every 30 s; on failure it backs off
- * up to 5 minutes, and the shop never notices.
+ * up to 5 minutes, and the shop never notices. Each pass also says which version
+ * runs here and how its last update went, so the admin view sees every shop.
  */
 export interface ReplicatorOptions {
   store: EventStore;
@@ -20,6 +21,8 @@ export interface ReplicatorOptions {
   fetch?: typeof fetch;
   every?: number;
   now?: () => number;
+  /** What this Station runs and where its last update is, told to the cloud on every pass (the admin view). */
+  about?: () => { version: string; update: unknown };
 }
 
 export interface ReplicaStatus {
@@ -34,7 +37,14 @@ export function startReplicator(o: ReplicatorOptions) {
   const http = o.fetch ?? fetch;
   const every = o.every ?? 30_000;
   const now = o.now ?? Date.now;
-  const headers = { authorization: `Bearer ${o.token}`, 'content-type': 'application/json' };
+  const headers = (): Record<string, string> => {
+    const about = o.about?.();
+    return {
+      authorization: `Bearer ${o.token}`,
+      'content-type': 'application/json',
+      ...(about ? { 'x-station-version': about.version, 'x-station-update': JSON.stringify(about.update ?? null) } : {}),
+    };
+  };
   const status: ReplicaStatus = { upToDateAt: null, lastError: null };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running: Promise<void> | null = null;
@@ -44,7 +54,7 @@ export function startReplicator(o: ReplicatorOptions) {
 
   const call = async (method: 'GET' | 'POST', body?: unknown): Promise<{ lastSourceSeq: number }> => {
     const r = await http(`${o.url}/api/v1/replica`, {
-      method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20_000),
+      method, headers: headers(), body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20_000),
     });
     if (!r.ok) throw new Error(`cloud answered ${r.status}`);
     return r.json() as Promise<{ lastSourceSeq: number }>;

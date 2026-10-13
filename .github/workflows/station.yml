@@ -1,26 +1,74 @@
-# Builds CheesyBeez Station (one Setup.exe) on Windows, after running every test there.
-# - Tag a version (git tag v1.0.0 && git push origin v1.0.0): a GitHub Release with the Setup.exe;
-#   shop PCs pick it up by themselves at 4 am.
-# - A pull request touching the Station or the server, or Actions tab > Run workflow: a test build,
-#   downloadable from the run's page.
+# Releases CheesyBeez on every merge to main, in the safe order:
+#   tests -> cloud staging -> cloud live -> Setup.exe (next version, e.g. 1.0.4 -> 1.0.5) -> GitHub Release.
+# Shop PCs look every 5 minutes and install it once their counter has been quiet for 15 minutes.
+# - A pull request touching the Station, the server, the app or the cloud: built and tested on Windows
+#   (and the Setup.exe is downloadable from the run's page), nothing released.
+# - Actions tab > Run workflow: a test build, nothing released.
+# The cloud steps need two repository secrets: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
 name: CheesyBeez Station
 
 on:
   push:
-    tags: ['v*']
-  # Every pull request that changes the Station or the server is built and tested on Windows too.
+    branches: [main]
+    paths: ['deploy/station/**', '.github/workflows/station.yml', 'server/**', 'src/**', 'cloud/**', 'public/**', 'index.html', 'order.html', 'package.json', 'package-lock.json']
   pull_request:
-    paths: ['deploy/station/**', '.github/workflows/station.yml', 'server/**', 'src/**', 'cloud/**', 'public/**', 'index.html', 'package.json', 'package-lock.json']
+    paths: ['deploy/station/**', '.github/workflows/station.yml', 'server/**', 'src/**', 'cloud/**', 'public/**', 'index.html', 'order.html', 'package.json', 'package-lock.json']
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# One release at a time, in the order they were merged.
+concurrency:
+  group: ${{ github.event_name == 'push' && 'release' || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
+  # The cloud goes first: an older cloud refuses event types it does not know, which would stop the
+  # shops' copy (docs/cloud.md). Staging, checked, then live.
+  cloud:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+
+      - name: Install
+        run: |
+          npm ci
+          npm ci --prefix cloud
+
+      - name: Test
+        run: npm test
+
+      - name: Cloud staging
+        run: |
+          npm run migrate:staging --prefix cloud
+          npm run deploy:staging --prefix cloud
+          curl -fsS --retry 5 --retry-delay 3 https://cheesybeez-cloud-staging.cheesybeez-cloud.workers.dev/api/v1/health
+
+      - name: Cloud live
+        run: |
+          npm run migrate --prefix cloud
+          npm run deploy --prefix cloud
+          curl -fsS --retry 5 --retry-delay 3 https://cheesybeez-cloud.cheesybeez-cloud.workers.dev/api/v1/health
+
   build:
+    needs: cloud
+    # Pull requests skip the cloud; a merge builds only once the cloud is live.
+    if: always() && (needs.cloud.result == 'success' || (github.event_name != 'push' && needs.cloud.result == 'skipped'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags, for the next version number
 
       - uses: actions/setup-node@v4
         with:
@@ -40,7 +88,12 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $v = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "0.0.$env:GITHUB_RUN_NUMBER" }
+          # A merge to main: the newest v* tag, one more (1.0.9 -> 1.0.10). Anything else: a test number.
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $last = git tag --list 'v*' --sort=-v:refname | Select-Object -First 1
+            $p = [version]($last.TrimStart('v'))
+            $v = "$($p.Major).$($p.Minor).$($p.Build + 1)"
+          } else { $v = "0.0.$env:GITHUB_RUN_NUMBER" }
           "value=$v" >> $env:GITHUB_OUTPUT
 
       - name: Stage
@@ -83,11 +136,13 @@ jobs:
           path: deploy/station/Output/*.exe
 
       - name: Publish the release
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.version.outputs.value }}
+          target_commitish: ${{ github.sha }}
           files: deploy/station/Output/*.exe
           body: |
             CheesyBeez Station ${{ steps.version.outputs.value }}: download **CheesyBeez-Setup-${{ steps.version.outputs.value }}.exe** and double-click it.
             Windows may say "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
-            Shop PCs that already have CheesyBeez update themselves at 4 am.
+            Shop PCs that already have CheesyBeez update themselves within minutes, once the counter has been quiet for 15 minutes.

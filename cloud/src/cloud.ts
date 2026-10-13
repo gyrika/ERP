@@ -49,6 +49,19 @@ const sameText = (a: string, b: string): boolean => {
   return diff === 0;
 };
 
+/** The updater's last step as the shop server tells it, kept to the known fields (or null). */
+export const updateStatus = (raw: string | null): string | null => {
+  if (!raw || raw.length > 500) return null;
+  try {
+    const s = JSON.parse(raw) as Record<string, unknown> | null;
+    if (!s || typeof s.phase !== 'string' || !/^[a-z-]{1,20}$/.test(s.phase)) return null;
+    const version = typeof s.version === 'string' && /^[\w.+-]{0,32}$/.test(s.version) ? s.version : '';
+    return JSON.stringify({ phase: s.phase, percent: Number(s.percent) || 0, version, at: Number(s.at) || 0 });
+  } catch {
+    return null;
+  }
+};
+
 export interface CloudOptions {
   now?: () => number;
   /**
@@ -78,6 +91,14 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
     (await db.prepare('SELECT COALESCE(MAX(source_seq), 0) AS s FROM events WHERE tenant_id = ?').bind(tenantId)
       .first<{ s: number }>())?.s ?? 0;
 
+  /** A shop server checked in: when, which version it runs, and its last update (the admin view). */
+  const seen = async (device: CloudDevice, req: Request): Promise<void> => {
+    const version = req.headers.get('x-station-version');
+    await db.prepare('UPDATE devices SET last_seen_at = ?, version = COALESCE(?, version), update_status = COALESCE(?, update_status) WHERE id = ?')
+      .bind(now(), version && /^[\w.+-]{1,32}$/.test(version) ? version : null, updateStatus(req.headers.get('x-station-update')), device.id)
+      .run();
+  };
+
   const routes = async (req: Request, url: URL): Promise<Response> => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') return json(200, { ok: true, serverTime: now() });
     const online = await onlineRoutes(req, url, { db, now, orderShop, authenticate });
@@ -85,6 +106,7 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
 
     if (url.pathname === '/api/v1/replica') {
       const device = await authenticate(req, ['shop_server']);
+      await seen(device, req);
       if (req.method === 'GET') {
         return json(200, { lastSourceSeq: await lastSourceSeq(device.tenantId), serverTime: now() } satisfies ReplicaState);
       }

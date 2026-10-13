@@ -1,6 +1,6 @@
 # Run by the installer (as administrator, hidden) after the files are in place; safe to run again.
 # Makes the POS start with Windows, keeps the PC awake, lets tablets on the shop Wi-Fi in,
-# checks for updates every night, and starts the POS now.
+# checks for updates every few minutes, backs up every night, and starts the POS now.
 $ErrorActionPreference = 'Stop'
 $app = $PSScriptRoot
 $data = Join-Path $env:ProgramData 'CheesyBeez'
@@ -15,9 +15,18 @@ $always = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -A
 $server = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "{0}"' -f (Join-Path $app 'station.cmd')) -WorkingDirectory $app
 Register-ScheduledTask -TaskName 'CheesyBeez Station' -Action $server -Trigger (New-ScheduledTaskTrigger -AtStartup) -Principal $system -Settings $always -Force | Out-Null
 
-# A newer version from GitHub, at 4 am when the shop is closed.
-$update = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f (Join-Path $app 'station-update.ps1'))
-Register-ScheduledTask -TaskName 'CheesyBeez Station update' -Action $update -Trigger (New-ScheduledTaskTrigger -Daily -At 4am) -Principal $system -Settings $always -Force | Out-Null
+# A newer version from GitHub, minutes after it is released: every 5 minutes it looks, and installs
+# only when the counter has been quiet for 15 minutes (station-update.ps1). One at a time: a check
+# that comes round while an update is still running is skipped.
+$updater = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f (Join-Path $app 'station-update.ps1')
+$update = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $updater
+$every5 = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+$once = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName 'CheesyBeez Station update' -Action $update -Trigger $every5 -Principal $system -Settings $once -Force | Out-Null
+
+# The nightly backup of the shop's data, at 4 am when the shop is closed (and an update, if one is waiting).
+$nightly = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "$updater -Nightly"
+Register-ScheduledTask -TaskName 'CheesyBeez Station nightly' -Action $nightly -Trigger (New-ScheduledTaskTrigger -Daily -At 4am) -Principal $system -Settings $once -Force | Out-Null
 
 # A counter PC that sleeps mid-service is no use (mains power only; battery settings untouched).
 & powercfg.exe /change standby-timeout-ac 0
