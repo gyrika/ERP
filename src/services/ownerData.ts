@@ -1,3 +1,5 @@
+import { setMenuState } from '../domain/menu.ts';
+import { menuStateFromEvents } from '../domain/menuEdits.ts';
 import { useEffect, useState } from 'react';
 import type { PullResponse, SyncEvent } from '../domain/sync.ts';
 import { demoHistory } from '../fake/history.ts';
@@ -73,6 +75,8 @@ export function useShopEvents(): ShopEvents {
         if (!alive) return;
         events = source.incremental ? [...(events ?? []), ...got.events] : got.events;
         cursor = got.cursor;
+        // The owner's own names and prices, wherever this view runs (the phone has no event log).
+        setMenuState(menuStateFromEvents(events.filter((e) => e.type.startsWith('menu.'))));
         setData({ state: 'ready', events, at: Date.now() });
       } catch (e) {
         if (alive) setData({ state: 'error', message: e instanceof Error ? e.message : String(e), events, at: Date.now() });

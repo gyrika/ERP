@@ -22,7 +22,7 @@ export interface AuthService {
   verifyManagerPin(pin: string): Promise<Actor | null>;
 }
 
-/** Managers and owners use manager mode. Menu prices, items and staff are owner-only and not in the app yet. */
+/** Managers and owners use manager mode. Menu prices, names and staff are owner-only. */
 export const managesRole = (role: Role): boolean => role === 'manager' || role === 'owner';
 export const canManage = (actor: Actor): boolean => managesRole(actor.role);
 
@@ -44,6 +44,9 @@ export const mayRecord = (role: Role, type: string): boolean => {
   if (MANAGER_EVENTS.has(type)) return managesRole(role);
   // Stock counts and supplier prices are a manager's job (SCRUM-41).
   if (type.startsWith('stock.')) return managesRole(role);
+  // The menu is the owner's; marking something sold out is a manager's job during service.
+  if (type === 'menu.item_set') return role === 'owner';
+  if (type === 'menu.sold_out') return managesRole(role);
   return false;
 };
 

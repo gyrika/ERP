@@ -1,6 +1,7 @@
-import { CATEGORIES, MENU, POPULAR_IDS } from '../domain/menu.ts';
+import { CATEGORIES, POPULAR_IDS, menuItems } from '../domain/menu.ts';
 import { fmtPlain } from '../domain/money.ts';
 import type { MenuItem, SizeId } from '../domain/types.ts';
+import { useMenu } from './menuStore.ts';
 
 export type CategoryId = (typeof CATEGORIES)[number]['id'];
 
@@ -14,12 +15,15 @@ interface Props {
   hint: string;
 }
 
+/** What the owner offers: hidden items are not shown; sold-out ones show, greyed. */
 const visible = (c: CategoryId): MenuItem[] =>
-  c === 'popular'
-    ? POPULAR_IDS.map((id) => MENU.find((m) => m.id === id)!).filter(Boolean)
-    : MENU.filter((m) => m.category === c);
+  (c === 'popular'
+    ? POPULAR_IDS.map((id) => menuItems().find((m) => m.id === id)!).filter(Boolean)
+    : menuItems().filter((m) => m.category === c)
+  ).filter((m) => !m.hidden);
 
 export function Menu({ category, onCategory, onQuickAdd, onCustomise, hint }: Props) {
+  useMenu();
   return (
     <>
       <nav className="cats" aria-label="Menu">
@@ -33,8 +37,9 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, hint }: Pr
 
       <div className="grid">
         {visible(category).map((item) => (
-          <div key={item.id} className="card">
-            <button type="button" className="card__title" onClick={() => onCustomise(item)}>
+          <div key={item.id} className={`card${item.soldOut ? ' card--soldout' : ''}`}>
+            {item.soldOut && <span className="card__soldout">Sold out</span>}
+            <button type="button" className="card__title" disabled={item.soldOut} onClick={() => onCustomise(item)}>
               <span className="card__name">
                 {item.number !== undefined && <span className="card__no num" aria-hidden="true">{item.number}</span>}
                 {item.name.en}
@@ -44,16 +49,16 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, hint }: Pr
             <div className="card__prices">
               {item.variants && item.variants.length === 2 ? (
                 item.variants.map((v) => (
-                  <button key={v.id} type="button" className="price num" onClick={() => onQuickAdd(item, v.id)}>
+                  <button key={v.id} type="button" className="price num" disabled={item.soldOut} onClick={() => onQuickAdd(item, v.id)}>
                     {v.id} {fmtPlain(v.price)}
                   </button>
                 ))
               ) : item.variants ? (
-                <button type="button" className="price num" onClick={() => onCustomise(item)}>
+                <button type="button" className="price num" disabled={item.soldOut} onClick={() => onCustomise(item)}>
                   from {fmtPlain(Math.min(...item.variants.map((v) => v.price)))}
                 </button>
               ) : (
-                <button type="button" className="price num" onClick={() => onQuickAdd(item)}>
+                <button type="button" className="price num" disabled={item.soldOut} onClick={() => onQuickAdd(item)}>
                   {fmtPlain(item.price ?? 0)}
                 </button>
               )}

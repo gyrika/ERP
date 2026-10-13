@@ -17,7 +17,8 @@ export interface Totals {
   total: Cents;
 }
 
-export const lineGross = (l: OrderLine): Cents => lineTotal(itemById(l.itemId), l);
+/** A sent line keeps the price it was sent at; a new one follows the menu. */
+export const lineGross = (l: OrderLine): Cents => (l.unit !== undefined ? l.unit * l.qty : lineTotal(itemById(l.itemId), l));
 
 /** A line's adjustment, capped so a line never goes below zero. */
 export const lineAdjustment = (order: Order, l: OrderLine): Cents =>

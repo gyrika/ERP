@@ -189,6 +189,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 
 /* ---------- menu grid ---------- */
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-content: start; }
+.card--soldout { position: relative; opacity: 0.45; }
+.card__soldout { position: absolute; top: 14px; right: 14px; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
 .card { padding: 20px 20px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: 16px; }
 .card__title { text-align: left; display: flex; flex-direction: column; gap: 4px; min-height: 48px; }
 .card__name { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
@@ -523,6 +525,28 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .owner__nav { display: flex; gap: 4px; }
 .owner__nav a { min-height: 48px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 12px; font-size: 14px; font-weight: 500; color: var(--ink-2); text-decoration: none; }
 .owner__nav a:hover { background: var(--chip); color: var(--ink); }
+/* #menu: the owner's menu. One calm list; the editor is a sheet. */
+.menuv { max-width: 960px; }
+.menuv__title { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -1px; }
+.menuv__lead { margin: 0 0 8px; color: var(--ink-2); font-size: 16px; }
+.menuv__list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; }
+.menuv__row { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.menuv__row--hidden .menuv__name { opacity: 0.5; }
+.menuv__name { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.menuv__name b { font-size: 17px; font-weight: 600; }
+.menuv__name span { font-size: 14px; color: var(--ink-2); }
+.menuv__tags { display: flex; gap: 6px; }
+.menuv__sold[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); color: var(--ground); }
+.menued__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+.menued__grid label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--ink-2); font-weight: 500; }
+.menued__grid input { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); color: var(--ink); font: inherit; font-size: 17px; }
+.menued__wide { grid-column: 1 / -1; }
+.menued__was { font-size: 12px; color: var(--ink-3); font-weight: 400; }
+.menued__check { display: flex; align-items: center; gap: 12px; font-size: 16px; min-height: 48px; }
+.menued__check input { width: 22px; height: 22px; }
+.menued__check span { color: var(--ink-2); font-size: 14px; }
+.menued__foot { display: flex; justify-content: flex-end; align-items: center; gap: 16px; padding: 16px 80px 24px; }
+.menued__foot .cta { min-width: 200px; }
 /* Shop setup > Updates: one calm bar; it eases forward, never jumps back. */
 .update { display: flex; flex-direction: column; gap: 10px; max-width: 520px; }
 .update__row { display: flex; justify-content: space-between; align-items: baseline; font-size: 16px; }

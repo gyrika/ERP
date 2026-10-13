@@ -1,5 +1,6 @@
 import type { Actor } from './auth.ts';
 import type { OrderEvent } from './events.ts';
+import type { MenuEvent } from './menuEdits.ts';
 import type { Cents } from './types.ts';
 
 /**
@@ -41,8 +42,8 @@ export type StockEvent =
   | (StockBase & { type: 'stock.adjusted'; deltaPacks: number })
   | (StockBase & { type: 'stock.price_set'; before: Cents; after: Cents });
 
-/** Everything that syncs. */
-export type SyncEvent = OrderEvent | KitchenEvent | StockEvent;
+/** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;

@@ -1,6 +1,6 @@
-import { MENU } from './menu.ts';
+import { menuItems } from './menu.ts';
 import { unitPrice } from './money.ts';
-import type { Cents, LineSpec, SizeId } from './types.ts';
+import type { Cents, LineSpec, MenuItem, SizeId } from './types.ts';
 
 /**
  * Online orders (cheesybeez.com): order ahead, collect at the shop, pay there.
@@ -64,11 +64,12 @@ export const normalisePhone = (input: string): string | null => {
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
 /** One line as the phone sent it, or why not. Unknown items, sizes or extras are refused, never guessed. */
-const checkLine = (raw: unknown): OnlineLine | string => {
+const checkLine = (raw: unknown, items: readonly MenuItem[]): OnlineLine | string => {
   if (typeof raw !== 'object' || raw === null) return 'a line is not readable';
   const r = raw as Record<string, unknown>;
-  const item = MENU.find((m) => m.id === r.itemId);
-  if (!item) return 'something on the order is not on the menu';
+  const item = items.find((m) => m.id === r.itemId);
+  if (!item || item.hidden) return 'something on the order is not on the menu';
+  if (item.soldOut) return `sorry, ${item.name.en} is sold out today`;
   if (!Number.isSafeInteger(r.qty) || (r.qty as number) < 1 || (r.qty as number) > LIMITS.qty) return `at most ${LIMITS.qty} of one item`;
   if (item.variants) {
     if (!item.variants.some((v) => v.id === r.size)) return `choose a size for ${item.name.en}`;
@@ -81,16 +82,18 @@ const checkLine = (raw: unknown): OnlineLine | string => {
   return { itemId: item.id, qty: r.qty as number, ...(item.variants ? { size: r.size as SizeId } : {}), adds, outs };
 };
 
-export const onlineLineTotal = (l: OnlineLine): Cents => {
-  const item = MENU.find((m) => m.id === l.itemId);
+/** `items`: the shop's menu with its owner's changes (the cloud builds it per shop). */
+export const onlineLineTotal = (l: OnlineLine, items: readonly MenuItem[] = menuItems()): Cents => {
+  const item = items.find((m) => m.id === l.itemId);
   return item ? unitPrice(item, l) * l.qty : 0;
 };
-export const onlineTotal = (lines: OnlineLine[]): Cents => lines.reduce((s, l) => s + onlineLineTotal(l), 0);
+export const onlineTotal = (lines: OnlineLine[], items: readonly MenuItem[] = menuItems()): Cents =>
+  lines.reduce((s, l) => s + onlineLineTotal(l, items), 0);
 
 export interface CheckedOnlineOrder { name: string; phone: string; lines: OnlineLine[]; note: string; total: Cents }
 
 /** What the phone sent, checked and priced here, or the reason it cannot be taken (shown to the customer). */
-export const checkOnlineOrder = (body: unknown): CheckedOnlineOrder | { reason: string } => {
+export const checkOnlineOrder = (body: unknown, items: readonly MenuItem[] = menuItems()): CheckedOnlineOrder | { reason: string } => {
   if (typeof body !== 'object' || body === null) return { reason: 'the order is not readable' };
   const b = body as Record<string, unknown>;
   const name = typeof b.name === 'string' ? b.name.trim().replace(/\s+/g, ' ') : '';
@@ -104,11 +107,11 @@ export const checkOnlineOrder = (body: unknown): CheckedOnlineOrder | { reason: 
   if (b.lines.length > LIMITS.lines) return { reason: 'that is a big order: please call the shop' };
   const lines: OnlineLine[] = [];
   for (const raw of b.lines) {
-    const l = checkLine(raw);
+    const l = checkLine(raw, items);
     if (typeof l === 'string') return { reason: l };
     lines.push(l);
   }
-  return { name, phone, lines, note, total: onlineTotal(lines) };
+  return { name, phone, lines, note, total: onlineTotal(lines, items) };
 };
 
 /** The status the customer sees: an unanswered order runs out after ONLINE_ANSWER_MS. */

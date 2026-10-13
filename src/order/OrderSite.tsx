@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { MENU } from '../domain/menu.ts';
+import { menuItems, setMenuState } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { normalisePhone, onlineLineTotal, onlineTotal, type OnlineLine } from '../domain/online.ts';
 import type { Category, MenuItem, SizeId } from '../domain/types.ts';
@@ -15,7 +15,7 @@ const rs = (cents: number) => `Rs ${fmt(cents)}`;
 const SECTIONS: { id: Category; label: string }[] = [
   { id: 'pizza', label: 'Pizza' }, { id: 'burger', label: 'Burgers' }, { id: 'pasta', label: 'Pasta' },
 ];
-const itemOf = (id: string) => MENU.find((m) => m.id === id)!;
+const itemOf = (id: string) => menuItems().find((m) => m.id === id)!;
 const fromPrice = (m: MenuItem) => (m.variants ? m.variants[0].price : (m.price ?? 0));
 
 /** "2 × Devilled Chicken · Large · Full cheese · No onion" */
@@ -264,7 +264,11 @@ export function OrderSite() {
   const [added, setAdded] = useState(0);
 
   useEffect(() => {
-    const load = () => api.shop().then((s) => { setShop(s); setShopError(false); }, () => setShopError(true));
+    const load = () => api.shop().then((s) => {
+      if (s.menuState) setMenuState(s.menuState); // the owner's prices, names, sold out
+      setShop(s);
+      setShopError(false);
+    }, () => setShopError(true));
     load();
     const t = setInterval(load, 60_000);
     return () => clearInterval(t);
@@ -312,12 +316,12 @@ export function OrderSite() {
           <section key={s.id} id={s.id} className="o-section" aria-labelledby={`h-${s.id}`}>
             <h2 id={`h-${s.id}`}>{s.label}</h2>
             <ul className="o-items">
-              {MENU.filter((m) => m.category === s.id).map((m) => (
+              {menuItems().filter((m) => m.category === s.id && !m.hidden).map((m) => (
                 <li key={m.id}>
-                  <button type="button" className="o-item" onClick={() => setOpen(m)}>
+                  <button type="button" className={`o-item${m.soldOut ? ' o-item--out' : ''}`} disabled={m.soldOut} onClick={() => setOpen(m)}>
                     <span className="o-item__name">{m.name.en}</span>
                     <span className="o-item__desc">{m.description}</span>
-                    <span className="o-item__price num">{m.variants ? 'from ' : ''}{rs(fromPrice(m))}</span>
+                    <span className="o-item__price num">{m.soldOut ? 'Sold out today' : `${m.variants ? 'from ' : ''}${rs(fromPrice(m))}`}</span>
                     <span className="o-item__add" aria-hidden>+</span>
                   </button>
                 </li>

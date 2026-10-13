@@ -9,6 +9,7 @@ import { App } from './App.tsx';
 import { InventoryView } from './InventoryView.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { LockScreen } from './LockScreen.tsx';
+import { MenuView } from './MenuView.tsx';
 import { OwnerView } from './OwnerView.tsx';
 import { OwnerWelcome } from './OwnerWelcome.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
@@ -148,6 +149,10 @@ export function Root() {
   const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
   if (hash === OWNER && seesOwner) return <OwnerView onBack={() => go('')} />;
   if (hash === '#inventory' && mayManageStock) return <InventoryView />;
+  // The menu: the owner changes it; a manager marks things sold out (SCRUM-41).
+  if (hash === '#menu' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
+    return <MenuView owner={!needsLogin || staff?.role === 'owner'} onBack={() => go('')} />;
+  }
   if (hash === '#suppliers' && mayManageStock) return <SupplierView />;
   return (
     <App onKitchen={() => show(true)} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}
