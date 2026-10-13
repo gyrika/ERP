@@ -34,6 +34,9 @@ export interface MenuItem {
   price?: Cents;
   adds: Option[];
   leaveOut: Option[];
+  hidden?: boolean;
+  soldOut?: boolean;
+  edited?: boolean;
 }
 
 export interface OrderLine {
@@ -47,6 +50,8 @@ export interface OrderLine {
   note?: string;
   /** Already on a kitchen ticket. Sent lines are locked: the kitchen may be cooking them. */
   sent?: boolean;
+  /** Price of this item (size and extras) fixed when sent to the kitchen. */
+  unit?: Cents;
 }
 
 export type LineSpec = Omit<OrderLine, 'id'>;

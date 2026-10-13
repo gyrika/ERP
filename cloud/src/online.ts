@@ -1,3 +1,5 @@
+import { MENU } from '../../src/domain/menu.ts';
+import { effectiveMenu, menuStateFromEvents } from '../../src/domain/menuEdits.ts';
 import {
   checkOnlineOrder, effectiveStatus, NEXT_STATUS, takingOrders, type OnlineLine, type OnlineOrder, type OnlineStatus,
 } from '../../src/domain/online.ts';
@@ -47,6 +49,15 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
   const { db, now } = c;
   const path = url.pathname;
 
+  const shopMenuState = async (tenantId: string) => {
+    const { results } = await db.prepare(
+      "SELECT body FROM events WHERE tenant_id = ? AND type IN ('menu.item_set', 'menu.sold_out') ORDER BY seq",
+    ).bind(tenantId).all<{ body: string }>();
+    return menuStateFromEvents(results.map((row) => JSON.parse(row.body) as { type: string }));
+  };
+  const shopMenu = async (tenantId: string) =>
+    effectiveMenu(MENU, await shopMenuState(tenantId), now());
+
   const shopState = async () => {
     if (!c.orderShop) throw new HttpError(404, 'server', 'online orders are not set up');
     const shop = await db.prepare('SELECT name, online_open, online_seen_at FROM shops WHERE id = ?').bind(c.orderShop)
@@ -56,14 +67,17 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
   };
 
   // ----- Customers -----
-  if (path === '/api/v1/shop' && req.method === 'GET') return json(200, await shopState());
+  if (path === '/api/v1/shop' && req.method === 'GET') {
+    const shop = await shopState();
+    return json(200, { ...shop, menuState: await shopMenuState(c.orderShop!) });
+  }
 
   if (path === '/api/v1/orders' && req.method === 'POST') {
     const shop = await shopState();
     if (!shop.open) throw new HttpError(409, 'forbidden', 'The shop is not taking online orders right now.');
     let body: unknown;
     try { body = await req.json(); } catch { throw new HttpError(400, 'invalid_event', 'The order is not readable.'); }
-    const checked = checkOnlineOrder(body);
+    const checked = checkOnlineOrder(body, await shopMenu(c.orderShop!));
     if ('reason' in checked) throw new HttpError(400, 'invalid_event', checked.reason);
     const t = now();
     const ip = await sha256Hex(`cb-online:${req.headers.get('cf-connecting-ip') ?? 'unknown'}`);

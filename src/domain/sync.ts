@@ -1,5 +1,6 @@
 import type { Actor } from './auth.ts';
 import type { OrderEvent } from './events.ts';
+import type { MenuEvent } from './menuEdits.ts';
 import type { Cents } from './types.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 
@@ -54,14 +55,15 @@ interface RecipeUpdatedBase {
   id: string;
   shopId: string;
   at: number;
+  orderNumber: 0;
   actor: Actor;
   menuItemId: string;
   ingredients: Array<{ inventoryId: string; qtyBaseUnits: number }>;
 }
 export type RecipeUpdatedEvent = RecipeUpdatedBase & { type: 'recipe.updated' };
 
-/** Everything that syncs. */
-export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | RecipeUpdatedEvent;
+/** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | RecipeUpdatedEvent | MenuEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;

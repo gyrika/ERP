@@ -1,3 +1,4 @@
+import { EMPTY_MENU_STATE, effectiveMenu, type MenuState } from './menuEdits.ts';
 import type { MenuItem, Option, Variant } from './types.ts';
 
 /** Rupees → cents. */
@@ -125,8 +126,27 @@ export const POPULAR_IDS = [
   'bbq-chicken', 'chicken-burger', 'crispy-chicken-burger', 'italian-pasta',
 ];
 
+let state: MenuState = EMPTY_MENU_STATE;
+let current: MenuItem[] = MENU;
+let version = 0;
+const listeners = new Set<() => void>();
+
+export const setMenuState = (next: MenuState, now = Date.now()): void => {
+  state = next;
+  current = effectiveMenu(MENU, next, now);
+  version++;
+  listeners.forEach((listener) => listener());
+};
+export const menuState = (): MenuState => state;
+export const menuItems = (): MenuItem[] => current;
+export const menuVersion = (): number => version;
+export const subscribeMenu = (listener: () => void): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
 export const itemById = (id: string): MenuItem => {
-  const item = MENU.find((m) => m.id === id);
+  const item = current.find((m) => m.id === id);
   if (!item) throw new Error(`Unknown menu item: ${id}`);
   return item;
 };

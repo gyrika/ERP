@@ -89,3 +89,39 @@ test('invalid ingredient and supplier creation payloads are refused', () => {
   assert.ok('reason' in result);
   if ('reason' in result) assert.match(result.reason, /invalid supplier/);
 });
+
+test('menu edits and sold-out events are accepted only with valid event data', () => {
+  const owner = { ...base, actor: { id: 'owner-1', name: 'Nisal', role: 'owner' } };
+  const valid = [
+    {
+      ...owner,
+      type: 'menu.item_set',
+      itemId: 'margherita',
+      before: {},
+      after: { prices: { M: 160000 }, name: { en: 'Margherita Special' } },
+    },
+    {
+      ...owner,
+      id: 'event-2',
+      type: 'menu.sold_out',
+      itemId: 'margherita',
+      until: 1_800_000_000_000,
+    },
+  ];
+  assert.deepEqual(validatePush({ events: valid }, 'shop-1'), { events: valid });
+
+  const unknownItem = validatePush({
+    events: [{ ...owner, type: 'menu.item_set', itemId: 'not-on-menu', before: {}, after: {} }],
+  }, 'shop-1');
+  assert.ok('reason' in unknownItem);
+
+  const invalidPrice = validatePush({
+    events: [{ ...owner, type: 'menu.item_set', itemId: 'margherita', before: {}, after: { prices: { M: 160001 } } }],
+  }, 'shop-1');
+  assert.ok('reason' in invalidPrice);
+
+  const invalidSoldOut = validatePush({
+    events: [{ ...owner, type: 'menu.sold_out', itemId: 'margherita', until: 'tomorrow' }],
+  }, 'shop-1');
+  assert.ok('reason' in invalidSoldOut);
+});

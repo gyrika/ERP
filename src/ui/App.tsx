@@ -22,6 +22,7 @@ import { useKitchenTickets } from './kitchenStore.ts';
 import { setSoundOn, soundOn } from './sound.ts';
 import { useManagerMode } from './useManagerMode.ts';
 import { useRegister } from './useRegister.ts';
+import { useMenu } from './menuStore.ts';
 import { THEME_LABEL, setTheme, themeChoice, type ThemeChoice } from './theme.ts';
 
 type Sheet =
@@ -52,6 +53,7 @@ export function App({
   canManageStock?: boolean;
 } = {}) {
   const reg = useRegister();
+  useMenu();
   const tickets = useKitchenTickets(); // live, so Cooking turns Done the moment the kitchen taps it
   const online = useOnline();
   /** Tells the customer first (with the number this order will get), then sends it to the kitchen. */
@@ -233,6 +235,7 @@ export function App({
     reg.open.forEach((o) => list.push({ id: `open-${o.number}`, label: `Open order ${o.number}`, run: () => reg.openOrder(o.number) }));
     list.push(
       { id: 'owner', label: 'Owner view: what needs attention today', run: () => { location.hash = '#owner'; } },
+      { id: 'menu', label: 'Menu: prices, names, sold out', run: () => { location.hash = '#menu'; } },
       // This screen's look; the current choice says "On".
       ...(['light', 'dark', 'auto'] as ThemeChoice[]).map((t) => ({
         id: `theme-${t}`, label: THEME_LABEL[t], hint: themeChoice() === t ? 'On' : undefined, run: () => setTheme(t),

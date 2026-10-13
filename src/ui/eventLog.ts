@@ -104,15 +104,18 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
   write(OUTBOX(), outbox);
   const pending = new Set(outbox);
   const all = readAll();
+  // Catalog lifecycle events, recipes and menu changes are the shop's data itself: kept for good.
   const kept = all.filter((e) =>
     pending.has(e.id) ||
+    now - e.at < KEEP_SYNCED_MS ||
+    e.type.startsWith('menu.') ||
+    e.type === 'recipe.updated' ||
     e.type === 'stock.item_added' ||
     e.type === 'stock.supplier_added' ||
     e.type === 'stock.item_archived' ||
     e.type === 'stock.item_restored' ||
     e.type === 'stock.supplier_archived' ||
-    e.type === 'stock.supplier_restored' ||
-    now - e.at < KEEP_SYNCED_MS);
+    e.type === 'stock.supplier_restored');
   if (kept.length !== all.length) write(KEY(), kept);
 };
 

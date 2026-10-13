@@ -1,3 +1,5 @@
+import { itemById } from './menu.ts';
+import { unitPrice } from './money.ts';
 import { totals } from './totals.ts';
 import type { Cents, LineSpec, Order, OrderLine } from './types.ts';
 
@@ -46,7 +48,7 @@ export const unsentLines = (order: Order): OrderLine[] => order.lines.filter((l)
 export const markSent = (order: Order, at: number): Order => ({
   ...order,
   sentAt: order.sentAt ?? at,
-  lines: order.lines.map((l) => (l.sent ? l : { ...l, sent: true })),
+  lines: order.lines.map((l) => (l.sent ? l : { ...l, sent: true, unit: l.unit ?? unitPrice(itemById(l.itemId), l) })),
 });
 
 export const bareLine = (itemId: string, size?: LineSpec['size']): LineSpec => ({

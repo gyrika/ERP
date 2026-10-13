@@ -9,6 +9,8 @@ import { App } from './App.tsx';
 import { InventoryView } from './InventoryView.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { LockScreen } from './LockScreen.tsx';
+import { MenuView } from './MenuView.tsx';
+import { useMenu } from './menuStore.ts';
 import { OwnerView } from './OwnerView.tsx';
 import { OwnerWelcome } from './OwnerWelcome.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
@@ -93,6 +95,7 @@ function NotConnected() {
  * Development and the demo have no login (fake staff), as before.
  */
 export function Root() {
+  useMenu();
   const [hash, setHash] = useState(location.hash);
   /** Came here from the Register, so the Kitchen offers a way back. */
   const [fromRegister, setFromRegister] = useState(false);
@@ -160,6 +163,10 @@ export function Root() {
   if (hash === OWNER && seesOwner) return <OwnerView onBack={() => go('')} />;
   if (hash === '#inventory' && mayManageStock) {
     return <InventoryView onFindSupplier={findSupplier} onOwnerView={seesOwner ? () => go(OWNER) : undefined} />;
+  }
+  // The owner changes the menu; managers can mark items sold out during service.
+  if (hash === '#menu' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
+    return <MenuView owner={!needsLogin || staff?.role === 'owner'} onBack={() => go('')} />;
   }
   if (hash === '#suppliers' && mayManageStock) {
     return <SupplierView filterIngredientId={filterIngredientId} onOwnerView={seesOwner ? () => go(OWNER) : undefined} />;

@@ -50,6 +50,8 @@ button { cursor: pointer; }
 @media (min-width: 640px) { .o-items { grid-template-columns: 1fr 1fr; } }
 .o-item { position: relative; width: 100%; min-height: 112px; text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 16px 64px 16px 16px; border: 0; border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); transition: transform 150ms var(--ease); }
 .o-item:active { transform: scale(0.985); }
+.o-item--out { opacity: 0.55; cursor: not-allowed; }
+.o-item--out .o-item__add { display: none; }
 .o-item__name { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .o-item__desc { font-size: 14px; color: var(--ink-2); line-height: 1.4; }
 .o-item__price { margin-top: auto; padding-top: 6px; font-size: 15px; font-weight: 500; }

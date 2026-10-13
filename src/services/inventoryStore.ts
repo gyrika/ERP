@@ -24,8 +24,7 @@ export const readActiveRecipes = (): Record<string, Array<{ inventoryId: string;
   const events = readAll();
   for (const e of events) {
     if (e.type === 'recipe.updated') {
-      const rev = e as any;
-      active[rev.menuItemId] = rev.ingredients;
+      active[e.menuItemId] = e.ingredients;
     }
   }
   return active;
@@ -35,7 +34,7 @@ export function useActiveRecipes(): Record<string, Array<{ inventoryId: string; 
   const [active, setActive] = useState(readActiveRecipes);
   useEffect(() => subscribeEvents(() => setActive(readActiveRecipes())), []);
   return active;
-};
+}
 export const readSuppliers = (includeArchived = false): Supplier[] =>
   suppliersFromEvents(SEED_SUPPLIERS, readAll(), includeArchived);
 

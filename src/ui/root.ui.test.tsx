@@ -94,14 +94,14 @@ test('adding a supplier with a new ingredient updates Inventory and Find Supplie
   await user.click(screen.getByRole('button', { name: 'Save Supplier' }));
 
   await user.click(await screen.findByRole('link', { name: 'Inventory' }));
-  const ingredientRow = screen.getByRole('heading', { name: 'End-to-end Flour' }).closest('.inv-row')!;
+  const ingredientRow = screen.getByRole('heading', { name: 'End-to-end Flour' }).closest('.inv-row') as HTMLElement;
   expect(within(ingredientRow).getByText('End-to-end Supplier')).toBeTruthy();
 
   await user.click(within(ingredientRow).getByRole('button', { name: 'Find Supplier' }));
   expect(await screen.findByRole('heading', { name: 'Targeted Suppliers' })).toBeTruthy();
   const supplierToggle = screen.getByRole('button', { name: 'Expand End-to-end Supplier' });
   await user.click(supplierToggle);
-  expect(within(supplierToggle.closest('article')!).getByText('End-to-end Flour')).toBeTruthy();
+  expect(within(supplierToggle.closest('article') as HTMLElement).getByText('End-to-end Flour')).toBeTruthy();
 });
 
 test('inventory and suppliers link to each other and to the Owner view', async () => {

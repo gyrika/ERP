@@ -83,6 +83,7 @@ export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?:
           data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>
         ) : (
           <nav className="owner__nav" aria-label="Owner sections">
+            <a href="#menu">Menu</a>
             <a href="#setup">Shop setup</a>
             <a href="#inventory">Inventory</a>
             <a href="#suppliers">Suppliers</a>

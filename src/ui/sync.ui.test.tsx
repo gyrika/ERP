@@ -155,6 +155,26 @@ test('synced catalog lifecycle events stay local after routine events are pruned
       type: 'stock.supplier_restored',
       supplierId: 'sup-new',
     },
+    {
+      id: 'old-recipe',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'recipe.updated',
+      menuItemId: 'margherita',
+      ingredients: [{ inventoryId: 'inv-new', qtyBaseUnits: 20 }],
+    },
+    {
+      id: 'old-menu',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor: { ...actor, role: 'owner' as const },
+      type: 'menu.sold_out',
+      itemId: 'margherita',
+      until: Date.now() + 60_000,
+    },
     { ...sent('old-order', 'old-ticket'), at: 1 },
   ]);
 
@@ -167,6 +187,8 @@ test('synced catalog lifecycle events stay local after routine events are pruned
     'old-supplier-archive',
     'old-item-restore',
     'old-supplier-restore',
+    'old-recipe',
+    'old-menu',
   ]);
 });
 

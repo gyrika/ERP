@@ -1,10 +1,10 @@
 import { useCallback } from 'react';
-import { CATEGORIES, MENU, POPULAR_IDS } from '../domain/menu.ts';
+import { CATEGORIES, POPULAR_IDS, menuItems } from '../domain/menu.ts';
 import { fmtPlain } from '../domain/money.ts';
-import { useActiveRecipes } from '../services/inventoryStore.ts';
 import { RECIPES } from '../domain/recipes.ts';
 import type { MenuItem, SizeId } from '../domain/types.ts';
-import { isOutOfStock, useInventory } from '../services/inventoryStore.ts';
+import { isOutOfStock, useActiveRecipes, useInventory } from '../services/inventoryStore.ts';
+import { useMenu } from './menuStore.ts';
 
 export type CategoryId = (typeof CATEGORIES)[number]['id'];
 
@@ -18,16 +18,14 @@ interface Props {
   hint: string;
 }
 
-/** Sold-out items remain visible but disabled. */
 const visible = (c: CategoryId): MenuItem[] =>
-  c === 'popular'
-    ? POPULAR_IDS.flatMap((id) => {
-        const item = MENU.find((menuItem) => menuItem.id === id);
-        return item ? [item] : [];
-      })
-    : MENU.filter((item) => item.category === c);
+  (c === 'popular'
+    ? POPULAR_IDS.map((id) => menuItems().find((item) => item.id === id)!).filter(Boolean)
+    : menuItems().filter((item) => item.category === c)
+  ).filter((item) => !item.hidden);
 
 export function Menu({ category, onCategory, onQuickAdd, onCustomise, hint }: Props) {
+  useMenu();
   const { items: inventoryItems } = useInventory();
   const activeRecipes = useActiveRecipes();
 
@@ -61,9 +59,10 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, hint }: Pr
 
       <div className="grid">
         {visible(category).map((item) => {
-          const available = isMenuAvailable(item.id);
+          const available = !item.soldOut && isMenuAvailable(item.id);
           return (
             <div key={item.id} className={`card${!available ? ' card--out' : ''}`} aria-disabled={!available ? 'true' : undefined}>
+              {item.soldOut && <span className="card__soldout">Sold out</span>}
               <button
                 type="button"
                 className="card__title"
@@ -74,7 +73,7 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, hint }: Pr
                   {item.number !== undefined && <span className="card__no num" aria-hidden="true">{item.number}</span>}
                   {item.name.en}
                 </span>
-                {!available && <span className="inv-badge inv-badge--alert">Out of stock</span>}
+                {!available && !item.soldOut && <span className="inv-badge inv-badge--alert">Out of stock</span>}
                 <span className="card__desc">{item.description}</span>
               </button>
               <div className="card__prices">
