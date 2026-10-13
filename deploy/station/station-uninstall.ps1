@@ -1,7 +1,7 @@
 # Run by the uninstaller (as administrator, hidden). The shop's data stays in
 # C:\ProgramData\CheesyBeez (sales, staff, settings): delete that folder by hand to remove it too.
 $ErrorActionPreference = 'Continue'
-foreach ($name in @('CheesyBeez Station', 'CheesyBeez Station update')) {
+foreach ($name in @('CheesyBeez Station', 'CheesyBeez Station update', 'CheesyBeez Station nightly')) {
   Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
 }

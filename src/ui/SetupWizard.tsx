@@ -309,7 +309,7 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
 
   return (
     <div className="setup__form">
-      <p className="setup__lead">Installed: <b>{info?.current ?? '…'}</b>. New versions also install by themselves at 4 am, when the shop is closed.</p>
+      <p className="setup__lead">Installed: <b>{info?.current ?? '…'}</b>. New versions install by themselves within minutes, once the counter has been quiet for 15 minutes.</p>
       {phase === 'updating' && <UpdateProgress percent={progress.percent} label={progress.label} />}
       {phase === 'back' && (
         <p className="setup__error" role="alert">Version {info?.latest} did not start on this PC, so CheesyBeez went back to {info?.current}. All sales are safe. Tell whoever looks after your POS.</p>

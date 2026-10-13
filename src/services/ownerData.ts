@@ -5,11 +5,12 @@ import type { PullResponse, SyncEvent } from '../domain/sync.ts';
 import { demoHistory } from '../fake/history.ts';
 import { readAll, subscribeEvents } from '../ui/eventLog.ts';
 import { isDemo } from '../ui/storage.ts';
-import { ownerToken, syncToken } from './pairing.ts';
+import { adminShop, ownerToken, syncToken } from './pairing.ts';
 
 /**
  * Everything the Owner view looks at: the shop's whole history of events.
  * - The owner's phone: from the cloud copy (same address that served the page).
+ * - The developer's admin view of a shop: the same, through /admin (Cloudflare Access).
  * - The counter (paired): from the shop server (the browser keeps only two days).
  * - The demo: five weeks of made-up trading (src/fake/history.ts).
  * - Development without a server: this browser's own events.
@@ -23,15 +24,13 @@ interface Source {
   incremental: boolean;
 }
 
-const remote = (token: string): Source => ({
+const remote = (path: string, headers: Record<string, string>): Source => ({
   incremental: true,
   async next(after) {
     const events: SyncEvent[] = [];
     let cursor = after;
     for (;;) {
-      const r = await fetch(`/api/v1/events?after=${cursor}&limit=500`, {
-        headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000),
-      });
+      const r = await fetch(`${path}?after=${cursor}&limit=500`, { headers, signal: AbortSignal.timeout(20_000) });
       if (!r.ok) throw new Error(r.status === 401 ? 'This link is no longer valid.' : `server ${r.status}`);
       const page = (await r.json()) as PullResponse;
       events.push(...page.events.map((s) => s.event));
@@ -48,8 +47,10 @@ const local = (read: () => SyncEvent[]): Source => ({
 
 export const shopSource = (): Source => {
   if (isDemo()) return local(() => demoHistory(Date.now()));
+  const shop = adminShop();
+  if (shop) return remote(`/admin/api/shops/${shop}/events`, {});
   const token = ownerToken() ?? syncToken();
-  return token ? remote(token) : local(readAll);
+  return token ? remote('/api/v1/events', { authorization: `Bearer ${token}` }) : local(readAll);
 };
 
 export type ShopEvents =

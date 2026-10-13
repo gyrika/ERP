@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { isNewer } from '../src/domain/version.ts';
+
+export { isNewer };
 
 /**
  * "Update now" in Shop setup. CheesyBeez Station keeps its version beside the
  * program (version.txt) and an updater script (station-update.ps1, also run
- * every night at 4 am). This asks GitHub for the latest release and, when the
+ * every 5 minutes). This asks GitHub for the latest release and, when the
  * owner says so, runs that updater straight away. In development there is no
  * Station, so there is nothing to update.
  */
@@ -15,18 +18,6 @@ export interface UpdateCheck {
   latest: string | null;
   newer: boolean;
 }
-
-/** "1.0.10" > "1.0.9", part by part; anything that is not a version is never newer. */
-export const isNewer = (latest: string, current: string): boolean => {
-  const parse = (v: string) => (/^\d+(\.\d+){0,3}$/.test(v) ? v.split('.').map(Number) : null);
-  const a = parse(latest);
-  const b = parse(current);
-  if (!a || !b) return false;
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
-  }
-  return false;
-};
 
 /** Where an update is (station-update.ps1 writes it), for the progress bar. */
 export interface UpdateStatus {

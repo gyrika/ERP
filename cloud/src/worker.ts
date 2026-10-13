@@ -1,3 +1,4 @@
+import { adminRoutes } from './admin.ts';
 import { createCloud, type D1Like } from './cloud.ts';
 import { downloadPage, latestRelease } from './download.ts';
 import { answersApi, questionsPage } from './questions.ts';
@@ -10,6 +11,9 @@ interface Env {
   ANSWER_KEY?: string;
   /** The shop that cheesybeez.com takes online orders for (wrangler.toml [vars]). */
   ORDER_SHOP?: string;
+  /** Cloudflare Access for /admin: the team domain (e.g. gyrika.cloudflareaccess.com) and the app's audience tag. */
+  ACCESS_TEAM?: string;
+  ACCESS_AUD?: string;
   /** The owner's page: the cloud build of the app (npm run build:cloud), served as static files. */
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
@@ -47,6 +51,14 @@ export default {
       return Promise.resolve(Response.redirect(`https://${CUSTOMER_HOST}${url.pathname}${url.search}`, 301));
     }
     if (url.hostname === CUSTOMER_HOST && url.pathname === '/') return env.ASSETS.fetch(new Request(new URL('/order', url), request));
+    if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
+      return adminRoutes(request, url, {
+        db: env.DB,
+        access: env.ACCESS_TEAM && env.ACCESS_AUD ? { team: env.ACCESS_TEAM, aud: env.ACCESS_AUD } : null,
+        latest: () => latestRelease().then((r) => r?.version ?? null),
+        app: (req) => env.ASSETS.fetch(req),
+      }).then((r) => r ?? new Response('Not found', { status: 404 }));
+    }
     if (url.pathname === '/api/v1/answers') return answersApi(request, env.DB, env.ANSWER_KEY);
     if (url.pathname.startsWith('/api/')) return createCloud(env.DB, { enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP })(request);
     if (url.pathname === '/get' || url.pathname === '/download') {

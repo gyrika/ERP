@@ -26,8 +26,12 @@ async function world() {
   const sell = (n: number, from = 0) => store.push(device, Array.from({ length: n }, (_, i): SyncEvent => (
     { id: `e${from + i}`, shopId: 'shop-a', at: 1, orderNumber: 1001, ticketId: 't', type: 'kitchen.seen' })), 2);
   const copied = () => (db.prepare("SELECT id FROM events WHERE tenant_id = 'shop-a' ORDER BY source_seq").all() as { id: string }[]).map((r) => r.id);
-  const rep = startReplicator({ store, tenantId: 'shop-a', url: 'https://cloud.test', token: 'secret', fetch: net, every: 3_600_000 });
-  return { rep, sell, copied, setDown: (v: boolean) => { down = v; }, calls: () => calls };
+  const rep = startReplicator({
+    store, tenantId: 'shop-a', url: 'https://cloud.test', token: 'secret', fetch: net, every: 3_600_000,
+    about: () => ({ version: '1.0.4', update: { phase: 'done', percent: 100, version: '1.0.4', at: 7 } }),
+  });
+  const station = () => db.prepare("SELECT version, update_status, last_seen_at FROM devices WHERE id = 'cloud-dev'").get();
+  return { rep, sell, copied, station, setDown: (v: boolean) => { down = v; }, calls: () => calls };
 }
 
 test('everything is copied once, in batches, and a second pass sends nothing', async () => {
@@ -58,5 +62,14 @@ test('internet down: sales go on; on reconnect the copy catches up, nothing lost
   await w.rep.syncNow();
   assert.deepEqual(w.copied(), ['e0', 'e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7']);
   assert.equal(w.rep.status().lastError, null);
+  w.rep.stop();
+});
+
+test('every pass, even with nothing to copy, tells the cloud this Station is alive and what it runs', async () => {
+  const w = await world();
+  await w.rep.syncNow();
+  assert.deepEqual({ ...w.station() as object, last_seen_at: typeof (w.station() as { last_seen_at: unknown }).last_seen_at }, {
+    version: '1.0.4', update_status: '{"phase":"done","percent":100,"version":"1.0.4","at":7}', last_seen_at: 'number',
+  });
   w.rep.stop();
 });

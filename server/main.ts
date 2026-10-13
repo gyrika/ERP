@@ -55,6 +55,12 @@ const cloudLink = () => {
   return s.cloudUrl && s.cloudToken ? { url: s.cloudUrl, token: s.cloudToken } : null;
 };
 const cloudShop = () => process.env.CLOUD_SHOP || settings.get().shopId; // empty = unset
+// CheesyBeez Station puts these beside the program ({app}\version.txt, {app}\station-update.ps1).
+const updates = updatesApi({
+  versionFile: fileURLToPath(new URL('../../version.txt', import.meta.url)),
+  updaterScript: fileURLToPath(new URL('../../station-update.ps1', import.meta.url)),
+  statusFile: `${dataDir}/update-status.json`,
+});
 let replicator: ReturnType<typeof startReplicator> | null = null;
 let online: Online | null = null;
 /** Copy to the cloud, and take online orders, when there is a link and a shop; again when the wizard connects it. */
@@ -63,7 +69,10 @@ const startCloud = () => {
   online?.stop();
   const link = cloudLink();
   const shop = cloudShop();
-  replicator = link && shop ? startReplicator({ store, tenantId: shop, url: link.url, token: link.token }) : null;
+  replicator = link && shop ? startReplicator({
+    store, tenantId: shop, url: link.url, token: link.token,
+    about: () => ({ version: updates.current(), update: updates.status() }),
+  }) : null;
   online = link && shop ? startOnline({
     url: link.url, token: link.token,
     isOpen: () => settings.get().onlineOpen === true,
@@ -71,13 +80,6 @@ const startCloud = () => {
   }) : null;
 };
 startCloud();
-
-// CheesyBeez Station puts these beside the program ({app}\version.txt, {app}\station-update.ps1).
-const updates = updatesApi({
-  versionFile: fileURLToPath(new URL('../../version.txt', import.meta.url)),
-  updaterScript: fileURLToPath(new URL('../../station-update.ps1', import.meta.url)),
-  statusFile: `${dataDir}/update-status.json`,
-});
 
 const server = createApp({
   store,

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
-import { isCloudSite, isKitchenDevice, ownerToken, syncToken } from '../services/pairing.ts';
+import { adminShop, isCloudSite, isKitchenDevice, ownerToken, syncToken } from '../services/pairing.ts';
 import { isDemo } from './storage.ts';
 import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { App } from './App.tsx';
@@ -144,7 +144,7 @@ export function Root() {
   }, [hash, inKitchen, show, go, seesOwner, kitchenOnly, needsLogin, staff]);
 
   // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
-  if (isCloudSite()) return ownerToken() || isDemo() ? <OwnerView phone /> : <OwnerWelcome />;
+  if (isCloudSite()) return ownerToken() || isDemo() || adminShop() ? <OwnerView phone /> : <OwnerWelcome />;
   if (setup === 'checking') return <div className="setup" aria-busy="true" />;
   if (setup === 'new') return <SetupWizard mode="first" />;
   if (setup === 'remote' && !syncToken()) return <NotConnected />;
