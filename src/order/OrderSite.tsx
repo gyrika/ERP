@@ -15,7 +15,11 @@ const rs = (cents: number) => `Rs ${fmt(cents)}`;
 const SECTIONS: { id: Category; label: string }[] = [
   { id: 'pizza', label: 'Pizza' }, { id: 'burger', label: 'Burgers' }, { id: 'pasta', label: 'Pasta' },
 ];
-const itemOf = (id: string) => menuItems().find((m) => m.id === id)!;
+const itemOf = (id: string) => {
+  const item = menuItems().find((entry) => entry.id === id);
+  if (!item) throw new Error(`Unknown menu item: ${id}`);
+  return item;
+};
 const fromPrice = (m: MenuItem) => (m.variants ? m.variants[0].price : (m.price ?? 0));
 
 /** "2 × Devilled Chicken · Large · Full cheese · No onion" */
@@ -265,7 +269,7 @@ export function OrderSite() {
 
   useEffect(() => {
     const load = () => api.shop().then((s) => {
-      if (s.menuState) setMenuState(s.menuState); // the owner's prices, names, sold out
+      if (s.menuState) setMenuState(s.menuState);
       setShop(s);
       setShopError(false);
     }, () => setShopError(true));

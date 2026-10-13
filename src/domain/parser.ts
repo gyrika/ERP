@@ -23,7 +23,7 @@ export class ShorthandInterpreter implements OrderInterpreter {
   constructor(menu: MenuItem[]) {
     // Longest alias first so "crispy chicken burger" wins over "burger".
     this.aliasIndex = menu
-      .flatMap((item) => item.aliases.map((alias) => ({ alias, item })))
+      .flatMap((item) => [...new Set([...item.aliases, item.name.en.toLowerCase()])].map((alias) => ({ alias, item })))
       .sort((a, b) => b.alias.length - a.alias.length);
     this.byNumber = new Map(menu.filter((m) => m.number).map((m) => [m.number!, m]));
     this.protectedNames = this.aliasIndex

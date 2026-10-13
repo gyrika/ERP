@@ -3,10 +3,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { managesRole, mayRecord } from '../src/domain/auth.ts';
-import type { OrderEvent } from '../src/domain/events.ts';
 import {
-  PULL_LIMIT, type ApiError, type LoginResponse, type PullResponse, type PushResponse, type StockEvent, type StreamMessage, type SyncEvent,
-  type SyncedEvent,
+  PULL_LIMIT, type ApiError, type LoginResponse, type PullResponse, type PushResponse, type StreamMessage, type SyncEvent, type SyncedEvent,
 } from '../src/domain/sync.ts';
 import { isPin } from './pins.ts';
 import { OnlineError, type Online, type OnlineAnswer } from './online.ts';
@@ -123,7 +121,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
   const refusal = (device: Device, e: SyncEvent, sessions: Awaited<ReturnType<EventStore['sessions']>>): string | null => {
     if (e.type.startsWith('kitchen.')) return device.kind === 'owner' ? 'not from this device' : null;
     if (device.kind !== 'counter') return 'only the counter records orders and stock';
-    const { actor } = e as OrderEvent | StockEvent;
+    if (!('actor' in e)) return 'this event does not say who did it';
+    const { actor } = e;
     const s = sessions.find((x) => x.staffId === actor.id && x.role === actor.role
       && e.at >= x.startedAt - CLOCK_SLACK_MS && e.at <= x.expiresAt + CLOCK_SLACK_MS);
     if (!s) return 'that person was not logged in on this device then';

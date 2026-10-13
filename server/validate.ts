@@ -1,9 +1,29 @@
-import { MENU_EVENT_TYPES } from '../src/domain/menuEdits.ts';
-import { KITCHEN_EVENT_TYPES, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent } from '../src/domain/sync.ts';
+import { MENU } from '../src/domain/menu.ts';
+import { checkOverride, MENU_EVENT_TYPES, type ItemOverride } from '../src/domain/menuEdits.ts';
+import {
+  KITCHEN_EVENT_TYPES, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
+} from '../src/domain/sync.ts';
 
-const TYPES = new Set<string>([...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...MENU_EVENT_TYPES]);
+const TYPES = new Set<string>([
+  ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...MENU_EVENT_TYPES,
+]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
+const validOverride = (itemId: unknown, value: unknown): boolean => {
+  if (!isObj(value)) return false;
+  const item = MENU.find((entry) => entry.id === itemId);
+  if (!item) return false;
+  if (value.name !== undefined && (!isObj(value.name) ||
+      Object.entries(value.name).some(([key, name]) =>
+        !['en', 'si', 'ta'].includes(key) || (name !== undefined && typeof name !== 'string')))) return false;
+  if (value.description !== undefined && typeof value.description !== 'string') return false;
+  if (value.hidden !== undefined && typeof value.hidden !== 'boolean') return false;
+  if (value.prices !== undefined && (!isObj(value.prices) ||
+      Object.values(value.prices).some((price) => typeof price !== 'number'))) return false;
+  if (value.adds !== undefined && (!isObj(value.adds) ||
+      Object.values(value.adds).some((price) => typeof price !== 'number'))) return false;
+  return checkOverride(item, value as ItemOverride) === null;
+};
 
 /**
  * The server checks the shape only (contract rule 3): it never changes an
@@ -25,6 +45,53 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
         return { reason: `event ${e.id} does not say who did it` };
       }
+    }
+    if (e.type === 'stock.adjusted' && (
+      !shortString(e.itemId) || typeof e.deltaPacks !== 'number' || !Number.isFinite(e.deltaPacks) || e.deltaPacks === 0 ||
+      (e.reason !== undefined && !['waste', 'audit', 'receive'].includes(String(e.reason)))
+    )) return { reason: `event ${e.id} has an invalid stock change` };
+    if (e.type === 'stock.price_set' && (
+      !shortString(e.itemId) || !Number.isSafeInteger(e.before) || !Number.isSafeInteger(e.after) ||
+      (e.before as number) < 0 || (e.after as number) < 0
+    )) return { reason: `event ${e.id} has an invalid price` };
+    if (e.type === 'stock.item_added') {
+      const item = e.item;
+      if (
+        !isObj(item) || !shortString(item.id) || !shortString(item.name, 120) ||
+        !shortString(item.category, 80) || !Array.isArray(item.supplierIds) ||
+        item.supplierIds.length === 0 || !item.supplierIds.every((id) => shortString(id)) ||
+        new Set(item.supplierIds).size !== item.supplierIds.length ||
+        !['g', 'ml', 'pcs', 'sheets'].includes(String(item.baseUnit)) ||
+        typeof item.packQty !== 'number' || !Number.isFinite(item.packQty) || item.packQty <= 0 ||
+        !Number.isSafeInteger(item.workingPriceCents) || (item.workingPriceCents as number) < 0
+      ) return { reason: `event ${e.id} has an invalid ingredient` };
+    }
+    if (e.type === 'stock.supplier_added') {
+      const supplier = e.supplier;
+      if (
+        !isObj(supplier) || !shortString(supplier.id) || !shortString(supplier.name, 120) ||
+        (supplier.phone !== undefined && !shortString(supplier.phone, 40)) ||
+        !Array.isArray(e.linkedItemIds) || !e.linkedItemIds.every((id) => shortString(id)) ||
+        new Set(e.linkedItemIds).size !== e.linkedItemIds.length
+      ) return { reason: `event ${e.id} has an invalid supplier` };
+    }
+    if (
+      (e.type === 'stock.item_archived' || e.type === 'stock.item_restored') &&
+      !shortString(e.itemId)
+    ) return { reason: `event ${e.id} has an invalid ingredient id` };
+    if (
+      (e.type === 'stock.supplier_archived' || e.type === 'stock.supplier_restored') &&
+      !shortString(e.supplierId)
+    ) return { reason: `event ${e.id} has an invalid supplier id` };
+    if (e.type.startsWith('menu.') && e.orderNumber !== 0) return { reason: `event ${e.id} has an invalid menu order number` };
+    if (e.type === 'menu.item_set' &&
+        (!shortString(e.itemId) || !validOverride(e.itemId, e.before) || !validOverride(e.itemId, e.after))) {
+      return { reason: `event ${e.id} has an invalid menu change` };
+    }
+    if (e.type === 'menu.sold_out' &&
+        (!shortString(e.itemId) || !MENU.some((item) => item.id === e.itemId) ||
+          (e.until !== null && !Number.isSafeInteger(e.until)))) {
+      return { reason: `event ${e.id} has an invalid sold-out change` };
     }
   }
   return { events: body.events as SyncEvent[] };

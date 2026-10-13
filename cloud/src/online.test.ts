@@ -24,7 +24,7 @@ async function setup() {
     }));
     return { status: r.status, body: await r.json() as Record<string, any> };
   };
-  return { call, clock, db };
+  return { call, clock, db, d1 };
 }
 
 const pizza = { itemId: 'devilled-chicken', qty: 1, size: 'L', adds: [], outs: ['no-onion'] };

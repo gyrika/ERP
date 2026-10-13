@@ -1,100 +1,223 @@
-import { afterEach, beforeEach, expect, test } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import * as inventoryStore from '../services/inventoryStore.ts';
+import { readAll } from './eventLog.ts';
+import { SEED_INVENTORY } from '../domain/inventoryData.ts';
 import { InventoryView } from './InventoryView.tsx';
 import { SupplierView } from './SupplierView.tsx';
 
 beforeEach(() => localStorage.clear());
+
+/** A stock row as the screens get it. */
+const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
+  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true });
 afterEach(cleanup);
 
-test('inventory filters and searches seeded items by category and name', async () => {
-  const user = userEvent.setup();
+test('every seeded ingredient is listed once, with all of its suppliers', () => {
   render(<InventoryView />);
 
-  await user.click(screen.getByRole('button', { name: 'Veg' }));
-  expect(screen.getByText('Onion')).toBeTruthy();
-  expect(screen.queryByText('Pizza Flour')).toBeNull();
-
-  await user.type(screen.getByRole('searchbox'), 'tomato');
-  expect(screen.getByText('Tomato')).toBeTruthy();
-  expect(screen.queryByText('Onion')).toBeNull();
-
-  await user.click(screen.getByRole('button', { name: 'Packaging' }));
-  expect(screen.getByText('No items match')).toBeTruthy();
+  const rows = within(screen.getByRole('main', { name: 'Inventory' })).getAllByRole('article');
+  expect(rows).toHaveLength(SEED_INVENTORY.length);
+  const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  expect(within(flour).getByLabelText('Suppliers').textContent).toBe('Prima / David Stores (Wholesale), Ajantha (Wholesale)');
 });
 
-test('inventory filters hide while scrolling down and return while scrolling up', () => {
-  render(<InventoryView />);
-  const scrollArea = screen.getByRole('region', { name: 'Inventory list' });
-  const header = screen.getByRole('searchbox').closest('.inv-command-bar')!;
-
-  scrollArea.scrollTop = 120;
-  fireEvent.scroll(scrollArea);
-  expect(header.classList.contains('inv-command-bar--hidden')).toBe(true);
-
-  scrollArea.scrollTop = 80;
-  fireEvent.scroll(scrollArea);
-  expect(header.classList.contains('inv-command-bar--hidden')).toBe(false);
-
-  scrollArea.scrollTop = 0;
-  fireEvent.scroll(scrollArea);
-  expect(header.classList.contains('inv-command-bar--hidden')).toBe(false);
-});
-
-test('stock stepper updates persistently and low-stock warning follows the threshold', async () => {
+test('Find Supplier hands the ingredient to the supplier board, and only shows when there is one', async () => {
   const user = userEvent.setup();
-  const { unmount } = render(<InventoryView />);
-  const flour = screen.getByText('Pizza Flour').closest('li')!;
+  const onFindSupplier = vi.fn();
+  const { unmount } = render(<InventoryView onFindSupplier={onFindSupplier} />);
 
-  expect(within(flour).getByText('Low stock')).toBeTruthy();
-  await user.click(within(flour).getByRole('button', { name: 'Add one pack of Pizza Flour' }));
-  expect(within(flour).getByText('1')).toBeTruthy();
-  expect(within(flour).getByText('Low stock')).toBeTruthy();
-
-  await user.click(within(flour).getByRole('button', { name: 'Add one pack of Pizza Flour' }));
-  expect(within(flour).getByText('2')).toBeTruthy();
-  expect(within(flour).queryByText('Low stock')).toBeNull();
+  const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  await user.click(within(flour).getByRole('button', { name: 'Find Supplier' }));
+  expect(onFindSupplier).toHaveBeenCalledExactlyOnceWith('inv-0001');
 
   unmount();
   render(<InventoryView />);
-  const restored = screen.getByText('Pizza Flour').closest('li')!;
-  expect(within(restored).getByText('2')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Find Supplier' })).toBeNull();
 });
 
-test('price drawer reports invalid input and saves valid LKR cents', async () => {
-  const user = userEvent.setup();
+test('the status dot follows the low-stock threshold live as packs are counted', () => {
+  render(<InventoryView />);
+  const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  const status = () => within(flour).getByRole('img').getAttribute('aria-label');
+
+  expect(status()).toBe('Not counted yet'); // unknown, never shown as out
+  act(() => inventoryStore.adjustStock('inv-0001', 1));
+  act(() => inventoryStore.adjustStock('inv-0001', -1));
+  expect(status()).toBe('Out of stock');
+  act(() => inventoryStore.adjustStock('inv-0001', 1));
+  expect(status()).toBe('Low stock');
+  act(() => inventoryStore.adjustStock('inv-0001', 1));
+  expect(status()).toBe('In stock');
+  expect(within(flour).getByLabelText('Available stock and pack size').textContent).toContain('50 kg / 25 kg');
+});
+
+test('counted stock survives a reload', () => {
+  inventoryStore.adjustStock('inv-0001', 2);
+  const { unmount } = render(<InventoryView />);
+  unmount();
   render(<InventoryView />);
 
-  await user.click(screen.getByRole('button', { name: /Edit price for Pizza Flour/ }));
-  const price = screen.getByRole('textbox', { name: 'Price' });
-  await user.clear(price);
-  await user.type(price, '1,,25');
-  await user.click(screen.getByRole('button', { name: 'Save price' }));
-
-  expect(screen.getByRole('alert').textContent).toContain('valid LKR price');
-  expect(screen.getByRole('dialog', { name: 'Price · Pizza Flour' })).toBeTruthy();
-
-  await user.clear(price);
-  await user.type(price, '1,250.25');
-  await user.click(screen.getByRole('button', { name: 'Save price' }));
-  expect(screen.queryByRole('dialog')).toBeNull();
-  expect(screen.getByRole('button', { name: /Edit price for Pizza Flour, Rs 1,250.25/ })).toBeTruthy();
+  const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  expect(within(flour).getByLabelText('Available stock and pack size').textContent).toContain('50 kg / 25 kg');
+  expect(within(flour).getByRole('img', { name: 'In stock' })).toBeTruthy();
 });
 
-test('supplier cards show primary and backup counts without inventing contact details', () => {
+test('an ingredient whose only supplier is removed says it has no active suppliers', () => {
+  inventoryStore.archiveSupplier('sup_ajantha');
+  render(<InventoryView />);
+
+  const tomato = screen.getByRole('heading', { name: 'Peeled Tomato / Sugo' }).closest('article')!;
+  expect(within(tomato).getByLabelText('Suppliers').textContent).toBe('No active suppliers');
+  const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  expect(within(flour).getByLabelText('Suppliers').textContent).toBe('Prima / David Stores (Wholesale)');
+});
+
+test('supplier list expands to show linked ingredients and contact actions', async () => {
+  const user = userEvent.setup();
   render(<SupplierView />);
 
-  expect(screen.getByRole('main', { name: 'Suppliers' }).classList.contains('inv-shell')).toBe(true);
-  expect(screen.getByRole('heading', { name: 'Suppliers' }).classList.contains('supplier-heading')).toBe(true);
+  const main = screen.getByRole('main', { name: 'Suppliers' });
+  expect(main.classList.contains('supplier-grid')).toBe(true);
+  const ajantha = screen.getByRole('button', { name: 'Expand Ajantha (Wholesale)' });
+  const secondSupplier = screen.getByRole('button', { name: 'Expand Prima / David Stores (Wholesale)' });
+  const details = ajantha.closest('article')!.querySelector('.sup-card__expand');
+  const secondDetails = secondSupplier.closest('article')!.querySelector('.sup-card__expand');
+  expect(details?.hasAttribute('hidden')).toBe(true);
+  expect(ajantha.closest('article')!.classList.contains('supplier-card--expanded')).toBe(false);
+  await user.click(ajantha);
+  expect(details?.hasAttribute('hidden')).toBe(false);
+  expect(ajantha.closest('article')!.classList.contains('supplier-card--expanded')).toBe(true);
+  await user.click(secondSupplier);
+  expect(secondDetails?.hasAttribute('hidden')).toBe(false);
+  expect(secondSupplier.closest('article')!.classList.contains('supplier-card--expanded')).toBe(true);
+  const rows = [...main.querySelectorAll('article')];
+  expect(rows).toContain(ajantha.closest('article'));
+  expect(rows).toContain(secondSupplier.closest('article'));
+  expect(within(ajantha.closest('article')!).getByText('Pizza Flour')).toBeTruthy();
+  expect(within(ajantha.closest('article')!).getByText('No phone on file')).toBeTruthy(); // never made up
+});
 
-  const primaHeading = screen.getByRole('heading', { name: 'Prima / David Stores' });
-  expect(primaHeading.closest('article')?.classList.contains('inv-card')).toBe(true);
-  const prima = within(primaHeading.closest('article')!);
-  expect(prima.getByText('Primary items')).toBeTruthy();
-  expect(prima.getByText('Backup items')).toBeTruthy();
-  expect(prima.getByText('Wholesale')).toBeTruthy();
-  expect(prima.getByText('No contact details on file')).toBeTruthy();
+test('a supplier number the manager typed the local way calls, and opens WhatsApp with the country code', async () => {
+  const user = userEvent.setup();
+  inventoryStore.addSupplier({ id: 'sup_farm', name: 'Fresh Farms', phone: '077 123 4567' }, ['inv-0001']);
+  render(<SupplierView />);
+  await user.click(screen.getByRole('button', { name: 'Expand Fresh Farms' }));
+  const card = within(screen.getByRole('button', { name: 'Collapse Fresh Farms' }).closest('article')!);
+  expect(card.getByRole('link', { name: 'Call' }).getAttribute('href')).toBe('tel:077 123 4567');
+  expect(card.getByRole('link', { name: 'WhatsApp' }).getAttribute('href')).toBe('https://wa.me/94771234567');
+});
 
-  const nimmiHeading = screen.getByRole('heading', { name: 'Nimmi veg shop' });
-  expect(within(nimmiHeading.closest('article')!).getByText('Thalwila')).toBeTruthy();
+test('supplier status reflects its lowest-stock ingredient', () => {
+  const lowItem = { ...stocked(SEED_INVENTORY[0], 1), supplierIds: ['sup-low'] };
+  const outItem = { ...stocked(SEED_INVENTORY[1], 0), supplierIds: ['sup-out'] };
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
+    items: [lowItem, outItem],
+    suppliers: [
+      { id: 'sup-low', name: 'Low Supplier' },
+      { id: 'sup-out', name: 'Out Supplier' },
+    ],
+  });
+  render(<SupplierView />);
+
+  const lowSupplier = screen.getByRole('button', { name: 'Expand Low Supplier' }).closest('article');
+  const outSupplier = screen.getByRole('button', { name: 'Expand Out Supplier' }).closest('article');
+  expect(within(lowSupplier!).getByRole('img', { name: 'Low stock' })).toBeTruthy();
+  expect(within(outSupplier!).getByRole('img', { name: 'Out of stock' })).toBeTruthy();
+  spy.mockRestore();
+});
+
+test('inventory rows show available base quantity against the plan pack size', () => {
+  const flour = { ...stocked(SEED_INVENTORY[0], 0), onHandPacks: 12400 / 25000, onHandBaseUnits: 12400 };
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
+    items: [flour],
+    suppliers: [],
+  });
+  render(<InventoryView />);
+
+  const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  expect(within(row).getByLabelText('Available stock and pack size').textContent).toContain('12.4 kg / 25 kg');
+  spy.mockRestore();
+});
+
+test('supplier cards render fallback message when phone is missing', () => {
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
+    items: [],
+    suppliers: [{ id: 'sup_nophone', name: 'No Phone Store (Direct)' }],
+  });
+  render(<SupplierView />);
+  fireEvent.click(screen.getByRole('button', { name: 'Expand No Phone Store (Direct)' }));
+  expect(screen.getByText('No phone on file')).toBeTruthy();
+  expect(screen.queryByRole('link', { name: 'Call Supplier' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'WhatsApp' })).toBeNull();
+  spy.mockRestore();
+});
+
+const flourRow = () => screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+const amount = () => within(flourRow()).getByLabelText('Available stock and pack size').textContent;
+
+test('a delivery: packs in and the new price in one go, saved at once; Undo takes both back', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(within(flourRow()).getByRole('button', { name: 'Update Pizza Flour' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
+  await user.type(sheet.getByRole('textbox', { name: /Packs received/ }), '2');
+  const price = sheet.getByRole('textbox', { name: /Price per pack/ });
+  await user.clear(price);
+  await user.type(price, '6,550{Enter}');
+
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(amount()).toContain('50 kg / 25 kg');
+  expect(amount()).toContain('Rs 6,550 a pack');
+  expect(screen.getByRole('status').textContent).toContain('Received 2 packs of Pizza Flour, price now Rs 6,550 a pack.');
+  const events = readAll().filter((e) => e.type.startsWith('stock.'));
+  expect(events.map((e) => e.type)).toEqual(['stock.adjusted', 'stock.price_set']);
+  expect(events[0]).toMatchObject({ itemId: 'inv-0001', deltaPacks: 2, reason: 'receive' });
+  expect(events[1]).toMatchObject({ before: 640000, after: 655000 });
+
+  await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(amount()).toContain('0 g / 25 kg');
+  expect(amount()).toContain('Rs 6,400 a pack');
+});
+
+test('a count sets the shelf to what was counted, and says how far off the app was', async () => {
+  const user = userEvent.setup();
+  inventoryStore.adjustStock('inv-0001', 2);
+  render(<InventoryView />);
+  await user.click(within(flourRow()).getByRole('button', { name: 'Update Pizza Flour' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
+  await user.click(sheet.getByRole('button', { name: 'Count' }));
+  expect(sheet.getByText(/The app expects 2 packs/)).toBeTruthy();
+  await user.type(sheet.getByRole('textbox', { name: /Packs on the shelf now/ }), '1.5');
+  expect(sheet.getByText(/12.5 kg less than expected/)).toBeTruthy();
+  await user.click(sheet.getByRole('button', { name: 'Save' }));
+
+  expect(amount()).toContain('37.5 kg / 25 kg');
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.adjusted', deltaPacks: -0.5, reason: 'audit' });
+});
+
+test('nothing typed, nothing saved: the sheet says what is missing', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(within(flourRow()).getByRole('button', { name: 'Update Pizza Flour' }));
+  await user.click(screen.getByRole('button', { name: 'Save' }));
+  expect(screen.getByRole('alert').textContent).toContain('Type the packs received, or a new price.');
+  expect(readAll()).toHaveLength(0);
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('search finds by ingredient, category or supplier; Escape clears it', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  const search = screen.getByRole('searchbox', { name: 'Search inventory' });
+  await user.type(search, 'mozz');
+  const names = () => within(screen.getByRole('main', { name: 'Inventory' })).getAllByRole('heading').map((h) => h.textContent);
+  expect(names().every((n) => /mozzarella/i.test(n ?? ''))).toBe(true);
+  await user.clear(search);
+  await user.type(search, 'nothing like this');
+  expect(screen.getByText(/No ingredients match/)).toBeTruthy();
+  await user.keyboard('{Escape}');
+  expect(names()).toHaveLength(SEED_INVENTORY.length);
 });

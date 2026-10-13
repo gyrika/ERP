@@ -66,3 +66,58 @@ test('inventory and supplier bookmarks open their respective views', () => {
   render(<Root />);
   expect(screen.getByRole('main', { name: 'Suppliers' })).toBeTruthy();
 });
+
+test('finding an ingredient supplier routes to the filtered supplier view', async () => {
+  history.replaceState(null, '', '/#inventory');
+  const user = userEvent.setup();
+  render(<Root />);
+
+  await user.click(screen.getAllByRole('button', { name: 'Find Supplier' })[0]);
+
+  expect(location.hash).toBe('#suppliers');
+  expect(screen.getByRole('heading', { name: 'Targeted Suppliers' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Expand Prima / David Stores (Wholesale)' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Expand Ajantha (Wholesale)' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Nimmi veg shop/ })).toBeNull();
+});
+
+test('adding a supplier with a new ingredient updates Inventory and Find Supplier', async () => {
+  history.replaceState(null, '', '/#suppliers');
+  const user = userEvent.setup();
+  render(<Root />);
+
+  await user.click(screen.getByRole('button', { name: '+ Add Supplier' }));
+  await user.type(screen.getByRole('textbox', { name: 'Supplier name' }), 'End-to-end Supplier');
+  await user.type(screen.getByRole('textbox', { name: 'Phone Optional' }), '+94770000000');
+  await user.type(screen.getByRole('searchbox', { name: 'Ingredients' }), 'End-to-end Flour');
+  await user.click(screen.getByRole('button', { name: '+ Add “End-to-end Flour” as new ingredient' }));
+  await user.click(screen.getByRole('button', { name: 'Save Supplier' }));
+
+  await user.click(await screen.findByRole('link', { name: 'Inventory' }));
+  const ingredientRow = screen.getByRole('heading', { name: 'End-to-end Flour' }).closest('.inv-row') as HTMLElement;
+  expect(within(ingredientRow).getByText('End-to-end Supplier')).toBeTruthy();
+
+  await user.click(within(ingredientRow).getByRole('button', { name: 'Find Supplier' }));
+  expect(await screen.findByRole('heading', { name: 'Targeted Suppliers' })).toBeTruthy();
+  const supplierToggle = screen.getByRole('button', { name: 'Expand End-to-end Supplier' });
+  await user.click(supplierToggle);
+  expect(within(supplierToggle.closest('article') as HTMLElement).getByText('End-to-end Flour')).toBeTruthy();
+});
+
+test('one nav bar on every owner screen: same links, the current one marked, Register goes back', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#inventory');
+  render(<Root />);
+  const nav = () => within(screen.getByRole('navigation', { name: 'Owner sections' }));
+  const current = () => nav().getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent);
+  const links = ['Owner', 'Menu', 'Inventory', 'Suppliers', 'Shop setup'];
+
+  for (const [link, main] of [['Suppliers', 'Suppliers'], ['Owner', 'Owner'], ['Menu', 'Menu'], ['Shop setup', 'Shop setup'], ['Inventory', 'Inventory']]) {
+    await user.click(nav().getByRole('link', { name: link }));
+    expect(await screen.findByRole('main', { name: main })).toBeTruthy();
+    expect(nav().getAllByRole('link').map((a) => a.textContent)).toEqual(links);
+    expect(current()).toEqual([link]);
+  }
+  await user.click(nav().getByRole('button', { name: 'Register' }));
+  expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();
+});

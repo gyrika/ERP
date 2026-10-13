@@ -115,6 +115,13 @@ customer page in `src/order/` (built as `order.html` by `npm run build:cloud`).
 | Apply a new schema file from `cloud/migrations/` | `npm run migrate` |
 | Look at the data | `npx wrangler d1 execute cheesybeez-cloud --remote --command "SELECT COUNT(*) FROM events"` |
 
+**Release order: cloud first, then the shop PCs.** The cloud checks every event with the same
+rules as the shop server (`server/validate.ts`). An older cloud refuses event types it does not
+know yet, and a refused batch stops the whole copy (and the owner's phone stops updating). So when
+a release adds or changes event types: `npm run deploy:staging`, check it, `npm run deploy`, and
+only then tag `v*` (shop PCs update at 4 am). The cloud must also keep accepting what the
+installed version sends.
+
 Tests: `cloud/src/cloud.test.ts` (the Worker on Node's own SQLite with the real schema) and
 `cloud/src/replication.test.ts` (shop server + cloud, with the network cut and restored).
 

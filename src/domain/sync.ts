@@ -2,6 +2,7 @@ import type { Actor } from './auth.ts';
 import type { OrderEvent } from './events.ts';
 import type { MenuEvent } from './menuEdits.ts';
 import type { Cents } from './types.ts';
+import type { InventoryItem, Supplier } from './inventoryData.ts';
 
 /**
  * The sync contract between devices and the server (SCRUM-59, 60, 29, 30).
@@ -35,12 +36,19 @@ interface StockBase {
   at: number;
   orderNumber: 0;
   actor: Actor;
+}
+
+interface StockItemBase extends StockBase {
   itemId: string;
 }
 
 export type StockEvent =
-  | (StockBase & { type: 'stock.adjusted'; deltaPacks: number })
-  | (StockBase & { type: 'stock.price_set'; before: Cents; after: Cents });
+  | (StockItemBase & { type: 'stock.adjusted'; deltaPacks: number; reason?: 'waste' | 'audit' | 'receive' })
+  | (StockItemBase & { type: 'stock.price_set'; before: Cents; after: Cents })
+  | (StockBase & { type: 'stock.item_added'; item: InventoryItem })
+  | (StockBase & { type: 'stock.supplier_added'; supplier: Supplier; linkedItemIds: string[] })
+  | (StockItemBase & { type: 'stock.item_archived' | 'stock.item_restored' })
+  | (StockBase & { type: 'stock.supplier_archived' | 'stock.supplier_restored'; supplierId: string });
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
 export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent;
@@ -49,7 +57,10 @@ export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent;
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;
 
 export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.unbumped'] as const;
-export const STOCK_EVENT_TYPES = ['stock.adjusted', 'stock.price_set'] as const satisfies readonly StockEvent['type'][];
+export const STOCK_EVENT_TYPES = [
+  'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
+  'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
+] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',
   'order.line_removed', 'order.line_adjusted', 'order.discount_set', 'order.comped', 'order.change_undone',

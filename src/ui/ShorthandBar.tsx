@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { MENU, itemById } from '../domain/menu.ts';
+import { menuItems, itemById } from '../domain/menu.ts';
 import { ShorthandInterpreter } from '../domain/parser.ts';
 import type { LineSpec, OrderDraft, OrderInterpreter } from '../domain/types.ts';
+import { useMenu } from './menuStore.ts';
 
 /**
- * The screen only knows OrderInterpreter. Swap this one line for a voice or
+ * The screen only knows OrderInterpreter. Swap this implementation for a voice or
  * LLM implementation later; nothing else in the UI changes.
  */
-export const interpreter: OrderInterpreter = new ShorthandInterpreter(MENU);
-
 export const describe = (l: LineSpec): string => {
   const item = itemById(l.itemId);
   const size = item.variants?.find((v) => v.id === l.size)?.label;
@@ -28,6 +27,7 @@ interface Props {
 
 /** Appears the moment the cashier starts typing; one-glance preview before Enter. */
 export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
+  const menuVersion = useMenu();
   const [text, setText] = useState(initial);
   const [draft, setDraft] = useState<OrderDraft>({ lines: [], unresolved: [] });
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,17 +40,20 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
 
   useEffect(() => {
     const id = ++latest.current;
+    const interpreter: OrderInterpreter = new ShorthandInterpreter(menuItems());
     Promise.resolve(interpreter.interpret(text)).then((d) => { if (id === latest.current) setDraft(d); });
-  }, [text]);
+  }, [text, menuVersion]);
 
-  // Typed items the shop is not offering right now are shown, never added.
-  const offered = (l: LineSpec) => { const i = itemById(l.itemId); return !i.soldOut && !i.hidden; };
-  const ok = draft.lines.filter(offered);
-  const blocked = draft.lines.filter((l) => !offered(l));
+  const offered = (line: LineSpec) => {
+    const item = itemById(line.itemId);
+    return !item.soldOut && !item.hidden;
+  };
+  const availableLines = draft.lines.filter(offered);
+  const unavailableLines = draft.lines.filter((line) => !offered(line));
 
   const submit = () => {
-    if (!ok.length) return;
-    onSubmit(ok);
+    if (!availableLines.length) return;
+    onSubmit(availableLines);
     if (draft.unresolved.length) setText(draft.unresolved.join(', ')); // keep only what needs fixing
     else onClose();
   };
@@ -73,9 +76,11 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
         />
       </div>
       <div className="typebar__preview" aria-live="polite">
-        {ok.map((l, i) => <span key={i}>{describe(l)}</span>)}
-        {blocked.map((l, i) => (
-          <span key={`b${i}`} className="typebar__bad">{itemById(l.itemId).name.en}: {itemById(l.itemId).hidden ? 'not on the menu' : 'sold out'}</span>
+        {availableLines.map((l, i) => <span key={i}>{describe(l)}</span>)}
+        {unavailableLines.map((l, i) => (
+          <span key={`blocked${i}`} className="typebar__bad">
+            {itemById(l.itemId).name.en}: {itemById(l.itemId).hidden ? 'not on the menu' : 'sold out'}
+          </span>
         ))}
         {draft.unresolved.map((u, i) => <span key={`u${i}`} className="typebar__bad">? {u}</span>)}
       </div>

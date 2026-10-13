@@ -53,7 +53,7 @@ export function App({
   canManageStock?: boolean;
 } = {}) {
   const reg = useRegister();
-  useMenu(); // a price or name change shows at once
+  useMenu();
   const tickets = useKitchenTickets(); // live, so Cooking turns Done the moment the kitchen taps it
   const online = useOnline();
   /** Tells the customer first (with the number this order will get), then sends it to the kitchen. */

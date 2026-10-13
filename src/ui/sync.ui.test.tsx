@@ -3,7 +3,7 @@ import type { PullResponse, PushRequest, StreamMessage, SyncEvent, SyncTransport
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { startSync } from '../services/syncClient.ts';
 import { SyncSign } from './SyncSign.tsx';
-import { addEvents, appendEvent, readAll, readOutbox } from './eventLog.ts';
+import { addEvents, appendEvent, markSynced, readAll, readOutbox } from './eventLog.ts';
 import { readTickets } from './kitchenStore.ts';
 
 beforeEach(() => {
@@ -87,6 +87,98 @@ test('events from other devices arrive once and show on the kitchen screen', asy
 test('demo events are never queued for the server', () => {
   addEvents([sent('demo-1', 'tk')]);
   expect(readOutbox()).toEqual([]);
+});
+
+test('synced catalog lifecycle events stay local after routine events are pruned', () => {
+  const actor = { id: 'manager', name: 'Ravi', role: 'manager' as const };
+  addEvents([
+    {
+      id: 'old-item',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.item_added',
+      item: {
+        id: 'inv-new',
+        name: 'Sea Salt',
+        category: 'General',
+        baseUnit: 'pcs',
+        packQty: 1,
+        supplierIds: ['sup-new'],
+        workingPriceCents: 0,
+      },
+    },
+    {
+      id: 'old-supplier',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.supplier_added',
+      supplier: { id: 'sup-new', name: 'Fresh Farms' },
+      linkedItemIds: [],
+    },
+    {
+      id: 'old-item-archive',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.item_archived',
+      itemId: 'inv-new',
+    },
+    {
+      id: 'old-supplier-archive',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.supplier_archived',
+      supplierId: 'sup-new',
+    },
+    {
+      id: 'old-item-restore',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.item_restored',
+      itemId: 'inv-new',
+    },
+    {
+      id: 'old-supplier-restore',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.supplier_restored',
+      supplierId: 'sup-new',
+    },
+    {
+      id: 'old-menu',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor: { ...actor, role: 'owner' as const },
+      type: 'menu.sold_out',
+      itemId: 'margherita',
+      until: Date.now() + 60_000,
+    },
+    { ...sent('old-order', 'old-ticket'), at: 1 },
+  ]);
+
+  markSynced([], Date.now());
+
+  expect(readAll().map((event) => event.id)).toEqual([
+    'old-item',
+    'old-supplier',
+    'old-item-archive',
+    'old-supplier-archive',
+    'old-item-restore',
+    'old-supplier-restore',
+    'old-menu',
+  ]);
 });
 
 test('offline sign: how many orders wait, and gone once they are sent', async () => {

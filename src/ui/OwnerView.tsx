@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { rulesSuggestions, type Insight } from '../domain/insights.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
+import { inventoryFromEvents, suppliersFromEvents } from '../domain/inventory.ts';
 import { fmt } from '../domain/money.ts';
 import { useInstall } from '../services/ownerApp.ts';
 import { useShopEvents } from '../services/ownerData.ts';
+import { OwnerNav } from './OwnerNav.tsx';
 
 /**
  * The Owner view. Serves the owner: they know the shop, not the screens, and
@@ -11,7 +13,6 @@ import { useShopEvents } from '../services/ownerData.ts';
  * "does anything need me?": today in one line, then ONE feed of cards, each
  * with one tap behind it. No charts, no tables (CLAUDE.md).
  */
-const STOCK = { items: SEED_INVENTORY, suppliers: SEED_SUPPLIERS };
 const timeOf = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 function Detail({ insight, onClose }: { insight: Insight; onClose: () => void }) {
@@ -63,29 +64,26 @@ export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?:
 
   const { summary, insights } = useMemo(() => {
     if (!events) return { summary: null, insights: [] as Insight[] };
-    const shop = { events, now: at, stock: STOCK };
+    const shop = {
+      events,
+      now: at,
+      stock: {
+        items: inventoryFromEvents(SEED_INVENTORY, events).filter((item) => !item.archived),
+        suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
+      },
+    };
     return { summary: rulesSuggestions.summary(shop), insights: rulesSuggestions.insights(shop) };
   }, [events, at]);
   const opened = insights.find((i) => i.id === open) ?? null;
 
   return (
     <div className="owner">
-      <header className="owner__head">
-        <span className="brand">CheesyBeez</span>
-        {phone ? (
-          data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>
-        ) : (
-          <nav className="owner__nav" aria-label="Owner sections">
-            <a href="#menu">Menu</a>
-            <a href="#setup">Shop setup</a>
-            <a href="#inventory">Inventory</a>
-            <a href="#suppliers">Suppliers</a>
-            {onBack
-              ? <button type="button" className="owner__back" onClick={onBack}>Register <kbd>F3</kbd></button>
-              : <a href="#">Register</a>}
-          </nav>
-        )}
-      </header>
+      {phone ? (
+        <header className="owner__head">
+          <span className="brand">CheesyBeez</span>
+          {data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>}
+        </header>
+      ) : <OwnerNav current="owner" onRegister={onBack} />}
 
       <main className="owner__main" aria-label="Owner">
         <section className="owner__today" aria-label="Today">

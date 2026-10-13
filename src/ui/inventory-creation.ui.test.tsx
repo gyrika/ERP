@@ -1,0 +1,120 @@
+import { afterEach, beforeEach, expect, test } from 'vitest';
+import { cleanup, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { readItems, readSuppliers } from '../services/inventoryStore.ts';
+import { readAll } from './eventLog.ts';
+import { InventoryView } from './InventoryView.tsx';
+import { SupplierView } from './SupplierView.tsx';
+
+beforeEach(() => localStorage.clear());
+afterEach(cleanup);
+
+test('inventory items render as compact name, status, and supplier rows', () => {
+  render(<InventoryView onFindSupplier={() => {}} />);
+
+  const list = screen.getByRole('main', { name: 'Inventory' });
+  const firstRow = list.querySelector<HTMLElement>('.inv-row')!;
+  expect(firstRow.querySelector('.inv-row__name')?.textContent).toBe('Pizza Flour');
+  expect(firstRow.querySelector('.dot')).toBeTruthy();
+  expect(within(firstRow).getByRole('button', { name: 'Find Supplier' })).toBeTruthy();
+});
+
+test('new ingredient requires suppliers and saves as a stock event', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+
+  await user.click(screen.getByRole('button', { name: '+ Add Ingredient' }));
+  expect(screen.getByRole('button', { name: 'Save Ingredient' }).hasAttribute('disabled')).toBe(true);
+  await user.type(screen.getByRole('textbox', { name: 'Ingredient name' }), 'Sea Salt');
+  await user.click(screen.getByRole('searchbox', { name: 'Suppliers' }));
+  await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: 'Save Ingredient' }));
+
+  expect(await screen.findByRole('heading', { name: 'Sea Salt' })).toBeTruthy();
+  expect(readAll().some((event) => event.type === 'stock.item_added' && event.item.name === 'Sea Salt')).toBe(true);
+  expect(readItems().find((item) => item.name === 'Sea Salt')?.supplierIds).toEqual(['sup_prima']);
+}, 15_000);
+
+test('ingredient can be archived from its row and restored with Undo', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+
+  await user.click(screen.getByRole('button', { name: 'Remove Pizza Flour' }));
+  expect(screen.queryByRole('heading', { name: 'Pizza Flour' })).toBeNull();
+  expect(readItems().some((item) => item.id === 'inv-0001')).toBe(false);
+  expect(readAll().some((event) => event.type === 'stock.item_archived' && event.itemId === 'inv-0001')).toBe(true);
+
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('heading', { name: 'Pizza Flour' })).toBeTruthy();
+  expect(readAll().some((event) => event.type === 'stock.item_restored' && event.itemId === 'inv-0001')).toBe(true);
+}, 15_000);
+
+test('adding a supplier requires at least one existing or new ingredient', async () => {
+  const user = userEvent.setup();
+  render(<SupplierView />);
+
+  await user.click(screen.getByRole('button', { name: '+ Add Supplier' }));
+  await user.type(screen.getByRole('textbox', { name: 'Supplier name' }), 'Ingredients Required');
+  const save = screen.getByRole('button', { name: 'Save Supplier' });
+  expect(save.hasAttribute('disabled')).toBe(true);
+
+  const ingredientSearch = screen.getByRole('searchbox', { name: 'Ingredients' });
+  await user.type(ingredientSearch, 'Fresh Basil');
+  await user.click(screen.getByRole('button', { name: '+ Add “Fresh Basil” as new ingredient' }));
+  expect(save.hasAttribute('disabled')).toBe(false);
+
+  await user.click(screen.getByRole('button', { name: 'Remove new ingredient Fresh Basil' }));
+  expect(save.hasAttribute('disabled')).toBe(true);
+  expect(readAll().some((event) => event.type === 'stock.supplier_added' && event.supplier.name === 'Ingredients Required')).toBe(false);
+});
+
+test('new supplier links selected ingredients independently and persists the creation event', async () => {
+  const user = userEvent.setup();
+  render(<SupplierView />);
+
+  await user.click(screen.getByRole('button', { name: '+ Add Supplier' }));
+  await user.type(screen.getByRole('textbox', { name: 'Supplier name' }), 'Fresh Farms');
+  await user.type(screen.getByRole('textbox', { name: 'Phone Optional' }), '+94770000000');
+  await user.click(screen.getByRole('searchbox', { name: 'Ingredients' }));
+  await user.click(screen.getByRole('button', { name: '+ Pizza Flour' }));
+  await user.type(screen.getByRole('searchbox', { name: 'Ingredients' }), 'Fresh Basil');
+  await user.click(screen.getByRole('button', { name: '+ Add “Fresh Basil” as new ingredient' }));
+  expect(screen.getByRole('button', { name: 'Remove new ingredient Fresh Basil' })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Save Supplier' }));
+
+  const supplierToggle = await screen.findByRole('button', { name: 'Expand Fresh Farms' });
+  await user.click(supplierToggle);
+  expect(within(supplierToggle.closest('article')!).getByText('Pizza Flour')).toBeTruthy();
+  const supplierEvent = readAll().find((event) =>
+    event.type === 'stock.supplier_added' && event.supplier.name === 'Fresh Farms' &&
+    event.linkedItemIds.includes('inv-0001'));
+  expect(supplierEvent?.type).toBe('stock.supplier_added');
+  const flour = readItems().find((item) => item.id === 'inv-0001')!;
+  expect(flour.supplierIds).toContain('sup_prima');
+  expect(flour.supplierIds).toContain(supplierEvent?.type === 'stock.supplier_added' ? supplierEvent.supplier.id : '');
+  expect(flour.supplierIds).toHaveLength(3);
+  const freshBasil = readItems().find((item) => item.name === 'Fresh Basil');
+  expect(freshBasil?.category).toBe('General');
+  expect(freshBasil?.supplierIds).toContain(supplierEvent?.type === 'stock.supplier_added' ? supplierEvent.supplier.id : '');
+  expect(supplierEvent?.type === 'stock.supplier_added' && supplierEvent.linkedItemIds).toContain(freshBasil?.id);
+
+  cleanup();
+  render(<InventoryView />);
+  const inventoryFlour = screen.getByRole('heading', { name: 'Pizza Flour' }).parentElement!.parentElement!;
+  expect(within(inventoryFlour!).getByText(/Fresh Farms/)).toBeTruthy();
+  const inventoryBasil = screen.getByRole('heading', { name: 'Fresh Basil' }).parentElement!.parentElement!;
+  expect(within(inventoryBasil!).getByText(/Fresh Farms/)).toBeTruthy();
+}, 15_000);
+
+test('supplier can be archived from its row and restored with Undo', async () => {
+  const user = userEvent.setup();
+  render(<SupplierView />);
+
+  await user.click(screen.getByRole('button', { name: 'Remove Ajantha (Wholesale)' }));
+  expect(readSuppliers().some((supplier) => supplier.id === 'sup_ajantha')).toBe(false);
+  expect(readAll().some((event) => event.type === 'stock.supplier_archived' && event.supplierId === 'sup_ajantha')).toBe(true);
+
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(readSuppliers().some((supplier) => supplier.id === 'sup_ajantha')).toBe(true);
+  expect(readAll().some((event) => event.type === 'stock.supplier_restored' && event.supplierId === 'sup_ajantha')).toBe(true);
+}, 15_000);

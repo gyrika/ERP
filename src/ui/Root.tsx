@@ -10,6 +10,7 @@ import { InventoryView } from './InventoryView.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { LockScreen } from './LockScreen.tsx';
 import { MenuView } from './MenuView.tsx';
+import { useMenu } from './menuStore.ts';
 import { OwnerView } from './OwnerView.tsx';
 import { OwnerWelcome } from './OwnerWelcome.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
@@ -94,9 +95,11 @@ function NotConnected() {
  * Development and the demo have no login (fake staff), as before.
  */
 export function Root() {
+  useMenu();
   const [hash, setHash] = useState(location.hash);
   /** Came here from the Register, so the Kitchen offers a way back. */
   const [fromRegister, setFromRegister] = useState(false);
+  const [filterIngredientId, setFilterIngredientId] = useState<string | null>(null);
   const needsLogin = usesLogin();
   const staff = useSyncExternalStore(subscribeAuth, signedIn);
   const kitchenOnly = isKitchenDevice() || staff?.role === 'kitchen';
@@ -104,7 +107,10 @@ export function Root() {
   useIdleLock(needsLogin && staff !== null);
 
   useEffect(() => {
-    const onHash = () => setHash(location.hash);
+    const onHash = () => {
+      setHash(location.hash);
+      setFilterIngredientId(null);
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -116,12 +122,19 @@ export function Root() {
     // replaceState: flipping all day must not fill the browser history.
     history.replaceState(null, '', to || location.pathname + location.search);
     setHash(to);
+    setFilterIngredientId(null);
     if (to === KITCHEN) setFromRegister(true);
   }), []);
   const show = useCallback((kitchen: boolean) => go(kitchen ? KITCHEN : ''), [go]);
+  const findSupplier = useCallback((ingredientId: string) => withTransition(() => {
+    setFilterIngredientId(ingredientId);
+    history.replaceState(null, '', '#suppliers');
+    setHash('#suppliers');
+  }), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest('[role="dialog"]')) return;
       if (e.key === 'F2' && !kitchenOnly) { e.preventDefault(); show(!inKitchen); }
       if (e.key === 'F3' && seesOwner) { e.preventDefault(); go(hash === OWNER ? '' : OWNER); }
       if (e.key === 'F4' && needsLogin && staff) { e.preventDefault(); lock(); }
@@ -148,12 +161,16 @@ export function Root() {
   // The server refuses a cashier's stock events anyway.
   const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
   if (hash === OWNER && seesOwner) return <OwnerView onBack={() => go('')} />;
-  if (hash === '#inventory' && mayManageStock) return <InventoryView />;
-  // The menu: the owner changes it; a manager marks things sold out (SCRUM-41).
+  if (hash === '#inventory' && mayManageStock) {
+    return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;
+  }
+  // The owner changes the menu; managers can mark items sold out during service.
   if (hash === '#menu' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
     return <MenuView owner={!needsLogin || staff?.role === 'owner'} onBack={() => go('')} />;
   }
-  if (hash === '#suppliers' && mayManageStock) return <SupplierView />;
+  if (hash === '#suppliers' && mayManageStock) {
+    return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;
+  }
   return (
     <App onKitchen={() => show(true)} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}
       onSwitch={needsLogin ? lock : undefined} canManageStock={mayManageStock} />

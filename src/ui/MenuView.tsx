@@ -6,6 +6,7 @@ import type { Category, Cents, MenuItem, SizeId } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
 import { appendEvent } from './eventLog.ts';
 import { useMenu } from './menuStore.ts';
+import { OwnerNav } from './OwnerNav.tsx';
 
 /**
  * The owner's menu (#menu). Serves the owner: they know their menu and want one change made
@@ -185,12 +186,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
 
   return (
     <div className="owner">
-      <header className="owner__head">
-        <span className="brand">CheesyBeez</span>
-        <nav className="owner__nav" aria-label="Owner sections">
-          <button type="button" className="owner__back" onClick={onBack}>Register <kbd>Esc</kbd></button>
-        </nav>
-      </header>
+      <OwnerNav current="menu" onRegister={onBack} />
       <main className="owner__main menuv" aria-label="Menu">
         <h1 className="menuv__title">Menu</h1>
         <p className="menuv__lead">

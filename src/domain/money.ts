@@ -21,6 +21,14 @@ export const fmt = (cents: Cents): string => {
 /** Menu-card style from the design: whole rupees, no thousands separator ("M 1450"). */
 export const fmtPlain = (cents: Cents): string => String(Math.round(cents / 100));
 
+/** A typed rupee amount ("6,400", "6400.5", "1,250.25") in cents, or null. Parsed as text: no float maths. */
+export const parseLKR = (raw: string): Cents | null => {
+  const match = raw.trim().replace(/^rs\.?\s*/i, '').match(/^(\d+|\d{1,3}(?:,\d{3})+)(?:\.(\d{1,2}))?$/);
+  if (!match) return null;
+  const cents = Number(match[1].replace(/,/g, '')) * 100 + Number((match[2] ?? '').padEnd(2, '0'));
+  return Number.isSafeInteger(cents) ? cents : null;
+};
+
 /** Receipts and exports: "Rs 6,600". */
 export const formatLKR = (cents: Cents): string => `Rs ${fmt(cents)}`;
 
