@@ -18,9 +18,9 @@ not_found_handling = "single-page-application"
 run_worker_first = ["/", "/api/*", "/owner.webmanifest", "/questions", "/get", "/download"]
 
 [vars]
-# The shop whose online orders cheesybeez.com takes (its id from the setup wizard). The laptop
-# test shop until the real shop is installed; then change it and deploy.
-ORDER_SHOP = "cheesybeez-thalwila"
+# The shop whose online orders cheesybeez.com takes (its id from the setup wizard): Nisal's
+# shop, installed 2026-10-13. Off until the counter switches "Taking orders" on.
+ORDER_SHOP = "cheesybeez-thalwila-2862"
 
 # A test copy of the cloud, apart from the shops' live one: its own address and its own empty
 # database. Try changes end to end over the internet before they reach the shop:
