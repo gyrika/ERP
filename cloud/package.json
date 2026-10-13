@@ -11,7 +11,8 @@
     "deploy:staging": "npm --prefix .. run build:cloud && wrangler deploy --env staging",
     "migrate:staging": "wrangler d1 migrations apply cheesybeez-cloud-staging --remote --env staging",
     "device": "node --experimental-strip-types --no-warnings addDevice.ts",
-    "answers": "wrangler d1 execute cheesybeez-cloud --remote --json --command \"SELECT id, saved_at, body FROM owner_answers ORDER BY id DESC LIMIT 1\""
+    "answers": "wrangler d1 execute cheesybeez-cloud --remote --json --command \"SELECT id, saved_at, body FROM owner_answers ORDER BY id DESC LIMIT 1\"",
+    "admin-key": "node --experimental-strip-types --no-warnings adminKey.ts"
   },
   "devDependencies": {
     "wrangler": "^4.149.0"
