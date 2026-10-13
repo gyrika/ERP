@@ -28,9 +28,20 @@ export const isNewer = (latest: string, current: string): boolean => {
   return false;
 };
 
+/** Where an update is (station-update.ps1 writes it), for the progress bar. */
+export interface UpdateStatus {
+  phase: 'checking' | 'downloading' | 'backup' | 'installing' | 'starting' | 'done' | 'going-back' | 'back' | 'up-to-date' | 'failed';
+  percent: number;
+  version: string;
+  /** When it was written (ms). */
+  at: number;
+}
+
 export interface UpdatesOptions {
   versionFile: string;
   updaterScript: string;
+  /** update-status.json beside the shop's data. */
+  statusFile?: string;
   fetch?: typeof fetch;
   platform?: NodeJS.Platform;
   run?: (command: string, args: string[]) => void;
@@ -58,6 +69,17 @@ export function updatesApi(o: UpdatesOptions) {
       const latest = String(((await r.json()) as { tag_name?: string }).tag_name ?? '').replace(/^v/, '') || null;
       const now = current();
       return { current: now, latest, newer: latest !== null && isNewer(latest, now) };
+    },
+
+    /** The updater's latest step, or null (none yet, or an older updater that does not say). */
+    status(): UpdateStatus | null {
+      try {
+        if (!o.statusFile || !existsSync(o.statusFile)) return null;
+        const s = JSON.parse(readFileSync(o.statusFile, 'utf8').replace(/^\uFEFF/, '')) as UpdateStatus;
+        return typeof s.phase === 'string' && Number.isFinite(s.percent) ? s : null;
+      } catch {
+        return null; // being written right now: the next look gets it
+      }
     },
 
     /** Starts the updater now (it downloads the latest release and installs it quietly). */

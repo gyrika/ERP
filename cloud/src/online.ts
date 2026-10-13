@@ -49,14 +49,13 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
   const { db, now } = c;
   const path = url.pathname;
 
+  /** The shop's menu with its owner's changes, from its menu events (few, so read whole). */
   const shopMenuState = async (tenantId: string) => {
     const { results } = await db.prepare(
-      "SELECT body FROM events WHERE tenant_id = ? AND type IN ('menu.item_set', 'menu.sold_out') ORDER BY seq",
-    ).bind(tenantId).all<{ body: string }>();
-    return menuStateFromEvents(results.map((row) => JSON.parse(row.body) as { type: string }));
+      "SELECT body FROM events WHERE tenant_id = ? AND type IN ('menu.item_set', 'menu.sold_out') ORDER BY seq").bind(tenantId).all<{ body: string }>();
+    return menuStateFromEvents(results.map((r) => JSON.parse(r.body) as { type: string }));
   };
-  const shopMenu = async (tenantId: string) =>
-    effectiveMenu(MENU, await shopMenuState(tenantId), now());
+  const shopMenu = async (tenantId: string) => effectiveMenu(MENU, await shopMenuState(tenantId), now());
 
   const shopState = async () => {
     if (!c.orderShop) throw new HttpError(404, 'server', 'online orders are not set up');
@@ -69,6 +68,7 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
   // ----- Customers -----
   if (path === '/api/v1/shop' && req.method === 'GET') {
     const shop = await shopState();
+    // The owner's menu changes: the page applies them to the printed menu it carries, as the counter does.
     return json(200, { ...shop, menuState: await shopMenuState(c.orderShop!) });
   }
 

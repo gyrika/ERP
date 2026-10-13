@@ -128,3 +128,5 @@ button { cursor: pointer; }
 .o-receipt li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 15px; }
 .o-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 20px; }
 .o-skeleton { height: 220px; border-radius: 18px; background: var(--surface); animation: o-breathe 1.4s var(--ease) infinite; }
+.o-item--out { opacity: 0.5; cursor: default; }
+.o-item--out .o-item__add { display: none; }

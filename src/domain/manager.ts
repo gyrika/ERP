@@ -1,5 +1,7 @@
 import { canManage, type Actor } from './auth.ts';
 import type { NewOrderEvent } from './events.ts';
+import { itemById } from './menu.ts';
+import { unitPrice } from './money.ts';
 import { lineGross, totals } from './totals.ts';
 import type { Cents, Discount, LineSpec, Order, OrderLine } from './types.ts';
 
@@ -103,7 +105,11 @@ export function applyManagerChange(order: Order, change: ManagerChange, actor: A
       if (!line) return { refused: 'no-such-line' };
       const reason = change.reason?.trim() ?? '';
       if (line.sent && !reason) return { refused: 'reason-required' };
-      const after: OrderLine = { ...change.after, id: line.id, ...(line.sent ? { sent: true } : {}) };
+      // A changed sent line is priced as the menu has it now (a manager chose the new size or extras).
+      const after: OrderLine = {
+        ...change.after, id: line.id,
+        ...(line.sent ? { sent: true, unit: unitPrice(itemById(change.after.itemId), change.after) } : {}),
+      };
       if (sameLine(line, after)) return { refused: 'no-change' };
       const next = stamp({ ...order, lines: order.lines.map((l) => (l.id === line.id ? after : l)) });
       return {

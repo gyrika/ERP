@@ -77,7 +77,11 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
       </div>
       <div className="typebar__preview" aria-live="polite">
         {availableLines.map((l, i) => <span key={i}>{describe(l)}</span>)}
-        {unavailableLines.map((l, i) => <span key={`blocked${i}`} className="typebar__bad">{describe(l)} · not available</span>)}
+        {unavailableLines.map((l, i) => (
+          <span key={`blocked${i}`} className="typebar__bad">
+            {itemById(l.itemId).name.en}: {itemById(l.itemId).hidden ? 'not on the menu' : 'sold out'}
+          </span>
+        ))}
         {draft.unresolved.map((u, i) => <span key={`u${i}`} className="typebar__bad">? {u}</span>)}
       </div>
     </div>

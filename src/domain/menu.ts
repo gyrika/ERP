@@ -126,24 +126,25 @@ export const POPULAR_IDS = [
   'bbq-chicken', 'chicken-burger', 'crispy-chicken-burger', 'italian-pasta',
 ];
 
+// ----- The shop's current menu: the printed one above, with the owner's changes (menuEdits.ts) -----
+
 let state: MenuState = EMPTY_MENU_STATE;
 let current: MenuItem[] = MENU;
 let version = 0;
 const listeners = new Set<() => void>();
 
+/** Every screen sets this from the shop's menu events (src/ui/menuStore.ts); the tests leave it printed. */
 export const setMenuState = (next: MenuState, now = Date.now()): void => {
   state = next;
   current = effectiveMenu(MENU, next, now);
   version++;
-  listeners.forEach((listener) => listener());
+  listeners.forEach((l) => l());
 };
 export const menuState = (): MenuState => state;
+/** All items, hidden ones included (old orders still show them); screens offer `!hidden`. */
 export const menuItems = (): MenuItem[] => current;
 export const menuVersion = (): number => version;
-export const subscribeMenu = (listener: () => void): (() => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-};
+export const subscribeMenu = (l: () => void): (() => void) => { listeners.add(l); return () => listeners.delete(l); };
 
 export const itemById = (id: string): MenuItem => {
   const item = current.find((m) => m.id === id);

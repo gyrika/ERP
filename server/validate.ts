@@ -1,8 +1,12 @@
 import { MENU } from '../src/domain/menu.ts';
 import { checkOverride, MENU_EVENT_TYPES, type ItemOverride } from '../src/domain/menuEdits.ts';
-import { KITCHEN_EVENT_TYPES, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent } from '../src/domain/sync.ts';
+import {
+  KITCHEN_EVENT_TYPES, ORDER_EVENT_TYPES, PUSH_BATCH, RECIPE_EVENT_TYPES, STOCK_EVENT_TYPES, type SyncEvent,
+} from '../src/domain/sync.ts';
 
-const TYPES = new Set<string>([...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...MENU_EVENT_TYPES]);
+const TYPES = new Set<string>([
+  ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...RECIPE_EVENT_TYPES, ...MENU_EVENT_TYPES,
+]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 const validOverride = (itemId: unknown, value: unknown): boolean => {
@@ -36,7 +40,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (!Number.isSafeInteger(e.orderNumber) || (e.orderNumber as number) < 0) return { reason: `event ${e.id} has no orderNumber` };
     if (!Number.isSafeInteger(e.at)) return { reason: `event ${e.id} has no time` };
     if (e.shopId !== tenantId) return { reason: `event ${e.id} belongs to another shop`, wrongShop: true };
-    if (e.type.startsWith('order.') || e.type.startsWith('stock.') || e.type.startsWith('menu.')) {
+    if (e.type.startsWith('order.') || e.type.startsWith('stock.') || e.type.startsWith('recipe.') || e.type.startsWith('menu.')) {
       const a = e.actor;
       if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
         return { reason: `event ${e.id} does not say who did it` };
@@ -72,6 +76,12 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       !shortString(e.supplierId)
     ) return { reason: `event ${e.id} has an invalid supplier id` };
     if (e.type.startsWith('menu.') && e.orderNumber !== 0) return { reason: `event ${e.id} has an invalid menu order number` };
+    if (e.type === 'recipe.updated' &&
+        (e.orderNumber !== 0 || !shortString(e.menuItemId) || !Array.isArray(e.ingredients) ||
+          !e.ingredients.every((line) => isObj(line) && shortString(line.inventoryId) &&
+            typeof line.qtyBaseUnits === 'number' && Number.isFinite(line.qtyBaseUnits) && line.qtyBaseUnits > 0))) {
+      return { reason: `event ${e.id} has an invalid recipe change` };
+    }
     if (e.type === 'menu.item_set' &&
         (!shortString(e.itemId) || !validOverride(e.itemId, e.before) || !validOverride(e.itemId, e.after))) {
       return { reason: `event ${e.id} has an invalid menu change` };

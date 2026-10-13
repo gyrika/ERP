@@ -18,6 +18,7 @@ interface Props {
   hint: string;
 }
 
+/** What the owner offers: hidden items are not shown; sold-out ones show, greyed. */
 const visible = (c: CategoryId): MenuItem[] =>
   (c === 'popular'
     ? POPULAR_IDS.map((id) => menuItems().find((item) => item.id === id)!).filter(Boolean)

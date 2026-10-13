@@ -45,6 +45,7 @@ export const orderTotal = (order: Order): Cents => totals(order).total;
 
 export const unsentLines = (order: Order): OrderLine[] => order.lines.filter((l) => !l.sent);
 
+/** Sending fixes each new line's price (size + extras) as the menu has it now. */
 export const markSent = (order: Order, at: number): Order => ({
   ...order,
   sentAt: order.sentAt ?? at,

@@ -67,7 +67,7 @@ const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x)
 const checkLine = (raw: unknown, items: readonly MenuItem[]): OnlineLine | string => {
   if (typeof raw !== 'object' || raw === null) return 'a line is not readable';
   const r = raw as Record<string, unknown>;
-  const item = items.find((entry) => entry.id === r.itemId);
+  const item = items.find((m) => m.id === r.itemId);
   if (!item || item.hidden) return 'something on the order is not on the menu';
   if (item.soldOut) return `sorry, ${item.name.en} is sold out today`;
   if (!Number.isSafeInteger(r.qty) || (r.qty as number) < 1 || (r.qty as number) > LIMITS.qty) return `at most ${LIMITS.qty} of one item`;
@@ -82,12 +82,13 @@ const checkLine = (raw: unknown, items: readonly MenuItem[]): OnlineLine | strin
   return { itemId: item.id, qty: r.qty as number, ...(item.variants ? { size: r.size as SizeId } : {}), adds, outs };
 };
 
+/** `items`: the shop's menu with its owner's changes (the cloud builds it per shop). */
 export const onlineLineTotal = (l: OnlineLine, items: readonly MenuItem[] = menuItems()): Cents => {
-  const item = items.find((entry) => entry.id === l.itemId);
+  const item = items.find((m) => m.id === l.itemId);
   return item ? unitPrice(item, l) * l.qty : 0;
 };
 export const onlineTotal = (lines: OnlineLine[], items: readonly MenuItem[] = menuItems()): Cents =>
-  lines.reduce((sum, line) => sum + onlineLineTotal(line, items), 0);
+  lines.reduce((s, l) => s + onlineLineTotal(l, items), 0);
 
 export interface CheckedOnlineOrder { name: string; phone: string; lines: OnlineLine[]; note: string; total: Cents }
 
