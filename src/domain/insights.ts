@@ -74,14 +74,24 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 interface Sale { orderNumber: number; total: Cents; at: number; by: string }
 
-/** Paid orders, as they stand: a payment undone later no longer counts. */
+/**
+ * Paid orders, as they stand: a payment undone later no longer counts.
+ * Order numbers are not unique (each screen counts from 1001), so every payment is
+ * its own sale, and an Undo takes back the latest payment with that number.
+ */
 export const salesFrom = (events: readonly SyncEvent[]): Sale[] => {
-  const paid = new Map<number, Sale>();
+  const sales: (Sale | null)[] = [];
+  const open = new Map<number, number[]>(); // order number → indexes of its payments still standing
   for (const e of events) {
-    if (e.type === 'order.paid') paid.set(e.orderNumber, { orderNumber: e.orderNumber, total: e.total, at: e.at, by: e.actor.name });
-    else if (e.type === 'order.payment_undone') paid.delete(e.orderNumber);
+    if (e.type === 'order.paid') {
+      open.set(e.orderNumber, [...(open.get(e.orderNumber) ?? []), sales.length]);
+      sales.push({ orderNumber: e.orderNumber, total: e.total, at: e.at, by: e.actor.name });
+    } else if (e.type === 'order.payment_undone') {
+      const i = open.get(e.orderNumber)?.pop();
+      if (i !== undefined) sales[i] = null;
+    }
   }
-  return [...paid.values()];
+  return sales.filter((s): s is Sale => s !== null);
 };
 
 /** Days the shop was open (anything sold), among the last `days` before today. */
