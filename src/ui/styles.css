@@ -547,6 +547,14 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .menued__check span { color: var(--ink-2); font-size: 14px; }
 .menued__foot { display: flex; justify-content: flex-end; align-items: center; gap: 16px; padding: 16px 80px 24px; }
 .menued__foot .cta { min-width: 200px; }
+/* Shop setup > Updates: one calm bar; it eases forward, never jumps back. */
+.update { display: flex; flex-direction: column; gap: 10px; max-width: 520px; }
+.update__row { display: flex; justify-content: space-between; align-items: baseline; font-size: 16px; }
+.update__row span { color: var(--ink-2); font-size: 15px; }
+.update__bar { height: 10px; border-radius: 980px; background: var(--chip); overflow: hidden; }
+.update__bar span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width 900ms var(--ease); }
+.update__note { margin: 0; color: var(--ink-2); font-size: 14px; }
+@media (prefers-reduced-motion: reduce) { .update__bar span { transition: none; } }
 .owner__back { min-height: 48px; padding: 0 12px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 12px; background: var(--chip); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 /* F2 / F3: one screen gives way to the next in a quick cross-fade with a hint of depth. */
 ::view-transition-old(root) { animation: 200ms ease both vt-out; }

@@ -212,9 +212,36 @@ function CloudStep({ connected, ownerPin, onConnected, onNext }: {
  * The POS restarts by itself; this screen waits for it and reloads. If the new version does not
  * start, the updater puts the old one back (station-update.ps1), and this screen says so.
  */
+const STEP_LABEL: Record<string, string> = {
+  checking: 'Getting ready', downloading: 'Downloading', backup: 'Backing up your sales', installing: 'Installing',
+  starting: 'Starting the new version', done: 'Done', 'going-back': 'The new version did not start: going back',
+};
+
+/**
+ * Where the update is. From the updater's own steps while the shop server can pass them on
+ * (with the real download percentage), and moving on by itself while the server restarts,
+ * so the bar never stands still and never goes backwards.
+ */
+function UpdateProgress({ percent, label }: { percent: number; label: string }) {
+  const p = Math.round(percent);
+  return (
+    <div className="update" role="status" aria-live="polite">
+      <div className="update__row"><b>{label}</b><span className="num">{p}%</span></div>
+      <div className="update__bar" role="progressbar" aria-label="Update progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={p}>
+        <span style={{ width: `${p}%` }} />
+      </div>
+      <p className="update__note">Please don’t turn the PC off. The POS comes back by itself.</p>
+    </div>
+  );
+}
+
+/** Eases from `from` towards `to`: quick at first, slower as it gets close (never quite there). */
+const ease = (from: number, to: number, ms: number, over: number) => from + (to - from) * (1 - Math.exp(-ms / over));
+
 function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
   const [info, setInfo] = useState<{ current: string; latest: string | null; newer: boolean } | null>(null);
   const [phase, setPhase] = useState<'checking' | 'idle' | 'updating' | 'slow' | 'back'>('checking');
+  const [progress, setProgress] = useState({ percent: 0, label: STEP_LABEL.checking });
   const [error, setError] = useState('');
   const check = useCallback(async () => {
     setPhase('checking');
@@ -230,25 +257,59 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
     setPhase('updating');
     const started = Date.now();
     let wentDown = false; // the installer stopped the server: from now on, the old version answering means it went back
-    const wait = async () => {
-      try {
-        const h = (await (await fetch('/api/v1/health', { signal: AbortSignal.timeout(3000) })).json()) as { version?: string };
-        if (info?.latest && h.version === info.latest) { restartApp(); return; }
-        if (wentDown && h.version === info?.current) { setPhase('back'); return; }
-      } catch { wentDown = true; /* the server is restarting: keep waiting */ }
-      // Going back can take a while: 3 minutes of waiting for the new version, then the old one again.
-      if (Date.now() - started > 10 * 60_000) { setPhase('slow'); return; }
-      setTimeout(() => void wait(), 3000);
+    let downAt = 0;
+    let shown = 2;
+    let label = STEP_LABEL.checking;
+    let heard = false; // this updater reports its steps (versions before 1.0.3 do not)
+    const show = (percent: number, text: string, allowBack = false) => {
+      shown = allowBack ? percent : Math.max(shown, percent);
+      label = text;
+      setProgress({ percent: shown, label });
     };
-    setTimeout(() => void wait(), 3000);
+    const wait = async () => {
+      const now = Date.now();
+      let up = false;
+      try {
+        const h = (await (await fetch('/api/v1/health', { signal: AbortSignal.timeout(2500) })).json()) as { version?: string };
+        up = true;
+        if (info?.latest && h.version === info.latest) {
+          show(100, 'Done: opening the new version');
+          setTimeout(restartApp, 1200);
+          return;
+        }
+        if (wentDown && h.version === info?.current) { setPhase('back'); return; }
+      } catch {
+        if (!wentDown) downAt = now;
+        wentDown = true;
+      }
+      if (up) {
+        const s = (await setupClient.updateStatus(ownerPin).catch(() => ({ status: null }))).status;
+        if (s && s.at >= started - 5_000) {
+          heard = true;
+          if (s.phase === 'failed') { setError('The update did not work. Nothing changed: the POS is as it was.'); setPhase('idle'); return; }
+          if (s.phase === 'back') { setPhase('back'); return; }
+          if (s.phase === 'up-to-date') { setPhase('idle'); void check(); return; }
+          const text = s.phase === 'downloading' ? `Downloading version ${s.version}` : STEP_LABEL[s.phase] ?? label;
+          show(s.percent, text, s.phase === 'going-back');
+        } else if (!heard) {
+          show(ease(2, 60, now - started, 40_000), 'Downloading the new version'); // an older updater: by time
+        }
+      } else {
+        // The server is restarting while the installer works: keep moving, a little slower near the end.
+        show(Math.max(65, ease(65, 92, now - downAt, 30_000)), shown < 84 ? STEP_LABEL.installing : STEP_LABEL.starting);
+      }
+      // Going back can take a while: 3 minutes of waiting for the new version, then the old one again.
+      if (now - started > 10 * 60_000) { setPhase('slow'); return; }
+      setTimeout(() => void wait(), 1000);
+    };
+    setProgress({ percent: 2, label: STEP_LABEL.checking });
+    setTimeout(() => void wait(), 800);
   };
 
   return (
     <div className="setup__form">
       <p className="setup__lead">Installed: <b>{info?.current ?? '…'}</b>. New versions also install by themselves at 4 am, when the shop is closed.</p>
-      {phase === 'updating' && (
-        <p className="setup__done" role="status">Updating to {info?.latest}… The POS restarts by itself in about a minute. Please don't turn the PC off.</p>
-      )}
+      {phase === 'updating' && <UpdateProgress percent={progress.percent} label={progress.label} />}
       {phase === 'back' && (
         <p className="setup__error" role="alert">Version {info?.latest} did not start on this PC, so CheesyBeez went back to {info?.current}. All sales are safe. Tell whoever looks after your POS.</p>
       )}
