@@ -15,8 +15,8 @@ test('inventory items render as compact name, status, and supplier rows', () => 
   const list = screen.getByRole('main', { name: 'Inventory' });
   const firstRow = list.querySelector<HTMLElement>('.inv-row')!;
   expect(firstRow.querySelector('.inv-row__name')?.textContent).toBe('Pizza Flour');
-  expect(firstRow.querySelector('.dot')).toBeTruthy();
-  expect(within(firstRow).getByRole('button', { name: 'Find Supplier' })).toBeTruthy();
+  expect(firstRow.querySelector('.inv-row__status')?.textContent).toBe('Not counted yet');
+  expect(within(firstRow).getByRole('button', { name: 'Find supplier' })).toBeTruthy();
 });
 
 test('new ingredient requires suppliers and saves as a stock event', async () => {

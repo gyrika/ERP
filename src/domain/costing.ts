@@ -97,8 +97,9 @@ export interface Cost {
 
 const MAX_DEPTH = 8; // preps inside preps (pizza → dough ball → dough batch → culture)
 
-const sourceOf = (name: string, ctx: CostContext) => {
-  const answer = ctx.answers.get(ingredientQuestion(name));
+/** The price-list item behind one of his ingredients, from the map or his answer. */
+export const sourceOf = (name: string, answers: ReadonlyMap<string, Answer>) => {
+  const answer = answers.get(ingredientQuestion(name));
   return INGREDIENT_SOURCES[name] ?? (answer?.kind === 'source' ? answer : null);
 };
 
@@ -122,7 +123,7 @@ const lineCost = (line: BookLine, ctx: CostContext, missing: Set<string>, depth:
   const product = PRODUCTS[line.name];
   if (product) return linesCost(product, ctx, missing, depth + 1) * line.qty; // a sold item used inside another
 
-  const source = sourceOf(line.name, ctx);
+  const source = sourceOf(line.name, ctx.answers);
   if (source) {
     const item = ctx.items.find((i) => i.id === source.inventoryId);
     if (item && item.workingPriceCents > 0) return (item.workingPriceCents / item.packQty) * source.per * line.qty;

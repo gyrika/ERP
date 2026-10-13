@@ -1,6 +1,4 @@
 import { useState } from 'react';
-import { StatusDot } from './StatusDot.tsx';
-import { stockStatus } from '../domain/inventory.ts';
 import type { SupplierSummary } from '../domain/inventory.ts';
 
 /** WhatsApp links need the country code: 077 123 4567 becomes 94771234567. */
@@ -32,8 +30,6 @@ export function SupplierCard({
           <div className="sup-card__title-block">
             <h3 className="sup-card__title">{supplier.name}</h3>
           </div>
-          <StatusDot status={summary.status} />
-          <span className="sup-card__toggle">{expanded ? '−' : '+'}</span>
         </button>
         <button
           type="button"
@@ -77,7 +73,6 @@ export function SupplierCard({
               <div className="sup-card__item-main">
                 <span>{item.name}</span>
               </div>
-              <StatusDot status={stockStatus(item)} />
             </div>
           ))}
         </div>

@@ -25,15 +25,15 @@ test('the demo owner feed: today in one line, then cards with one tap each', asy
     expect.stringMatching(/^Sales \d+% below a usual Friday$/),
     expect.stringMatching(/voids today, \d+ by Ravi$/),
     expect.stringMatching(/^Kitchen slow/),
-    '2 items running low',
+    '3 items running low',
     'Food costs: 27 answers to go',
     "BBQ Pork hasn't sold in 2 weeks",
     expect.stringMatching(/best seller$/),
   ]);
   expect(within(screen.getByRole('region', { name: 'Today' })).getByText(/^Rs [\d,]+$/)).toBeTruthy();
 
-  await user.click(within(feed.getByRole('article', { name: '2 items running low' })).getByRole('button', { name: 'Order list' }));
-  const sheet = within(screen.getByRole('dialog', { name: '2 items running low' }));
+  await user.click(within(feed.getByRole('article', { name: '3 items running low' })).getByRole('button', { name: 'Order list' }));
+  const sheet = within(screen.getByRole('dialog', { name: '3 items running low' }));
   expect(sheet.getByText('Pizza Flour')).toBeTruthy();
   expect(sheet.getByText(/Prima/)).toBeTruthy();
   await user.keyboard('{Escape}');

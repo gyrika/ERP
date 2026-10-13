@@ -88,3 +88,31 @@ export const INGREDIENT_SOURCES: Readonly<Record<string, { inventoryId: string; 
 
 /** Costs nothing: his own sheet prices water at 0 ("Water · In-house · 0.0"). */
 export const FREE_INGREDIENTS: ReadonlySet<string> = new Set(['Water']);
+
+/**
+ * A menu extra → his add-on recipe (same thing by name). Pizza toppings added as
+ * extras (chicken, sausages, bacon...) have no add-on recipe in his sheet, so they
+ * take nothing from stock until he adds one.
+ */
+export const ADD_RECIPES: Readonly<Record<string, string>> = {
+  'full-cheese': 'Extra Cheese Full Add-on',
+  'half-cheese': 'Extra Cheese Half Add-on',
+  'cheese-slice': 'Extra Cheese Slice',
+  bullseye: 'Extra Bullseye',
+  'chicken-patty': 'Extra Chicken Patty',
+  'bacon-egg': 'Extra Bacon and Egg',
+};
+
+/**
+ * A leave-out → the lines of his recipe it removes (the item's own lines, not those
+ * inside a batch). Only certain ones: "No capsicum" (his recipes say Bell Pepper,
+ * the menu has both), "No burger sauce", "No sweet corn" and "Less spicy" leave the
+ * recipe as it is.
+ */
+export const LEAVE_OUT_LINES: Readonly<Record<string, readonly string[]>> = {
+  'no-onion': ['Onion', 'Fresh Onion'],
+  'no-bell-pepper': ['Bell Pepper'],
+  'no-tomato': ['Tomato', 'Tomato Slice'],
+  'no-mushroom': ['Mushroom Packet'],
+  'no-lettuce': ['Lettuce'],
+};
