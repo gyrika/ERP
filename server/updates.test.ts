@@ -49,3 +49,18 @@ test('install: runs the Station updater (forced), only on Windows inside a Stati
   assert.throws(() => updatesApi({ ...dev, platform: 'win32', run }).install(), /on Windows/, 'never in development');
   dev.done();
 });
+
+test("status: the updater's latest step for the progress bar; nothing (not an error) when there is none or it is half written", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cb-status-'));
+  const statusFile = join(dir, 'update-status.json');
+  try {
+    const u = updatesApi({ versionFile: join(dir, 'version.txt'), updaterScript: join(dir, 'x.ps1'), statusFile });
+    assert.equal(u.status(), null);
+    writeFileSync(statusFile, '﻿{"phase":"downloading","percent":37,"version":"1.0.4","at":5}');
+    assert.deepEqual(u.status(), { phase: 'downloading', percent: 37, version: '1.0.4', at: 5 });
+    writeFileSync(statusFile, '{"phase":"down');
+    assert.equal(u.status(), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -38,4 +38,6 @@ export const setupClient = {
   finish: () => call<{ done: boolean }>('/finish', {}),
   checkUpdate: (ownerPin?: string) => call<{ current: string; latest: string | null; newer: boolean }>('/update/check', { ownerPin }),
   installUpdate: (ownerPin?: string) => call<{ started: boolean; from: string }>('/update/install', { ownerPin }),
+  updateStatus: (ownerPin?: string) =>
+    call<{ status: { phase: string; percent: number; version: string; at: number } | null }>('/update/status', { ownerPin }),
 };
