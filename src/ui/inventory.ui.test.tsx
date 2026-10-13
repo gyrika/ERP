@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as inventoryStore from '../services/inventoryStore.ts';
+import { SEED_INVENTORY } from '../domain/inventoryData.ts';
 import { InventoryView } from './InventoryView.tsx';
 import { SupplierView } from './SupplierView.tsx';
 
@@ -105,20 +106,52 @@ test('price drawer reports invalid input and saves valid LKR cents', async () =>
   expect(screen.getByRole('button', { name: /Edit price for Pizza Flour, Rs 1,250.25/ })).toBeTruthy();
 });
 
-test('supplier cards show all linked ingredients and contact actions', async () => {
+test('supplier list expands to show linked ingredients and contact actions', async () => {
   const user = userEvent.setup();
   render(<SupplierView />);
 
   const main = screen.getByRole('main', { name: 'Suppliers' });
   expect(main.classList.contains('supplier-grid')).toBe(true);
   const ajantha = screen.getByRole('button', { name: /Ajantha/ });
+  const secondSupplier = screen.getByRole('button', { name: /Prima/ });
+  const details = ajantha.closest('article')!.querySelector('.sup-card__expand');
+  const secondDetails = secondSupplier.closest('article')!.querySelector('.sup-card__expand');
+  expect(details?.hasAttribute('hidden')).toBe(true);
+  expect(ajantha.closest('article')!.classList.contains('supplier-card--expanded')).toBe(false);
   await user.click(ajantha);
+  expect(details?.hasAttribute('hidden')).toBe(false);
+  expect(ajantha.closest('article')!.classList.contains('supplier-card--expanded')).toBe(true);
+  await user.click(secondSupplier);
+  expect(secondDetails?.hasAttribute('hidden')).toBe(false);
+  expect(secondSupplier.closest('article')!.classList.contains('supplier-card--expanded')).toBe(true);
+  const rows = [...main.querySelectorAll('article')];
+  expect(rows).toContain(ajantha.closest('article'));
+  expect(rows).toContain(secondSupplier.closest('article'));
   expect(within(ajantha.closest('article')!).getByText('Pizza Flour')).toBeTruthy();
   const contactActions = within(ajantha.closest('article')!);
   const callLink = contactActions.getByRole('link', { name: 'Call' });
   expect(callLink.getAttribute('href')).toBe('tel:+94773456789');
   const waLink = contactActions.getByRole('link', { name: 'WhatsApp' });
   expect(waLink.getAttribute('href')).toBe('https://wa.me/94773456789');
+});
+
+test('supplier status reflects its lowest-stock ingredient', () => {
+  const lowItem = { ...SEED_INVENTORY[0], supplierIds: ['sup-low'], onHandPacks: 1 };
+  const outItem = { ...SEED_INVENTORY[1], supplierIds: ['sup-out'], onHandPacks: 0 };
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
+    items: [lowItem, outItem],
+    suppliers: [
+      { id: 'sup-low', name: 'Low Supplier' },
+      { id: 'sup-out', name: 'Out Supplier' },
+    ],
+  });
+  render(<SupplierView />);
+
+  const lowSupplier = screen.getByRole('button', { name: /Low Supplier/ }).closest('article');
+  const outSupplier = screen.getByRole('button', { name: /Out Supplier/ }).closest('article');
+  expect(within(lowSupplier!).getByRole('img', { name: 'Low stock' })).toBeTruthy();
+  expect(within(outSupplier!).getByRole('img', { name: 'Out of stock' })).toBeTruthy();
+  spy.mockRestore();
 });
 
 test('supplier cards render fallback message when phone is missing', () => {
