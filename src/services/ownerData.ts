@@ -5,12 +5,13 @@ import type { PullResponse, SyncEvent } from '../domain/sync.ts';
 import { demoHistory } from '../fake/history.ts';
 import { readAll, subscribeEvents } from '../ui/eventLog.ts';
 import { isDemo } from '../ui/storage.ts';
-import { adminShop, ownerToken, syncToken } from './pairing.ts';
+import { adminShop, fleetShop, ownerToken, syncToken } from './pairing.ts';
 
 /**
  * Everything the Owner view looks at: the shop's whole history of events.
  * - The owner's phone: from the cloud copy (same address that served the page).
  * - The developer's admin view of a shop: the same, through /admin (signed in with the admin password).
+ * - The Shops screen on the developer's laptop: the same, through its local server (server/fleet.ts).
  * - The counter (paired): from the shop server (the browser keeps only two days).
  * - The demo: five weeks of made-up trading (src/fake/history.ts).
  * - Development without a server: this browser's own events.
@@ -49,6 +50,8 @@ export const shopSource = (): Source => {
   if (isDemo()) return local(() => demoHistory(Date.now()));
   const shop = adminShop();
   if (shop) return remote(`/admin/api/shops/${shop}/events`, {});
+  const fleet = fleetShop();
+  if (fleet) return remote(`/api/v1/fleet/shops/${fleet}/events`, {});
   const token = ownerToken() ?? syncToken();
   return token ? remote('/api/v1/events', { authorization: `Bearer ${token}` }) : local(readAll);
 };

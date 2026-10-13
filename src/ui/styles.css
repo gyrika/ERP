@@ -824,3 +824,19 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .setup__done { margin: 0; padding: 16px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 17px; font-weight: 500; border-left: 5px solid var(--ok); }
 .owner__install { margin: -8px 0 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 12px 12px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 15px; color: var(--ink-2); }
 .owner__install .insight__action { background: var(--ink); color: var(--surface); }
+
+/* Shops: the developer's screen (ShopsView) */
+.shops { gap: 12px; }
+.shops__back { min-height: 48px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.shops__back:hover { background: var(--chip); }
+.shops__lead { margin: 0 0 4px; color: var(--ink-2); }
+.shops__card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; min-height: 96px; padding: 16px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); color: inherit; text-decoration: none; transition: transform 150ms var(--ease); }
+.shops__card:hover { transform: translateY(-1px); }
+.shops__card:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.shops__name { font-size: 18px; font-weight: 600; }
+.shops__state { font-size: 14px; font-weight: 600; color: var(--ink-3); }
+.shops__state--on { color: var(--ok-ink); }
+.shops__id { grid-column: 1 / -1; font-size: 13px; color: var(--ink-3); }
+.shops__facts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 14px; color: var(--ink-2); }
+.shops__warn { color: var(--warn); }
+.shops__bad, .shops__error { color: var(--bad); }

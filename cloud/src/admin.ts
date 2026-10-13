@@ -11,7 +11,9 @@ import { json, sha256Hex } from './http.ts';
  * Signed in with one long random password (the Worker secret ADMIN_KEY, made by
  * `npm run admin-key` in cloud/). Typed once, it becomes a signed session cookie for
  * 30 days: HttpOnly (no script reads it), Secure, SameSite=Strict, only for /admin,
- * and never in the address. Without ADMIN_KEY, /admin does not exist.
+ * and never in the address. Without ADMIN_KEY, /admin does not exist. The data under
+ * /admin/api/ also answers to the password as a Bearer key: the Shops screen on the
+ * developer's laptop reads it through its own local server (server/fleet.ts).
  */
 
 const SESSION = 'cb_admin';
@@ -211,7 +213,10 @@ export const adminRoutes = async (req: Request, url: URL, o: AdminOptions): Prom
     return back(`${SESSION}=; Path=/admin; Max-Age=0; HttpOnly; Secure; SameSite=Strict`);
   }
 
-  if (!(await signedIn(req, o.key, now))) {
+  // The developer's own laptop (its local server, `server/fleet.ts`) asks for data with the password as a key.
+  const auth = req.headers.get('authorization');
+  const byKey = url.pathname.startsWith('/admin/api/') && auth?.startsWith('Bearer ') && await rightKey(auth.slice(7), o.key);
+  if (!byKey && !(await signedIn(req, o.key, now))) {
     return url.pathname === '/admin' || url.pathname === '/admin/' ? html(signInPage(false)) : new Response('Sign in at /admin', { status: 403 });
   }
   if (req.method !== 'GET') return new Response('Method not allowed', { status: 405 });
@@ -220,6 +225,11 @@ export const adminRoutes = async (req: Request, url: URL, o: AdminOptions): Prom
     const [rows, latest] = await Promise.all([shopRows(o.db, now), o.latest()]);
     return html(adminPage(rows, latest, now));
   }
+  if (url.pathname === '/admin/api/shops') {
+    const [shops, latest] = await Promise.all([shopRows(o.db, now), o.latest()]);
+    return json(200, { shops, latest, serverTime: now });
+  }
+
   // One shop's events, for its Owner view: the same answer an owner's phone gets, for any shop.
   const events = /^\/admin\/api\/shops\/([a-z0-9-]{1,64})\/events$/.exec(url.pathname);
   if (events) {

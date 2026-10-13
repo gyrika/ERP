@@ -56,7 +56,12 @@ function Detail({ insight, onClose }: { insight: Insight; onClose: () => void })
  * `phone`: on the owner's phone (the cloud site): no links to the counter's screens.
  * `onBack`: back to the Register (F3 does the same).
  */
-export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?: () => void } = {}) {
+export function OwnerView({ phone = false, onBack, shop }: {
+  phone?: boolean;
+  onBack?: () => void;
+  /** Another shop, from the developer's Shops screen: its id in the header, Back goes to Shops. */
+  shop?: string;
+} = {}) {
   const data = useShopEvents();
   const install = useInstall();
   /** The developer's admin view of a shop: not an owner's phone, so no home-screen offer. */
@@ -81,7 +86,13 @@ export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?:
 
   return (
     <div className="owner">
-      {phone ? (
+      {shop ? (
+        <header className="owner__head">
+          <button type="button" className="shops__back" onClick={onBack}>Shops</button>
+          <span className="brand">{shop}</span>
+          {data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>}
+        </header>
+      ) : phone ? (
         <header className="owner__head">
           <span className="brand">CheesyBeez</span>
           {data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>}

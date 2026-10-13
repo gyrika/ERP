@@ -116,6 +116,18 @@ test('signing in: the right password gives a 30-day session cookie no script can
   assert.match(out.headers.get('set-cookie')!, /^cb_admin=; .*Max-Age=0/);
 });
 
+test('the laptop\'s server reads the shop list and events with the password as a key; a wrong key gets nothing', async () => {
+  const { admin } = await setup();
+  const key = (k: string) => ({ headers: { authorization: `Bearer ${k}` } });
+  const list = await (await admin(req('/admin/api/shops', key(KEY))))!.json();
+  assert.deepEqual(list.shops.map((r: { name: string }) => r.name).sort(), ['CheesyBeez Thalwila', 'Test shop']);
+  assert.equal(list.latest, '1.0.5');
+  assert.equal((await admin(req('/admin/api/shops/shop-a/events', key(KEY))))!.status, 200);
+  assert.equal((await admin(req('/admin/api/shops', key('wrong'))))!.status, 403);
+  assert.equal((await admin(req('/admin', key(KEY))))!.status, 200);
+  assert.match(await (await admin(req('/admin', key(KEY))))!.text(), /Admin password/, 'the key opens the data, not the signed-in pages');
+});
+
 test('without a password, or with a short one, /admin does not exist', async () => {
   for (const key of [null, 'short-password']) {
     const r = await adminRoutes(req('/admin'), new URL('https://cloud.test/admin'), {

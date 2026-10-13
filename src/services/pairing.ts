@@ -52,6 +52,9 @@ export const ownerToken = (): string | null => (isDemo() ? null : get(OWNER));
  */
 export const isCloudSite = (): boolean => import.meta.env.VITE_SITE === 'cloud';
 
+/** The Shops screen's shop on the developer's laptop (`#shops/<id>`, read through the local server). */
+export const fleetShop = (): string | null => /^#shops\/([a-z0-9-]{1,64})$/.exec(location.hash)?.[1] ?? null;
+
 /** The developer's admin view of one shop (`/admin/shop/<id>` in the cloud, behind the admin password). */
 export const adminShop = (): string | null =>
   (isCloudSite() ? /^\/admin\/shop\/([a-z0-9-]{1,64})$/.exec(location.pathname)?.[1] : null) ?? null;

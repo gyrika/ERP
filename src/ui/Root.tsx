@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
-import { adminShop, isCloudSite, isKitchenDevice, ownerToken, syncToken } from '../services/pairing.ts';
+import { adminShop, fleetShop, isCloudSite, isKitchenDevice, ownerToken, syncToken } from '../services/pairing.ts';
 import { isDemo } from './storage.ts';
 import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { App } from './App.tsx';
@@ -13,6 +13,7 @@ import { MenuView } from './MenuView.tsx';
 import { useMenu } from './menuStore.ts';
 import { OwnerView } from './OwnerView.tsx';
 import { OwnerWelcome } from './OwnerWelcome.tsx';
+import { ShopsView } from './ShopsView.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
 import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
@@ -118,7 +119,7 @@ export function Root() {
   const inKitchen = hash === KITCHEN;
   /** The Owner view shows the takings: owners and managers only (SCRUM-41). */
   const seesOwner = !kitchenOnly && (!needsLogin || (staff !== null && seesTakings(staff.role)));
-  const go = useCallback((to: '' | typeof KITCHEN | typeof OWNER) => withTransition(() => {
+  const go = useCallback((to: '' | typeof KITCHEN | typeof OWNER | '#shops') => withTransition(() => {
     // replaceState: flipping all day must not fill the browser history.
     history.replaceState(null, '', to || location.pathname + location.search);
     setHash(to);
@@ -161,6 +162,9 @@ export function Root() {
   // The server refuses a cashier's stock events anyway.
   const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
   if (hash === OWNER && seesOwner) return <OwnerView onBack={() => go('')} />;
+  // The developer's Shops screen (only answers on the developer's laptop: server/fleet.ts).
+  if (hash === '#shops' && seesOwner) return <ShopsView onBack={() => go('')} />;
+  if (fleetShop() && seesOwner) return <OwnerView key={hash} shop={fleetShop()!} onBack={() => go('#shops')} />;
   if (hash === '#inventory' && mayManageStock) {
     return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;
   }

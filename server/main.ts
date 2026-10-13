@@ -4,6 +4,7 @@ import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
 import { dryRunPrinter, switchablePrinter, systemPrinter } from './printer.ts';
 import { startOnline, type Online } from './online.ts';
+import { createFleet } from './fleet.ts';
 import { startReplicator } from './replicator.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
@@ -81,6 +82,11 @@ const startCloud = () => {
 };
 startCloud();
 
+// The developer's Shops screen: only where server/.env has the admin password (the developer's laptop).
+const fleet = process.env.CLOUD_ADMIN_KEY
+  ? createFleet({ url: process.env.CLOUD_ADMIN_URL || 'https://cheesybeez-cloud.cheesybeez-cloud.workers.dev', key: process.env.CLOUD_ADMIN_KEY })
+  : null;
+
 const server = createApp({
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
@@ -90,6 +96,7 @@ const server = createApp({
   cloudStatus: () => replicator?.status() ?? null,
   setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates }),
   version: updates.current,
+  fleet,
 });
 
 server.listen(port, '0.0.0.0', () => {
@@ -100,6 +107,7 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  version: ${updates.current()}`);
   console.log(`  database: ${storeName}`);
   console.log(`  receipt printer: ${printer.name}`);
+  if (fleet) console.log('  shops screen: on (CLOUD_ADMIN_KEY), on this computer only');
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 

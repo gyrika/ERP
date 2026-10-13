@@ -145,3 +145,10 @@ Run it in your own terminal: it shows the password once (save it in a password m
 stores it as the Worker secret `ADMIN_KEY`. Typed once at `/admin`, it becomes a signed session
 cookie for 30 days (HttpOnly, Secure, SameSite=Strict, only for `/admin`). Running it again makes a
 new password and signs every browser out. Without `ADMIN_KEY`, `/admin` answers 404.
+
+### The Shops screen on the developer's laptop
+
+The same data inside the local app: add the admin password to this laptop's `server/.env`
+(`CLOUD_ADMIN_KEY=<password>`, optionally `CLOUD_ADMIN_URL` for the test cloud), restart
+`npm run server`, then Ctrl+K → **Shops**. The local server reads the cloud with the password
+(`server/fleet.ts`) and answers only this computer itself; a shop PC has no key, so no Shops screen.
