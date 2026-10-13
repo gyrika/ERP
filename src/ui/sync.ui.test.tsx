@@ -89,7 +89,7 @@ test('demo events are never queued for the server', () => {
   expect(readOutbox()).toEqual([]);
 });
 
-test('synced catalog creation events stay local after routine events are pruned', () => {
+test('synced catalog lifecycle events stay local after routine events are pruned', () => {
   const actor = { id: 'manager', name: 'Ravi', role: 'manager' as const };
   addEvents([
     {
@@ -119,12 +119,55 @@ test('synced catalog creation events stay local after routine events are pruned'
       supplier: { id: 'sup-new', name: 'Fresh Farms' },
       linkedItemIds: [],
     },
+    {
+      id: 'old-item-archive',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.item_archived',
+      itemId: 'inv-new',
+    },
+    {
+      id: 'old-supplier-archive',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.supplier_archived',
+      supplierId: 'sup-new',
+    },
+    {
+      id: 'old-item-restore',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.item_restored',
+      itemId: 'inv-new',
+    },
+    {
+      id: 'old-supplier-restore',
+      shopId: 'shop',
+      at: 1,
+      orderNumber: 0,
+      actor,
+      type: 'stock.supplier_restored',
+      supplierId: 'sup-new',
+    },
     { ...sent('old-order', 'old-ticket'), at: 1 },
   ]);
 
   markSynced([], Date.now());
 
-  expect(readAll().map((event) => event.id)).toEqual(['old-item', 'old-supplier']);
+  expect(readAll().map((event) => event.id)).toEqual([
+    'old-item',
+    'old-supplier',
+    'old-item-archive',
+    'old-supplier-archive',
+    'old-item-restore',
+    'old-supplier-restore',
+  ]);
 });
 
 test('offline sign: how many orders wait, and gone once they are sent', async () => {

@@ -3,26 +3,44 @@ import { StatusDot } from './StatusDot.tsx';
 import { stockStatus } from '../domain/inventory.ts';
 import type { SupplierSummary } from '../domain/inventory.ts';
 
-export function SupplierCard({ summary }: { summary: SupplierSummary }) {
+export function SupplierCard({
+  summary,
+  onArchive,
+}: {
+  summary: SupplierSummary;
+  onArchive: (supplierId: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const { supplier } = summary;
 
   return (
     <article className={`sup-card supplier-card${expanded ? ' supplier-card--expanded' : ''}`}>
-      <button
-        className="sup-card__header"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        aria-controls={`supplier-${supplier.id}-details`}
-      >
-        <div className="sup-card__title-block">
-          <h3 className="sup-card__title">{supplier.name}</h3>
-        </div>
-        <StatusDot status={summary.status} />
-        <div className="sup-card__toggle">
-          {expanded ? '−' : '+'}
-        </div>
-      </button>
+      <div className="sup-card__header">
+        <button
+          className="sup-card__expand-toggle"
+          onClick={() => setExpanded(!expanded)}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${supplier.name}`}
+          aria-expanded={expanded}
+          aria-controls={`supplier-${supplier.id}-details`}
+        >
+          <div className="sup-card__title-block">
+            <h3 className="sup-card__title">{supplier.name}</h3>
+          </div>
+          <StatusDot status={summary.status} />
+          <span className="sup-card__toggle">{expanded ? '−' : '+'}</span>
+        </button>
+        <button
+          type="button"
+          className="sup-card__remove"
+          aria-label={`Remove ${supplier.name}`}
+          title={`Remove ${supplier.name}`}
+          onClick={() => onArchive(supplier.id)}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 7h16M10 11v6m4-6v6M5 7l1 13h12l1-13M9 7V4h6v3" />
+          </svg>
+        </button>
+      </div>
 
       <div
         className="sup-card__expand"

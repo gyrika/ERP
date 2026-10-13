@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
-import { inventoryFromEvents, isLowStock, isOutOfStock, itemById, loadSeed, summariseSuppliers, supplierById, validateSeed } from './inventory.ts';
+import { inventoryFromEvents, isLowStock, isOutOfStock, itemById, loadSeed, summariseSuppliers, supplierById, suppliersFromEvents, validateSeed } from './inventory.ts';
 import { mayRecord } from './auth.ts';
 import { storageKey } from '../ui/storage.ts';
 
@@ -149,15 +149,48 @@ test('creation events add ingredients and independent supplier links without mut
   assert.deepEqual(supplierSummary?.suppliedItems.map((item) => item.id), [flour.id, newItem.id]);
 });
 
+test('ingredient and supplier archive events hide catalog rows and restore them without losing stock', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const itemId = SEED_INVENTORY[0].id;
+  const supplierId = SEED_SUPPLIERS[0].id;
+  const archived = [
+    { ...base, id: 'stock-in', type: 'stock.adjusted' as const, itemId, deltaPacks: 3 },
+    { ...base, id: 'item-archived', type: 'stock.item_archived' as const, itemId },
+    { ...base, id: 'supplier-archived', type: 'stock.supplier_archived' as const, supplierId },
+  ];
+  const rows = inventoryFromEvents(SEED_INVENTORY, archived);
+
+  assert.equal(rows.find((item) => item.id === itemId)?.archived, true);
+  assert.equal(rows.find((item) => item.id === itemId)?.onHandPacks, 3);
+  assert.equal(suppliersFromEvents(SEED_SUPPLIERS, archived).some((supplier) => supplier.id === supplierId), false);
+  assert.equal(suppliersFromEvents(SEED_SUPPLIERS, archived, true).some((supplier) => supplier.id === supplierId), true);
+
+  const restored = inventoryFromEvents(SEED_INVENTORY, [
+    ...archived,
+    { ...base, id: 'item-restored', type: 'stock.item_restored' as const, itemId },
+  ]);
+  assert.equal(restored.find((item) => item.id === itemId)?.archived, false);
+  assert.equal(restored.find((item) => item.id === itemId)?.onHandPacks, 3);
+  assert.equal(suppliersFromEvents(SEED_SUPPLIERS, [
+    ...archived,
+    { ...base, id: 'supplier-restored', type: 'stock.supplier_restored' as const, supplierId },
+  ]).some((supplier) => supplier.id === supplierId), true);
+});
+
 test('only managers and owners may change stock', () => {
   assert.equal(mayRecord('cashier', 'stock.adjusted'), false);
   assert.equal(mayRecord('kitchen', 'stock.price_set'), false);
   assert.equal(mayRecord('cashier', 'stock.item_added'), false);
   assert.equal(mayRecord('cashier', 'stock.supplier_added'), false);
+  assert.equal(mayRecord('cashier', 'stock.item_archived'), false);
+  assert.equal(mayRecord('cashier', 'stock.supplier_archived'), false);
   assert.equal(mayRecord('manager', 'stock.adjusted'), true);
   assert.equal(mayRecord('manager', 'stock.item_added'), true);
   assert.equal(mayRecord('manager', 'stock.supplier_added'), true);
   assert.equal(mayRecord('owner', 'stock.price_set'), true);
+  assert.equal(mayRecord('manager', 'stock.item_archived'), true);
+  assert.equal(mayRecord('owner', 'stock.supplier_archived'), true);
 });
 
 test('T17: all 18 suppliers have realistic Sri Lankan phone numbers', () => {

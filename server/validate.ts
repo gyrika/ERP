@@ -46,6 +46,14 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         new Set(e.linkedItemIds).size !== e.linkedItemIds.length
       ) return { reason: `event ${e.id} has an invalid supplier` };
     }
+    if (
+      (e.type === 'stock.item_archived' || e.type === 'stock.item_restored') &&
+      !shortString(e.itemId)
+    ) return { reason: `event ${e.id} has an invalid ingredient id` };
+    if (
+      (e.type === 'stock.supplier_archived' || e.type === 'stock.supplier_restored') &&
+      !shortString(e.supplierId)
+    ) return { reason: `event ${e.id} has an invalid supplier id` };
   }
   return { events: body.events as SyncEvent[] };
 };

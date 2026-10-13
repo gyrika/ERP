@@ -76,9 +76,32 @@ test('finding an ingredient supplier routes to the filtered supplier view', asyn
 
   expect(location.hash).toBe('#suppliers');
   expect(screen.getByRole('heading', { name: 'Targeted Suppliers' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: /Prima/ })).toBeTruthy();
-  expect(screen.getByRole('button', { name: /Ajantha/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Expand Prima / David Stores (Wholesale)' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Expand Ajantha (Wholesale)' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: /Nimmi veg shop/ })).toBeNull();
+});
+
+test('adding a supplier with a new ingredient updates Inventory and Find Supplier', async () => {
+  history.replaceState(null, '', '/#suppliers');
+  const user = userEvent.setup();
+  render(<Root />);
+
+  await user.click(screen.getByRole('button', { name: '+ Add Supplier' }));
+  await user.type(screen.getByRole('textbox', { name: 'Supplier name' }), 'End-to-end Supplier');
+  await user.type(screen.getByRole('textbox', { name: 'Phone Optional' }), '+94770000000');
+  await user.type(screen.getByRole('searchbox', { name: 'Ingredients' }), 'End-to-end Flour');
+  await user.click(screen.getByRole('button', { name: '+ Add “End-to-end Flour” as new ingredient' }));
+  await user.click(screen.getByRole('button', { name: 'Save Supplier' }));
+
+  await user.click(await screen.findByRole('link', { name: 'Inventory' }));
+  const ingredientRow = screen.getByRole('heading', { name: 'End-to-end Flour' }).closest('.inv-row')!;
+  expect(within(ingredientRow).getByText('End-to-end Supplier')).toBeTruthy();
+
+  await user.click(within(ingredientRow).getByRole('button', { name: 'Find Supplier' }));
+  expect(await screen.findByRole('heading', { name: 'Targeted Suppliers' })).toBeTruthy();
+  const supplierToggle = screen.getByRole('button', { name: 'Expand End-to-end Supplier' });
+  await user.click(supplierToggle);
+  expect(within(supplierToggle.closest('article')!).getByText('End-to-end Flour')).toBeTruthy();
 });
 
 test('inventory and suppliers link to each other and to the Owner view', async () => {

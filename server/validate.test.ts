@@ -37,6 +37,30 @@ test('valid ingredient and supplier creation events pass sync validation', () =>
   assert.deepEqual(validatePush({ deviceId: 'device-1', events }, 'shop-1'), { events });
 });
 
+test('valid ingredient and supplier archive and restore events pass sync validation', () => {
+  const events = [
+    { ...base, type: 'stock.item_archived', itemId: 'inv-0001' },
+    { ...base, id: 'event-2', type: 'stock.item_restored', itemId: 'inv-0001' },
+    { ...base, id: 'event-3', type: 'stock.supplier_archived', supplierId: 'sup-prima' },
+    { ...base, id: 'event-4', type: 'stock.supplier_restored', supplierId: 'sup-prima' },
+  ];
+  assert.deepEqual(validatePush({ deviceId: 'device-1', events }, 'shop-1'), { events });
+
+  const invalidItem = validatePush({
+    deviceId: 'device-1',
+    events: [{ ...base, type: 'stock.item_archived' }],
+  }, 'shop-1');
+  assert.ok('reason' in invalidItem);
+  if ('reason' in invalidItem) assert.match(invalidItem.reason, /invalid ingredient id/);
+
+  const invalidSupplier = validatePush({
+    deviceId: 'device-1',
+    events: [{ ...base, type: 'stock.supplier_archived' }],
+  }, 'shop-1');
+  assert.ok('reason' in invalidSupplier);
+  if ('reason' in invalidSupplier) assert.match(invalidSupplier.reason, /invalid supplier id/);
+});
+
 test('invalid ingredient and supplier creation payloads are refused', () => {
   const invalidIngredient = {
     ...base,

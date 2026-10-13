@@ -80,7 +80,7 @@ export const loadSeed = <T>(
 };
 
 /** A stock row: the price-list item plus what is on the shelf, in purchasing packs. */
-export type InventoryRow = InventoryItem & { onHandPacks: number; onHandBaseUnits?: number };
+export type InventoryRow = InventoryItem & { onHandPacks: number; onHandBaseUnits?: number; archived?: boolean };
 
 export const LOW_STOCK_PACKS = 1;
 
@@ -96,14 +96,23 @@ export const stockStatus = (row: InventoryRow): StockStatus => {
 
 export const isOutOfStock = (row: InventoryRow): boolean => row.onHandPacks === 0;
 
-export const suppliersFromEvents = (suppliers: readonly Supplier[], events: readonly SyncEvent[]): Supplier[] => {
+export const suppliersFromEvents = (
+  suppliers: readonly Supplier[],
+  events: readonly SyncEvent[],
+  includeArchived = false,
+): Supplier[] => {
   const byId = new Map(suppliers.map((supplier) => [supplier.id, supplier]));
+  const archived = new Set<string>();
   for (const event of events) {
     if (event.type === 'stock.supplier_added' && !byId.has(event.supplier.id)) {
       byId.set(event.supplier.id, event.supplier);
+    } else if (event.type === 'stock.supplier_archived') {
+      archived.add(event.supplierId);
+    } else if (event.type === 'stock.supplier_restored') {
+      archived.delete(event.supplierId);
     }
   }
-  return [...byId.values()];
+  return [...byId.values()].filter((supplier) => includeArchived || !archived.has(supplier.id));
 };
 
 // Return worst status among a list
@@ -116,7 +125,7 @@ export const worstStatus = (statuses: StockStatus[]): StockStatus => {
 // Summarise suppliers based on items
 export const summariseSuppliers = (items: InventoryRow[], suppliers: Supplier[]) => {
   return suppliers.map((supplier) => {
-    const suppliedItems = items.filter((i) => i.supplierIds.includes(supplier.id));
+    const suppliedItems = items.filter((i) => !i.archived && i.supplierIds.includes(supplier.id));
     const statuses = suppliedItems.map(stockStatus);
     const status = worstStatus(statuses);
     const outCount = suppliedItems.filter(isOutOfStock).length;
@@ -141,6 +150,7 @@ interface StockAccumulator {
   item: InventoryItem;
   workingPriceCents: number;
   onHandBaseUnits: number;
+  archived: boolean;
 }
 
 const getLineIngredients = (
@@ -209,6 +219,7 @@ export const inventoryFromEvents = (items: readonly InventoryItem[], events: rea
       item: { ...i, supplierIds: [...i.supplierIds] },
       workingPriceCents: i.workingPriceCents,
       onHandBaseUnits: 0,
+      archived: false,
     }]),
   );
 
@@ -220,8 +231,12 @@ export const inventoryFromEvents = (items: readonly InventoryItem[], events: rea
           item: { ...e.item, supplierIds: [...e.item.supplierIds] },
           workingPriceCents: e.item.workingPriceCents,
           onHandBaseUnits: 0,
+          archived: false,
         });
       }
+    } else if (e.type === 'stock.item_archived' || e.type === 'stock.item_restored') {
+      const acc = accumulator.get(e.itemId);
+      if (acc) acc.archived = e.type === 'stock.item_archived';
     } else if (e.type === 'stock.supplier_added') {
       for (const itemId of e.linkedItemIds) {
         const acc = accumulator.get(itemId);
@@ -279,5 +294,6 @@ export const inventoryFromEvents = (items: readonly InventoryItem[], events: rea
     workingPriceCents: acc.workingPriceCents,
     onHandBaseUnits: acc.onHandBaseUnits,
     onHandPacks: acc.item.packQty > 0 ? Math.floor(acc.onHandBaseUnits / acc.item.packQty) : 0,
+    archived: acc.archived,
   }));
 };

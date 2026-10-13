@@ -6,12 +6,14 @@ export function AutoSuggestPills({
   onToggle,
   placeholder,
   label,
+  onAddCustom,
 }: {
   options: { id: string; name: string }[];
   selectedIds: string[];
   onToggle: (id: string) => void;
   placeholder: string;
   label: string;
+  onAddCustom?: (name: string) => void;
 }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -21,6 +23,7 @@ export function AutoSuggestPills({
       : options;
     return matches.filter((option) => !selectedIds.includes(option.id)).slice(0, 5);
   }, [options, query, selectedIds]);
+  const exactMatch = options.some((option) => option.name.trim().toLowerCase() === query.trim().toLowerCase());
 
   return (
     <div
@@ -35,7 +38,7 @@ export function AutoSuggestPills({
         className="inv-modal__input"
         placeholder={placeholder}
         aria-label={label}
-        aria-expanded={open && filtered.length > 0}
+        aria-expanded={open && (filtered.length > 0 || Boolean(onAddCustom && query.trim() && !exactMatch))}
         aria-controls={`${label.replace(/\s+/g, '-')}-options`}
         value={query}
         onFocus={() => setOpen(true)}
@@ -61,7 +64,7 @@ export function AutoSuggestPills({
           })}
         </div>
       )}
-      {open && filtered.length > 0 && (
+      {open && (filtered.length > 0 || (onAddCustom && query.trim() && !exactMatch)) && (
         <div className="inv-suggest__options" id={`${label.replace(/\s+/g, '-')}-options`}>
           {filtered.map((option) => (
             <button
@@ -74,9 +77,19 @@ export function AutoSuggestPills({
               + {option.name}
             </button>
           ))}
+          {onAddCustom && query.trim() && !exactMatch && (
+            <button
+              type="button"
+              className="inv-suggest__option"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => { onAddCustom(query.trim()); setQuery(''); }}
+            >
+              + Add “{query.trim()}” as new ingredient
+            </button>
+          )}
         </div>
       )}
-      {open && query && filtered.length === 0 && (
+      {open && query && filtered.length === 0 && !onAddCustom && (
         <p className="inv-suggest__empty">No matches.</p>
       )}
     </div>

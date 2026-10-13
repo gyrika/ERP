@@ -233,7 +233,7 @@ const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock']): Ins
   if (!stock) return null;
   // Only items someone has counted: a never-counted item is unknown, not empty.
   const counted = new Set(events.flatMap((e) => (e.type === 'stock.adjusted' ? [e.itemId] : [])));
-  const low = inventoryFromEvents(stock.items, events).filter((r) => counted.has(r.id) && isLowStock(r));
+  const low = inventoryFromEvents(stock.items, events).filter((r) => !r.archived && counted.has(r.id) && isLowStock(r));
   if (!low.length) return null;
   const names = low.slice(0, 3).map((r) => r.name).join(', ');
   return {

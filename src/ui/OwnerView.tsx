@@ -67,7 +67,7 @@ export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?:
       events,
       now: at,
       stock: {
-        items: inventoryFromEvents(SEED_INVENTORY, events),
+        items: inventoryFromEvents(SEED_INVENTORY, events).filter((item) => !item.archived),
         suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
       },
     };

@@ -112,8 +112,8 @@ test('supplier list expands to show linked ingredients and contact actions', asy
 
   const main = screen.getByRole('main', { name: 'Suppliers' });
   expect(main.classList.contains('supplier-grid')).toBe(true);
-  const ajantha = screen.getByRole('button', { name: /Ajantha/ });
-  const secondSupplier = screen.getByRole('button', { name: /Prima/ });
+  const ajantha = screen.getByRole('button', { name: 'Expand Ajantha (Wholesale)' });
+  const secondSupplier = screen.getByRole('button', { name: 'Expand Prima / David Stores (Wholesale)' });
   const details = ajantha.closest('article')!.querySelector('.sup-card__expand');
   const secondDetails = secondSupplier.closest('article')!.querySelector('.sup-card__expand');
   expect(details?.hasAttribute('hidden')).toBe(true);
@@ -147,10 +147,27 @@ test('supplier status reflects its lowest-stock ingredient', () => {
   });
   render(<SupplierView />);
 
-  const lowSupplier = screen.getByRole('button', { name: /Low Supplier/ }).closest('article');
-  const outSupplier = screen.getByRole('button', { name: /Out Supplier/ }).closest('article');
+  const lowSupplier = screen.getByRole('button', { name: 'Expand Low Supplier' }).closest('article');
+  const outSupplier = screen.getByRole('button', { name: 'Expand Out Supplier' }).closest('article');
   expect(within(lowSupplier!).getByRole('img', { name: 'Low stock' })).toBeTruthy();
   expect(within(outSupplier!).getByRole('img', { name: 'Out of stock' })).toBeTruthy();
+  spy.mockRestore();
+});
+
+test('inventory rows show available base quantity against the plan pack size', () => {
+  const flour = {
+    ...SEED_INVENTORY[0],
+    onHandPacks: 0,
+    onHandBaseUnits: 12400,
+  };
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
+    items: [flour],
+    suppliers: [],
+  });
+  render(<InventoryView />);
+
+  const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  expect(within(row).getByLabelText('Available stock and pack size').textContent).toContain('12.4 kg / 25 kg');
   spy.mockRestore();
 });
 
@@ -160,7 +177,7 @@ test('supplier cards render fallback message when phone is missing', () => {
     suppliers: [{ id: 'sup_nophone', name: 'No Phone Store (Direct)' }],
   });
   render(<SupplierView />);
-  fireEvent.click(screen.getByRole('button', { name: /No Phone Store/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Expand No Phone Store (Direct)' }));
   expect(screen.getByText('No phone on file')).toBeTruthy();
   expect(screen.queryByRole('link', { name: 'Call Supplier' })).toBeNull();
   expect(screen.queryByRole('link', { name: 'WhatsApp' })).toBeNull();

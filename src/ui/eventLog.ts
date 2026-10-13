@@ -9,7 +9,7 @@ import { storageKey } from './storage.ts';
  * (docs/sync-contract.md). Every action is written here first, so a sale
  * never waits for the network. Events are never edited or removed while
  * unsent; once the server has them, routine events older than KEEP_SYNCED_MS
- * are dropped. Catalog creation events remain so screens can rebuild the list.
+ * are dropped. Catalog lifecycle events remain so screens can rebuild the list.
  *
  * localStorage, not IndexedDB: synchronous, so screens stay simple; the
  * durable record is MySQL on the same PC, and trimming keeps us far below
@@ -108,6 +108,10 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
     pending.has(e.id) ||
     e.type === 'stock.item_added' ||
     e.type === 'stock.supplier_added' ||
+    e.type === 'stock.item_archived' ||
+    e.type === 'stock.item_restored' ||
+    e.type === 'stock.supplier_archived' ||
+    e.type === 'stock.supplier_restored' ||
     now - e.at < KEEP_SYNCED_MS);
   if (kept.length !== all.length) write(KEY(), kept);
 };

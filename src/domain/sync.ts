@@ -45,7 +45,9 @@ export type StockEvent =
   | (StockItemBase & { type: 'stock.adjusted'; deltaPacks: number; reason?: 'waste' | 'audit' | 'receive' })
   | (StockItemBase & { type: 'stock.price_set'; before: Cents; after: Cents })
   | (StockBase & { type: 'stock.item_added'; item: InventoryItem })
-  | (StockBase & { type: 'stock.supplier_added'; supplier: Supplier; linkedItemIds: string[] });
+  | (StockBase & { type: 'stock.supplier_added'; supplier: Supplier; linkedItemIds: string[] })
+  | (StockItemBase & { type: 'stock.item_archived' | 'stock.item_restored' })
+  | (StockBase & { type: 'stock.supplier_archived' | 'stock.supplier_restored'; supplierId: string });
 
 // Recipe updated event: dynamic BOM changes
 interface RecipeUpdatedBase {
@@ -67,6 +69,7 @@ export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Om
 export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.unbumped'] as const;
 export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
+  'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
 ] as const satisfies readonly StockEvent['type'][];
 export const RECIPE_EVENT_TYPES = ['recipe.updated'] as const satisfies readonly RecipeUpdatedEvent['type'][];
 export const ORDER_EVENT_TYPES = [
