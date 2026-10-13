@@ -10,7 +10,7 @@ import { adminShop, ownerToken, syncToken } from './pairing.ts';
 /**
  * Everything the Owner view looks at: the shop's whole history of events.
  * - The owner's phone: from the cloud copy (same address that served the page).
- * - The developer's admin view of a shop: the same, through /admin (Cloudflare Access).
+ * - The developer's admin view of a shop: the same, through /admin (signed in with the admin password).
  * - The counter (paired): from the shop server (the browser keeps only two days).
  * - The demo: five weeks of made-up trading (src/fake/history.ts).
  * - Development without a server: this browser's own events.

@@ -137,13 +137,11 @@ into that shop's Owner view (read-only). Shops report through the copy they alre
 (`x-station-version` / `x-station-update` headers on `/api/v1/replica`, stored on `devices`,
 migration `0005`).
 
-Closed unless set up. Cloudflare Access does the sign-in, and the Worker checks Access's signed
-token too, so a dashboard mistake never opens it:
+Closed unless set up: one long random password, made and stored by
 
-1. Cloudflare dashboard → Zero Trust → Access → Applications → Add → Self-hosted.
-   Domain: `cheesybeez-cloud.cheesybeez-cloud.workers.dev`, path `admin`. Policy: Allow, Emails = yours.
-2. Copy the application's **Audience (AUD) tag**, and your team domain (`<team>.cloudflareaccess.com`).
-3. In `cloud/`: `npx wrangler secret put ACCESS_TEAM` (the team domain) and
-   `npx wrangler secret put ACCESS_AUD` (the tag).
+    cd cloud && npm run admin-key        (add -- --staging for the test cloud)
 
-Without both secrets `/admin` answers 404.
+Run it in your own terminal: it shows the password once (save it in a password manager) and
+stores it as the Worker secret `ADMIN_KEY`. Typed once at `/admin`, it becomes a signed session
+cookie for 30 days (HttpOnly, Secure, SameSite=Strict, only for `/admin`). Running it again makes a
+new password and signs every browser out. Without `ADMIN_KEY`, `/admin` answers 404.

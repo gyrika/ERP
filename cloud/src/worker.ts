@@ -11,9 +11,8 @@ interface Env {
   ANSWER_KEY?: string;
   /** The shop that cheesybeez.com takes online orders for (wrangler.toml [vars]). */
   ORDER_SHOP?: string;
-  /** Cloudflare Access for /admin: the team domain (e.g. gyrika.cloudflareaccess.com) and the app's audience tag. */
-  ACCESS_TEAM?: string;
-  ACCESS_AUD?: string;
+  /** The developer's /admin password (npm run admin-key in cloud/). */
+  ADMIN_KEY?: string;
   /** The owner's page: the cloud build of the app (npm run build:cloud), served as static files. */
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
@@ -54,7 +53,7 @@ export default {
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
       return adminRoutes(request, url, {
         db: env.DB,
-        access: env.ACCESS_TEAM && env.ACCESS_AUD ? { team: env.ACCESS_TEAM, aud: env.ACCESS_AUD } : null,
+        key: env.ADMIN_KEY ?? null,
         latest: () => latestRelease().then((r) => r?.version ?? null),
         app: (req) => env.ASSETS.fetch(req),
       }).then((r) => r ?? new Response('Not found', { status: 404 }));

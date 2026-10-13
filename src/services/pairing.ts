@@ -52,7 +52,7 @@ export const ownerToken = (): string | null => (isDemo() ? null : get(OWNER));
  */
 export const isCloudSite = (): boolean => import.meta.env.VITE_SITE === 'cloud';
 
-/** The developer's admin view of one shop (`/admin/shop/<id>` in the cloud, behind Cloudflare Access). */
+/** The developer's admin view of one shop (`/admin/shop/<id>` in the cloud, behind the admin password). */
 export const adminShop = (): string | null =>
   (isCloudSite() ? /^\/admin\/shop\/([a-z0-9-]{1,64})$/.exec(location.pathname)?.[1] : null) ?? null;
 
