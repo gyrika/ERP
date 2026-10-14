@@ -103,11 +103,13 @@ export function OnlineSheet({ state, onAccept, onClose }: {
         <div className="sheet__body">
           <div className="sheet__title">
             <h1>Online orders</h1>
+            {/* One toggle that names the current state: Online (customers can order) or Offline. */}
             <button
-              type="button" className="chip online__switch" aria-pressed={state.open}
-              onClick={() => void onlineOrders.setOpen(!state.open)}
+              type="button" role="switch" className="online__switch" aria-checked={state.open}
+              aria-label="Take online orders" onClick={() => void onlineOrders.setOpen(!state.open)}
             >
-              {state.open ? 'Taking orders' : 'Not taking orders'}
+              <span className="online__state" aria-hidden>{state.open ? 'Online' : 'Offline'}</span>
+              <span className="online__track" aria-hidden><span className="online__knob" /></span>
             </button>
           </div>
           {state.open && !state.connected && (

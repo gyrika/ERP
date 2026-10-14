@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { act, cleanup, render, screen, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { OnlineOrder } from '../domain/online.ts';
 import { lock } from '../services/serverAuth.ts';
@@ -78,7 +78,11 @@ test('the switch: not taking orders until the counter says so', async () => {
   render(<Root />);
   await user.keyboard('1111');
   await user.click(await screen.findByRole('button', { name: 'Online orders: off' }));
-  await user.click(screen.getByRole('button', { name: 'Not taking orders' }));
+  const toggle = screen.getByRole('switch', { name: 'Take online orders' });
+  expect(toggle.getAttribute('aria-checked')).toBe('false');
+  expect(toggle.textContent).toContain('Offline');
+  await user.click(toggle);
   expect(server.open).toBe(true);
-  expect(await screen.findByRole('button', { name: 'Taking orders' })).toBeTruthy();
+  await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'));
+  expect(toggle.textContent).toContain('Online');
 });

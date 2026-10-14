@@ -116,8 +116,15 @@ a.corner__key { text-decoration: none; }
 .ochip--new { color: var(--ink); background: var(--chip); }
 .ochip--new .ochip__dot { background: var(--warn); animation: kchip-pulse 1.2s var(--ease) infinite; }
 @media (prefers-reduced-motion: reduce) { .ochip--new .ochip__dot { animation: none; } }
-.online__switch[aria-pressed='true'] { background: var(--ok-ink); border-color: var(--ok-ink); color: #fff; }
-.online__switch { margin-left: auto; }
+.online__switch { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 4px 0 14px; border: 0; background: none; font: inherit; cursor: pointer; }
+.online__state { font-size: 16px; font-weight: 600; color: var(--ink-2); transition: color 200ms var(--ease); }
+.online__track { position: relative; width: 52px; height: 30px; border-radius: 980px; background: var(--line); transition: background 200ms var(--ease); }
+.online__knob { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform 200ms var(--ease); }
+.online__switch[aria-checked='true'] .online__state { color: var(--ok-ink); }
+.online__switch[aria-checked='true'] .online__track { background: var(--ok-ink); }
+.online__switch[aria-checked='true'] .online__knob { transform: translateX(22px); }
+.online__switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 12px; }
+@media (prefers-reduced-motion: reduce) { .online__state, .online__track, .online__knob { transition: none; } }
 .online__warn { margin: -18px 0 0; font-size: 15px; font-weight: 500; color: var(--warn); }
 .online__empty { margin: 0; color: var(--ink-2); font-size: 15px; }
 .online__order, .online__going { max-width: 720px; } /* the order panel covers the sheet's right side */
