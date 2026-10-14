@@ -51,6 +51,9 @@ export const INGREDIENT_SOURCES: Readonly<Record<string, { inventoryId: string; 
   Yeast: { inventoryId: 'inv-0005', per: 1 },
   'Peeled Tomato': { inventoryId: 'inv-0009', per: 1 },
   'Tomato Paste': { inventoryId: 'inv-0010', per: 1 },
+  // His cheese blend (2026-10-15): A is Prabhat from Eastwest, B is Margarita's own.
+  'Mozzarella A': { inventoryId: 'inv-0006', per: 1 },
+  'Mozzarella B': { inventoryId: 'inv-0007', per: 1 },
   Tuna: { inventoryId: 'inv-0013', per: 1 },
   'Bacon Ends': { inventoryId: 'inv-0014', per: 1 },
   'Keells Cheese & Onion Sausage': { inventoryId: 'inv-0017', per: 1 },

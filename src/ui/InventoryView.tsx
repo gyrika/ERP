@@ -16,9 +16,13 @@ import { StockSheet } from './StockSheet.tsx';
 const STATUS_LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
   low: 'Low stock',
+  unsure: 'Check shelf',
   ok: 'In stock',
   unknown: 'Not counted yet',
 };
+
+/** Why a row says "Check shelf": what it has not been able to take off. */
+const missedText = (n: number) => `${n} sold since the last count not taken off`;
 
 
 export function InventoryView({
@@ -35,7 +39,7 @@ export function InventoryView({
   const [updating, setUpdating] = useState<string | null>(null);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo: () => void } | null>(null);
-  const { items, suppliers } = useInventory();
+  const { items, suppliers, untrackedSold } = useInventory();
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -90,6 +94,13 @@ export function InventoryView({
         </div>
       )}
 
+      {untrackedSold > 0 && (
+        <div className="inv-notice" role="status">
+          {untrackedSold} {untrackedSold === 1 ? 'item' : 'items'} sold this week took no stock: no recipe yet.
+          <a className="inv-notice__link" href="#menu">Answer on Menu</a>
+        </div>
+      )}
+
       <label className="inv-search">
         <span className="sr-only">Search inventory</span>
         <input
@@ -119,7 +130,9 @@ export function InventoryView({
                    {' / '}
                    {formatQuantity(item.packQty, item.baseUnit)}
                  </strong>
-                 {formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
+                 {status === 'unsure'
+                   ? <span className="inv-row__lasts">{missedText(item.missedSales)}</span>
+                   : formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
                  <span className="inv-row__price">Rs {fmt(item.workingPriceCents)} a pack</span>
                </div>
                <div className="inv-row__actions">

@@ -152,3 +152,17 @@ test("the owner's new items are accepted only with an added-item id and a full, 
   const notAdded = validatePush({ events: [{ ...owner, type: 'menu.sold_out', itemId: 'not-on-menu', until: null }] }, 'shop-1');
   assert.ok('reason' in notAdded);
 });
+
+test("the owner's own recipe and opening his recipes pass; a malformed recipe does not", () => {
+  const owner = { ...base, actor: { id: 'owner-1', name: 'Owner', role: 'owner' } };
+  const recipe = { kind: 'own', lines: [{ name: 'stock:inv-0016', qty: 2, unit: 'pcs' }] };
+  const valid = [
+    { ...owner, type: 'recipe.answer_set', question: 'recipe:sausages:M', before: null, after: recipe },
+    { ...owner, id: 'event-2', type: 'recipe.answer_set', question: 'addon:chicken', before: null, after: recipe },
+    { ...owner, id: 'event-3', type: 'recipe.viewed' },
+  ];
+  assert.deepEqual(validatePush({ events: valid }, 'shop-1'), { events: valid });
+  const bad = { kind: 'own', lines: [{ name: 'stock:inv-0016', qty: -2, unit: 'pcs' }] };
+  assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.answer_set', question: 'recipe:sausages:M', before: null, after: bad }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.viewed', orderNumber: 4 }] }, 'shop-1'));
+});

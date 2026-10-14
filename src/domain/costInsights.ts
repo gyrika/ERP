@@ -1,5 +1,6 @@
 import { answersFromEvents, marginOf, menuCost, openQuestions, questionText, sizesOf, type CostContext } from './costing.ts';
 import type { Insight, ShopData } from './insights.ts';
+import { stockFromEvents } from './inventory.ts';
 import type { InventoryItem } from './inventoryData.ts';
 import { MENU } from './menu.ts';
 import { effectiveMenu, menuStateFromEvents } from './menuEdits.ts';
@@ -24,11 +25,18 @@ export const costsToAnswer = (events: readonly SyncEvent[], stock: ShopData['sto
   const questions = openQuestions(menu, ctx);
   if (!questions.length) return null;
   const held = new Set(questions.flatMap((q) => q.blocks)).size;
+  // The same gaps keep sales off the stock: say so, or the stock looks surer than it is.
+  const { rows, untrackedSold } = stockFromEvents(stock.items, events, { now });
+  const unsure = rows.filter((r) => !r.archived && r.counted && r.missedSales > 0).length;
+  const stockNote = [
+    untrackedSold ? `${untrackedSold} sold this week took no stock` : '',
+    unsure ? `${unsure} stock ${unsure === 1 ? 'item needs' : 'items need'} a shelf check` : '',
+  ].filter(Boolean).join('; ');
   return {
     id: 'costs-to-answer',
     tone: 'info',
     title: `Food costs: ${questions.length} ${questions.length === 1 ? 'answer' : 'answers'} to go`,
-    detail: `${held} menu ${held === 1 ? 'item waits' : 'items wait'} for an answer before showing what ${held === 1 ? 'it earns' : 'they earn'}. Answer on the Menu screen.`,
+    detail: `${held} menu ${held === 1 ? 'item waits' : 'items wait'} for an answer before showing what ${held === 1 ? 'it earns' : 'they earn'}.${stockNote ? ` ${stockNote[0].toUpperCase()}${stockNote.slice(1)}.` : ''} Answer on the Menu screen.`,
     action: {
       label: 'Questions',
       items: questions.slice(0, 10).map((q) => ({ primary: questionText(q.id, menu), secondary: `holds back ${q.blocks.length}` })),

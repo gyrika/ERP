@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import {
   checkAnswer, questionSubject, recipeChoices, recipeUnit, type Answer, type CostContext, type OpenQuestion,
 } from '../domain/costing.ts';
+import type { Actor } from '../domain/auth.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
 import { PREPS } from '../domain/recipeBook.ts';
@@ -57,14 +58,18 @@ export function CostQuestions({ questions, ctx, onClose }: { questions: OpenQues
   );
 }
 
-function Question({ q, ctx, onAnswered, onSkip }: {
-  q: OpenQuestion; ctx: CostContext; onAnswered: (message: string, undo: () => void) => void; onSkip: () => void;
+/** One question, asked in full. Also used inline on the Recipes screen (no Skip there; actor: the owner who opened it). */
+export function Question({ q, ctx, actor, autoFocus = true, onAnswered, onSkip }: {
+  q: Pick<OpenQuestion, 'id' | 'kind'> & { blocks?: string[] }; ctx: CostContext; actor?: Actor; autoFocus?: boolean;
+  onAnswered: (message: string, undo: () => void) => void; onSkip?: () => void;
 }) {
   const subject = questionSubject(q.id);
   const unit = recipeUnit(subject) ?? 'g';
   const [qty, setQty] = useState('');
   const [rupees, setRupees] = useState('');
   const [chosen, setChosen] = useState<string | null>(null);
+  /** How many base units of the chosen item one recipe unit takes (raw chicken for cooked cubes). */
+  const [per, setPer] = useState('1');
   const [error, setError] = useState('');
 
   const [itemId, size] = subject.split(':');
@@ -91,8 +96,11 @@ function Question({ q, ctx, onAnswered, onSkip }: {
       answer = { kind: 'recipe', product: chosen };
       said = `${menuItem!.name.en}${sizeLabel ? ` ${sizeLabel}` : ''} is made as ${chosen}.`;
     } else if (chosen) {
-      answer = { kind: 'source', inventoryId: chosen, per: 1 };
-      said = `${subject} is ${ctx.items.find((i) => i.id === chosen)?.name}.`;
+      const n = amount(per);
+      if (!n) return setError('Type how much of the item one unit takes (1 when it goes in as it is).');
+      const item = ctx.items.find((i) => i.id === chosen);
+      answer = { kind: 'source', inventoryId: chosen, per: n };
+      said = n === 1 ? `${subject} is ${item?.name}.` : `1 ${unit} of ${subject} takes ${n.toLocaleString('en-US')} ${item?.baseUnit} of ${item?.name}.`;
     } else {
       const cents = parseLKR(rupees);
       const n = amount(qty);
@@ -102,32 +110,37 @@ function Question({ q, ctx, onAnswered, onSkip }: {
     }
     const wrong = checkAnswer(q.id, answer);
     if (wrong) return setError(wrong);
-    onAnswered(said, answerQuestion(q.id, answer, ctx.answers.get(q.id) ?? null));
+    onAnswered(said, answerQuestion(q.id, answer, ctx.answers.get(q.id) ?? null, actor));
   };
 
   return (
     <form className="costq__q" onSubmit={save} aria-label={asked}>
       <h2 className="costq__ask">{asked}</h2>
-      <p className="costq__blocks">
-        Holds back {q.blocks.length} {q.blocks.length === 1 ? 'item' : 'items'}: {q.blocks.slice(0, 4).join(', ')}{q.blocks.length > 4 ? ` and ${q.blocks.length - 4} more` : ''}.
-      </p>
+      {q.blocks && (
+        <p className="costq__blocks">
+          Holds back {q.blocks.length} {q.blocks.length === 1 ? 'item' : 'items'}: {q.blocks.slice(0, 4).join(', ')}{q.blocks.length > 4 ? ` and ${q.blocks.length - 4} more` : ''}.
+        </p>
+      )}
 
       {q.kind === 'yield' && (
         <>
           <p className="costq__hint">Your recipe for one batch: {PREPS[subject]?.lines.map((l) => `${l.qty.toLocaleString('en-US')} ${l.unit} ${l.name}`).join(', ')}.</p>
           <label className="costq__field">
             <span>One batch makes ({unit})</span>
-            <input autoFocus className="num" inputMode="decimal" value={qty} onChange={(e) => { setQty(e.target.value); setError(''); }} />
+            <input autoFocus={autoFocus} className="num" inputMode="decimal" value={qty} onChange={(e) => { setQty(e.target.value); setError(''); }} />
           </label>
         </>
       )}
 
       {q.kind === 'recipe' && (
-        <div className="chips" role="group" aria-label="Your recipes">
-          {recipeChoices(menuItem!, size).map((name) => (
-            <button key={name} type="button" className="chip" aria-pressed={chosen === name} onClick={() => { setChosen(name); setError(''); }}>{name}</button>
-          ))}
-        </div>
+        <>
+          <div className="chips" role="group" aria-label="Your recipes">
+            {recipeChoices(menuItem!, size).map((name) => (
+              <button key={name} type="button" className="chip" aria-pressed={chosen === name} onClick={() => { setChosen(name); setError(''); }}>{name}</button>
+            ))}
+          </div>
+          <p className="costq__hint">Not one of these? <a href="#recipes">Write it in Recipes</a>.</p>
+        </>
       )}
 
       {q.kind === 'ingredient' && (
@@ -141,6 +154,12 @@ function Question({ q, ctx, onAnswered, onSkip }: {
                 </button>
               ))}
             </div>
+          )}
+          {chosen !== null && (
+            <label className="costq__field">
+              <span>1 {unit} of {subject} takes ({ctx.items.find((i) => i.id === chosen)?.baseUnit} of it; 1 when it goes in as it is)</span>
+              <input className="num" inputMode="decimal" value={per} onChange={(e) => { setPer(e.target.value); setError(''); }} />
+            </label>
           )}
           <p className="costq__hint">
             {sameUnit.length > 0 ? 'Or type its price' : 'Type its price'} (your recipes use it in {unit}).
@@ -159,7 +178,7 @@ function Question({ q, ctx, onAnswered, onSkip }: {
 
       {error && <p className="costq__error" role="alert">{error}</p>}
       <div className="costq__actions">
-        <button type="button" className="linkbtn" onClick={onSkip}>Skip</button>
+        {onSkip && <button type="button" className="linkbtn" onClick={onSkip}>Skip</button>}
         <button type="submit" className="cta">Save</button>
       </div>
     </form>

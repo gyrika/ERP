@@ -11,7 +11,7 @@ beforeEach(() => localStorage.clear());
 
 /** A stock row as the screens get it. */
 const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
-  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null });
+  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null, missedSales: 0 });
 afterEach(cleanup);
 
 test('every seeded ingredient is listed once, with all of its suppliers', () => {
@@ -118,6 +118,7 @@ test('supplier cards show the name only, no status dot or plus mark', () => {
       { id: 'sup-low', name: 'Low Supplier' },
       { id: 'sup-out', name: 'Out Supplier' },
     ],
+    untrackedSold: 0,
   });
   render(<SupplierView />);
 
@@ -135,6 +136,7 @@ test('inventory rows show available base quantity against the plan pack size', (
   const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
     items: [flour],
     suppliers: [],
+    untrackedSold: 0,
   });
   render(<InventoryView />);
 
@@ -143,10 +145,34 @@ test('inventory rows show available base quantity against the plan pack size', (
   spy.mockRestore();
 });
 
+test('an item with sales it could not take says Check shelf, and sales with no recipe are named once', () => {
+  const flour = { ...stocked(SEED_INVENTORY[0], 3), missedSales: 4 };
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({ items: [flour], suppliers: [], untrackedSold: 2 });
+  render(<InventoryView />);
+
+  const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  expect(within(row).getByText('Check shelf')).toBeTruthy();
+  expect(within(row).getByText('4 sold since the last count not taken off')).toBeTruthy();
+  expect(screen.getByText(/2 items sold this week took no stock/)).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'Answer on Menu' }).getAttribute('href')).toBe('#menu');
+  spy.mockRestore();
+});
+
+test('a low item stays Low stock even with missed sales: the shelf can only be lower', () => {
+  const flour = { ...stocked(SEED_INVENTORY[0], 1), missedSales: 4 };
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({ items: [flour], suppliers: [], untrackedSold: 0 });
+  render(<InventoryView />);
+  const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+  expect(within(row).getByText('Low stock')).toBeTruthy();
+  expect(screen.queryByText(/took no stock/)).toBeNull();
+  spy.mockRestore();
+});
+
 test('supplier cards render fallback message when phone is missing', () => {
   const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
     items: [],
     suppliers: [{ id: 'sup_nophone', name: 'No Phone Store (Direct)' }],
+    untrackedSold: 0,
   });
   render(<SupplierView />);
   fireEvent.click(screen.getByRole('button', { name: 'Expand No Phone Store (Direct)' }));

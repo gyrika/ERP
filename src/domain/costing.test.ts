@@ -19,8 +19,6 @@ const ctx = (answers: [string, Answer][] = [], items = SEED_INVENTORY) => ({ ite
 const PIZZA_ANSWERS: [string, Answer][] = [
   [yieldQuestion('Pizza Sauce Batch'), { kind: 'yield', qty: 3600 }],
   [yieldQuestion('Mozzarella Blend'), { kind: 'yield', qty: 2000 }],
-  [ingredientQuestion('Mozzarella A'), { kind: 'source', inventoryId: 'inv-0006', per: 1 }],
-  [ingredientQuestion('Mozzarella B'), { kind: 'source', inventoryId: 'inv-0008', per: 1 }],
   [ingredientQuestion('Basil'), { kind: 'price', cents: 20000, qty: 100 }],
 ];
 
@@ -29,7 +27,7 @@ test('a 12" Margherita, worked by hand from his recipes and his price list, once
     + 31.095 * per('inv-0004') + 85 * per('inv-0022'); // water costs nothing
   const sauceBatch = 2550 * per('inv-0009') + 550 * per('inv-0010') + 3.12 * per('inv-0036') + 3.12 * (20000 / 100)
     + 13.82 * per('inv-0004') + 9.75 * per('inv-0033');
-  const blend = 1000 * per('inv-0006') + 1000 * per('inv-0008');
+  const blend = 1000 * per('inv-0006') + 1000 * per('inv-0007'); // his A (Prabhat) and B (Margarita)
   const byHand = doughBatch * 0.0833 + (sauceBatch / 3600) * 90 + (blend / 2000) * 150 + 0.3333 * per('inv-0036');
 
   const cost = menuCost('margherita', 'L', ctx(PIZZA_ANSWERS));
@@ -44,8 +42,7 @@ test('before his answers: the cost so far, and exactly what is missing', () => {
   const cost = menuCost('margherita', 'L', ctx());
   assert.equal(cost.complete, false);
   assert.deepEqual([...cost.missing].sort(), [
-    ingredientQuestion('Basil'), ingredientQuestion('Mozzarella A'), ingredientQuestion('Mozzarella B'),
-    yieldQuestion('Mozzarella Blend'), yieldQuestion('Pizza Sauce Batch'),
+    ingredientQuestion('Basil'), yieldQuestion('Mozzarella Blend'), yieldQuestion('Pizza Sauce Batch'),
   ].sort());
   const dough = ((122 + 2550) * per('inv-0001') + 3.93 * per('inv-0005') + 6.11 * per('inv-0003')
     + 31.095 * per('inv-0004') + 85 * per('inv-0022')) * 0.0833;
@@ -80,10 +77,12 @@ test('burgers: only ketchup and mayonnaise are missing (bought in ml, used in g)
     + 10 * (330000 / 3780) + 10 * (175000 / 4000) + per('inv-0018')));
 });
 
-test('open questions: the ones holding back the most items first; pizza gaps hold back all 20 pizzas', () => {
+test('open questions: the ones holding back the most items first; three pizza gaps hold back all 20 pizzas', () => {
   const qs = openQuestions(MENU, ctx());
-  assert.deepEqual(qs.slice(0, 5).map((q) => q.blocks.length), [20, 20, 20, 20, 20]);
-  assert.ok(qs.slice(0, 5).some((q) => q.id === yieldQuestion('Pizza Sauce Batch')));
+  assert.deepEqual(qs.slice(0, 3).map((q) => q.id).sort(), [
+    ingredientQuestion('Basil'), yieldQuestion('Mozzarella Blend'), yieldQuestion('Pizza Sauce Batch'),
+  ].sort(), 'each holds back all 20 pizzas');
+  assert.ok(qs.slice(0, 3).every((q) => q.blocks.length === 20));
   assert.ok(qs.every((q, i) => i === 0 || qs[i - 1].blocks.length >= q.blocks.length));
   const after = openQuestions(MENU, ctx(PIZZA_ANSWERS));
   assert.ok(!after.some((q) => q.blocks.some((b) => b.startsWith('Margherita'))), 'Margherita is complete');
