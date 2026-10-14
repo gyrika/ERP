@@ -2,7 +2,8 @@ import type { MenuState } from '../domain/menuEdits.ts';
 import type { OnlineLine, OnlineOrder, OpeningHours } from '../domain/online.ts';
 
 /** The cloud's customer endpoints (cloud/src/online.ts). Same address as this page. */
-export interface ShopInfo { name: string; open: boolean; hours?: OpeningHours | null; menuState?: MenuState }
+/** The cloud's /api/v1/shop. phone (0XXXXXXXXX) and address only when the owner has given them. */
+export interface ShopInfo { name: string; open: boolean; hours?: OpeningHours | null; phone?: string | null; address?: string | null; menuState?: MenuState }
 export interface Placed { id: string; token: string; total: number }
 export type MyOrder = Omit<OnlineOrder, 'phone'>;
 

@@ -8,6 +8,7 @@ import { OrderSite } from './OrderSite.tsx';
 /** The cloud's /api/v1/shop: each call takes the next answer; 'fail' is a network error. */
 let answers: ('open' | 'closed' | 'fail')[] = [];
 let hours: { opens: number; closes: number } | null = null;
+let phone: string | null = null;
 const shopCalls = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === '/api/v1/shop').length;
 
 beforeEach(() => {
@@ -15,11 +16,12 @@ beforeEach(() => {
   setMenuState(EMPTY_MENU_STATE);
   answers = [];
   hours = null;
+  phone = null;
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url !== '/api/v1/shop') throw new Error(`unexpected ${url}`);
     const next = answers.shift() ?? 'open';
     if (next === 'fail') throw new TypeError('Failed to fetch');
-    return new Response(JSON.stringify({ name: 'CheesyBeez Thalwila', open: next === 'open', hours }), { status: 200 });
+    return new Response(JSON.stringify({ name: 'CheesyBeez Thalwila', open: next === 'open', hours, phone }), { status: 200 });
   }));
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); setMenuState(EMPTY_MENU_STATE); });
@@ -108,14 +110,36 @@ test('the desktop panel lists the order and opens checkout', async () => {
   const user = userEvent.setup();
   render(<OrderSite />);
   await screen.findByText('Open for pickup');
-  const panel = within(screen.getByRole('complementary', { name: 'Your order' }));
-  expect(panel.getByText(/Nothing yet/)).toBeTruthy();
+  const panel = within(screen.getByRole('region', { name: 'Your order' }));
+  expect(panel.getByText('Your order is empty')).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Add Fish Burger' }));
   expect(panel.getByText('Fish Burger')).toBeTruthy();
   await user.click(panel.getByRole('button', { name: 'One more' }));
   expect(panel.getByText('Rs 900')).toBeTruthy();
   await user.click(panel.getByRole('button', { name: 'Checkout' }));
   expect(screen.getByRole('dialog', { name: 'Your order' })).toBeTruthy();
+});
+
+test('pickup info: the town with a Maps link, how to pay; hours, Call and WhatsApp only once the owner gave them', async () => {
+  render(<OrderSite />);
+  await screen.findByText('Open for pickup');
+  let info = within(screen.getByRole('region', { name: 'Pickup info' }));
+  expect(info.getByText(/CheesyBeez, Thalwila/)).toBeTruthy();
+  expect(info.getByRole('link', { name: 'Open in Maps' }).getAttribute('href')).toBe('https://www.google.com/maps/search/?api=1&query=CheesyBeez%20Thalwila');
+  expect(info.getByText('Pay when you collect: cash or bank transfer')).toBeTruthy();
+  expect(info.queryByText(/Daily/)).toBeNull();
+  expect(info.queryByRole('link', { name: 'Call' })).toBeNull();
+  cleanup();
+
+  hours = { opens: 660, closes: 1260 };
+  phone = '0771817968';
+  render(<OrderSite />);
+  await screen.findByText('Open · Closes 9 PM');
+  info = within(screen.getByRole('region', { name: 'Pickup info' }));
+  expect(info.getByText('Daily 11 AM – 9 PM')).toBeTruthy();
+  expect(info.getByText('077 181 7968')).toBeTruthy();
+  expect(info.getByRole('link', { name: 'Call' }).getAttribute('href')).toBe('tel:+94771817968');
+  expect(info.getByRole('link', { name: 'WhatsApp' }).getAttribute('href')).toBe('https://wa.me/94771817968');
 });
 
 test("with the owner's hours set, the pill says when it closes; no hours, no times", async () => {

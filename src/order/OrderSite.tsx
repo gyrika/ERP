@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { menuItems, setMenuState } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
-import { Banknote, Clock, Hamburger, Pizza, Plus, ShoppingBag, Soup } from 'lucide-react';
-import { normalisePhone, onlineLineTotal, onlineTotal, statusText, type OnlineLine } from '../domain/online.ts';
+import { Banknote, Clock, Hamburger, MapPin, MessageCircle, Phone, Pizza, Plus, ShoppingBag, Soup } from 'lucide-react';
+import { clockText, normalisePhone, onlineLineTotal, onlineTotal, statusText, type OnlineLine } from '../domain/online.ts';
+import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
 import { api, remembered, type MyOrder, type Placed, type ShopInfo } from './api.ts';
 import { HERO, PHOTOS } from './photos.ts';
@@ -292,14 +293,44 @@ function BasketLines({ basket, onChange }: { basket: OnlineLine[]; onChange: (b:
 /** Desktop only (CSS): the order stays in view on the right while the menu scrolls. */
 function CartPanel({ basket, onChange, onCheckout }: { basket: OnlineLine[]; onChange: (b: OnlineLine[]) => void; onCheckout: () => void }) {
   return (
-    <aside className="o-cart" aria-label="Your order">
-      <h2 className="o-cart__title">Your order</h2>
-      {basket.length === 0 ? <p className="o-muted">Nothing yet. Tap + on anything you like.</p> : (<>
+    <section className="o-panel o-cart" aria-label="Your order">
+      <h2 className="o-panel__title">Your order</h2>
+      {basket.length === 0 ? <p className="o-cart__empty"><ShoppingBag aria-hidden />Your order is empty</p> : (<>
         <BasketLines basket={basket} onChange={onChange} />
         <div className="o-total"><span>Total</span><b className="num">{rs(onlineTotal(basket))}</b></div>
         <button type="button" className="o-primary o-primary--wide" onClick={onCheckout}>Checkout</button>
       </>)}
-    </aside>
+    </section>
+  );
+}
+
+/** 0771817968 → "077 181 7968" */
+const phoneText = (p: string) => `${p.slice(0, 3)} ${p.slice(3, 6)} ${p.slice(6)}`;
+
+/**
+ * Desktop, under the order: where to collect, when, how to pay, and a way to ask. Only what the
+ * owner has given (the cloud's ORDER_PHONE / ORDER_ADDRESS / ORDER_HOURS); a missing one is left out.
+ */
+function PickupInfo({ shop }: { shop: ShopInfo | null }) {
+  const place = shop?.address ?? SHOP_HEADER.lines.join(', ');
+  const maps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${SHOP_HEADER.name} ${place}`)}`;
+  const phone = shop?.phone;
+  return (
+    <section className="o-panel o-info" aria-label="Pickup info">
+      <h2 className="o-panel__title">Pickup info</h2>
+      <ul className="o-info__rows">
+        <li><MapPin aria-hidden /><span>{SHOP_HEADER.name}, {place}<br /><a href={maps} target="_blank" rel="noopener noreferrer">Open in Maps</a></span></li>
+        {shop?.hours && <li><Clock aria-hidden /><span>Daily {clockText(shop.hours.opens)} – {clockText(shop.hours.closes)}</span></li>}
+        <li><Banknote aria-hidden /><span>Pay when you collect: cash or bank transfer</span></li>
+      </ul>
+      {phone && (<>
+        <p className="o-info__ask">Questions? <span className="num">{phoneText(phone)}</span></p>
+        <div className="o-info__actions">
+          <a className="o-btn" href={`tel:+94${phone.slice(1)}`}><Phone aria-hidden />Call</a>
+          <a className="o-btn" href={`https://wa.me/94${phone.slice(1)}`} target="_blank" rel="noopener noreferrer"><MessageCircle aria-hidden />WhatsApp</a>
+        </div>
+      </>)}
+    </section>
   );
 }
 
@@ -487,11 +518,13 @@ export function OrderSite() {
     return (
       <div className="o-page">
         <Header taking={taking} shop={shop} onRetry={retry} />
-        <Status
-          placed={placed}
-          onDone={() => { remembered.setCurrent(null); setPlaced(null); }}
-          onAgain={() => { setBasket(remembered.last()); remembered.setCurrent(null); setPlaced(null); setCheckout(true); }}
-        />
+        <div className="o-wrap o-wrap--narrow">
+          <Status
+            placed={placed}
+            onDone={() => { remembered.setCurrent(null); setPlaced(null); }}
+            onAgain={() => { setBasket(remembered.last()); remembered.setCurrent(null); setPlaced(null); setCheckout(true); }}
+          />
+        </div>
       </div>
     );
   }
@@ -499,25 +532,24 @@ export function OrderSite() {
   return (
     <div className="o-page">
       <Header taking={taking} shop={shop} onRetry={retry} />
-      <div className="o-layout">
+      {/* Edge to edge; the headline stays in the centred container. */}
+      <section className="o-hero">
+        <picture>
+          <source media="(min-width: 640px)" srcSet={HERO.large} />
+          <img src={HERO.small} alt="" width={800} height={600} fetchPriority="high" decoding="async" />
+        </picture>
+        <div className="o-wrap o-hero__text">
+          <h1>Order ahead.<br /><span>Collect it hot.</span></h1>
+          <p>Order here, collect at the shop.</p>
+        </div>
+      </section>
+      <div className="o-wrap o-layout">
         <div className="o-col">
-          <section className="o-hero">
-            <div className="o-hero__photo">
-              <picture>
-                <source media="(min-width: 640px)" srcSet={HERO.large} />
-                <img src={HERO.small} alt="" width={800} height={600} fetchPriority="high" decoding="async" />
-              </picture>
-              <div className="o-hero__text">
-                <h1>Order ahead.<br /><span>Collect it hot.</span></h1>
-                <p>Order here, collect at the shop.</p>
-              </div>
-            </div>
-            <ul className="o-trust">
-              <li><ShoppingBag aria-hidden />Pickup only</li>
-              <li><Banknote aria-hidden />Pay when you collect</li>
-              <li><Clock aria-hidden />We confirm your ready time</li>
-            </ul>
-          </section>
+          <ul className="o-trust">
+            <li><ShoppingBag aria-hidden />Pickup only</li>
+            <li><Banknote aria-hidden />Pay when you collect</li>
+            <li><Clock aria-hidden />We confirm your ready time</li>
+          </ul>
 
           <SectionTabs />
 
@@ -537,7 +569,10 @@ export function OrderSite() {
           </main>
           <footer className="o-foot">CheesyBeez · Pizza, burgers and pasta</footer>
         </div>
-        <CartPanel basket={basket} onChange={setBasket} onCheckout={() => setCheckout(true)} />
+        <aside className="o-side" aria-label="Your order and pickup">
+          <CartPanel basket={basket} onChange={setBasket} onCheckout={() => setCheckout(true)} />
+          <PickupInfo shop={shop} />
+        </aside>
       </div>
 
       {/* Phones: slides up with the first item; the desktop has the panel instead. */}
@@ -568,20 +603,22 @@ export function OrderSite() {
 function Header({ taking, shop, onRetry }: { taking: Taking; shop: ShopInfo | null; onRetry: () => void }) {
   return (
     <header className="o-head">
-      <span className="o-brand">
-        <img src="/icons/icon-192.png" alt="" width={32} height={32} />CheesyBeez
-      </span>
-      {taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}
-      {(taking === 'open' || taking === 'closed') && (
-        <span className={`o-pill o-pill--${taking}`} role="status">
-          {statusText(taking === 'open', shop?.hours ?? null, Date.now())}
+      <div className="o-wrap o-head__in">
+        <span className="o-brand">
+          <img src="/icons/icon-192.png" alt="" width={32} height={32} />CheesyBeez
         </span>
-      )}
-      {taking === 'failed' && (
-        <button type="button" className="o-pill o-pill--retry" onClick={onRetry} aria-label="We couldn't check if we're open. Retry">
-          Couldn&apos;t check · <u>Retry</u>
-        </button>
-      )}
+        {taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}
+        {(taking === 'open' || taking === 'closed') && (
+          <span className={`o-pill o-pill--${taking}`} role="status">
+            {statusText(taking === 'open', shop?.hours ?? null, Date.now())}
+          </span>
+        )}
+        {taking === 'failed' && (
+          <button type="button" className="o-pill o-pill--retry" onClick={onRetry} aria-label="We couldn't check if we're open. Retry">
+            Couldn&apos;t check · <u>Retry</u>
+          </button>
+        )}
+      </div>
     </header>
   );
 }

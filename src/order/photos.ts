@@ -14,7 +14,7 @@
  * chicken-burger 1615297928064-24977384d0da · fish-burger 1627587780063-1655815c958b ·
  * egg-burger 1601894087104-0c18bc34dbd6 · crispy-chicken-burger 1637710847214-f91d99669e18 ·
  * bacon-egg-burger 1700835880369-467ebff9d324 · italian-pasta 1662197480393-2a82030b7b83 ·
- * hero (wood-fired oven) 1622880833523-7cf1c0bd4296.
+ * hero (wood-fired oven) 1622880833523-7cf1c0bd4296: hero.webp 2400 × 800 for the banner, hero-sm.webp 800 × 600 for phones.
  * A new menu item without a file here shows the neutral placeholder.
  */
 const files = import.meta.glob<string>('./photos/*.webp', { eager: true, query: '?url', import: 'default' });
