@@ -45,7 +45,7 @@ export const mayRecord = (role: Role, type: string): boolean => {
   // Stock counts and supplier prices are a manager's job (SCRUM-41).
   if (type.startsWith('stock.')) return managesRole(role);
   // The menu is the owner's; marking something sold out is a manager's job during service.
-  if (type === 'menu.item_set') return role === 'owner';
+  if (type === 'menu.item_set' || type === 'menu.item_added') return role === 'owner';
   // Answers about his recipes and costs: the owner's (SCRUM-77).
   if (type === 'recipe.answer_set') return role === 'owner';
   if (type === 'menu.sold_out') return managesRole(role);

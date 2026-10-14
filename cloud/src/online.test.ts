@@ -33,7 +33,7 @@ const customer = (phone = '0771234567', lines: unknown[] = [pizza]) => ({ name: 
 test('closed until the counter switches it on and the shop server is heard from', async () => {
   const { call, clock } = await setup();
   const shop = (await call('/api/v1/shop')).body;
-  assert.deepEqual([shop.name, shop.open, shop.hours, shop.phone, shop.address, shop.menuState], ['CheesyBeez Thalwila', false, null, null, null, { overrides: {}, soldOut: {} }]);
+  assert.deepEqual([shop.name, shop.open, shop.hours, shop.phone, shop.address, shop.menuState], ['CheesyBeez Thalwila', false, null, null, null, { overrides: {}, soldOut: {}, added: {} }]);
   assert.deepEqual((await (await setup({ orderHours: '11:00-21:00' })).call('/api/v1/shop')).body.hours, { opens: 660, closes: 1260 }, 'the hours, when set');
   const contact = (await (await setup({ orderPhone: '077 181 7968', orderAddress: ' 12 Main St ' })).call('/api/v1/shop')).body;
   assert.deepEqual([contact.phone, contact.address], ['0771817968', '12 Main St'], 'the contact, when set');
@@ -130,6 +130,7 @@ test("online orders follow the owner's menu: new prices, nothing sold out or hid
   menuEvent({ type: 'menu.item_set', itemId: 'devilled-chicken', before: {}, after: { prices: { L: 300000 } } });
   menuEvent({ type: 'menu.sold_out', itemId: 'seafood', until: clock.t + 3_600_000 });
   menuEvent({ type: 'menu.item_set', itemId: 'chicken-burger', before: {}, after: { hidden: true } });
+  menuEvent({ type: 'menu.item_added', itemId: 'new-cheese-burger', item: { category: 'burger', name: { en: 'Cheese Burger' }, description: '', prices: { one: 55000 } } });
   await call('/api/v1/online/poll', { open: true }, 'server-a');
 
   const shop = (await call('/api/v1/shop')).body;
@@ -137,4 +138,6 @@ test("online orders follow the owner's menu: new prices, nothing sold out or hid
   assert.equal((await call('/api/v1/orders', customer())).body.total, 300000, 'priced with the new price');
   assert.match((await call('/api/v1/orders', customer('0772222222', [{ itemId: 'seafood', qty: 1, size: 'L' }]))).body.message, /sold out today/);
   assert.match((await call('/api/v1/orders', customer('0773333333', [{ itemId: 'chicken-burger', qty: 1 }]))).body.message, /not on the menu/);
+  assert.equal(shop.menuState.added['new-cheese-burger'].name.en, 'Cheese Burger', "the page gets the owner's new items");
+  assert.equal((await call('/api/v1/orders', customer('0774444444', [{ itemId: 'new-cheese-burger', qty: 2 }]))).body.total, 110000, 'and they can be ordered');
 });

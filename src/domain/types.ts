@@ -44,6 +44,10 @@ export interface MenuItem {
   soldOut?: boolean;
   /** The owner changed it from the printed menu. */
   edited?: boolean;
+  /** The owner added it himself (not on the printed menu). */
+  added?: boolean;
+  /** An added item the owner took back: kept for orders that have it, never offered or listed. */
+  removed?: boolean;
 }
 
 export interface OrderLine {

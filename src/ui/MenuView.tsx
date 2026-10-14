@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { marginOf, menuCost, openQuestions, sizesOf, type CostContext } from '../domain/costing.ts';
-import { MENU, menuItems, menuState } from '../domain/menu.ts';
-import { checkOverride, nextMorning, type ItemOverride } from '../domain/menuEdits.ts';
+import { MENU, menuItems, menuState, startingItem } from '../domain/menu.ts';
+import { checkNewItem, checkOverride, newItemSizes, nextMorning, type ItemOverride, type NewItem } from '../domain/menuEdits.ts';
 import { fmt } from '../domain/money.ts';
 import type { Category, Cents, MenuItem, SizeId } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
@@ -18,10 +18,11 @@ import { OwnerNav } from './OwnerNav.tsx';
  * Every change is an event (who, when, before/after) with an Undo, and reaches the counter,
  * the kitchen and cheesybeez.com at once.
  */
-const SECTIONS: { id: Category; label: string }[] = [
-  { id: 'pizza', label: 'Pizza' }, { id: 'burger', label: 'Burgers' }, { id: 'pasta', label: 'Pasta' },
+const SECTIONS: { id: Category; label: string; one: string }[] = [
+  { id: 'pizza', label: 'Pizza', one: 'pizza' }, { id: 'burger', label: 'Burgers', one: 'burger' }, { id: 'pasta', label: 'Pasta', one: 'pasta' },
 ];
-const printed = (id: string) => MENU.find((m) => m.id === id)!;
+/** The item as printed, or as the owner added it. */
+const startOf = (id: string) => startingItem(id) ?? MENU.find((m) => m.id === id)!;
 const prices = (m: MenuItem) => (m.variants ? m.variants.map((v) => `${v.id} ${fmt(v.price)}`).join(' · ') : fmt(m.price ?? 0));
 
 /**
@@ -67,9 +68,110 @@ const record = (itemId: string, after: ItemOverride) => {
 };
 const setSoldOut = (itemId: string, out: boolean) =>
   appendEvent({ type: 'menu.sold_out', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, until: out ? nextMorning(Date.now()) : null });
+const addItem = (itemId: string, item: NewItem | null) =>
+  appendEvent({ type: 'menu.item_added', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, item });
+
+/** "Chicken Alfredo" → "new-chicken-alfredo", or "new-chicken-alfredo-2" if that was ever used. */
+const newId = (en: string): string => {
+  const slug = en.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'item';
+  const taken = new Set(menuItems().map((m) => m.id));
+  let id = `new-${slug}`;
+  for (let n = 2; taken.has(id); n++) id = `new-${slug}-${n}`;
+  return id;
+};
+
+/** Typing "pasta" or a name already on the menu must keep finding one item, so names stay unique. */
+const nameTaken = (en: string): MenuItem | undefined => {
+  const t = en.trim().toLowerCase();
+  return menuItems().find((m) => !m.removed && (m.name.en.toLowerCase() === t || m.aliases.includes(t)));
+};
+
+/** Escape closes a sheet. */
+const useEscape = (onClose: () => void) => useEffect(() => {
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+  window.addEventListener('keydown', onKey);
+  return () => window.removeEventListener('keydown', onKey);
+}, [onClose]);
+
+/**
+ * A new item in one section (SECTIONS). It takes that section's sizes and extras, so the owner
+ * types only a name and a price per size; the Sinhala and Tamil names are his to give, or later.
+ */
+function AddItem({ section, onSaved, onClose }: { section: (typeof SECTIONS)[number]; onSaved: (message: string, undo: () => void) => void; onClose: () => void }) {
+  const sizes = newItemSizes(section.id, MENU);
+  const [en, setEn] = useState('');
+  const [si, setSi] = useState('');
+  const [ta, setTa] = useState('');
+  const [desc, setDesc] = useState('');
+  const [price, setPrice] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
+  useEscape(onClose);
+
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    const same = nameTaken(en);
+    if (same) { setError(`${same.name.en} is already on the menu. Give this one another name.`); return; }
+    const prices: NewItem['prices'] = {};
+    for (const s of sizes) {
+      const c = toCents(price[s.id] ?? '');
+      if (c === null || c === 0) { setError(`Type a price for ${s.id === 'one' ? 'it' : s.label}, in whole rupees, like 1650.`); return; }
+      prices[s.id] = c;
+    }
+    const item: NewItem = {
+      category: section.id,
+      name: { en: en.trim(), ...(si.trim() ? { si: si.trim() } : {}), ...(ta.trim() ? { ta: ta.trim() } : {}) },
+      description: desc.trim(),
+      prices,
+    };
+    const bad = checkNewItem(item, MENU);
+    if (bad) { setError(`${bad[0].toUpperCase()}${bad.slice(1)}.`); return; }
+    const id = newId(item.name.en);
+    addItem(id, item);
+    onSaved(`Added ${item.name.en}`, () => addItem(id, null));
+  };
+
+  const extras = MENU.find((m) => m.category === section.id)?.adds.length ?? 0;
+  return (
+    <>
+      <div className="scrim" onClick={onClose} />
+      <form className="sheet menued" role="dialog" aria-modal="true" aria-label={`Add a ${section.one}`} onSubmit={save}>
+        <div className="sheet__body">
+          <div className="sheet__title"><h1>Add a {section.one}</h1></div>
+          <section className="group">
+            <h2>Name</h2>
+            <div className="menued__grid">
+              <label>English<input value={en} onChange={(e) => setEn(e.target.value)} maxLength={40} required autoFocus /></label>
+              <label>Sinhala<input value={si} onChange={(e) => setSi(e.target.value)} maxLength={60} lang="si" /></label>
+              <label>Tamil<input value={ta} onChange={(e) => setTa(e.target.value)} maxLength={60} lang="ta" /></label>
+              <label className="menued__wide">Description<input value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={160} /></label>
+            </div>
+          </section>
+          <section className="group">
+            <h2>Price</h2>
+            <div className="menued__grid">
+              {sizes.map((s) => (
+                <label key={s.id}>
+                  {s.hint ? `${s.label} ${s.hint}` : s.label}
+                  <input className="num" inputMode="numeric" value={price[s.id] ?? ''} onChange={(e) => setPrice({ ...price, [s.id]: e.target.value })} aria-label={s.id === 'one' ? 'Price' : `${s.label} price`} />
+                </label>
+              ))}
+            </div>
+            {extras > 0 && <p className="menued__note">Extras are the same as on the other {section.label.toLowerCase()}; change them with Change after saving.</p>}
+          </section>
+          {error && <p className="reason-msg" role="alert">{error}</p>}
+        </div>
+        <div className="sheet__foot menued__foot">
+          <button type="button" className="linkbtn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="cta">Add to the menu</button>
+        </div>
+      </form>
+    </>
+  );
+}
 
 function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message: string, undo: () => void) => void; onClose: () => void }) {
-  const base = printed(item.id);
+  const base = startOf(item.id);
+  const startName = base.added ? 'how you added it' : 'the printed menu';
   const [en, setEn] = useState(item.name.en);
   const [si, setSi] = useState(item.name.si ?? '');
   const [ta, setTa] = useState(item.name.ta ?? '');
@@ -81,11 +183,7 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
   const [hidden, setHidden] = useState(Boolean(item.hidden));
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  useEscape(onClose);
 
   const basePrice = (id: string) => (id === 'one' ? base.price ?? 0 : base.variants!.find((v) => v.id === id)!.price);
 
@@ -134,8 +232,8 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
             {item.edited && (
               <button type="button" className="linkbtn" onClick={() => {
                 const before = record(item.id, {});
-                onSaved(`${base.name.en}: back to the printed menu`, () => record(item.id, before));
-              }}>Back to the printed menu</button>
+                onSaved(`${base.name.en}: back to ${startName}`, () => record(item.id, before));
+              }}>Back to {startName}</button>
             )}
           </div>
 
@@ -159,7 +257,7 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
                   <label key={id}>
                     {v ? `${v.label}${v.hint ? ` ${v.hint}` : ''}` : 'Price'}
                     <input className="num" inputMode="numeric" value={price[id]} onChange={(e) => setPrice({ ...price, [id]: e.target.value })} aria-label={v ? `${v.label} price` : 'Price'} />
-                    {toCents(price[id]) !== was && <span className="menued__was num">Printed {fmt(was)}</span>}
+                    {toCents(price[id]) !== was && <span className="menued__was num">{base.added ? 'Was' : 'Printed'} {fmt(was)}</span>}
                   </label>
                 );
               })}
@@ -201,8 +299,10 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
   useMenu();
   const [section, setSection] = useState<Category>('pizza');
   const [editing, setEditing] = useState<MenuItem | null>(null);
+  const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<{ id: number; message: string; undo: () => void } | null>(null);
-  const items = menuItems().filter((m) => m.category === section);
+  const items = menuItems().filter((m) => m.category === section && !m.removed);
+  const here = SECTIONS.find((s) => s.id === section)!;
   const costs = useCostContext();
   const [answering, setAnswering] = useState(false);
   const questions = useMemo(() => openQuestions(menuItems(), costs), [costs]);
@@ -216,11 +316,11 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (answering) setAnswering(false);
-      else if (!editing) onBack();
+      else if (!editing && !adding) onBack();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editing, answering, onBack]);
+  }, [editing, adding, answering, onBack]);
 
   const said = (message: string, undo: () => void) => setToast({ id: Date.now(), message, undo });
 
@@ -230,7 +330,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
       <main className="owner__main menuv" aria-label="Menu">
         <h1 className="menuv__title">Menu</h1>
         <p className="menuv__lead">
-          {owner ? 'Change a price, a name or what is on offer. It reaches the counter, the kitchen and cheesybeez.com at once.'
+          {owner ? 'Change a price, a name or what is on offer, or add something new. It reaches the counter, the kitchen and cheesybeez.com at once.'
             : 'Mark something sold out for today. Prices and names are changed by the owner.'}
         </p>
         {owner && questions.length > 0 && (
@@ -257,6 +357,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
                 <CostLine item={m} ctx={costs} />
               </div>
               <div className="menuv__tags">
+                {m.added && <span className="status status--paid">Added</span>}
                 {m.edited && <span className="status status--paid">Changed</span>}
                 {m.hidden && <span className="status status--unpaid">Hidden</span>}
               </div>
@@ -275,10 +376,14 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
             </li>
           ))}
         </ul>
+        {owner && (
+          <button type="button" className="chip menuv__add" onClick={() => setAdding(true)}>+ Add a {here.one}</button>
+        )}
       </main>
+      {adding && <AddItem section={here} onClose={() => setAdding(false)} onSaved={(msg, undo) => { setAdding(false); said(msg, undo); }} />}
       {editing && <Editor item={editing} onClose={() => setEditing(null)} onSaved={(msg, undo) => { setEditing(null); said(msg, undo); }} />}
       {answering && <CostQuestions questions={questions} ctx={costs} onClose={() => setAnswering(false)} />}
-      {toast && !editing && !answering && (
+      {toast && !editing && !adding && !answering && (
         <div className="toast" role="status" key={toast.id}>
           <span>{toast.message}</span>
           <button type="button" onClick={() => { toast.undo(); setToast(null); }}>Undo</button>
