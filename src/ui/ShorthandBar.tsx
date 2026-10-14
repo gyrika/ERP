@@ -3,6 +3,7 @@ import { menuItems, itemById } from '../domain/menu.ts';
 import { ShorthandInterpreter } from '../domain/parser.ts';
 import type { LineSpec, OrderDraft, OrderInterpreter } from '../domain/types.ts';
 import { useMenu } from './menuStore.ts';
+import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 
 /**
  * The screen only knows OrderInterpreter. Swap this implementation for a voice or
@@ -11,12 +12,13 @@ import { useMenu } from './menuStore.ts';
 export const describe = (l: LineSpec): string => {
   const item = itemById(l.itemId);
   const size = item.variants?.find((v) => v.id === l.size)?.label;
+  const outs = leaveOutsOf(item, secondHalf(l));
   const mods = [
     ...l.adds.map((id) => item.adds.find((o) => o.id === id)?.label),
-    ...l.outs.map((id) => item.leaveOut.find((o) => o.id === id)?.label),
+    ...l.outs.map((id) => outs.find((o) => o.id === id)?.label),
     l.note,
   ].filter(Boolean);
-  return [`${l.qty > 1 ? `${l.qty} × ` : ''}${item.name.en}`, size, ...mods].filter(Boolean).join(' · ');
+  return [`${l.qty > 1 ? `${l.qty} × ` : ''}${lineItemName(l)}`, size, ...mods].filter(Boolean).join(' · ');
 };
 
 interface Props {
@@ -45,8 +47,7 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
   }, [text, menuVersion]);
 
   const offered = (line: LineSpec) => {
-    const item = itemById(line.itemId);
-    return !item.soldOut && !item.hidden;
+    return [line.itemId, ...(line.half ? [line.half] : [])].map(itemById).every((item) => !item.soldOut && !item.hidden);
   };
   const availableLines = draft.lines.filter(offered);
   const unavailableLines = draft.lines.filter((line) => !offered(line));

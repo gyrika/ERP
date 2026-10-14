@@ -19,7 +19,7 @@ export interface RecipeLine {
   qtyBaseUnits: number;
 }
 
-export type UsageOf = (line: Pick<OrderLine, 'itemId' | 'qty' | 'size' | 'adds' | 'outs'>, answers: ReadonlyMap<string, Answer>) => RecipeLine[];
+export type UsageOf = (line: Pick<OrderLine, 'itemId' | 'qty' | 'size' | 'adds' | 'outs' | 'half'>, answers: ReadonlyMap<string, Answer>) => RecipeLine[];
 
 const MAX_DEPTH = 8; // as in costing.ts
 
@@ -45,10 +45,17 @@ const trace = (line: BookLine, times: number, answers: ReadonlyMap<string, Answe
   if (source) total.set(source.inventoryId, (total.get(source.inventoryId) ?? 0) + qty * source.per);
 };
 
-/** A sold line's recipe lines: his recipe less its leave-outs, plus each extra's recipe; null: no recipe yet. */
-const soldLines = (line: Pick<OrderLine, 'itemId' | 'size' | 'adds' | 'outs'>, answers: ReadonlyMap<string, Answer>): BookLine[] | null => {
-  const recipe = recipeOf(line.itemId, line.size ?? '', answers);
-  if (!recipe) return null;
+/**
+ * A sold line's recipe lines: his recipe less its leave-outs, plus each extra's recipe;
+ * null: no recipe yet. A half-and-half pizza takes half of each half's recipe (halves.ts).
+ */
+const soldLines = (line: Pick<OrderLine, 'itemId' | 'size' | 'adds' | 'outs' | 'half'>, answers: ReadonlyMap<string, Answer>): BookLine[] | null => {
+  const size = line.size ?? '';
+  const whole = recipeOf(line.itemId, size, answers);
+  const other = line.half ? recipeOf(line.half, size, answers) : null;
+  if (!whole || (line.half && !other)) return null;
+  const halfOf = (lines: readonly BookLine[]) => lines.map((l) => ({ ...l, qty: l.qty / 2 }));
+  const recipe = { lines: other ? [...halfOf(whole.lines), ...halfOf(other.lines)] : whole.lines };
   const left = new Set(line.outs.flatMap((o) => LEAVE_OUT_LINES[o] ?? []));
   // His own recipes may name the price-list item itself ("stock:inv-0024" for onion).
   const leftItems = new Set([...left].map((name) => sourceOf(name, answers)?.inventoryId).filter(Boolean));
@@ -78,7 +85,7 @@ export const bookUsage: UsageOf = (line, answers) => {
  * it waits as a question on the Menu screen.)
  */
 export interface UsageGaps { untracked: boolean; items: string[] }
-export type GapsOf = (line: Pick<OrderLine, 'itemId' | 'qty' | 'size' | 'adds' | 'outs'>, answers: ReadonlyMap<string, Answer>) => UsageGaps;
+export type GapsOf = (line: Pick<OrderLine, 'itemId' | 'qty' | 'size' | 'adds' | 'outs' | 'half'>, answers: ReadonlyMap<string, Answer>) => UsageGaps;
 
 /** Every price-list item a recipe line reaches, whatever the batch sizes. */
 const reach = (line: BookLine, answers: ReadonlyMap<string, Answer>, ids: Set<string>, depth: number): void => {

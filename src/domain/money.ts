@@ -1,9 +1,9 @@
+import { basePrice } from './halves.ts';
 import type { Cents, MenuItem, OrderLine } from './types.ts';
 
-export const unitPrice = (item: MenuItem, line: Pick<OrderLine, 'size' | 'adds'>): Cents => {
-  const base = item.variants
-    ? (item.variants.find((v) => v.id === line.size) ?? item.variants[0]).price
-    : (item.price ?? 0);
+/** Size price (for a half-and-half pizza, half of each half's) plus extras. */
+export const unitPrice = (item: MenuItem, line: Pick<OrderLine, 'size' | 'adds' | 'half'>): Cents => {
+  const base = basePrice(item, line);
   const adds = line.adds.reduce((sum, id) => sum + (item.adds.find((o) => o.id === id)?.price ?? 0), 0);
   return base + adds;
 };

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { canHalve, leaveOutsOf, lineItemName } from '../domain/halves.ts';
+import { itemById, menuItems } from '../domain/menu.ts';
 import { fmt, unitPrice } from '../domain/money.ts';
 import type { LineSpec, MenuItem, OrderLine, SizeId } from '../domain/types.ts';
 
@@ -30,6 +32,9 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
   );
   const [adds, setAdds] = useState<string[]>(line?.adds ?? []);
   const [outs, setOuts] = useState<string[]>(line?.outs ?? []);
+  /** Half-and-half: the other half's item id (pizzas only). */
+  const [half, setHalf] = useState<string | undefined>(line?.half);
+  const [halvesOpen, setHalvesOpen] = useState(Boolean(line?.half));
   const [note, setNote] = useState(line?.note ?? '');
   const [noteOpen, setNoteOpen] = useState(Boolean(line?.note));
   const [qty, setQty] = useState(line?.qty ?? 1);
@@ -39,7 +44,17 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
   const submitRef = useRef<HTMLButtonElement>(null);
   const reasonRef = useRef<HTMLDivElement>(null);
 
-  const unit = unitPrice(item, { size: sz, adds });
+  const other = half ? itemById(half) : null;
+  const halves = menuItems().filter((m) => canHalve(item, m) && !m.hidden && (!m.soldOut || m.id === half));
+  const leaveOut = leaveOutsOf(item, other);
+  const title = lineItemName({ itemId: item.id, half });
+  const pickHalf = (id: string | undefined) => {
+    setHalf(id);
+    // A leave-out only the old other half had no longer applies.
+    const allowed = leaveOutsOf(item, id ? itemById(id) : null).map((o) => o.id);
+    setOuts(outs.filter((o) => allowed.includes(o)));
+  };
+  const unit = unitPrice(item, { size: sz, adds, half });
   const total = unit * qty;
   const variant = item.variants?.find((v) => v.id === sz);
   const editing = Boolean(line);
@@ -51,10 +66,10 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const spec = (): LineSpec => ({ itemId: item.id, qty, size: sz, adds, outs, ...(note.trim() ? { note: note.trim() } : {}) });
+  const spec = (): LineSpec => ({ itemId: item.id, qty, size: sz, adds, outs, ...(half ? { half } : {}), ...(note.trim() ? { note: note.trim() } : {}) });
   const reason = reasonPick === 'Other' ? otherReason.trim() : (reasonPick ?? '');
   const sameAsLine = (s: LineSpec) =>
-    line !== undefined && s.qty === line.qty && s.size === line.size && (s.note ?? '') === (line.note ?? '') &&
+    line !== undefined && s.qty === line.qty && s.size === line.size && (s.half ?? '') === (line.half ?? '') && (s.note ?? '') === (line.note ?? '') &&
     [...s.adds].sort().join() === [...line.adds].sort().join() && [...s.outs].sort().join() === [...line.outs].sort().join();
   // Manager actions never fail silently: without a reason they say so and point at the reasons.
   const withReason = (act: () => void) => {
@@ -75,8 +90,8 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
       <div className="sheet" role="dialog" aria-modal="true" aria-label={`${item.name.en} extras`}>
         <div className="sheet__body">
           <div className="sheet__title">
-            <h1>{item.name.en}</h1>
-            <span className="num">{variant ? `${variant.label} · ` : ''}{fmt(unitPrice(item, { size: sz, adds: [] }))}</span>
+            <h1>{title}</h1>
+            <span className="num">{variant ? `${variant.label} · ` : ''}{fmt(unitPrice(item, { size: sz, adds: [], half }))}</span>
             {editing && onRemove && (
               <button
                 type="button"
@@ -119,9 +134,29 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
               <div className="chips">
                 {item.variants.map((v) => (
                   <button key={v.id} type="button" className="chip num" aria-pressed={sz === v.id} onClick={() => setSz(v.id)}>
-                    {v.label}{v.hint ? ` ${v.hint}` : ''} · {fmt(v.price)}
+                    {v.label}{v.hint ? ` ${v.hint}` : ''} · {fmt(unitPrice(item, { size: v.id, adds: [], half }))}
                   </button>
                 ))}
+              </div>
+            </section>
+          )}
+
+          {halves.length > 0 && (
+            <section className="group">
+              <h2>Half &amp; half</h2>
+              <div className="chips">
+                {!halvesOpen ? (
+                  <button type="button" className="chip" aria-expanded={false} onClick={() => setHalvesOpen(true)}>Half &amp; half…</button>
+                ) : (
+                  <>
+                    <button type="button" className="chip" aria-pressed={!half} onClick={() => { pickHalf(undefined); setHalvesOpen(false); }}>Whole pizza</button>
+                    {halves.map((m) => (
+                      <button key={m.id} type="button" className="chip" aria-pressed={half === m.id} onClick={() => pickHalf(half === m.id ? undefined : m.id)}>
+                        ½ {m.name.en}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             </section>
           )}
@@ -142,7 +177,7 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
           <section className="group">
             <h2>Leave out</h2>
             <div className="chips">
-              {item.leaveOut.map((o) => (
+              {leaveOut.map((o) => (
                 <button key={o.id} type="button" className="chip" aria-pressed={outs.includes(o.id)} onClick={() => setOuts(toggle(outs, o.id))}>
                   {o.label}
                 </button>

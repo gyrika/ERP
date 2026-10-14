@@ -6,6 +6,7 @@ import { fmt } from './money.ts';
 import { formatQuantity } from './quantity.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine } from './types.ts';
+import { lineItemName } from './halves.ts';
 
 /**
  * The Owner view's brain (CLAUDE.md: "tell the owner what needs attention and
@@ -108,7 +109,7 @@ const openDays = (sales: Sale[], today: number, days: number): number[] => {
 const lineName = (l: OrderLine): string => {
   const item = itemById(l.itemId);
   const size = item.variants?.find((v) => v.id === l.size)?.label;
-  return `${l.qty} × ${item.name.en}${size ? ` ${size}` : ''}`;
+  return `${l.qty} × ${lineItemName(l)}${size ? ` ${size}` : ''}`;
 };
 
 // ----- the rules -----
@@ -303,7 +304,10 @@ const itemsSold = (events: readonly SyncEvent[], from: number, to: number) => {
   const sold = new Map<string, number>();
   for (const e of events) {
     if (e.type !== 'order.sent' || e.at < from || e.at >= to) continue;
-    for (const l of e.lines) sold.set(l.itemId, (sold.get(l.itemId) ?? 0) + l.qty);
+    // A half-and-half pizza sold both of its pizzas (half each).
+    for (const l of e.lines) {
+      for (const id of l.half ? [l.itemId, l.half] : [l.itemId]) sold.set(id, (sold.get(id) ?? 0) + (l.half ? l.qty / 2 : l.qty));
+    }
   }
   return sold;
 };
