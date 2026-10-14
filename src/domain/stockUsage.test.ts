@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ingredientQuestion, yieldQuestion, type Answer, type RecipeEvent } from './costing.ts';
-import { inventoryFromEvents, USAGE_DAYS } from './inventory.ts';
+import { inventoryFromEvents, stockFromEvents, stockStatus, USAGE_DAYS } from './inventory.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
-import { bookUsage } from './stockUsage.ts';
+import { bookGaps, bookUsage } from './stockUsage.ts';
 import type { SyncEvent } from './sync.ts';
 import type { OrderLine } from './types.ts';
 
@@ -103,4 +103,53 @@ test('a newer shop divides by the days it has sold, and an uncounted item has no
   const twoDays = [sent('a', [line('chicken-burger', { id: 'a', qty: 6 })], NOW - 2 * DAY)];
   assert.equal(row([stockIn(BUN, 2), ...twoDays], BUN).usedPerDay, 3);
   assert.equal(row(twoDays, BUN).lastsDays, null);
+});
+
+// ----- what the stock cannot know (an unconfirmed batch, a menu item with no recipe) -----
+
+const SUGO = 'inv-0009'; // in his Pizza Sauce Batch, whose output he has not confirmed
+const count = (itemId: string, packs: number, at: number): SyncEvent =>
+  ({ id: `c-${itemId}-${at}`, shopId: 's', at, orderNumber: 0, actor, type: 'stock.adjusted', itemId, deltaPacks: packs, reason: 'audit' });
+
+test('a sale names the items an unconfirmed batch held back, and a menu item with no recipe', () => {
+  assert.ok(bookGaps(line('margherita', { size: 'L' }), none).items.includes(SUGO));
+  assert.deepEqual(bookGaps(line('chicken-burger'), none), { untracked: false, items: [] });
+  assert.deepEqual(bookGaps(line('no-such-item'), none), { untracked: true, items: [] });
+  const confirmed = new Map<string, Answer>([[yieldQuestion('Pizza Sauce Batch'), { kind: 'yield', qty: 3000 }]]);
+  assert.ok(!bookGaps(line('margherita', { size: 'L' }), confirmed).items.includes(SUGO), 'once he answers, it is taken');
+});
+
+test('missed sales since the last count make an item Check shelf; a new count clears them', () => {
+  const pizzas = sent('p', [line('margherita', { id: 'p1', size: 'L', qty: 3 })], NOW - DAY);
+  const before = row([stockIn(SUGO, 5), pizzas], SUGO);
+  assert.equal(before.missedSales, 3);
+  assert.equal(stockStatus(before), 'unsure');
+
+  const after = row([stockIn(SUGO, 5), pizzas, count(SUGO, -1, NOW - 1)], SUGO);
+  assert.equal(after.missedSales, 0, 'the count saw the real shelf');
+  assert.equal(stockStatus(after), 'ok');
+});
+
+test('missed sales never hide low or out: the real shelf can only be lower', () => {
+  const pizzas = sent('p', [line('margherita', { id: 'p1', size: 'L' })], NOW - DAY);
+  assert.equal(stockStatus(row([stockIn(SUGO, 1), pizzas], SUGO)), 'low');
+});
+
+test('Undo after Send and a cancelled line take their missed sales back', () => {
+  const pizzas = sent('p', [line('margherita', { id: 'p1', size: 'L', qty: 2 })], NOW - DAY);
+  const undone: SyncEvent = { id: 'u', shopId: 's', at: NOW - DAY, orderNumber: 7, actor, type: 'order.send_undone', ticketId: 't-p' };
+  assert.equal(row([stockIn(SUGO, 5), pizzas, undone], SUGO).missedSales, 0);
+  const cancelled: SyncEvent = {
+    id: 'x', shopId: 's', at: NOW - DAY, orderNumber: 7, actor, type: 'order.item_cancelled',
+    lineId: 'p1', index: 0, before: line('margherita', { id: 'p1', size: 'L', qty: 2 }), reason: 'dropped', totalBefore: 0, totalAfter: 0,
+  };
+  assert.equal(row([stockIn(SUGO, 5), pizzas, cancelled], SUGO).missedSales, 0);
+});
+
+test('items sold this week with no recipe are counted once, by quantity', () => {
+  const events = [
+    sent('a', [line('no-such-item', { id: 'n1', qty: 2 }), line('chicken-burger', { id: 'b1' })], NOW - DAY),
+    sent('old', [line('no-such-item', { id: 'n2', qty: 5 })], NOW - 30 * DAY),
+  ];
+  assert.equal(stockFromEvents(SEED_INVENTORY, events, { now: NOW }).untrackedSold, 2);
 });

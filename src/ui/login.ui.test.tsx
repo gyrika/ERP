@@ -242,3 +242,18 @@ test('F3 flips a manager between the Register and the Owner view; a cashier stay
   await user.click(screen.getByRole('button', { name: 'Register' }));
   expect(panel()).toBeTruthy();
 });
+
+test("a manager has no Recipes link, and typing the address gives the Register: the recipes are the owner's", async () => {
+  pair();
+  history.replaceState(null, '', '/#inventory');
+  const user = userEvent.setup();
+  render(<Root />);
+  await user.keyboard('2580');
+  const nav = within(await screen.findByRole('navigation', { name: 'Owner sections' }));
+  expect(nav.queryByRole('link', { name: 'Recipes' })).toBeNull();
+  expect(nav.getByRole('link', { name: 'Menu' })).toBeTruthy();
+
+  act(() => { location.hash = '#recipes'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+  expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();
+  expect(screen.queryByLabelText('Owner PIN')).toBeNull();
+});

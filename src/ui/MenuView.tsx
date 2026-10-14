@@ -37,7 +37,7 @@ function CostLine({ item, ctx }: { item: MenuItem; ctx: CostContext }) {
   }));
   const gaps = new Set(sizes.flatMap((s) => s.cost.missing)).size;
   const answers = `${gaps} ${gaps === 1 ? 'answer' : 'answers'}`;
-  if (sizes.every((s) => !s.cost.product)) return <span className="menuv__cost">Cost: which of your recipes is it? ({answers} to go)</span>;
+  if (sizes.every((s) => !s.cost.origin)) return <span className="menuv__cost">Cost: which of your recipes is it? ({answers} to go)</span>;
   return (
     <span className="menuv__cost num">
       {gaps ? 'Cost so far ' : 'Cost '}

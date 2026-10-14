@@ -109,6 +109,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         return { reason: `event ${e.id} has an invalid recipe answer` };
       }
     }
+    if (e.type === 'recipe.viewed' && e.orderNumber !== 0) return { reason: `event ${e.id} has an invalid order number` };
     if (e.type === 'menu.item_set' &&
         (!shortString(e.itemId) || !validOverride(e.itemId, e.before) || !validOverride(e.itemId, e.after))) {
       return { reason: `event ${e.id} has an invalid menu change` };

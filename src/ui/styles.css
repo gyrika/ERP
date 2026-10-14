@@ -390,6 +390,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-notice { display: flex; align-items: center; gap: 12px; margin: 8px 40px 0; padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-2); font-size: 14px; }
 .inv-notice button { min-height: 40px; padding: 0 12px; border-radius: 8px; background: var(--chip); color: var(--ink); font-weight: 600; }
 .inv-notice--error { border-color: var(--bad); color: var(--bad); }
+.inv-notice__link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 8px; background: var(--chip); color: var(--ink); font-weight: 600; text-decoration: none; }
 .sup-grid { display: grid; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 12px; width: 100%; padding: 24px 40px 40px; }
 .sup-card { display: flex; flex-direction: column; gap: 0; min-width: 0; padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; box-shadow: none; }
 .sup-card__header { display: grid; grid-template-columns: minmax(0, 1fr) 48px; align-items: center; gap: 4px; min-height: 64px; padding: 8px 12px; }
@@ -442,7 +443,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-row__supplier:hover { background: var(--chip); color: var(--ink); }
 .inv-row__quantity .inv-row__status { font-size: 11px; font-weight: 600; }
 .inv-row__quantity .inv-row__lasts { color: var(--ink-2); font-size: 11px; }
-.inv-row__quantity .inv-row__status--low { color: var(--warn); }
+.inv-row__quantity .inv-row__status--low,
+.inv-row__quantity .inv-row__status--unsure { color: var(--warn); }
 .inv-row__quantity .inv-row__status--out { color: var(--bad); }
 .inv-empty { grid-column: 1 / -1; padding: 48px 16px; color: var(--ink-3); font-size: 16px; text-align: center; }
 .inv-shell { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; background: var(--ground); color: var(--ink); }
@@ -865,3 +867,80 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .upd-done { z-index: 30; }
 @media (max-width: 720px) { .upd-note { left: 24px; max-width: calc(100vw - 48px); } }
 @media (prefers-reduced-motion: reduce) { .upd-note, .upd-note__dot, .upd, .upd__bar i, .upd__bar--busy i { animation: none; transition: none; } }
+
+/* ----- Recipes: the shop's secret (owner only, PIN every time) ----- */
+/* Always the dark ground, in light mode too: the one room in the app that feels different. */
+.vault {
+  --ground: #000000; --surface: #1C1C1E; --panel: #121214; --chip: #2C2C2E; --ink: #F5F5F7;
+  --ink-2: #98989D; --ink-3: #6B6B70; --line: #3A3A3C;
+  --primary: #F5F5F7; --on-primary: #000000; --card-shadow: none; --ok-ink: #30A46C; --gold: #D4B26A;
+  color: var(--ink); color-scheme: dark;
+}
+.vault__lock { min-height: calc(100dvh - 60px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px 16px 96px; text-align: center; }
+.vault__icon { color: var(--gold); }
+.vault__name { margin: 0; font-size: 28px; font-weight: 500; letter-spacing: -0.6px; }
+.vault__lock .pin { width: 200px; }
+.vault__msg { margin: 0; min-height: 22px; color: var(--ink-3); font-size: 15px; }
+.vault__msg[role='alert'] { color: var(--bad); }
+
+.vault__book { max-width: 760px; padding-bottom: 96px; }
+.vault__top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-top: 8px; }
+.vault__title { margin: 0; font-size: 34px; font-weight: 500; letter-spacing: -0.8px; }
+.vault__lead { margin: 6px 0 24px; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+.vault__saved { margin: -8px 0 20px; }
+.vault__group { margin-bottom: 28px; }
+.vault__group-name { margin: 0 0 10px; color: var(--ink-3); font-size: 13px; font-weight: 500; letter-spacing: 0.6px; text-transform: uppercase; }
+.vault__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+/* The reveal: the book rises out of the dark, line after line (~400 ms in all), once per opening. */
+@keyframes vault-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.vault__top, .vault__lead, .vault__group-name, .vault__list > li { animation: vault-rise 240ms var(--ease) both; animation-delay: calc(var(--i, 0) * 7ms); }
+@keyframes vault-unlock { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+.vault__lock { animation: vault-unlock 200ms var(--ease) both; }
+
+.rcard { background: var(--surface); border-radius: 16px; border-left: 4px solid var(--line); padding: 4px 16px 4px 16px; }
+.rcard--ok { border-left-color: var(--ok); }
+.rcard--gap { border-left-color: var(--warn); }
+.rcard--empty { border-left-color: var(--line); border-left-style: dashed; }
+.rcard__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; min-height: 56px; padding: 12px 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.rcard__head--static { cursor: default; }
+.rcard__name { font-size: 18px; font-weight: 500; letter-spacing: -0.2px; }
+.rcard__status { color: var(--ink-2); font-size: 14px; text-align: right; }
+.rcard--gap .rcard__status { color: var(--warn); }
+.rcard__write { min-height: 48px; margin: 0 0 12px; padding: 0 16px; border: 1px dashed var(--line); border-radius: 12px; background: none; color: var(--ink); font: inherit; font-size: 15px; cursor: pointer; }
+.rcard__write:hover { border-color: var(--ink-3); }
+.rcard__lines { list-style: none; margin: 0 0 12px; padding: 0; display: grid; grid-template-columns: 1fr; gap: 2px; color: var(--ink-2); font-size: 14px; }
+.rcard:not(.rcard--open) .rcard__lines { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.rcard__lines li { display: flex; justify-content: space-between; gap: 10px; }
+.rcard--open .rcard__lines li { padding: 8px 0; border-top: 1px solid var(--line); color: var(--ink); font-size: 16px; }
+/* Amounts stay hidden until a recipe is opened: names over a shoulder, never the numbers. */
+.rcard__amt { filter: blur(5px); user-select: none; transition: filter 200ms var(--ease); }
+.rcard--open .rcard__amt { filter: none; user-select: auto; }
+.rcard__more { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 16px; }
+.rcard__fix { padding: 16px; border-radius: 12px; background: var(--panel); }
+.rcard__fix .costq__ask { font-size: 18px; }
+.rcard__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.rcard__from { color: var(--ink-3); font-size: 13px; }
+.rcard--edit { display: flex; flex-direction: column; gap: 14px; padding-bottom: 16px; border-left-color: var(--gold); }
+.rcard--edit .chips { align-items: center; }
+.redit__rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.redit__row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 44px 48px; align-items: center; gap: 8px; }
+.redit__row select, .redit__row input { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); color: var(--ink); font: inherit; font-size: 16px; min-width: 0; }
+.redit__row input { text-align: right; }
+.redit__unit { color: var(--ink-2); font-size: 15px; }
+.redit__remove { min-height: 48px; border: 0; border-radius: 12px; background: none; color: var(--ink-3); font-size: 22px; cursor: pointer; }
+.redit__remove:hover { background: var(--chip); color: var(--ink); }
+.redit__add { align-self: flex-start; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vault__top, .vault__lead, .vault__group-name, .vault__list > li, .vault__lock { animation: none; }
+  .rcard__amt { transition: none; }
+}
+@media (max-width: 520px) {
+  .rcard__head { flex-direction: column; gap: 2px; }
+  .rcard__status { text-align: left; }
+  .redit__row { grid-template-columns: minmax(0, 1fr) 80px 36px 44px; }
+}
+.rcard__shared { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.rcard__shared .costq__ask { font-size: 18px; }
+.redit__cost { margin: 0; color: var(--ink-2); font-size: 15px; }

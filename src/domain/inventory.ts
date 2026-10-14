@@ -2,7 +2,7 @@ import type { BaseUnit, InventoryItem, Supplier } from './inventoryData.ts';
 import type { SyncEvent } from './sync.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { answersFromEvents, type Answer, type RecipeEvent } from './costing.ts';
-import { bookUsage, type RecipeLine, type UsageOf } from './stockUsage.ts';
+import { bookGaps, bookUsage, type GapsOf, type RecipeLine, type UsageOf } from './stockUsage.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -95,6 +95,11 @@ export type InventoryRow = InventoryItem & {
   usedPerDay: number;
   /** Days what is left lasts at that rate; null when it is not counted, empty or not used. */
   lastsDays: number | null;
+  /**
+   * Items sold since its last count that should have taken some of it but could not
+   * (a batch output the owner has not confirmed): the shelf holds less than shown.
+   */
+  missedSales: number;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -121,12 +126,17 @@ export const parsePacks = (raw: string): number | null => {
 export const countDifference = (row: Pick<InventoryRow, 'onHandBaseUnits' | 'packQty'>, countedPacks: number): number =>
   (Math.round(countedPacks * row.packQty) - row.onHandBaseUnits) / row.packQty;
 
-/** unknown: nobody has recorded this item yet, so the app cannot say (never shown as out). */
-export type StockStatus = 'out' | 'low' | 'ok' | 'unknown';
+/**
+ * unknown: nobody has recorded this item yet, so the app cannot say (never shown as out).
+ * unsure: it looks fine, but sales it could not take from have happened since the last
+ * count. Missed sales only ever make the real shelf lower, so out and low stay true.
+ */
+export type StockStatus = 'out' | 'low' | 'unsure' | 'ok' | 'unknown';
 export const stockStatus = (row: InventoryRow): StockStatus => {
   if (!row.counted) return 'unknown';
   if (isOutOfStock(row)) return 'out';
   if (isLowStock(row)) return 'low';
+  if (row.missedSales > 0) return 'unsure';
   return 'ok';
 };
 
@@ -149,7 +159,7 @@ export const suppliersFromEvents = (
   return [...byId.values()].filter((supplier) => includeArchived || !archived.has(supplier.id));
 };
 
-const STATUS_ORDER: Record<StockStatus, number> = { out: 0, low: 1, ok: 2, unknown: 3 };
+const STATUS_ORDER: Record<StockStatus, number> = { out: 0, low: 1, unsure: 2, ok: 3, unknown: 4 };
 
 /** The worst status among a list: out, then low, then ok; unknown only if nothing is known. */
 export const worstStatus = (statuses: StockStatus[]): StockStatus =>
@@ -197,8 +207,23 @@ interface Shelf {
 export const inventoryFromEvents = (
   items: readonly InventoryItem[],
   events: readonly SyncEvent[],
-  { usageOf = bookUsage, now = Date.now() }: { usageOf?: UsageOf; now?: number } = {},
-): InventoryRow[] => {
+  options: StockOptions = {},
+): InventoryRow[] => stockFromEvents(items, events, options).rows;
+
+export interface StockOptions { usageOf?: UsageOf; gapsOf?: GapsOf; now?: number }
+
+export interface Stock {
+  rows: InventoryRow[];
+  /** Items sold in the last USAGE_DAYS whose menu item has no recipe yet: they took nothing. */
+  untrackedSold: number;
+}
+
+/** inventoryFromEvents, plus what the stock does not know about. */
+export const stockFromEvents = (
+  items: readonly InventoryItem[],
+  events: readonly SyncEvent[],
+  { usageOf = bookUsage, gapsOf = bookGaps, now = Date.now() }: StockOptions = {},
+): Stock => {
   const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
     item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false,
   }]));
@@ -216,8 +241,12 @@ export const inventoryFromEvents = (
   let answers = new Map<string, Answer>();
   const recipeEvents: RecipeEvent[] = [];
   const ticketLines = new Map<string, string[]>();
+  /** What each standing sent line could not take (UsageGaps), by line id. */
+  const gaps = new Map<string, { untracked: boolean; items: string[]; qty: number }>();
+  /** When each item was last counted (an audit): missed sales before it are already corrected. */
+  const countedAt = new Map<string, number>();
   /** For a manager's Undo: what the line had taken before the change (null: nothing). */
-  const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null }>();
+  const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null; gaps: { untracked: boolean; items: string[]; qty: number } | null }>();
   const setLine = (lineId: string, usage: RecipeLine[] | null) => {
     const had = taken.get(lineId);
     if (had) take(had, -1);
@@ -249,6 +278,7 @@ export const inventoryFromEvents = (
         const shelf = shelves.get(e.itemId);
         if (!shelf) break; // an item no longer on the price list
         shelf.counted = true;
+        if (e.reason === 'audit') countedAt.set(e.itemId, e.at);
         shelf.onHandBaseUnits += e.deltaPacks * shelf.item.packQty;
         break;
       }
@@ -264,23 +294,33 @@ export const inventoryFromEvents = (
       case 'order.sent':
         ticketLines.set(e.ticketId, e.lines.map((l) => l.id));
         firstSale = Math.min(firstSale ?? e.at, e.at);
-        for (const line of e.lines) { setLine(line.id, usageOf(line, answers)); sentAt.set(line.id, e.at); }
+        for (const line of e.lines) {
+          setLine(line.id, usageOf(line, answers));
+          gaps.set(line.id, { ...gapsOf(line, answers), qty: lineQty(line.qty) });
+          sentAt.set(line.id, e.at);
+        }
         break;
       case 'order.send_undone':
-        for (const lineId of ticketLines.get(e.ticketId) ?? []) setLine(lineId, null);
+        for (const lineId of ticketLines.get(e.ticketId) ?? []) { setLine(lineId, null); gaps.delete(lineId); }
         ticketLines.delete(e.ticketId);
         break;
       case 'order.item_cancelled':
       case 'order.item_changed': {
         const had = taken.get(e.lineId);
-        if (!had) break; // never sent: it took nothing
-        beforeChange.set(e.id, { lineId: e.lineId, usage: had });
+        const hadGaps = gaps.get(e.lineId);
+        if (!had && !hadGaps) break; // never sent: it took nothing
+        beforeChange.set(e.id, { lineId: e.lineId, usage: had ?? null, gaps: hadGaps ?? null });
         setLine(e.lineId, e.type === 'order.item_changed' ? usageOf(e.after, answers) : null);
+        if (e.type === 'order.item_changed') gaps.set(e.lineId, { ...gapsOf(e.after, answers), qty: lineQty(e.after.qty) });
+        else gaps.delete(e.lineId);
         break;
       }
       case 'order.change_undone': {
         const was = beforeChange.get(e.undoneEventId);
-        if (was) setLine(was.lineId, was.usage);
+        if (was) {
+          setLine(was.lineId, was.usage);
+          if (was.gaps) gaps.set(was.lineId, was.gaps); else gaps.delete(was.lineId);
+        }
         break;
       }
       default: break; // payments, discounts and the kitchen do not move stock
@@ -296,7 +336,19 @@ export const inventoryFromEvents = (
   }
   const days = firstSale === null ? 1 : Math.min(USAGE_DAYS, Math.max(1, (now - firstSale) / DAY));
 
-  return [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted }) => {
+  // What the stock does not know: sales since each item's last count, and lines with no recipe this week.
+  const missed = new Map<string, number>();
+  let untrackedSold = 0;
+  for (const [lineId, gap] of gaps) {
+    const at = sentAt.get(lineId) ?? 0;
+    if (at > now) continue;
+    if (gap.untracked && at >= now - USAGE_DAYS * DAY) untrackedSold += gap.qty;
+    for (const id of gap.items) {
+      if (at > (countedAt.get(id) ?? -Infinity)) missed.set(id, (missed.get(id) ?? 0) + gap.qty);
+    }
+  }
+
+  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted }) => {
     const usedPerDay = (used.get(item.id) ?? 0) / days;
     return {
       ...item,
@@ -306,6 +358,10 @@ export const inventoryFromEvents = (
       counted,
       usedPerDay,
       lastsDays: counted && onHandBaseUnits > 0 && usedPerDay > 0 ? onHandBaseUnits / usedPerDay : null,
+      missedSales: missed.get(item.id) ?? 0,
     };
   });
+  return { rows, untrackedSold };
 };
+
+const lineQty = (qty: number) => (Number.isFinite(qty) && qty > 0 ? qty : 1);

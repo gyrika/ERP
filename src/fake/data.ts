@@ -12,6 +12,7 @@ export const FAKE_SHOP_ID = 'shop-demo-cheesybeez';
 export const FAKE_STAFF: { pin: string; actor: Actor }[] = [
   { pin: '2580', actor: { id: 'fake-manager-1', name: 'Ravi', role: 'manager' } },
   { pin: '1111', actor: { id: 'fake-cashier-1', name: 'Nimal', role: 'cashier' } },
+  { pin: '9999', actor: { id: 'fake-owner-1', name: 'Owner', role: 'owner' } },
 ];
 
 /** Demo orders for /?demo: three tables eating, nothing paid yet. */

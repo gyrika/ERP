@@ -15,6 +15,7 @@ import { OwnerView } from './OwnerView.tsx';
 import { OwnerWelcome } from './OwnerWelcome.tsx';
 import { ShopsView } from './ShopsView.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
+import { RecipesView } from './RecipesView.tsx';
 import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
 
@@ -172,6 +173,8 @@ export function Root() {
   if (hash === '#menu' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
     return <MenuView owner={!needsLogin || staff?.role === 'owner'} onBack={() => go('')} />;
   }
+  // His recipes: the owner's alone, opened with his PIN on the screen itself.
+  if (hash === '#recipes' && (!needsLogin || staff?.role === 'owner')) return <RecipesView onRegister={() => go('')} />;
   if (hash === '#suppliers' && mayManageStock) {
     return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;
   }

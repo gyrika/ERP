@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { answersFromEvents, type Answer, type CostContext } from '../domain/costing.ts';
+import type { Actor } from '../domain/auth.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
-import { countDifference, inventoryFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
+import { countDifference, inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
 import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import type { Cents } from '../domain/types.ts';
@@ -193,13 +194,17 @@ function useShopHistory(): SyncEvent[] {
   return useMemo(() => withLocal(history ?? [], local), [history, local]);
 }
 
-/** Stock as it stands, from the whole history. */
-export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[] } {
+/** Stock as it stands, from the whole history; untrackedSold: items sold this week with no recipe yet. */
+export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; untrackedSold: number } {
   const events = useShopHistory();
-  return useMemo(() => ({
-    items: inventoryFromEvents(SEED_INVENTORY, events).filter((item) => !item.archived),
-    suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
-  }), [events]);
+  return useMemo(() => {
+    const stock = stockFromEvents(SEED_INVENTORY, events);
+    return {
+      items: stock.rows.filter((item) => !item.archived),
+      suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
+      untrackedSold: stock.untrackedSold,
+    };
+  }, [events]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */
@@ -211,8 +216,16 @@ export function useCostContext(): CostContext {
   }), [events]);
 }
 
-/** The owner answers one costing question (or clears it with null). Returns the Undo. */
-export const answerQuestion = (question: string, after: Answer | null, before: Answer | null): (() => void) => {
-  appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), question, before, after });
-  return () => appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), question, before: after, after: before });
+/**
+ * The owner answers one costing question (or clears it with null). Returns the Undo.
+ * actor: the owner who opened the Recipes screen with his PIN (default: who is signed in).
+ */
+export const answerQuestion = (question: string, after: Answer | null, before: Answer | null, actor: Actor = currentCashier()): (() => void) => {
+  appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor, question, before, after });
+  return () => appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor, question, before: after, after: before });
+};
+
+/** The Recipes screen was opened: who and when, in the audit trail. */
+export const recipesViewed = (actor: Actor): void => {
+  appendEvent({ type: 'recipe.viewed', at: Date.now(), orderNumber: 0, actor });
 };

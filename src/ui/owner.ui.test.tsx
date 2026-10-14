@@ -26,7 +26,7 @@ test('the demo owner feed: today in one line, then cards with one tap each', asy
     expect.stringMatching(/voids today, \d+ by Ravi$/),
     expect.stringMatching(/^Kitchen slow/),
     '3 items running low',
-    'Food costs: 27 answers to go',
+    'Food costs: 25 answers to go',
     "BBQ Pork hasn't sold in 2 weeks",
     expect.stringMatching(/best seller$/),
   ]);
@@ -44,6 +44,6 @@ test('no history yet: a calm screen, not an empty error; only the food-cost ques
   history.replaceState(null, '', '/#owner');
   render(<Root />);
   const feed = within(await screen.findByRole('region', { name: 'Needs your attention' }));
-  expect((await feed.findAllByRole('article')).map((c) => c.getAttribute('aria-label'))).toEqual(['Food costs: 27 answers to go']);
+  expect((await feed.findAllByRole('article')).map((c) => c.getAttribute('aria-label'))).toEqual(['Food costs: 25 answers to go']);
   expect(screen.getByText('Rs 0')).toBeTruthy();
 });
