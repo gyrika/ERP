@@ -1,6 +1,7 @@
 import { MENU } from '../src/domain/menu.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
-import { checkOverride, MENU_EVENT_TYPES, type ItemOverride } from '../src/domain/menuEdits.ts';
+import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
+import type { MenuItem } from '../src/domain/types.ts';
 import {
   KITCHEN_EVENT_TYPES, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
 } from '../src/domain/sync.ts';
@@ -10,9 +11,26 @@ const TYPES = new Set<string>([
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
+const isAddedId = (v: unknown): v is string => typeof v === 'string' && NEW_ITEM_ID.test(v);
+const onMenu = (itemId: unknown): boolean => MENU.some((entry) => entry.id === itemId) || isAddedId(itemId);
+/**
+ * An item the owner added: the server checks one event at a time, so it does not know which
+ * section it is in. Any section's sizes and extras pass; the menu ignores what the item lacks.
+ */
+const ANY_ADDED: MenuItem = {
+  id: 'new-item', category: 'pizza', name: { en: 'This item' }, description: '', aliases: [],
+  variants: (['S', 'M', 'L'] as const).map((id) => ({ id, label: id, price: 0 })), price: 0,
+  adds: MENU.flatMap((m) => m.adds), leaveOut: [],
+};
+const validNewItem = (value: unknown): boolean =>
+  value === null || (isObj(value) && isObj(value.name) && isObj(value.prices) &&
+    Object.entries(value.name).every(([key, name]) => ['en', 'si', 'ta'].includes(key) && typeof name === 'string') &&
+    Object.values(value.prices).every((price) => typeof price === 'number') &&
+    Object.keys(value).every((key) => ['category', 'name', 'description', 'prices'].includes(key)) &&
+    checkNewItem(value as unknown as NewItem, MENU) === null);
 const validOverride = (itemId: unknown, value: unknown): boolean => {
   if (!isObj(value)) return false;
-  const item = MENU.find((entry) => entry.id === itemId);
+  const item = MENU.find((entry) => entry.id === itemId) ?? (isAddedId(itemId) ? ANY_ADDED : undefined);
   if (!item) return false;
   if (value.name !== undefined && (!isObj(value.name) ||
       Object.entries(value.name).some(([key, name]) =>
@@ -96,9 +114,12 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       return { reason: `event ${e.id} has an invalid menu change` };
     }
     if (e.type === 'menu.sold_out' &&
-        (!shortString(e.itemId) || !MENU.some((item) => item.id === e.itemId) ||
+        (!shortString(e.itemId) || !onMenu(e.itemId) ||
           (e.until !== null && !Number.isSafeInteger(e.until)))) {
       return { reason: `event ${e.id} has an invalid sold-out change` };
+    }
+    if (e.type === 'menu.item_added' && (!isAddedId(e.itemId) || !validNewItem(e.item))) {
+      return { reason: `event ${e.id} has an invalid new menu item` };
     }
   }
   return { events: body.events as SyncEvent[] };

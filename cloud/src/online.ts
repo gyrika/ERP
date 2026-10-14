@@ -57,7 +57,7 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
   /** The shop's menu with its owner's changes, from its menu events (few, so read whole). */
   const shopMenuState = async (tenantId: string) => {
     const { results } = await db.prepare(
-      "SELECT body FROM events WHERE tenant_id = ? AND type IN ('menu.item_set', 'menu.sold_out') ORDER BY seq").bind(tenantId).all<{ body: string }>();
+      "SELECT body FROM events WHERE tenant_id = ? AND type IN ('menu.item_set', 'menu.sold_out', 'menu.item_added') ORDER BY seq").bind(tenantId).all<{ body: string }>();
     return menuStateFromEvents(results.map((r) => JSON.parse(r.body) as { type: string }));
   };
   const shopMenu = async (tenantId: string) => effectiveMenu(MENU, await shopMenuState(tenantId), now());

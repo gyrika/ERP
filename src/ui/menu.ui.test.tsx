@@ -64,3 +64,57 @@ test('hidden items leave the counter; back to the printed menu in one tap', asyn
   expect(screen.queryByText('Hidden')).toBeNull();
   expect(screen.queryByText('Changed')).toBeNull();
 });
+
+test('the owner adds a pasta: names stay unique, every size needs a price, and the counter offers it at once', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#menu');
+  render(<Root />);
+  await user.click(await screen.findByRole('button', { name: 'Pasta' }));
+  await user.click(screen.getByRole('button', { name: '+ Add a pasta' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Add a pasta' }));
+  await user.type(sheet.getByLabelText('English'), 'Italian Pasta');
+  await user.type(sheet.getByLabelText('Single price'), '1100');
+  await user.type(sheet.getByLabelText('Medium price'), '2100');
+  await user.click(sheet.getByRole('button', { name: 'Add to the menu' }));
+  expect(sheet.getByRole('alert').textContent).toContain('Italian Pasta is already on the menu');
+
+  await user.clear(sheet.getByLabelText('English'));
+  await user.type(sheet.getByLabelText('English'), 'Chicken Alfredo');
+  await user.click(sheet.getByRole('button', { name: 'Add to the menu' }));
+  expect(sheet.getByRole('alert').textContent).toContain('Type a price for Large');
+  await user.type(sheet.getByLabelText('Large price'), '2900');
+  await user.click(sheet.getByRole('button', { name: 'Add to the menu' }));
+
+  expect(screen.getByRole('status').textContent).toContain('Added Chicken Alfredo');
+  expect(screen.getByText('S 1,100 · M 2,100 · L 2,900')).toBeTruthy();
+  expect(readAll().find((x) => x.type === 'menu.item_added')).toMatchObject({
+    itemId: 'new-chicken-alfredo',
+    item: { category: 'pasta', name: { en: 'Chicken Alfredo' }, description: '', prices: { S: 110000, M: 210000, L: 290000 } },
+  });
+
+  await user.keyboard('{Escape}');
+  await user.click(screen.getByRole('button', { name: 'Pasta' }));
+  const card = within(screen.getByText('Chicken Alfredo').closest('.card') as HTMLElement);
+  expect(card.getByRole('button', { name: 'from 1100' })).toBeTruthy();
+
+  history.replaceState(null, '', '/#menu');
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  await screen.findByRole('heading', { name: 'Menu' });
+  await user.click(screen.getByRole('button', { name: 'Pasta' }));
+  expect(screen.getByRole('button', { name: 'Change Chicken Alfredo' })).toBeTruthy();
+});
+
+test('Undo right after adding takes the new item off the menu', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#menu');
+  render(<Root />);
+  await user.click(await screen.findByRole('button', { name: '+ Add a pizza' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Add a pizza' }));
+  await user.type(sheet.getByLabelText('English'), 'Hot Butter Cuttlefish');
+  await user.type(sheet.getByLabelText('Medium price'), '2300');
+  await user.type(sheet.getByLabelText('Large price'), '3300');
+  await user.click(sheet.getByRole('button', { name: 'Add to the menu' }));
+  expect(screen.getByRole('button', { name: 'Change Hot Butter Cuttlefish' })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.queryByRole('button', { name: 'Change Hot Butter Cuttlefish' })).toBeNull();
+});

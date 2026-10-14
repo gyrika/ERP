@@ -141,6 +141,7 @@ export const POPULAR_IDS = [
 
 let state: MenuState = EMPTY_MENU_STATE;
 let current: MenuItem[] = MENU;
+let starts: MenuItem[] = MENU;
 let version = 0;
 const listeners = new Set<() => void>();
 
@@ -148,6 +149,7 @@ const listeners = new Set<() => void>();
 export const setMenuState = (next: MenuState, now = Date.now()): void => {
   state = next;
   current = effectiveMenu(MENU, next, now);
+  starts = effectiveMenu(MENU, { ...EMPTY_MENU_STATE, added: next.added ?? {} }, now);
   version++;
   listeners.forEach((l) => l());
 };
@@ -155,6 +157,8 @@ export const menuState = (): MenuState => state;
 /** All items, hidden ones included (old orders still show them); screens offer `!hidden`. */
 export const menuItems = (): MenuItem[] => current;
 export const menuVersion = (): number => version;
+/** An item as printed, or as the owner added it: what "back to the start" goes back to. */
+export const startingItem = (id: string): MenuItem | undefined => starts.find((m) => m.id === id);
 export const subscribeMenu = (l: () => void): (() => void) => { listeners.add(l); return () => listeners.delete(l); };
 
 export const itemById = (id: string): MenuItem => {
