@@ -1,5 +1,5 @@
 import { EMPTY_MENU_STATE, effectiveMenu, type MenuState } from './menuEdits.ts';
-import type { MenuItem, Option, Variant } from './types.ts';
+import type { MenuItem, MenuTag, Option, Variant } from './types.ts';
 
 /** Rupees → cents. */
 const rs = (n: number) => n * 100;
@@ -63,7 +63,7 @@ const burger = (
   price: rs(price), adds: BURGER_ADDS, leaveOut,
 });
 
-export const MENU: MenuItem[] = [
+const PRINTED: MenuItem[] = [
   // ----- Pizza · Classic -----
   pizza(1, 'margherita', 'Margherita', 'Mozzarella cheese & rich tomato sauce', ['margherita', 'margarita', 'marg'], 1450, 1990, []),
   pizza(2, 'cheese-onion', 'Cheese & Onion', 'Mozzarella cheese with onion', ['cheese and onion', 'cheese onion', 'cheese'], 1450, 1990, [NO.onion]),
@@ -108,6 +108,17 @@ export const MENU: MenuItem[] = [
     adds: [], leaveOut: [],
   },
 ];
+
+/**
+ * The printed menu's own labels: its four BEST SELLER pizzas. "veg" is left to the owner: his
+ * toppings say Margherita, Cheese & Onion and Veggie are meat-free, but his sauce and dough
+ * recipes are not in his files, and a dietary label must be certain.
+ */
+const TAGS: Readonly<Record<string, MenuTag[]>> = {
+  margherita: ['popular'], 'devilled-chicken': ['popular'], seafood: ['popular'], 'bacon-onion': ['popular'],
+};
+
+export const MENU: MenuItem[] = PRINTED.map((m) => (TAGS[m.id] ? { ...m, tags: TAGS[m.id] } : m));
 
 export const CATEGORIES: { id: 'popular' | 'pizza' | 'burger' | 'pasta'; label: string }[] = [
   { id: 'popular', label: 'Popular' },

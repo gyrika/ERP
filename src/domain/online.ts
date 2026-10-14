@@ -129,3 +129,41 @@ export const NEXT_STATUS: Record<OnlineStatus, OnlineStatus[]> = {
 /** The shop takes online orders: switched on at the counter, and its server was heard from lately. */
 export const takingOrders = (shop: { open: boolean; seenAt: number | null }, now: number): boolean =>
   shop.open && shop.seenAt !== null && now - shop.seenAt < ONLINE_SEEN_MS;
+
+// ----- Opening hours, for the ordering page's status pill -----
+
+/** The shop's daily hours as minutes after midnight in Sri Lanka; `closes` may be past midnight (closes < opens). */
+export interface OpeningHours { opens: number; closes: number }
+
+/** "11:00-21:00" (the cloud's ORDER_HOURS setting) → hours, or null when unset or not understood. */
+export const parseHours = (text: string | undefined): OpeningHours | null => {
+  const m = /^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$/.exec(text ?? '');
+  if (!m) return null;
+  const [oh, om, ch, cm] = m.slice(1).map(Number);
+  if (oh > 23 || ch > 23 || om > 59 || cm > 59) return null;
+  const opens = oh * 60 + om;
+  const closes = ch * 60 + cm;
+  return opens === closes ? null : { opens, closes };
+};
+
+const COLOMBO_MS = 5.5 * 60 * 60_000; // Sri Lanka: UTC+5:30, no summer time
+const minuteInColombo = (now: number) => Math.floor(((now + COLOMBO_MS) % 86_400_000) / 60_000);
+
+/** 660 → "11 AM", 1290 → "9:30 PM". */
+export const clockText = (minute: number): string => {
+  const h = Math.floor(minute / 60) % 24;
+  const m = minute % 60;
+  return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
+/**
+ * The pill's words. Open or closed is the shop's own switch (the server's answer); the hours only
+ * add when that changes. Inside the hours but switched off, it says closed without promising a time.
+ */
+export const statusText = (open: boolean, hours: OpeningHours | null, now: number): string => {
+  if (!hours) return open ? 'Open for pickup' : 'Closed';
+  if (open) return `Open · Closes ${clockText(hours.closes)}`;
+  const m = minuteInColombo(now);
+  const inside = hours.opens < hours.closes ? m >= hours.opens && m < hours.closes : m >= hours.opens || m < hours.closes;
+  return inside ? 'Closed for now' : `Closed · Opens ${clockText(hours.opens)}`;
+};

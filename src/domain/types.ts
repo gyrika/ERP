@@ -3,6 +3,8 @@ export type Cents = number;
 
 export type SizeId = 'S' | 'M' | 'L';
 export type Category = 'pizza' | 'burger' | 'pasta';
+/** Small labels on cheesybeez.com's cards. Each must come from the owner: never inferred. */
+export type MenuTag = 'popular' | 'veg';
 
 export interface Variant {
   id: SizeId;
@@ -26,6 +28,8 @@ export interface MenuItem {
   category: Category;
   /** Number on the printed menu (pizzas 1-12); customers order by it ("5 L"). */
   number?: number;
+  /** Labels for the ordering page (`popular` = a BEST SELLER on the printed menu). */
+  tags?: MenuTag[];
   /** Typed/spoken shorthand that resolves to this item. */
   aliases: string[];
   /** Sized items (pizza, pasta). */

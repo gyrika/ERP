@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { menuItems, setMenuState } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
-import { normalisePhone, onlineLineTotal, onlineTotal, type OnlineLine } from '../domain/online.ts';
-import type { Category, MenuItem, SizeId } from '../domain/types.ts';
+import { Banknote, Clock, Hamburger, Pizza, Plus, ShoppingBag, Soup } from 'lucide-react';
+import { normalisePhone, onlineLineTotal, onlineTotal, statusText, type OnlineLine } from '../domain/online.ts';
+import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
 import { api, remembered, type MyOrder, type Placed, type ShopInfo } from './api.ts';
+import { HERO, PHOTOS } from './photos.ts';
 
 /**
  * cheesybeez.com: order ahead, collect it hot, pay at the shop.
@@ -20,6 +22,134 @@ const itemOf = (id: string) => {
   if (!item) throw new Error(`Unknown menu item: ${id}`);
   return item;
 };
+/**
+ * What the page knows about taking orders: one state at a time. A check that fails says
+ * nothing about the shop, so it is never shown as closed.
+ */
+type Taking = 'loading' | 'open' | 'closed' | 'failed';
+
+/** The one message for the state, or nothing (loading and open need none). */
+function TakingNote({ taking, onRetry, closed }: { taking: Taking; onRetry: () => void; closed: string }) {
+  if (taking === 'closed') return <p className="o-closed" role="status">{closed}</p>;
+  if (taking === 'failed') {
+    return (
+      <p className="o-closed o-closed--retry" role="status">
+        <span>We couldn&apos;t check if we&apos;re open.</span>
+        <button type="button" className="o-link" onClick={onRetry}>Retry</button>
+      </p>
+    );
+  }
+  return null;
+}
+
+/** Header (64) + chips (72): the line just under them decides which section is being read. */
+const UNDER_CHIPS = 136;
+const smooth = (): ScrollBehavior => (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth');
+
+/**
+ * The Pizza / Burgers / Pasta chips: sticky under the header, the section being read filled in
+ * the accent, a tap scrolls smoothly there. Plain links underneath, so they work without script.
+ */
+function SectionTabs() {
+  const [active, setActive] = useState<Category>(SECTIONS[0].id);
+  /** While a tap's smooth scroll runs, the sections it passes do not take the highlight. */
+  const jumping = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    let under: string | null = null;
+    let atEnd = false;
+    const pick = () => {
+      if (jumping.current) return;
+      // The last section is short and may never reach the line: at the end of the page, it is the one.
+      const id = atEnd ? SECTIONS[SECTIONS.length - 1].id : under;
+      if (id) setActive(id as Category);
+    };
+    let line: IntersectionObserver | null = null;
+    /** A 1px band just under the chips: exactly one section crosses it at a time. */
+    const watchLine = () => {
+      line?.disconnect();
+      line = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) under = e.target.id;
+          // Scrolling back up past a section's start: the one before it is being read (Pizza above the first).
+          else if (e.target.id === under && e.boundingClientRect.top >= UNDER_CHIPS) {
+            const i = SECTIONS.findIndex((sec) => sec.id === under);
+            under = SECTIONS[Math.max(0, i - 1)].id;
+          }
+        }
+        pick();
+      }, { rootMargin: `-${UNDER_CHIPS}px 0px -${Math.max(0, window.innerHeight - UNDER_CHIPS - 1)}px 0px` });
+      SECTIONS.forEach((sec) => { const el = document.getElementById(sec.id); if (el) line!.observe(el); });
+    };
+    const end = new IntersectionObserver((entries) => { atEnd = entries.some((e) => e.isIntersecting); pick(); });
+    const foot = document.querySelector('.o-foot');
+    if (foot) end.observe(foot);
+    watchLine();
+    window.addEventListener('resize', watchLine);
+    return () => {
+      line?.disconnect(); end.disconnect(); window.removeEventListener('resize', watchLine);
+      if (jumping.current) clearTimeout(jumping.current);
+    };
+  }, []);
+
+  const go = (e: React.MouseEvent, id: Category) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    e.preventDefault();
+    setActive(id);
+    if (jumping.current) clearTimeout(jumping.current);
+    jumping.current = setTimeout(() => { jumping.current = null; }, 800);
+    el.scrollIntoView?.({ behavior: smooth(), block: 'start' });
+    history.replaceState(null, '', `#${id}`);
+  };
+
+  return (
+    <nav className="o-tabs" aria-label="Menu sections">
+      {SECTIONS.map((sec) => (
+        <a key={sec.id} href={`#${sec.id}`} aria-current={active === sec.id ? 'true' : undefined} onClick={(e) => go(e, sec.id)}>{sec.label}</a>
+      ))}
+    </nav>
+  );
+}
+
+const PLACEHOLDER: Record<Category, typeof Pizza> = { pizza: Pizza, burger: Hamburger, pasta: Soup };
+const TAG_LABEL: Record<MenuTag, string> = { popular: 'Popular', veg: 'Veg' };
+
+/**
+ * One menu card: photo (or a quiet placeholder), tags, name, two lines of description, price.
+ * The card opens the full sheet (extras, leave-outs); the + beside it is the quick add.
+ */
+function ItemCard({ item, closed, onOpen, onQuickAdd }: { item: MenuItem; closed: boolean; onOpen: () => void; onQuickAdd: () => void }) {
+  const photo = PHOTOS[item.id];
+  const Icon = PLACEHOLDER[item.category];
+  return (<>
+    <button type="button" className={`o-item${item.soldOut ? ' o-item--out' : ''}`} disabled={item.soldOut} onClick={onOpen}>
+      <span className="o-item__photo">
+        {photo ? <img src={photo} alt="" width={96} height={96} loading="lazy" decoding="async" /> : <Icon aria-hidden />}
+      </span>
+      <span className="o-item__body">
+        {item.tags && item.tags.length > 0 && (
+          <span className="o-item__tags">
+            {item.tags.map((t) => <span key={t} className={`o-tag o-tag--${t}`}>{TAG_LABEL[t]}</span>)}
+          </span>
+        )}
+        <span className="o-item__name">{item.name.en}</span>
+        <span className="o-item__desc">{item.description}</span>
+        <span className="o-item__price num">
+          {item.soldOut ? <span className="o-item__from">Sold out today</span> : (<>
+            {item.variants && <span className="o-item__from">from </span>}
+            <span className="o-item__amount">{rs(fromPrice(item))}</span>
+          </>)}
+        </span>
+      </span>
+    </button>
+    {!closed && !item.soldOut && (
+      <button type="button" className="o-item__add" aria-label={`Add ${item.name.en}`} onClick={onQuickAdd}><Plus aria-hidden /></button>
+    )}
+  </>);
+}
+
 const fromPrice = (m: MenuItem) => (m.variants ? m.variants[0].price : (m.price ?? 0));
 
 /** "2 × Devilled Chicken · Large · Full cheese · No onion" */
@@ -58,7 +188,7 @@ function Sheet({ label, onClose, children }: { label: string; onClose: () => voi
 }
 
 /** One item: size, extras, leave-outs, how many. Sensible defaults, so "Add" is often the only tap. */
-function ItemSheet({ item, onAdd, onClose }: { item: MenuItem; onAdd: (l: OnlineLine) => void; onClose: () => void }) {
+function ItemSheet({ item, closed, onAdd, onClose }: { item: MenuItem; closed: boolean; onAdd: (l: OnlineLine) => void; onClose: () => void }) {
   const [size, setSize] = useState<SizeId | undefined>(item.variants?.[0].id);
   const [adds, setAdds] = useState<string[]>([]);
   const [outs, setOuts] = useState<string[]>([]);
@@ -111,22 +241,77 @@ function ItemSheet({ item, onAdd, onClose }: { item: MenuItem; onAdd: (l: Online
           <span className="num" aria-live="polite">{qty}</span>
           <button type="button" onClick={() => setQty((q) => Math.min(20, q + 1))} aria-label="One more">+</button>
         </div>
-        <button type="button" className="o-primary" onClick={() => onAdd(line)}>Add · {rs(onlineLineTotal(line))}</button>
+        <button type="button" className="o-primary" disabled={closed} onClick={() => onAdd(line)}>
+          {closed ? 'Closed for online orders' : `Add · ${rs(onlineLineTotal(line))}`}
+        </button>
       </div>
     </Sheet>
   );
 }
 
-function Checkout({ basket, shop, onChange, onPlaced, onClose }: {
-  basket: OnlineLine[]; shop: ShopInfo | null; onChange: (b: OnlineLine[]) => void; onPlaced: (p: Placed) => void; onClose: () => void;
+/** The + on an item with sizes: one tap on a size adds it with the defaults. */
+function SizeSheet({ item, onAdd, onMore, onClose }: { item: MenuItem; onAdd: (l: OnlineLine) => void; onMore: () => void; onClose: () => void }) {
+  return (
+    <Sheet label={`${item.name.en}: choose a size`} onClose={onClose}>
+      <h2 className="o-sheet__title">{item.name.en}</h2>
+      <div className="o-sizes">
+        {item.variants?.map((v) => (
+          <button key={v.id} type="button" className="o-size" onClick={() => onAdd({ itemId: item.id, qty: 1, size: v.id, adds: [], outs: [] })}>
+            <span className="o-size__label">{v.label}{v.hint && <span className="o-chip__hint"> {v.hint}</span>}</span>
+            <span className="num o-size__price">{rs(v.price)}</span>
+          </button>
+        ))}
+      </div>
+      {(item.adds.length > 0 || item.leaveOut.length > 0) && (
+        <button type="button" className="o-link o-sizes__more" onClick={onMore}>Extras or leave something out</button>
+      )}
+    </Sheet>
+  );
+}
+
+/** The order's lines with − / + ; − on the last one removes the line. Shared by the checkout sheet and the desktop panel. */
+function BasketLines({ basket, onChange }: { basket: OnlineLine[]; onChange: (b: OnlineLine[]) => void }) {
+  const setQty = (i: number, qty: number) => onChange(qty < 1 ? basket.filter((_, j) => j !== i) : basket.map((l, j) => (j === i ? { ...l, qty: Math.min(20, qty) } : l)));
+  return (
+    <ul className="o-basket">
+      {basket.map((l, i) => (
+        <li key={i}>
+          <span className="o-basket__text">{lineText({ ...l, qty: 1 })}</span>
+          <div className="o-qty o-qty--small" role="group" aria-label={`How many ${itemOf(l.itemId).name.en}`}>
+            <button type="button" onClick={() => setQty(i, l.qty - 1)} aria-label={l.qty === 1 ? 'Remove' : 'One fewer'}>−</button>
+            <span className="num">{l.qty}</span>
+            <button type="button" onClick={() => setQty(i, l.qty + 1)} aria-label="One more">+</button>
+          </div>
+          <span className="num o-basket__price">{fmt(onlineLineTotal(l))}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Desktop only (CSS): the order stays in view on the right while the menu scrolls. */
+function CartPanel({ basket, onChange, onCheckout }: { basket: OnlineLine[]; onChange: (b: OnlineLine[]) => void; onCheckout: () => void }) {
+  return (
+    <aside className="o-cart" aria-label="Your order">
+      <h2 className="o-cart__title">Your order</h2>
+      {basket.length === 0 ? <p className="o-muted">Nothing yet. Tap + on anything you like.</p> : (<>
+        <BasketLines basket={basket} onChange={onChange} />
+        <div className="o-total"><span>Total</span><b className="num">{rs(onlineTotal(basket))}</b></div>
+        <button type="button" className="o-primary o-primary--wide" onClick={onCheckout}>Checkout</button>
+      </>)}
+    </aside>
+  );
+}
+
+function Checkout({ basket, taking, onRetry, onChange, onPlaced, onClose }: {
+  basket: OnlineLine[]; taking: Taking; onRetry: () => void; onChange: (b: OnlineLine[]) => void; onPlaced: (p: Placed) => void; onClose: () => void;
 }) {
   const [me, setMe] = useState(remembered.me);
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const phoneOk = normalisePhone(me.phone) !== null;
-  const ready = me.name.trim() !== '' && phoneOk && basket.length > 0 && shop?.open === true && !sending;
-  const setQty = (i: number, qty: number) => onChange(qty < 1 ? basket.filter((_, j) => j !== i) : basket.map((l, j) => (j === i ? { ...l, qty: Math.min(20, qty) } : l)));
+  const ready = me.name.trim() !== '' && phoneOk && basket.length > 0 && taking === 'open' && !sending;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -145,19 +330,7 @@ function Checkout({ basket, shop, onChange, onPlaced, onClose }: {
   return (
     <Sheet label="Your order" onClose={onClose}>
       <h2 className="o-sheet__title">Your order</h2>
-      <ul className="o-basket">
-        {basket.map((l, i) => (
-          <li key={i}>
-            <span className="o-basket__text">{lineText({ ...l, qty: 1 })}</span>
-            <div className="o-qty o-qty--small" role="group" aria-label={`How many ${itemOf(l.itemId).name.en}`}>
-              <button type="button" onClick={() => setQty(i, l.qty - 1)} aria-label={l.qty === 1 ? 'Remove' : 'One fewer'}>−</button>
-              <span className="num">{l.qty}</span>
-              <button type="button" onClick={() => setQty(i, l.qty + 1)} aria-label="One more">+</button>
-            </div>
-            <span className="num o-basket__price">{fmt(onlineLineTotal(l))}</span>
-          </li>
-        ))}
-      </ul>
+      <BasketLines basket={basket} onChange={onChange} />
       {basket.length === 0 && <p className="o-muted">Your order is empty.</p>}
       <div className="o-total"><span>Total</span><b className="num">{rs(onlineTotal(basket))}</b></div>
 
@@ -173,7 +346,7 @@ function Checkout({ basket, shop, onChange, onPlaced, onClose }: {
           <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={140} placeholder="Extra spicy, cut in 8…" />
         </label>
         {error && <p className="o-error" role="alert">{error}</p>}
-        {shop && !shop.open && <p className="o-error" role="status">The shop is not taking online orders right now.</p>}
+        <TakingNote taking={taking} onRetry={onRetry} closed="The shop is not taking online orders right now." />
         <button type="submit" className="o-primary o-primary--wide" disabled={!ready}>
           {sending ? 'Sending…' : `Place order · ${rs(onlineTotal(basket))}`}
         </button>
@@ -260,38 +433,60 @@ function Status({ placed, onDone, onAgain }: { placed: Placed; onDone: () => voi
 
 export function OrderSite() {
   const [shop, setShop] = useState<ShopInfo | null>(null);
-  const [shopError, setShopError] = useState(false);
+  const [taking, setTaking] = useState<Taking>('loading');
+  const checks = useRef(0);
   const [basket, setBasketState] = useState<OnlineLine[]>(remembered.basket);
   const [placed, setPlaced] = useState<Placed | null>(remembered.current);
   const [open, setOpen] = useState<MenuItem | null>(null);
+  const [sizeFor, setSizeFor] = useState<MenuItem | null>(null);
   const [checkout, setCheckout] = useState(false);
+  /** Bumps on every add: replays the bar's pop and the toast. */
   const [added, setAdded] = useState(0);
+  const [toast, setToast] = useState(false);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
-  useEffect(() => {
-    const load = () => api.shop().then((s) => {
+  /** Asks the cloud; only the newest answer counts. A failure keeps the last menu but not the last open/closed. */
+  const check = useCallback(() => {
+    const n = ++checks.current;
+    api.shop().then((s) => {
+      if (n !== checks.current) return;
       if (s.menuState) setMenuState(s.menuState);
       setShop(s);
-      setShopError(false);
-    }, () => setShopError(true));
-    load();
-    const t = setInterval(load, 60_000);
-    return () => clearInterval(t);
+      setTaking(s.open ? 'open' : 'closed');
+    }, () => { if (n === checks.current) setTaking('failed'); });
   }, []);
+  const retry = useCallback(() => { setTaking('loading'); check(); }, [check]);
+  useEffect(() => {
+    check();
+    const t = setInterval(check, 60_000);
+    return () => clearInterval(t);
+  }, [check]);
   useEffect(() => { if (shop) document.title = `${shop.name} · Order online`; }, [shop]);
 
   const setBasket = useCallback((b: OnlineLine[]) => { setBasketState(b); remembered.setBasket(b); }, []);
   const add = (l: OnlineLine) => {
+    if (taking === 'closed') return;
     const hit = basket.findIndex((x) => same(x, l));
     setBasket(hit >= 0 ? basket.map((x, i) => (i === hit ? { ...x, qty: Math.min(20, x.qty + l.qty) } : x)) : [...basket, l]);
     setOpen(null);
+    setSizeFor(null);
     setAdded((n) => n + 1);
+    setToast(true);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(false), 1800);
+  };
+  /** The + : one size goes straight in; several sizes ask which first. */
+  const quickAdd = (m: MenuItem) => {
+    if (m.variants && m.variants.length > 1) setSizeFor(m);
+    else add({ itemId: m.id, qty: 1, ...(m.variants ? { size: m.variants[0].id } : {}), adds: [], outs: [] });
   };
   const count = useMemo(() => basket.reduce((n, l) => n + l.qty, 0), [basket]);
 
   if (placed) {
     return (
       <div className="o-page">
-        <Header shop={shop} />
+        <Header taking={taking} shop={shop} onRetry={retry} />
         <Status
           placed={placed}
           onDone={() => { remembered.setCurrent(null); setPlaced(null); }}
@@ -303,50 +498,62 @@ export function OrderSite() {
 
   return (
     <div className="o-page">
-      <Header shop={shop} />
-      <section className="o-hero">
-        <h1>Order ahead.<br /><span>Collect it hot.</span></h1>
-        <p>Choose, send, and pick it up at the shop. You pay when you collect.</p>
-        {shop && !shop.open && <p className="o-closed" role="status">Online orders are closed right now. You can still look at the menu.</p>}
-        {shopError && <p className="o-closed" role="status">Can’t reach CheesyBeez right now. Check your connection.</p>}
-      </section>
-
-      <nav className="o-tabs" aria-label="Menu sections">
-        {SECTIONS.map((s) => <a key={s.id} href={`#${s.id}`}>{s.label}</a>)}
-      </nav>
-
-      <main className="o-menu">
-        {SECTIONS.map((s) => (
-          <section key={s.id} id={s.id} className="o-section" aria-labelledby={`h-${s.id}`}>
-            <h2 id={`h-${s.id}`}>{s.label}</h2>
-            <ul className="o-items">
-              {menuItems().filter((m) => m.category === s.id && !m.hidden).map((m) => (
-                <li key={m.id}>
-                  <button type="button" className={`o-item${m.soldOut ? ' o-item--out' : ''}`} disabled={m.soldOut} onClick={() => setOpen(m)}>
-                    <span className="o-item__name">{m.name.en}</span>
-                    <span className="o-item__desc">{m.description}</span>
-                    <span className="o-item__price num">{m.soldOut ? 'Sold out today' : `${m.variants ? 'from ' : ''}${rs(fromPrice(m))}`}</span>
-                    <span className="o-item__add" aria-hidden>+</span>
-                  </button>
-                </li>
-              ))}
+      <Header taking={taking} shop={shop} onRetry={retry} />
+      <div className="o-layout">
+        <div className="o-col">
+          <section className="o-hero">
+            <div className="o-hero__photo">
+              <picture>
+                <source media="(min-width: 640px)" srcSet={HERO.large} />
+                <img src={HERO.small} alt="" width={800} height={600} fetchPriority="high" decoding="async" />
+              </picture>
+              <div className="o-hero__text">
+                <h1>Order ahead.<br /><span>Collect it hot.</span></h1>
+                <p>Order here, collect at the shop.</p>
+              </div>
+            </div>
+            <ul className="o-trust">
+              <li><ShoppingBag aria-hidden />Pickup only</li>
+              <li><Banknote aria-hidden />Pay when you collect</li>
+              <li><Clock aria-hidden />We confirm your ready time</li>
             </ul>
           </section>
-        ))}
-      </main>
-      <footer className="o-foot">CheesyBeez · Pizza, burgers and pasta</footer>
 
+          <SectionTabs />
+
+          <main className="o-menu">
+            {SECTIONS.map((s) => (
+              <section key={s.id} id={s.id} className="o-section" aria-labelledby={`h-${s.id}`}>
+                <h2 id={`h-${s.id}`}>{s.label}</h2>
+                <ul className="o-items">
+                  {menuItems().filter((m) => m.category === s.id && !m.hidden).map((m) => (
+                    <li key={m.id}>
+                      <ItemCard item={m} closed={taking === 'closed'} onOpen={() => setOpen(m)} onQuickAdd={() => quickAdd(m)} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </main>
+          <footer className="o-foot">CheesyBeez · Pizza, burgers and pasta</footer>
+        </div>
+        <CartPanel basket={basket} onChange={setBasket} onCheckout={() => setCheckout(true)} />
+      </div>
+
+      {/* Phones: slides up with the first item; the desktop has the panel instead. */}
       {count > 0 && (
         <div className="o-bar">
           <button type="button" className="o-primary o-primary--wide" key={added} onClick={() => setCheckout(true)}>
-            <span className="o-bar__count num">{count}</span> View order <span className="num">{rs(onlineTotal(basket))}</span>
+            <span className="num">{`${count} ${count === 1 ? 'item' : 'items'} · ${rs(onlineTotal(basket))} · View order`}</span>
           </button>
         </div>
       )}
-      {open && <ItemSheet item={open} onAdd={add} onClose={() => setOpen(null)} />}
+      <div className="o-toast-at" aria-live="polite">{toast && <div className="o-toast" key={added}>Added to order</div>}</div>
+      {sizeFor && <SizeSheet item={sizeFor} onAdd={add} onMore={() => { setOpen(sizeFor); setSizeFor(null); }} onClose={() => setSizeFor(null)} />}
+      {open && <ItemSheet item={open} closed={taking === 'closed'} onAdd={add} onClose={() => setOpen(null)} />}
       {checkout && (
         <Checkout
-          basket={basket} shop={shop} onChange={setBasket} onClose={() => setCheckout(false)}
+          basket={basket} taking={taking} onRetry={retry} onChange={setBasket} onClose={() => setCheckout(false)}
           onPlaced={(p) => { remembered.setLast(basket); remembered.setCurrent(p); setBasket([]); setCheckout(false); setPlaced(p); }}
         />
       )}
@@ -354,16 +561,26 @@ export function OrderSite() {
   );
 }
 
-function Header({ shop }: { shop: ShopInfo | null }) {
+/**
+ * Logo left, the shop's state right: the only place the page says whether it takes orders.
+ * Loading is a quiet placeholder; a failed check offers Retry and never claims closed.
+ */
+function Header({ taking, shop, onRetry }: { taking: Taking; shop: ShopInfo | null; onRetry: () => void }) {
   return (
     <header className="o-head">
       <span className="o-brand">
         <img src="/icons/icon-192.png" alt="" width={32} height={32} />CheesyBeez
       </span>
-      {shop && (
-        <span className={`o-pill${shop.open ? ' o-pill--open' : ''}`}>
-          {shop.open ? 'Open for pickup' : 'Online orders closed'}
+      {taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}
+      {(taking === 'open' || taking === 'closed') && (
+        <span className={`o-pill o-pill--${taking}`} role="status">
+          {statusText(taking === 'open', shop?.hours ?? null, Date.now())}
         </span>
+      )}
+      {taking === 'failed' && (
+        <button type="button" className="o-pill o-pill--retry" onClick={onRetry} aria-label="We couldn't check if we're open. Retry">
+          Couldn&apos;t check · <u>Retry</u>
+        </button>
       )}
     </header>
   );

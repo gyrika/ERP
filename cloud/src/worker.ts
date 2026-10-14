@@ -11,6 +11,8 @@ interface Env {
   ANSWER_KEY?: string;
   /** The shop that cheesybeez.com takes online orders for (wrangler.toml [vars]). */
   ORDER_SHOP?: string;
+  /** Its daily hours for the page's status pill, "11:00-21:00" in Sri Lanka time (wrangler.toml [vars]). */
+  ORDER_HOURS?: string;
   /** The developer's /admin password (npm run admin-key in cloud/). */
   ADMIN_KEY?: string;
   /** The owner's page: the cloud build of the app (npm run build:cloud), served as static files. */
@@ -59,7 +61,7 @@ export default {
       }).then((r) => r ?? new Response('Not found', { status: 404 }));
     }
     if (url.pathname === '/api/v1/answers') return answersApi(request, env.DB, env.ANSWER_KEY);
-    if (url.pathname.startsWith('/api/')) return createCloud(env.DB, { enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP })(request);
+    if (url.pathname.startsWith('/api/')) return createCloud(env.DB, { enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP, orderHours: env.ORDER_HOURS })(request);
     if (url.pathname === '/get' || url.pathname === '/download') {
       return latestRelease().then((rel) => new Response(downloadPage(rel), {
         headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' },

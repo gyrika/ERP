@@ -6,7 +6,7 @@ import { fakeD1 } from './fakeD1.ts';
 
 const SHOP = 'cheesybeez-thalwila-ab12';
 
-async function setup() {
+async function setup(orderHours?: string) {
   const { d1, db } = fakeD1();
   db.prepare("INSERT INTO shops (id, name, created_at) VALUES (?, 'CheesyBeez Thalwila', 0)").run(SHOP);
   db.prepare("INSERT INTO shops (id, name, created_at) VALUES ('other-shop', 'Other', 0)").run();
@@ -15,7 +15,7 @@ async function setup() {
       .run(`dev-${token}`, tenant, await sha256Hex(token));
   }
   const clock = { t: 1_000_000 };
-  const handle = createCloud(d1, { now: () => clock.t, orderShop: SHOP });
+  const handle = createCloud(d1, { now: () => clock.t, orderShop: SHOP, orderHours });
   const call = async (path: string, body?: unknown, token?: string, ip = '1.2.3.4') => {
     const r = await handle(new Request(`https://cloud.test${path}`, {
       method: body === undefined ? 'GET' : 'POST',
@@ -33,7 +33,8 @@ const customer = (phone = '0771234567', lines: unknown[] = [pizza]) => ({ name: 
 test('closed until the counter switches it on and the shop server is heard from', async () => {
   const { call, clock } = await setup();
   const shop = (await call('/api/v1/shop')).body;
-  assert.deepEqual([shop.name, shop.open, shop.menuState], ['CheesyBeez Thalwila', false, { overrides: {}, soldOut: {} }]);
+  assert.deepEqual([shop.name, shop.open, shop.hours, shop.menuState], ['CheesyBeez Thalwila', false, null, { overrides: {}, soldOut: {} }]);
+  assert.deepEqual((await (await setup('11:00-21:00')).call('/api/v1/shop')).body.hours, { opens: 660, closes: 1260 }, 'the hours, when set');
   assert.equal((await call('/api/v1/orders', customer())).status, 409);
 
   await call('/api/v1/online/poll', { open: true }, 'server-a');
