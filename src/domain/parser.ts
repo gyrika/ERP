@@ -1,3 +1,4 @@
+import { canHalve, leaveOutsOf } from './halves.ts';
 import type { LineSpec, MenuItem, OrderDraft, OrderInterpreter, SizeId } from './types.ts';
 
 const SIZE_WORDS: Record<string, SizeId> = {
@@ -11,6 +12,7 @@ const MOD_WORD = /\b(no|without|extra|add|with)\b/;
 /**
  * Rule-based interpreter for typed shorthand:
  *   "2 L devilled chicken no onion, 1 margherita extra bacon, burger"
+ * Half-and-half: "L half devilled chicken half bbq chicken" or "devilled chicken / bbq chicken L".
  * Deterministic, offline, instant. A voice or LLM interpreter can implement
  * the same OrderInterpreter interface and be swapped in without touching UI.
  */
@@ -19,6 +21,7 @@ export class ShorthandInterpreter implements OrderInterpreter {
   private readonly byNumber: Map<number, MenuItem>;
   /** Menu names containing "and" ("bacon and onion") must survive splitting on "and". */
   private readonly protectedNames: RegExp[];
+  private readonly byId: Map<string, MenuItem>;
 
   constructor(menu: MenuItem[]) {
     // Longest alias first so "crispy chicken burger" wins over "burger".
@@ -26,6 +29,7 @@ export class ShorthandInterpreter implements OrderInterpreter {
       .flatMap((item) => [...new Set([...item.aliases, item.name.en.toLowerCase()])].map((alias) => ({ alias, item })))
       .sort((a, b) => b.alias.length - a.alias.length);
     this.byNumber = new Map(menu.filter((m) => m.number).map((m) => [m.number!, m]));
+    this.byId = new Map(menu.map((m) => [m.id, m]));
     this.protectedNames = this.aliasIndex
       .filter(({ alias }) => alias.includes(' and '))
       .map(({ alias }) => new RegExp(`\\b${alias}\\b`, 'g'));
@@ -40,11 +44,31 @@ export class ShorthandInterpreter implements OrderInterpreter {
     for (const raw of protectedInput.split(/,|;|\+|\band\b|\n/)) {
       const segment = raw.trim().replace(/ & /g, ' and ');
       if (!segment) continue;
-      const line = this.parseSegment(segment);
+      const line = this.parseHalves(segment) ?? this.parseSegment(segment);
       if (line) lines.push(line);
       else unresolved.push(segment);
     }
     return { lines, unresolved };
+  }
+
+  /** "2 L half devilled chicken half bbq chicken no onion" → one pizza, two halves; null if it is not one. */
+  private parseHalves(segment: string): LineSpec | null {
+    const m = segment.match(/^(.*?)\bhalf\s+(.+?)\s+half\s+(.+)$/) ?? segment.match(/^(.+?)\s*\/\s*(.+)$/)?.slice(0, 3).concat('');
+    if (!m) return null;
+    const [, before, first, after] = m.length === 4 && m[3] !== '' ? m : [m[0], '', m[1], m[2]];
+    const a = this.parseSegment(`${before} ${first}`.trim());
+    const b = this.parseSegment(after.trim());
+    if (!a || !b) return null;
+    const itemA = this.byId.get(a.itemId)!;
+    const itemB = this.byId.get(b.itemId)!;
+    if (!canHalve(itemA, itemB)) return null;
+    // A size typed anywhere counts; otherwise Medium, as for any pizza.
+    const typed = segment.split(/\s+/).map((t) => SIZE_WORDS[t]).find(Boolean);
+    const size = (itemA.variants?.find((v) => v.id === typed) ?? itemA.variants?.find((v) => v.id === 'M') ?? itemA.variants?.[0])?.id;
+    // Extras and leave-outs typed after either half apply to the whole pizza.
+    const modText = [`${before} ${first}`, after].map((t) => { const i = t.search(MOD_WORD); return i >= 0 ? t.slice(i) : ''; }).join(' ');
+    const { adds, outs, note } = parseMods(modText, { ...itemA, leaveOut: leaveOutsOf(itemA, itemB) });
+    return { itemId: itemA.id, half: itemB.id, qty: a.qty, size, adds, outs, ...(note ? { note } : {}) };
   }
 
   private parseSegment(segment: string): LineSpec | null {

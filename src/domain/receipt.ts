@@ -2,6 +2,7 @@ import { itemById } from './menu.ts';
 import { fmt } from './money.ts';
 import { discountLabel, lineAdjustment, lineGross, totals } from './totals.ts';
 import type { PaidOrder, Tender } from './types.ts';
+import { lineItemName } from './halves.ts';
 
 /**
  * The customer receipt for the Xprinter XP-80T (80 mm, ESC/POS), in two
@@ -88,7 +89,7 @@ export function receipt(
   for (const l of paid.lines) {
     const item = itemById(l.itemId);
     const size = item.variants?.find((v) => v.id === l.size)?.label;
-    const name = `${l.qty} x ${item.name.en}${size ? ` ${size}` : ''}`;
+    const name = `${l.qty} x ${lineItemName(l).replace(/½/g, '1/2')}${size ? ` ${size}` : ''}`; // the printer has no ½
     const [first, ...rest] = wrap(name, width - 12);
     out.push({ text: twoCols(first, fmt(lineGross(l)), width) });
     rest.forEach((text) => out.push({ text: `    ${text}` }));

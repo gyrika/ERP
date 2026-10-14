@@ -7,13 +7,15 @@ import { fmt } from '../domain/money.ts';
 import { orderTotal, unsentLines } from '../domain/order.ts';
 import { discountLabel, lineAdjustment, lineNet, totals } from '../domain/totals.ts';
 import type { Cents, Discount, Order, OrderLine, PaidOrder } from '../domain/types.ts';
+import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 
 const sub = (l: OrderLine): string => {
   const item = itemById(l.itemId);
+  const outs = leaveOutsOf(item, secondHalf(l));
   return [
     item.variants?.find((v) => v.id === l.size)?.label,
     ...l.adds.map((id) => item.adds.find((o) => o.id === id)?.label),
-    ...l.outs.map((id) => item.leaveOut.find((o) => o.id === id)?.label),
+    ...l.outs.map((id) => outs.find((o) => o.id === id)?.label),
     l.note,
   ].filter(Boolean).join(' · ');
 };
@@ -205,12 +207,11 @@ export function OrderPanel({
         )}
 
         {order.lines.map((l, i) => {
-          const item = itemById(l.itemId);
           const adj = lineAdjustment(order, l);
           const body = (
             <>
               <span className="line__main">
-                <span className="line__name">{l.qty > 1 ? `${l.qty} × ` : ''}{item.name.en}</span>
+                <span className="line__name">{l.qty > 1 ? `${l.qty} × ` : ''}{lineItemName(l)}</span>
                 {sub(l) && <span className="line__sub">{sub(l)}</span>}
                 {adj > 0 && <span className="line__adj num">−{fmt(adj)} off this line</span>}
               </span>

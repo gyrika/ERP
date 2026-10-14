@@ -1,6 +1,7 @@
 import { itemById } from './menu.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Category, OnlineMark, OrderLine } from './types.ts';
+import { leaveOutsOf, lineItemName, secondHalf } from './halves.ts';
 
 /**
  * The kitchen works from the screen only: there is no printed kitchen ticket.
@@ -167,14 +168,15 @@ export interface TicketLine extends LineView {
 
 const view = (l: OrderLine): LineView => {
   const item = itemById(l.itemId);
+  const outs = leaveOutsOf(item, secondHalf(l));
   return {
     qty: l.qty,
-    name: item.name.en,
+    name: lineItemName(l),
     detail: [
       item.variants?.find((v) => v.id === l.size)?.label,
       ...l.adds.map((id) => item.adds.find((o) => o.id === id)?.label),
     ].filter(Boolean).join(' · '),
-    outs: l.outs.map((id) => item.leaveOut.find((o) => o.id === id)?.label ?? id),
+    outs: l.outs.map((id) => outs.find((o) => o.id === id)?.label ?? id),
     note: l.note,
   };
 };

@@ -177,3 +177,28 @@ test('typing a printed menu number adds that pizza: "5 L" is a large Devilled Ch
   expect(panel().getByText(/Devilled Chicken/)).toBeTruthy();
   expect(panel().getByText(/Large/)).toBeTruthy();
 });
+
+test('half-and-half: pick the other half in the pizza sheet, priced half of each', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getAllByRole('button', { name: /Margherita/ }).find((b) => b.classList.contains('card__title'))!);
+  const sheet = within(screen.getByRole('dialog', { name: 'Margherita extras' }));
+  await user.click(sheet.getByRole('button', { name: 'Half & half…' }));
+  await user.click(sheet.getByRole('button', { name: '½ Seafood' }));
+  expect(sheet.getByRole('heading', { name: '½ Margherita + ½ Seafood' })).toBeTruthy();
+  await user.click(sheet.getByRole('button', { name: /^Large/ }));
+  await user.click(sheet.getByRole('button', { name: 'No tomato' })); // Seafood's leave-out
+  await user.click(sheet.getByRole('button', { name: 'Add · 2,595' }));
+
+  expect(panel().getByText('½ Margherita + ½ Seafood')).toBeTruthy();
+  expect(panel().getByText('Large · No tomato')).toBeTruthy();
+  expect(screen.getByRole('status').textContent).toContain('Added ½ Margherita + ½ Seafood');
+
+  // Back to a whole pizza drops the leave-out only Seafood had.
+  await user.click(panel().getByText('½ Margherita + ½ Seafood'));
+  const edit = within(screen.getByRole('dialog', { name: 'Margherita extras' }));
+  await user.click(edit.getByRole('button', { name: 'Whole pizza' }));
+  expect(edit.queryByRole('button', { name: 'No tomato' })).toBeNull();
+  await user.click(edit.getByRole('button', { name: 'Update · 1,990' }));
+  expect(panel().getByText('Margherita')).toBeTruthy();
+});

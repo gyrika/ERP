@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Actor } from '../domain/auth.ts';
-import { itemById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import {
   addLine, addLines, emptyOrder, markSent, newLineId, orderTotal, removeLine, unsentLines, updateLine,
@@ -16,6 +15,7 @@ import { demoSnapshot } from '../fake/demo.ts';
 import { currentCashier, shopId } from '../services/auth.ts';
 import { appendEvent } from './eventLog.ts';
 import { isDemo, storageKey } from './storage.ts';
+import { lineItemName } from '../domain/halves.ts';
 
 /**
  * Register state. Everything the cashier does is an instant, optimistic local
@@ -315,7 +315,7 @@ export function useRegister() {
     };
     managerStack.current.push(record);
 
-    const name = (id: string) => itemById(s.order.lines.find((l) => l.id === id)!.itemId).name.en;
+    const name = (id: string) => lineItemName(s.order.lines.find((l) => l.id === id)!);
     toastFor(
       change.kind === 'discount' ? (change.discount ? discountLabel(change.discount) : 'Discount removed')
         : change.kind === 'void' ? `Voided ${name(change.lineId)}`

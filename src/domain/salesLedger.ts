@@ -1,6 +1,7 @@
 import type { OrderEvent } from './events.ts';
 import { itemById } from './menu.ts';
 import type { Cents, OrderLine, Tender } from './types.ts';
+import { lineItemName } from './halves.ts';
 
 /**
  * The sales ledger: each payment as one tidy row, with the items it paid for, for the
@@ -104,6 +105,10 @@ const nameOf = (itemId: string): { name: string; size: (id?: string) => string |
   }
 };
 
+const safeName = (l: OrderLine): string => {
+  try { return lineItemName(l); } catch { return `1/2 ${l.itemId} + 1/2 ${l.half}`; }
+};
+
 /** One payment, with what the order held when it was paid. */
 export const saleFrom = (
   paid: Extract<OrderEvent, { type: 'order.paid' }>,
@@ -116,7 +121,7 @@ export const saleFrom = (
     return {
       lineNo: i + 1,
       itemId: l.itemId,
-      itemName: n.name,
+      itemName: l.half ? safeName(l) : n.name,
       size: n.size(l.size),
       qty: l.qty,
       unitPrice,

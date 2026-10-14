@@ -58,6 +58,8 @@ export interface OrderLine {
   size?: SizeId;
   adds: string[]; // option ids
   outs: string[]; // option ids
+  /** Half-and-half pizza: the other half's item id (itemId is the first half; same size). See halves.ts. */
+  half?: string;
   note?: string;
   /** Already on a kitchen ticket. Sent lines are locked: the kitchen may be cooking them. */
   sent?: boolean;

@@ -25,6 +25,7 @@ import { useRegister } from './useRegister.ts';
 import { useMenu } from './menuStore.ts';
 import { THEME_LABEL, setTheme, themeChoice, type ThemeChoice } from './theme.ts';
 import { useFleet } from './ShopsView.tsx';
+import { lineItemName } from '../domain/halves.ts';
 
 type Sheet =
   | { kind: 'extras'; item: MenuItem; size?: SizeId }
@@ -226,7 +227,7 @@ export function App({
       }));
       if (reg.order.adjust?.discount) list.push({ id: 'no-discount', label: 'Remove order discount', run: () => manage({ kind: 'discount', discount: null }) });
       if (selectedLine) {
-        const name = itemById(selectedLine.itemId).name.en;
+        const name = lineItemName(selectedLine);
         list.push(
           { id: 'edit', label: `Edit ${name}`, hint: 'Enter', run: () => setSheet({ kind: 'edit', line: selectedLine }) },
           { id: 'adjust', label: `Adjust price of ${name}`, hint: 'P', run: () => askAdjust(selectedLine) },

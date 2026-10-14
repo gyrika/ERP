@@ -11,6 +11,7 @@ export const emptyOrder = (number: number): Order => ({ number, lines: [] });
 
 const sameConfig = (a: LineSpec, b: LineSpec): boolean =>
   a.itemId === b.itemId &&
+  (a.half ?? '') === (b.half ?? '') &&
   a.size === b.size &&
   (a.note ?? '') === (b.note ?? '') &&
   [...a.adds].sort().join() === [...b.adds].sort().join() &&

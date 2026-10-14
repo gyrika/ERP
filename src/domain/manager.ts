@@ -42,7 +42,7 @@ export interface Applied {
 export type Refusal = { refused: 'not-a-manager' | 'no-such-line' | 'reason-required' | 'no-change' };
 
 const sameLine = (a: Omit<OrderLine, 'id'>, b: Omit<OrderLine, 'id'>): boolean =>
-  a.itemId === b.itemId && a.qty === b.qty && a.size === b.size && (a.note ?? '') === (b.note ?? '') &&
+  a.itemId === b.itemId && (a.half ?? '') === (b.half ?? '') && a.qty === b.qty && a.size === b.size && (a.note ?? '') === (b.note ?? '') &&
   [...a.adds].sort().join() === [...b.adds].sort().join() && [...a.outs].sort().join() === [...b.outs].sort().join();
 
 const sameDiscount = (a: Discount | null | undefined, b: Discount | null | undefined): boolean =>
