@@ -847,3 +847,19 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .shops__facts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; font-size: 14px; color: var(--ink-2); }
 .shops__warn { color: var(--warn); }
 .shops__bad, .shops__error { color: var(--bad); }
+
+/* CheesyBeez updating itself (UpdateScreen.tsx): a small notice while it downloads, the whole screen while it restarts. */
+.upd-note { position: fixed; left: 40px; bottom: 28px; z-index: 30; max-width: min(560px, calc(100vw - 80px)); display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 12px 22px; border-radius: 980px; background: var(--surface); color: var(--ink); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14); font-size: 15px; font-weight: 500; animation: rise 200ms var(--ease); }
+.upd-note__dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--warn); animation: kchip-pulse 1.4s var(--ease) infinite; }
+.upd { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: var(--ground); animation: fade 200ms var(--ease); }
+.upd__card { width: min(520px, 100%); display: flex; flex-direction: column; gap: 16px; }
+.upd__card h1 { margin: 0; font-size: 34px; font-weight: 600; letter-spacing: -0.8px; color: var(--ink); }
+.upd__sub { margin: 0; font-size: 19px; color: var(--ink-2); }
+.upd__bar { height: 10px; border-radius: 980px; background: var(--line); overflow: hidden; }
+.upd__bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--warn); transition: width 400ms var(--ease); }
+.upd__bar--busy i { width: 35%; animation: upd-busy 1.6s var(--ease) infinite; }
+@keyframes upd-busy { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.upd__safe { margin: 0; font-size: 16px; color: var(--ink-2); }
+.upd-done { z-index: 30; }
+@media (max-width: 720px) { .upd-note { left: 24px; max-width: calc(100vw - 48px); } }
+@media (prefers-reduced-motion: reduce) { .upd-note, .upd-note__dot, .upd, .upd__bar i, .upd__bar--busy i { animation: none; transition: none; } }

@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { httpTransport, pairFromUrl, startSync, syncToken } from './services/syncClient.ts';
 import { setUpOwnerApp } from './services/ownerApp.ts';
 import { Root } from './ui/Root.tsx';
+import { UpdateScreen } from './ui/UpdateScreen.tsx';
 import { applyTheme } from './ui/theme.ts';
 
 applyTheme(); // light, dark, or following the system: this screen's own choice
@@ -20,5 +21,6 @@ if (token) startSync(httpTransport(token));
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Root />
+    <UpdateScreen />
   </StrictMode>,
 );

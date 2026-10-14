@@ -108,7 +108,7 @@ main{height:100%;display:flex;flex-direction:column;align-items:center;justify-c
 h1{margin:0;font-size:26px;font-weight:500;letter-spacing:-.5px}p{margin:0;color:#6E6D72;font-size:16px}
 i{width:36px;height:36px;border-radius:50%;border:3px solid #E3E1DE;border-top-color:#E8A94B;animation:s 900ms linear infinite}
 @keyframes s{to{transform:rotate(360deg)}}</style></head><body><main><i></i><h1>Starting CheesyBeez</h1>
-<p>This takes a few seconds.</p></main></body></html>";
+<p>This takes a few seconds, or a minute or two after an update. Sales already taken are safe.</p></main></body></html>";
     }
 
     /// <summary>Brings an already running counter window to the front.</summary>
