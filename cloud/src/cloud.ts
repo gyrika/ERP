@@ -2,6 +2,7 @@ import { PULL_LIMIT, PUSH_BATCH, type ApiError, type PullResponse, type SyncedEv
 import { validatePush } from '../../server/validate.ts';
 import { HttpError, json, sha256Hex } from './http.ts';
 import { onlineRoutes } from './online.ts';
+import { projectSales } from './sales.ts';
 
 export { sha256Hex };
 
@@ -104,6 +105,11 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
       .run();
   };
 
+  // The sales ledger is a tidy copy of the events: a fault there must never stop the copy itself.
+  const fileSales = async (tenantId: string): Promise<void> => {
+    try { await projectSales(db, tenantId); } catch (e) { console.error('sales ledger', tenantId, e); }
+  };
+
   const routes = async (req: Request, url: URL): Promise<Response> => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') return json(200, { ok: true, serverTime: now() });
     const online = await onlineRoutes(req, url, { db, now, ...order, authenticate });
@@ -113,6 +119,7 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
       const device = await authenticate(req, ['shop_server']);
       await seen(device, req);
       if (req.method === 'GET') {
+        await fileSales(device.tenantId); // the shop's heartbeat also catches up the ledger
         return json(200, { lastSourceSeq: await lastSourceSeq(device.tenantId), serverTime: now() } satisfies ReplicaState);
       }
       if (req.method !== 'POST') throw new HttpError(405, 'server', 'method not allowed');
@@ -141,6 +148,7 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
           JSON.stringify(r.event))))
         : [];
       const stored = results.reduce((n, x) => n + x.meta.changes, 0);
+      await fileSales(device.tenantId);
       return json(200, { stored, lastSourceSeq: await lastSourceSeq(device.tenantId), serverTime: t });
     }
 
