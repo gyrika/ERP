@@ -6,6 +6,7 @@ import { managesRole, mayRecord } from '../src/domain/auth.ts';
 import {
   PULL_LIMIT, type ApiError, type LoginResponse, type PullResponse, type PushResponse, type StreamMessage, type SyncEvent, type SyncedEvent,
 } from '../src/domain/sync.ts';
+import type { UpdateStep } from '../src/domain/updating.ts';
 import { isPin } from './pins.ts';
 import { OnlineError, type Online, type OnlineAnswer } from './online.ts';
 import type { RawPrinter } from './printer.ts';
@@ -37,6 +38,8 @@ export interface AppOptions {
   setup?: SetupApi;
   /** The installed version, shown by the health check (support from afar, Update now). */
   version?: () => string;
+  /** An update under way (src/domain/updating.ts), so the counter can say so; null when none. */
+  updating?: () => UpdateStep | null;
   /** The developer's Shops screen (only where CLOUD_ADMIN_KEY is set: the developer's laptop). */
   fleet?: Fleet | null;
   now?: () => number;
@@ -110,7 +113,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, fleet, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -149,7 +152,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
   const api = async (req: IncomingMessage, res: ServerResponse, url: URL) => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') {
       const cloud = cloudStatus?.() ?? null;
-      json(res, 200, { ok: true, serverTime: now(), ...(version ? { version: version() } : {}), ...(cloud ? { cloud } : {}) });
+      const update = updating?.() ?? null;
+      json(res, 200, { ok: true, serverTime: now(), ...(version ? { version: version() } : {}), ...(cloud ? { cloud } : {}), ...(update ? { update } : {}) });
       return;
     }
     if (url.pathname === '/api/v1/fleet' || url.pathname.startsWith('/api/v1/fleet/')) {

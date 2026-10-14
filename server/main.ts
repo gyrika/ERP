@@ -10,6 +10,7 @@ import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
 import { sqliteStore } from './sqliteStore.ts';
 import { memoryStore, mysqlStore, type EventStore } from './store.ts';
+import { activeUpdate } from '../src/domain/updating.ts';
 import { updatesApi } from './updates.ts';
 
 /**
@@ -96,6 +97,7 @@ const server = createApp({
   cloudStatus: () => replicator?.status() ?? null,
   setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates }),
   version: updates.current,
+  updating: () => activeUpdate(updates.status(), Date.now()),
   fleet,
 });
 

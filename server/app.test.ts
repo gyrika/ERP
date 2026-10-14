@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import type { StreamMessage, SyncEvent } from '../src/domain/sync.ts';
-import { createApp } from './app.ts';
+import { createApp, type AppOptions } from './app.ts';
 import type { RawPrinter } from './printer.ts';
 import { PinTaken, memoryStore, type EventStore } from './store.ts';
 
@@ -12,8 +12,8 @@ const SHOP = 'shop-a';
 const ev = (id: string, shopId = SHOP): SyncEvent =>
   ({ id, shopId, at: 1000, orderNumber: 1001, ticketId: 't1', type: 'kitchen.seen' });
 
-async function start(store: EventStore = memoryStore(), printer?: RawPrinter) {
-  const server = createApp({ store, printer, now: () => 5000 });
+async function start(store: EventStore = memoryStore(), printer?: RawPrinter, more: Partial<AppOptions> = {}) {
+  const server = createApp({ store, printer, now: () => 5000, ...more });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const base = `127.0.0.1:${(server.address() as AddressInfo).port}`;
   const counter = await store.addDevice(SHOP, 'Shop A', 'counter');
@@ -47,6 +47,13 @@ test('health needs no token', async () => {
   const s = await start();
   const r = await s.call('/api/v1/health', null);
   assert.deepEqual(await r.json(), { ok: true, serverTime: 5000 });
+  await s.stop();
+});
+
+test('health says when an update is under way, so the counter can show it', async () => {
+  const update = { phase: 'downloading' as const, percent: 42, version: '1.0.10', at: 4000 };
+  const s = await start(memoryStore(), undefined, { version: () => '1.0.9', updating: () => update });
+  assert.deepEqual(await (await s.call('/api/v1/health', null)).json(), { ok: true, serverTime: 5000, version: '1.0.9', update });
   await s.stop();
 });
 

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import type { UpdateStep } from '../src/domain/updating.ts';
 import { isNewer } from '../src/domain/version.ts';
 
 export { isNewer };
@@ -19,14 +20,8 @@ export interface UpdateCheck {
   newer: boolean;
 }
 
-/** Where an update is (station-update.ps1 writes it), for the progress bar. */
-export interface UpdateStatus {
-  phase: 'checking' | 'downloading' | 'backup' | 'installing' | 'starting' | 'done' | 'going-back' | 'back' | 'up-to-date' | 'failed';
-  percent: number;
-  version: string;
-  /** When it was written (ms). */
-  at: number;
-}
+/** Where an update is (station-update.ps1 writes it), for the progress bars. */
+export type UpdateStatus = UpdateStep;
 
 export interface UpdatesOptions {
   versionFile: string;
