@@ -4,6 +4,7 @@ import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import { inventoryFromEvents, suppliersFromEvents } from '../domain/inventory.ts';
 import { fmt } from '../domain/money.ts';
 import { useInstall } from '../services/ownerApp.ts';
+import { adminShop } from '../services/pairing.ts';
 import { useShopEvents } from '../services/ownerData.ts';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -55,9 +56,16 @@ function Detail({ insight, onClose }: { insight: Insight; onClose: () => void })
  * `phone`: on the owner's phone (the cloud site): no links to the counter's screens.
  * `onBack`: back to the Register (F3 does the same).
  */
-export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?: () => void } = {}) {
+export function OwnerView({ phone = false, onBack, shop }: {
+  phone?: boolean;
+  onBack?: () => void;
+  /** Another shop, from the developer's Shops screen: its id in the header, Back goes to Shops. */
+  shop?: string;
+} = {}) {
   const data = useShopEvents();
   const install = useInstall();
+  /** The developer's admin view of a shop: not an owner's phone, so no home-screen offer. */
+  const offerInstall = phone && !adminShop();
   const [open, setOpen] = useState<string | null>(null);
   const events = data.state === 'ready' ? data.events : data.state === 'error' ? data.events : undefined;
   const at = (data.state === 'loading' ? undefined : data.at) ?? Date.now();
@@ -78,7 +86,13 @@ export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?:
 
   return (
     <div className="owner">
-      {phone ? (
+      {shop ? (
+        <header className="owner__head">
+          <button type="button" className="shops__back" onClick={onBack}>Shops</button>
+          <span className="brand">{shop}</span>
+          {data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>}
+        </header>
+      ) : phone ? (
         <header className="owner__head">
           <span className="brand">CheesyBeez</span>
           {data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>}
@@ -103,13 +117,13 @@ export function OwnerView({ phone = false, onBack }: { phone?: boolean; onBack?:
           )}
         </section>
 
-        {phone && install.kind === 'button' && (
+        {offerInstall && install.kind === 'button' && (
           <p className="owner__install">
             <span>Put CheesyBeez on your home screen.</span>
             <button type="button" className="insight__action" onClick={install.install}>Install app</button>
           </p>
         )}
-        {phone && install.kind === 'iphone' && (
+        {offerInstall && install.kind === 'iphone' && (
           <p className="owner__install">To put it on your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
         )}
 

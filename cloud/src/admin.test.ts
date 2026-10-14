@@ -29,7 +29,10 @@ async function setup() {
   const cloud = createCloud(d1, { now: () => NOW });
   const admin = (r: Request) => adminRoutes(r, new URL(r.url), {
     db: d1, key: KEY, latest: async () => '1.0.5', now: () => NOW,
-    app: async () => new Response('<!doctype html><div id="root"></div>', { headers: { 'content-type': 'text/html' } }),
+    // Like Cloudflare's static files: '/index.html' answers with a redirect to '/'.
+    app: async (r: Request) => new URL(r.url).pathname === '/'
+      ? new Response('<!doctype html><div id="root"></div>', { headers: { 'content-type': 'text/html' } })
+      : new Response(null, { status: 307, headers: { location: '/' } }),
   });
   const session = sessionOf((await admin(login(KEY)))!);
   return { cloud, admin, db, session };
@@ -75,7 +78,9 @@ test('the admin reads any shop, and only once signed in', async () => {
 
   const events = await (await admin(req('/admin/api/shops/shop-a/events?after=0', { session })))!.json();
   assert.deepEqual(events.events.map((e: { event: SyncEvent }) => e.event.id), ['p1']);
-  assert.equal((await admin(req('/admin/shop/shop-a', { session })))!.status, 200);
+  const shopPage = (await admin(req('/admin/shop/shop-a', { session })))!;
+  assert.equal(shopPage.status, 200, 'the app itself, never a redirect off the shop\'s address');
+  assert.match(await shopPage.text(), /id="root"/);
   assert.equal((await admin(req('/admin/shop/no-such-shop', { session })))!.status, 404);
 
   for (const path of ['/admin/api/shops/shop-a/events', '/admin/shop/shop-a']) {
@@ -109,6 +114,18 @@ test('signing in: the right password gives a 30-day session cookie no script can
 
   const out = (await admin(req('/admin/logout', { method: 'POST', session })))!;
   assert.match(out.headers.get('set-cookie')!, /^cb_admin=; .*Max-Age=0/);
+});
+
+test('the laptop\'s server reads the shop list and events with the password as a key; a wrong key gets nothing', async () => {
+  const { admin } = await setup();
+  const key = (k: string) => ({ headers: { authorization: `Bearer ${k}` } });
+  const list = await (await admin(req('/admin/api/shops', key(KEY))))!.json();
+  assert.deepEqual(list.shops.map((r: { name: string }) => r.name).sort(), ['CheesyBeez Thalwila', 'Test shop']);
+  assert.equal(list.latest, '1.0.5');
+  assert.equal((await admin(req('/admin/api/shops/shop-a/events', key(KEY))))!.status, 200);
+  assert.equal((await admin(req('/admin/api/shops', key('wrong'))))!.status, 403);
+  assert.equal((await admin(req('/admin', key(KEY))))!.status, 200);
+  assert.match(await (await admin(req('/admin', key(KEY))))!.text(), /Admin password/, 'the key opens the data, not the signed-in pages');
 });
 
 test('without a password, or with a short one, /admin does not exist', async () => {

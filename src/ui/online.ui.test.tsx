@@ -17,6 +17,7 @@ function shopServer() {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     if (url === '/api/v1/login') return Response.json({ actor: { id: 's-nimal', name: 'Nimal', role: 'cashier' }, expiresAt: Date.now() + 3_600_000, serverTime: Date.now() });
+    if (url === '/api/v1/fleet') return new Response('{}', { status: 404 }); // a shop PC: no Shops screen
     if (url === '/api/v1/online' && !body) return view();
     if (url === '/api/v1/online/open') { s.open = body.open; return view(); }
     const id = url.replace('/api/v1/online/', '');

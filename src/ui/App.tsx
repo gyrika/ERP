@@ -24,6 +24,7 @@ import { useManagerMode } from './useManagerMode.ts';
 import { useRegister } from './useRegister.ts';
 import { useMenu } from './menuStore.ts';
 import { THEME_LABEL, setTheme, themeChoice, type ThemeChoice } from './theme.ts';
+import { useFleet } from './ShopsView.tsx';
 
 type Sheet =
   | { kind: 'extras'; item: MenuItem; size?: SizeId }
@@ -90,6 +91,7 @@ export function App({
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [sound, setSound] = useState(soundOn);
+  const fleet = useFleet();
   const { endManagerSession } = reg;
   const mode = useManagerMode(useCallback(() => {
     // However manager mode ends (Esc, Exit, 10 s idle), nothing of it stays open.
@@ -235,6 +237,8 @@ export function App({
     reg.open.forEach((o) => list.push({ id: `open-${o.number}`, label: `Open order ${o.number}`, run: () => reg.openOrder(o.number) }));
     list.push(
       { id: 'owner', label: 'Owner view: what needs attention today', run: () => { location.hash = '#owner'; } },
+      // The developer's laptop only (its server holds the admin password).
+      ...(fleet ? [{ id: 'shops', label: "Shops: every shop's sales (developer)", run: () => { location.hash = '#shops'; } }] : []),
       { id: 'menu', label: 'Menu: prices, names, sold out', run: () => { location.hash = '#menu'; } },
       // This screen's look; the current choice says "On".
       ...(['light', 'dark', 'auto'] as ThemeChoice[]).map((t) => ({
@@ -250,7 +254,7 @@ export function App({
       list.push({ id: 'suppliers', label: 'Suppliers', run: () => { location.hash = '#suppliers'; } });
     }
     return list;
-  }, [manager, listing, reg, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit]);
+  }, [manager, listing, reg, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit, fleet]);
 
   return (
     <div className={`register${manager ? ' register--managing' : ''}`} onClick={onBackground}>

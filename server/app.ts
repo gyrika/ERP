@@ -10,6 +10,7 @@ import { isPin } from './pins.ts';
 import { OnlineError, type Online, type OnlineAnswer } from './online.ts';
 import type { RawPrinter } from './printer.ts';
 import type { ReplicaStatus } from './replicator.ts';
+import type { Fleet } from './fleet.ts';
 import { SetupError, isLocal, type SetupApi } from './setup.ts';
 import type { Device, EventStore } from './store.ts';
 import { validatePush } from './validate.ts';
@@ -36,6 +37,8 @@ export interface AppOptions {
   setup?: SetupApi;
   /** The installed version, shown by the health check (support from afar, Update now). */
   version?: () => string;
+  /** The developer's Shops screen (only where CLOUD_ADMIN_KEY is set: the developer's laptop). */
+  fleet?: Fleet | null;
   now?: () => number;
 }
 
@@ -107,7 +110,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, fleet, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -148,6 +151,25 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       const cloud = cloudStatus?.() ?? null;
       json(res, 200, { ok: true, serverTime: now(), ...(version ? { version: version() } : {}), ...(cloud ? { cloud } : {}) });
       return;
+    }
+    if (url.pathname === '/api/v1/fleet' || url.pathname.startsWith('/api/v1/fleet/')) {
+      // Only on the developer's laptop, and only from that computer itself (never a tablet on its Wi-Fi).
+      if (!fleet || !isLocal(req)) throw new HttpError(404, 'server', 'no shops here');
+      if (req.method !== 'GET') throw new HttpError(405, 'server', 'method not allowed');
+      const one = /^\/api\/v1\/fleet\/shops\/([a-z0-9-]{1,64})\/events$/.exec(url.pathname);
+      try {
+        if (url.pathname === '/api/v1/fleet') { json(res, 200, { available: true }); return; }
+        if (url.pathname === '/api/v1/fleet/shops') { json(res, 200, await fleet.shops()); return; }
+        if (one) {
+          const after = Math.max(0, Number(url.searchParams.get('after')) || 0);
+          const limit = Math.min(PULL_LIMIT, Math.max(1, Number(url.searchParams.get('limit')) || PULL_LIMIT));
+          json(res, 200, await fleet.events(one[1], after, limit));
+          return;
+        }
+      } catch (e) {
+        throw new HttpError(502, 'server', e instanceof Error ? e.message : String(e));
+      }
+      throw new HttpError(404, 'server', 'no such page');
     }
     if (url.pathname === '/api/v1/setup' || url.pathname.startsWith('/api/v1/setup/')) {
       if (!setup) throw new HttpError(404, 'server', 'no setup here');
