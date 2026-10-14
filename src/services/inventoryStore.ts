@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { answersFromEvents, type Answer, type CostContext } from '../domain/costing.ts';
 import type { Actor } from '../domain/auth.ts';
-import { gapOf, type CountEntry, type GapReason, type Tier } from '../domain/counting.ts';
+import { countHistory, gapOf, type CountEntry, type CountRecord, type GapReason, type Tier } from '../domain/counting.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
 import { inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
@@ -220,6 +220,12 @@ export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; 
       untrackedSold: stock.untrackedSold,
     };
   }, [events]);
+}
+
+/** Every standing shelf count, oldest first (the Manager page's progress). */
+export function useCountHistory(): CountRecord[] {
+  const events = useShopHistory();
+  return useMemo(() => countHistory(events), [events]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */

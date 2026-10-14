@@ -1,0 +1,140 @@
+import { useMemo, useState } from 'react';
+import {
+  countedSince, countsDue, dailyStreak, dayGrid, monthStart, startOfDay, tiersOf, weekStart, type DayCell, type DueCount, type Tier,
+} from '../domain/counting.ts';
+import { useCountHistory, useInventory } from '../services/inventoryStore.ts';
+import { CountFlow } from './CountFlow.tsx';
+import { OwnerNav } from './OwnerNav.tsx';
+
+/**
+ * The manager's page (SCRUM-90). Serves the manager at the start of a shift: they
+ * know the shop; what they need next is what to count today, and how they are
+ * keeping up. Today's progress, then the three count lists (daily, weekly,
+ * monthly) each with one Start, then the record of past days, GitHub style.
+ * The same page opens on the manager's phone later (story 2).
+ */
+const TIERS: { id: Tier; label: string; period: string }[] = [
+  { id: 'daily', label: 'Daily', period: 'today' },
+  { id: 'weekly', label: 'Weekly', period: 'this week' },
+  { id: 'monthly', label: 'Monthly', period: 'this month' },
+];
+const DAY_NAMES = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+const dayLabel = (t: number) => new Date(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+const monthLabel = (t: number) => new Date(t).toLocaleDateString('en-GB', { month: 'short' });
+
+export function ManagerView({ onRegister }: { onRegister?: () => void }) {
+  const { items } = useInventory();
+  const history = useCountHistory();
+  const [counting, setCounting] = useState<DueCount[] | null>(null);
+  const now = Date.now();
+
+  const tiers = useMemo(() => tiersOf(items), [items]);
+  const due = useMemo(() => countsDue(items, tiers, now), [items, tiers, now]);
+  const byTier = (t: Tier) => items.filter((i) => (tiers.get(i.id) ?? 'monthly') === t);
+  const since: Record<Tier, number> = { daily: startOfDay(now), weekly: weekStart(now), monthly: monthStart(now) };
+
+  // Today: what was due at the start of the day (still due, or counted today).
+  const countedToday = new Set(history.filter((c) => c.at >= since.daily).map((c) => c.itemId));
+  const todayTotal = due.length + countedToday.size;
+  const todayDone = countedToday.size;
+
+  const dailyIds = useMemo(() => new Set(items.filter((i) => tiers.get(i.id) === 'daily').map((i) => i.id)), [items, tiers]);
+  const cells = useMemo(() => dayGrid(history, dailyIds, now, 52), [history, dailyIds, now]);
+  const streak = dailyStreak(cells, now);
+
+  return (
+    <div className="owner">
+      <OwnerNav current="manager" onRegister={onRegister} />
+      <main className="owner__main mgr" aria-label="Manager">
+        <h1 className="mgr__title">Counts</h1>
+
+        <section className="mgr__today" aria-label="Today">
+          <div className="mgr__today-head">
+            <span className="mgr__today-label">{dayLabel(now)}</span>
+            <strong className="num">{todayDone} of {todayTotal} counted today</strong>
+          </div>
+          <div className="mgr__bar" role="progressbar" aria-label="Counted today" aria-valuemin={0} aria-valuemax={todayTotal} aria-valuenow={todayDone}>
+            <span style={{ width: `${todayTotal ? (todayDone / todayTotal) * 100 : 100}%` }} />
+          </div>
+          {due.length > 0
+            ? <button type="button" className="cta mgr__start" onClick={() => setCounting(due)}>Count all {due.length} due</button>
+            : <p className="mgr__alldone">Everything due today is counted.</p>}
+        </section>
+
+        <div className="mgr__tiers">
+          {TIERS.map((t) => {
+            const list = byTier(t.id);
+            const tierDue = due.filter((d) => d.tier === t.id);
+            const done = countedSince(history, list.map((i) => i.id), since[t.id]);
+            return (
+              <section key={t.id} className="mgr__tier" aria-label={`${t.label} counts`}>
+                <header className="mgr__tier-head">
+                  <h2>{t.label}</h2>
+                  <span className="num">{done} of {list.length} {t.period}</span>
+                </header>
+                <ul className="mgr__items">
+                  {list.length === 0 && <li className="mgr__none">Nothing here yet: tiers follow what sales use.</li>}
+                  {list.map((i) => {
+                    const d = tierDue.find((x) => x.id === i.id);
+                    const state = !d ? 'done' : d.state;
+                    return (
+                      <li key={i.id}>
+                        <span>{i.name}</span>
+                        <span className={`mgr__chip mgr__chip--${state}`}>
+                          {state === 'done' ? 'Done' : state === 'overdue' ? 'Overdue' : state === 'never' ? 'First count' : 'Due'}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {tierDue.length > 0 && (
+                  <button type="button" className="insight__action" onClick={() => setCounting(tierDue)}>
+                    Start {t.label.toLowerCase()} · {tierDue.length}
+                  </button>
+                )}
+              </section>
+            );
+          })}
+        </div>
+
+        <section className="mgr__history" aria-label="Count record">
+          <header className="mgr__tier-head">
+            <h2>Record</h2>
+            <span className="num">{streak > 0 ? `Daily count done ${streak} ${streak === 1 ? 'day' : 'days'} in a row` : 'No streak yet'}</span>
+          </header>
+          <Grid cells={cells} />
+          <div className="mgr__legend" aria-hidden="true">
+            <span>Less</span>{[0, 1, 2, 3].map((l) => <i key={l} className={`mgr__cell mgr__cell--${l}`} />)}<span>Every daily item</span>
+          </div>
+        </section>
+      </main>
+      {counting && <CountFlow due={counting} rows={items} onClose={() => setCounting(null)} />}
+    </div>
+  );
+}
+
+function Grid({ cells }: { cells: DayCell[] }) {
+  const weeks: DayCell[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return (
+    <div className="mgr__grid-wrap">
+      <div className="mgr__grid" role="img" aria-label={`Count record, last ${weeks.length} weeks`}>
+        <div className="mgr__days" aria-hidden="true">{DAY_NAMES.map((d, i) => <span key={i}>{d}</span>)}</div>
+        {weeks.map((w, wi) => (
+          <div key={wi} className="mgr__week">
+            <span className="mgr__month" aria-hidden="true">
+              {wi === 0 || new Date(w[0].day).getMonth() !== new Date(weeks[wi - 1][0].day).getMonth() ? monthLabel(w[0].day) : ''}
+            </span>
+            {w.map((c) => (
+              <i
+                key={c.day}
+                className={`mgr__cell mgr__cell--${c.level ?? 'future'}`}
+                title={c.level === null ? undefined : `${dayLabel(c.day)} · ${c.counted ? `${c.daily} daily, ${c.counted} counted${c.gaps ? ` · ${c.gaps} ${c.gaps === 1 ? 'gap' : 'gaps'}` : ''}` : 'no counts'}`}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
