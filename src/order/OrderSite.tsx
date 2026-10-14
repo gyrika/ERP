@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { menuItems, setMenuState } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { Banknote, Clock, Hamburger, MapPin, MessageCircle, Phone, Pizza, Plus, ShoppingBag, Soup } from 'lucide-react';
@@ -6,7 +6,7 @@ import { clockText, normalisePhone, onlineLineTotal, onlineTotal, statusText, ty
 import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
 import { api, remembered, type MyOrder, type Placed, type ShopInfo } from './api.ts';
-import { HERO, PHOTOS } from './photos.ts';
+import { HERO, PHOTOS, STRIPS, type StripId } from './photos.ts';
 
 /**
  * cheesybeez.com: order ahead, collect it hot, pay at the shop.
@@ -304,6 +304,51 @@ function CartPanel({ basket, onChange, onCheckout }: { basket: OnlineLine[]; onC
   );
 }
 
+/** The line on each mood strip: white, then the amber part. */
+const STRIP_LINES: Record<StripId, [string, string]> = {
+  pizza: ['Stone-baked.', 'Straight from the fire.'],
+  end: ['Thalwila.', 'Collect it hot.'],
+};
+
+/**
+ * Which sections a strip follows. At most two strips on the page, never back to back: a menu section of
+ * 3+ items always sits between them (Pizza's strip, then Burgers, before the closing one).
+ */
+const STRIP_AFTER: Partial<Record<Category, StripId>> = { pizza: 'pizza' };
+
+/** A photo band between the menu sections, to build appetite (edge to edge on phones, column-wide on desktop). Lazy: never above the fold. */
+function MoodStrip({ id, children }: { id: StripId; children?: React.ReactNode }) {
+  const [lead, accent] = STRIP_LINES[id];
+  return (
+    <div className="o-strip">
+      <picture>
+        <source media="(min-width: 640px)" srcSet={STRIPS[id].large} width={1920} height={720} />
+        <img src={STRIPS[id].small} alt="" width={800} height={600} loading="lazy" decoding="async" />
+      </picture>
+      <div className="o-strip__text o-reveal">
+        <p className="o-strip__line">{lead} <span>{accent}</span></p>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Headings, cards and strip lines fade up as they first come into view, once each. Nothing is hidden
+ * until this runs (the o-motion class), and never with reduced motion.
+ */
+function useReveal(key: unknown) {
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return;
+    document.documentElement.classList.add('o-motion');
+    const seen = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('o-in'); seen.unobserve(e.target); }
+    }, { rootMargin: '0px 0px -8% 0px' });
+    document.querySelectorAll('.o-reveal:not(.o-in)').forEach((el) => seen.observe(el));
+    return () => seen.disconnect();
+  }, [key]);
+}
+
 /** 0771817968 → "077 181 7968" */
 const phoneText = (p: string) => `${p.slice(0, 3)} ${p.slice(3, 6)} ${p.slice(6)}`;
 
@@ -311,9 +356,14 @@ const phoneText = (p: string) => `${p.slice(0, 3)} ${p.slice(3, 6)} ${p.slice(6)
  * Desktop, under the order: where to collect, when, how to pay, and a way to ask. Only what the
  * owner has given (the cloud's ORDER_PHONE / ORDER_ADDRESS / ORDER_HOURS); a missing one is left out.
  */
-function PickupInfo({ shop }: { shop: ShopInfo | null }) {
+/** Where to collect: the owner's address once given (ORDER_ADDRESS), else the town, and a Maps search for it. */
+const pickupPlace = (shop: ShopInfo | null) => {
   const place = shop?.address ?? SHOP_HEADER.lines.join(', ');
-  const maps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${SHOP_HEADER.name} ${place}`)}`;
+  return { place, maps: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${SHOP_HEADER.name} ${place}`)}` };
+};
+
+function PickupInfo({ shop }: { shop: ShopInfo | null }) {
+  const { place, maps } = pickupPlace(shop);
   const phone = shop?.phone;
   return (
     <section className="o-panel o-info" aria-label="Pickup info">
@@ -513,6 +563,7 @@ export function OrderSite() {
     else add({ itemId: m.id, qty: 1, ...(m.variants ? { size: m.variants[0].id } : {}), adds: [], outs: [] });
   };
   const count = useMemo(() => basket.reduce((n, l) => n + l.qty, 0), [basket]);
+  useReveal(placed);
 
   if (placed) {
     return (
@@ -555,18 +606,28 @@ export function OrderSite() {
 
           <main className="o-menu">
             {SECTIONS.map((s) => (
-              <section key={s.id} id={s.id} className="o-section" aria-labelledby={`h-${s.id}`}>
-                <h2 id={`h-${s.id}`}>{s.label}</h2>
-                <ul className="o-items">
-                  {menuItems().filter((m) => m.category === s.id && !m.hidden).map((m) => (
-                    <li key={m.id}>
-                      <ItemCard item={m} closed={taking === 'closed'} onOpen={() => setOpen(m)} onQuickAdd={() => quickAdd(m)} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
+              <Fragment key={s.id}>
+                <section id={s.id} className="o-section" aria-labelledby={`h-${s.id}`}>
+                  <h2 id={`h-${s.id}`} className="o-reveal">{s.label}</h2>
+                  <ul className="o-items">
+                    {menuItems().filter((m) => m.category === s.id && !m.hidden).map((m) => (
+                      <li key={m.id} className="o-reveal">
+                        <ItemCard item={m} closed={taking === 'closed'} onOpen={() => setOpen(m)} onQuickAdd={() => quickAdd(m)} />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                {STRIP_AFTER[s.id] && <MoodStrip id={STRIP_AFTER[s.id]!} />}
+              </Fragment>
             ))}
           </main>
+          <MoodStrip id="end">
+            <p className="o-strip__meta">
+              {SHOP_HEADER.name}, {pickupPlace(shop).place}
+              {shop?.hours && <> · Daily {clockText(shop.hours.opens)} – {clockText(shop.hours.closes)}</>}
+              {' · '}<a href={pickupPlace(shop).maps} target="_blank" rel="noopener noreferrer">Open in Maps</a>
+            </p>
+          </MoodStrip>
           <footer className="o-foot">CheesyBeez · Pizza, burgers and pasta</footer>
         </div>
         <aside className="o-side" aria-label="Your order and pickup">

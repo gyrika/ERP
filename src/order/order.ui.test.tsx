@@ -142,6 +142,50 @@ test('pickup info: the town with a Maps link, how to pay; hours, Call and WhatsA
   expect(info.getByRole('link', { name: 'WhatsApp' }).getAttribute('href')).toBe('https://wa.me/94771817968');
 });
 
+test('mood strips: two at most, after Pizza and before the footer, never back to back, never above the menu', async () => {
+  render(<OrderSite />);
+  await screen.findByText('Open for pickup');
+  const strips = [...document.querySelectorAll<HTMLElement>('.o-strip')];
+  expect(strips.map((el) => el.querySelector('.o-strip__line')!.textContent)).toEqual(['Stone-baked. Straight from the fire.', 'Thalwila. Collect it hot.']);
+  expect(document.getElementById('pizza')!.nextElementSibling).toBe(strips[0]);
+  expect(strips[0].compareDocumentPosition(document.getElementById('pizza')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  // Between the two: at least one section of 3+ items.
+  const between = [...document.querySelectorAll('.o-section')].filter((sec) =>
+    strips[0].compareDocumentPosition(sec) & Node.DOCUMENT_POSITION_FOLLOWING && sec.compareDocumentPosition(strips[1]) & Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(between.some((sec) => sec.querySelectorAll('.o-items > li').length >= 3)).toBe(true);
+  expect(strips[1].nextElementSibling?.tagName).toBe('FOOTER');
+  const end = within(strips[1]);
+  expect(end.getByText(/CheesyBeez, Thalwila/)).toBeTruthy();
+  expect(end.queryByText(/Daily/)).toBeNull();
+  expect(end.getByRole('link', { name: 'Open in Maps' })).toBeTruthy();
+  for (const img of document.querySelectorAll('.o-strip img')) expect([img.getAttribute('loading'), img.getAttribute('width'), img.getAttribute('height')]).toEqual(['lazy', '800', '600']);
+});
+
+test('reveal: hidden only once observed, shown once on entering; nothing with reduced motion', async () => {
+  const watched: Element[] = [];
+  let fire: (e: { target: Element; isIntersecting: boolean }[]) => void = () => {};
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(cb: typeof fire) { fire = cb; }
+    observe(el: Element) { watched.push(el); }
+    unobserve(el: Element) { watched.splice(watched.indexOf(el), 1); }
+    disconnect() {}
+  });
+  document.documentElement.classList.remove('o-motion');
+  render(<OrderSite />);
+  expect(document.documentElement.classList.contains('o-motion')).toBe(true);
+  const heading = screen.getByRole('heading', { name: 'Burgers' });
+  expect(watched).toContain(heading);
+  act(() => fire([{ target: heading, isIntersecting: true }]));
+  expect(heading.classList.contains('o-in')).toBe(true);
+  expect(watched).not.toContain(heading);
+  cleanup();
+
+  document.documentElement.classList.remove('o-motion');
+  vi.stubGlobal('matchMedia', (q: string) => ({ matches: q.includes('reduce'), addEventListener() {}, removeEventListener() {} }));
+  render(<OrderSite />);
+  expect(document.documentElement.classList.contains('o-motion')).toBe(false);
+});
+
 test("with the owner's hours set, the pill says when it closes; no hours, no times", async () => {
   hours = { opens: 660, closes: 1260 };
   answers = ['open'];
