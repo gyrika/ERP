@@ -175,3 +175,42 @@ test("the shop code only makes new shops: an existing one takes back only its ow
   assert.equal((await call('/api/v1/replica', first.token)).status, 401);
   assert.equal((await call('/api/v1/replica', 'server-a')).status, 200, 'other shops untouched');
 });
+
+test('the sales ledger: each payment a row with its items, an Undo marks it, each shop apart, catches up after a gap', async () => {
+  const { call, db } = await setup();
+  const actor = { id: 'n', name: 'Nimal', role: 'cashier' };
+  const pizza = { id: 'l1', itemId: 'devilled-chicken', qty: 1, size: 'L', adds: [], outs: ['no-onion'], sent: true, unit: 250000 };
+  const burger = { id: 'l2', itemId: 'chicken-burger', qty: 2, adds: [], outs: [], sent: true, unit: 45000 };
+  let seq = 0;
+  const row = (e: object, shopId = SHOP): SyncedEvent => {
+    seq++;
+    return { seq, deviceId: 'dev-counter', receivedAt: seq, event: { shopId, at: Date.UTC(2026, 9, 14, 13, 0) + seq, actor, orderNumber: 1001, ...e } as SyncEvent };
+  };
+  const sent = (id: string, lines: object[], shopId?: string) => row({ id, type: 'order.sent', ticketId: `t-${id}`, lines, addOn: false }, shopId);
+  const paid = (id: string, total: number, shopId?: string) => row({ id, type: 'order.paid', total, tender: 'cash', tendered: 500000 }, shopId);
+  const sales = () => db.prepare('SELECT id, tenant_id, order_number, sale_date, items_count, subtotal, total, change_given, status FROM sales ORDER BY event_seq').all();
+
+  await call('/api/v1/replica', 'server-a', { events: [sent('s1', [pizza]), sent('s2', [burger]), paid('p1', 340000)] });
+  assert.deepEqual(sales().map((s) => ({ ...s })), [
+    { id: 'p1', tenant_id: SHOP, order_number: 1001, sale_date: '2026-10-14', items_count: 3, subtotal: 340000, total: 340000, change_given: 160000, status: 'paid' },
+  ]);
+  assert.deepEqual(db.prepare('SELECT item_name, size, qty, line_total, left_out FROM sale_items WHERE sale_id = ? ORDER BY line_no').all('p1').map((r) => ({ ...r })), [
+    { item_name: 'Devilled Chicken', size: 'Large', qty: 1, line_total: 250000, left_out: 'No onion' },
+    { item_name: 'Chicken Burger', size: null, qty: 2, line_total: 90000, left_out: null },
+  ]);
+
+  // The cashier undoes the payment and takes it again; then number 1001 comes round again with a new order.
+  await call('/api/v1/replica', 'server-a', { events: [row({ id: 'u1', type: 'order.payment_undone' }), paid('p2', 340000), sent('s3', [burger]), paid('p3', 90000)] });
+  assert.deepEqual(sales().map((s) => [s.id, s.status, s.items_count]), [['p1', 'undone', 3], ['p2', 'paid', 3], ['p3', 'paid', 2]]);
+
+  // Another shop's sales stay its own; a repeat copy files nothing twice.
+  await call('/api/v1/replica', 'server-b', { events: [sent('b1', [burger], 'shop-b'), paid('b2', 90000, 'shop-b')] });
+  await call('/api/v1/replica', 'server-a', { events: [paid('p3', 90000)] });
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sales WHERE tenant_id = 'shop-b'").get()?.n, 1);
+  assert.deepEqual({ ...db.prepare("SELECT sales, total_cents, cash_cents FROM daily_sales WHERE tenant_id = ?").get(SHOP) }, { sales: 2, total_cents: 430000, cash_cents: 430000 });
+
+  // A ledger emptied (or a cloud older than it) is rebuilt from the events on the shop's next heartbeat.
+  db.exec('DELETE FROM sale_items; DELETE FROM sales; DELETE FROM sales_cursor;');
+  await call('/api/v1/replica', 'server-a');
+  assert.deepEqual(sales().filter((s) => s.tenant_id === SHOP).map((s) => [s.id, s.status]), [['p1', 'undone'], ['p2', 'paid'], ['p3', 'paid']]);
+});
