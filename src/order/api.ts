@@ -1,8 +1,8 @@
 import type { MenuState } from '../domain/menuEdits.ts';
-import type { OnlineLine, OnlineOrder } from '../domain/online.ts';
+import type { OnlineLine, OnlineOrder, OpeningHours } from '../domain/online.ts';
 
 /** The cloud's customer endpoints (cloud/src/online.ts). Same address as this page. */
-export interface ShopInfo { name: string; open: boolean; menuState?: MenuState }
+export interface ShopInfo { name: string; open: boolean; hours?: OpeningHours | null; menuState?: MenuState }
 export interface Placed { id: string; token: string; total: number }
 export type MyOrder = Omit<OnlineOrder, 'phone'>;
 

@@ -1,7 +1,7 @@
 import { MENU } from '../../src/domain/menu.ts';
 import { effectiveMenu, menuStateFromEvents } from '../../src/domain/menuEdits.ts';
 import {
-  checkOnlineOrder, effectiveStatus, NEXT_STATUS, takingOrders, type OnlineLine, type OnlineOrder, type OnlineStatus,
+  checkOnlineOrder, effectiveStatus, NEXT_STATUS, parseHours, takingOrders, type OnlineLine, type OnlineOrder, type OnlineStatus,
 } from '../../src/domain/online.ts';
 import type { CloudDevice, D1Like, Kind } from './cloud.ts';
 import { HttpError, json, randomToken, sha256Hex } from './http.ts';
@@ -17,6 +17,8 @@ export interface OnlineContext {
   now: () => number;
   /** The shop that cheesybeez.com takes orders for (wrangler.toml ORDER_SHOP). */
   orderShop?: string;
+  /** Its daily hours, "11:00-21:00" (wrangler.toml ORDER_HOURS). */
+  orderHours?: string;
   authenticate(req: Request, allowed: Kind[]): Promise<CloudDevice>;
 }
 
@@ -69,7 +71,7 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
   if (path === '/api/v1/shop' && req.method === 'GET') {
     const shop = await shopState();
     // The owner's menu changes: the page applies them to the printed menu it carries, as the counter does.
-    return json(200, { ...shop, menuState: await shopMenuState(c.orderShop!) });
+    return json(200, { ...shop, hours: parseHours(c.orderHours), menuState: await shopMenuState(c.orderShop!) });
   }
 
   if (path === '/api/v1/orders' && req.method === 'POST') {

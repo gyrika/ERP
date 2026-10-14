@@ -21,6 +21,9 @@ run_worker_first = ["/", "/api/*", "/admin", "/admin/*", "/owner.webmanifest", "
 # The shop whose online orders cheesybeez.com takes (its id from the setup wizard): Nisal's
 # shop, installed 2026-10-13. Off until the counter switches "Taking orders" on.
 ORDER_SHOP = "cheesybeez-thalwila-2862"
+# Its daily hours for the ordering page ("Open · Closes 9 PM"), Sri Lanka time, e.g. "11:00-21:00".
+# Only the owner's real hours; left out, the page shows "Open for pickup" / "Closed" without times.
+# ORDER_HOURS = ""
 
 # A test copy of the cloud, apart from the shops' live one: its own address and its own empty
 # database. Try changes end to end over the internet before they reach the shop:

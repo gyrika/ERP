@@ -71,10 +71,12 @@ export interface CloudOptions {
   enrolCode?: string;
   /** The shop that cheesybeez.com takes online orders for (wrangler.toml ORDER_SHOP). */
   orderShop?: string;
+  /** Its daily hours, "11:00-21:00" (wrangler.toml ORDER_HOURS); unset = the page shows no times. */
+  orderHours?: string;
 }
 
 export function createCloud(db: D1Like, options: CloudOptions | (() => number) = {}) {
-  const { now = Date.now, enrolCode, orderShop } = typeof options === 'function' ? { now: options, enrolCode: undefined, orderShop: undefined } : options;
+  const { now = Date.now, enrolCode, orderShop, orderHours } = typeof options === 'function' ? { now: options, enrolCode: undefined, orderShop: undefined, orderHours: undefined } : options;
   const authenticate = async (req: Request, allowed: Kind[]): Promise<CloudDevice> => {
     const h = req.headers.get('authorization');
     const token = h?.startsWith('Bearer ') ? h.slice(7) : null;
@@ -101,7 +103,7 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
 
   const routes = async (req: Request, url: URL): Promise<Response> => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') return json(200, { ok: true, serverTime: now() });
-    const online = await onlineRoutes(req, url, { db, now, orderShop, authenticate });
+    const online = await onlineRoutes(req, url, { db, now, orderShop, orderHours, authenticate });
     if (online) return online;
 
     if (url.pathname === '/api/v1/replica') {
