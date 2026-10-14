@@ -16,6 +16,10 @@
  * bacon-egg-burger 1700835880369-467ebff9d324 · italian-pasta 1662197480393-2a82030b7b83 ·
  * hero (wood-fired oven) 1622880833523-7cf1c0bd4296: hero.webp 2400 × 800 for the banner, hero-sm.webp 800 × 600 for phones.
  * A new menu item without a file here shows the neutral placeholder.
+ *
+ * The two mood strips: photos/strips/<id>.webp (1920 × 720) and <id>-sm.webp (800 × 600), each under
+ * 150 KB, cut from originals at least 1920px wide (never upscaled): pizza 1672856398893-2fb52d807874
+ * (4176px) · end 1579751626657-72bc17010498 (2768px).
  */
 const files = import.meta.glob<string>('./photos/*.webp', { eager: true, query: '?url', import: 'default' });
 const byName = Object.fromEntries(Object.entries(files).map(([path, url]) => [path.slice('./photos/'.length, -'.webp'.length), url]));
@@ -24,3 +28,8 @@ export const HERO = { large: byName.hero, small: byName['hero-sm'] };
 export const PHOTOS: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(byName).filter(([name]) => !name.startsWith('hero')),
 );
+
+const stripFiles = import.meta.glob<string>('./photos/strips/*.webp', { eager: true, query: '?url', import: 'default' });
+const strip = (name: string) => stripFiles[`./photos/strips/${name}.webp`];
+export type StripId = 'pizza' | 'end';
+export const STRIPS = Object.fromEntries((['pizza', 'end'] as const).map((id) => [id, { large: strip(id), small: strip(`${id}-sm`) }])) as Record<StripId, { large: string; small: string }>;

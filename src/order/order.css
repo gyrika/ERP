@@ -49,7 +49,9 @@
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --target: 48px;
   --head: 64px;
-  --hero-h: 300px;          /* the banner; 380px from 1024px */
+  --gutter: 16px;           /* the page's side margin; 24px from 640px */
+  --hero-h: 300px;
+  --sticky: calc(var(--head) + 72px); /* what stays on top while scrolling: the header and the chip row */          /* the banner; 380px from 1024px */
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -74,11 +76,11 @@ button { cursor: pointer; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 /* A soft amber glow just under the banner; the rest of the page stays plain. */
-.o-page { padding-bottom: calc(var(--space-5) * 3); background: radial-gradient(ellipse 960px 420px at 50% calc(var(--head) + var(--hero-h)), var(--glow), transparent 70%) no-repeat; }
+.o-page { overflow-x: clip; padding-bottom: calc(var(--space-5) * 3); background: radial-gradient(ellipse 960px 420px at 50% calc(var(--head) + var(--hero-h)), var(--glow), transparent 70%) no-repeat; }
 /* One centred column: 1280px, 16px gutters on a phone, 24px from 640px. */
-.o-wrap { max-width: 1280px; margin: 0 auto; padding: 0 var(--space-2); }
+.o-wrap { max-width: 1280px; margin: 0 auto; padding: 0 var(--gutter); }
 .o-wrap--narrow { max-width: 720px; }
-@media (min-width: 640px) { .o-wrap { padding: 0 var(--space-3); } }
+@media (min-width: 640px) { :root { --gutter: 24px; } }
 .o-head { position: sticky; top: 0; z-index: 2; background: var(--page); }
 .o-head__in { height: var(--head); display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .o-brand { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--heading); font-weight: 600; font-size: var(--text-card); }
@@ -94,7 +96,8 @@ button { cursor: pointer; }
 /* The banner: edge to edge, the headline on a dark fade (from below on a phone, from the left on
    wider screens). White and light amber read on it in both themes. */
 .o-hero { position: relative; height: var(--hero-h); overflow: hidden; background: #1C1C1E; }
-.o-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 60% 55%; }
+.o-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 60% 55%; animation: o-zoom 20s ease-in-out infinite alternate; }
+@keyframes o-zoom { from { transform: scale(1); } to { transform: scale(1.06); } }
 .o-hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.35) 50%, transparent 80%); }
 .o-hero__text { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: var(--space-3); }
 @media (min-width: 640px) {
@@ -119,7 +122,7 @@ button { cursor: pointer; }
 .o-tabs a[aria-current='true'] { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
 @media (hover: hover) { .o-tabs a:not([aria-current='true']):hover { border-color: var(--accent); } }
 
-.o-section { scroll-margin-top: calc(var(--head) + var(--space-6) + var(--space-3)); padding-top: var(--space-3); }
+.o-section { scroll-margin-top: var(--sticky); padding-top: var(--space-3); }
 .o-section h2 { margin: 0 0 var(--space-2); font-size: var(--text-section); line-height: 1.2; letter-spacing: -0.02em; font-weight: 600; }
 /* One column on a phone, two from 640px; every card in the grid the same height. */
 .o-items { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); grid-auto-rows: 1fr; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); }
@@ -147,6 +150,32 @@ button { cursor: pointer; }
 .o-item__add:active { background: var(--accent-strong); transform: scale(0.92); }
 .o-item--out { opacity: 0.5; cursor: default; }
 .o-item--out .o-item__photo { filter: grayscale(1); }
+/* Mood strips: photo bands between menu sections, dark against the light menu. On phones and tablets
+   (no side column) they break out of the column to the screen's edges (--bleed = the column's distance
+   from the left edge; .o-page clips the overflow without becoming a scroll box). From 1024px they keep
+   to the menu column, so they never pass under the order and pickup cards. */
+.o-strip { --bleed: var(--gutter); position: relative; isolation: isolate; width: 100vw; height: 200px; margin: var(--space-5) 0 var(--space-2) calc(-1 * var(--bleed)); display: flex; align-items: center; overflow: clip; background: #141210; }
+@media (min-width: 640px) { .o-strip { height: 300px; } }
+@media (min-width: 1024px) { .o-strip { --bleed: var(--space-4); width: auto; margin-left: 0; border-radius: var(--radius-card); } }
+/* The photo is 150% of the band, so the parallax never shows an edge. overflow: clip (not hidden) crops it
+   without making the band a scroll box, so view() follows the page's scroll. */
+.o-strip img { position: absolute; left: 0; top: -25%; width: 100%; height: 150%; object-fit: cover; }
+@supports (animation-timeline: view()) {
+  .o-strip img { animation: o-parallax linear both; animation-timeline: view(); }
+}
+/* Over its time on screen the photo moves ~25% of the band against the scroll: about 15% slower. */
+@keyframes o-parallax { from { transform: translateY(-16.7%); } to { transform: translateY(16.7%); } }
+.o-strip::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.5) 45%, rgba(0, 0, 0, 0.25)); }
+.o-strip__text { position: relative; z-index: 1; padding: 0 var(--bleed); }
+.o-strip__line { margin: 0; color: #FFFFFF; font-size: clamp(26px, 3.6vw, 44px); line-height: 1.08; letter-spacing: -0.03em; font-weight: 600; text-wrap: balance; }
+.o-strip__line span { display: block; color: #F2C27A; }
+.o-strip__meta { margin: var(--space-2) 0 0; color: rgba(255, 255, 255, 0.88); font-size: var(--text-body); }
+.o-strip__meta a { color: #FFFFFF; font-weight: 600; text-underline-offset: 3px; }
+
+/* Fade up once on first view. Only once the script has set .o-motion: without it nothing is hidden. */
+.o-motion .o-reveal { opacity: 0; transform: translateY(20px); transition: opacity 250ms var(--ease), transform 250ms var(--ease); }
+.o-motion .o-reveal.o-in { opacity: 1; transform: none; }
+
 .o-foot { padding: var(--space-5) 0 0; text-align: center; color: var(--caption); font-size: var(--text-caption); }
 
 /* Phones: slides up with the first item. From 1024px the cart panel takes over. */
@@ -169,7 +198,7 @@ button { cursor: pointer; }
 .o-side { display: none; }
 @media (min-width: 1024px) {
   .o-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr); gap: var(--space-3); align-items: start; }
-  .o-side { position: sticky; top: 88px; display: flex; flex-direction: column; gap: var(--space-3); max-height: calc(100dvh - 88px - var(--space-3)); overflow-y: auto; }
+  .o-side { position: sticky; z-index: 2; top: 88px; display: flex; flex-direction: column; gap: var(--space-3); max-height: calc(100dvh - 88px - var(--space-3)); overflow-y: auto; }
   .o-panel { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); box-shadow: var(--shadow); }
   .o-panel__title { margin: 0; font-size: var(--text-card); font-weight: 600; color: var(--heading); }
   .o-cart__empty { margin: var(--space-2) 0 0; display: flex; align-items: center; gap: var(--space-1); color: var(--caption); }
@@ -202,7 +231,7 @@ button { cursor: pointer; }
 .o-sheet__foot .o-primary { flex: 1; }
 @keyframes o-up { from { transform: translateY(32px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes o-fade { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .o-sheet, .o-scrim, .o-bar, .o-bar .o-primary, .o-toast, .o-item, .o-item__add, .o-tabs a, .o-pill--loading, .o-skeleton { animation: none; transition: none; } }
+@media (prefers-reduced-motion: reduce) { .o-motion .o-reveal { opacity: 1; transform: none; } .o-hero img, .o-strip img, .o-sheet, .o-scrim, .o-bar, .o-bar .o-primary, .o-toast, .o-item, .o-item__add, .o-tabs a, .o-pill--loading, .o-skeleton { animation: none; transition: none; } }
 
 .o-sizes { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); }
 .o-size { min-height: 56px; padding: 0 var(--space-2); display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); color: var(--heading); font-size: var(--text-card); font-weight: 500; text-align: left; transition: border-color 150ms var(--ease), background 150ms var(--ease); }

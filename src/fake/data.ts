@@ -39,3 +39,16 @@ export const fakeOrders = (now: number): Order[] => {
     },
   ];
 };
+
+/**
+ * What the ordering page's /api/v1/shop answers in `npm run dev` (vite.config.ts), so the page shows a
+ * real-looking open shop instead of "Couldn't check". The hours are an example, NOT the shop's: the live
+ * page shows hours only once the owner gives them (the cloud's ORDER_HOURS).
+ */
+export const FAKE_ORDER_SHOP = {
+  name: 'CheesyBeez Thalwila',
+  open: true,
+  hours: { opens: 11 * 60, closes: 21 * 60 },
+  phone: null,
+  address: null,
+};
