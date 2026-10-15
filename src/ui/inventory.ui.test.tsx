@@ -11,7 +11,7 @@ beforeEach(() => localStorage.clear());
 
 /** A stock row as the screens get it. */
 const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
-  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null });
+  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null, receiveUnit: null });
 afterEach(cleanup);
 
 test('every seeded ingredient is listed once, with all of its suppliers', () => {
@@ -323,4 +323,33 @@ test("the sheet tells the item's whole story: shelf, last delivery, price change
   expect(story.getByText('2 packs · 50 kg')).toBeTruthy();
   expect(story.getByText(/^today · 2 packs · /)).toBeTruthy();
   expect(story.getByText('↑ Rs 150 today')).toBeTruthy();
+});
+
+// ----- what receiving is counted in (SCRUM-96) -----
+
+test('the owner, with his PIN, makes flour received in kg; the sheet and the price follow', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  let sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
+  expect(sheet.getByText('packs of 25 kg')).toBeTruthy();
+  await user.click(sheet.getByRole('button', { name: 'Change' }));
+  await user.type(sheet.getByLabelText('Owner PIN'), '2580'); // the manager's: refused
+  expect(sheet.getByRole('alert').textContent).toBe('Only the owner chooses how it is received.');
+  await user.type(sheet.getByLabelText('Owner PIN'), '9999');
+  await user.click(within(sheet.getByRole('group', { name: 'Received in' })).getByRole('button', { name: 'kg' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.receive_unit_set', unit: 'kg', actor: { role: 'owner' } });
+
+  sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
+  expect(sheet.getByRole('textbox', { name: /Price per kg/ })).toHaveProperty('value', '256');
+  await user.type(sheet.getByRole('textbox', { name: /Received \(kg\)/ }), '12.5');
+  await user.click(sheet.getByRole('button', { name: 'Save' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.adjusted', deltaPacks: 0.5, reason: 'receive' });
+  expect(screen.getByRole('status').textContent).toContain('Received 12.5 kg of Pizza Flour.');
+  expect(amount()).toContain('½ pack · 12.5 kg');
+
+  // Delivery came asks for flour in kg too.
+  await user.click(screen.getByRole('button', { name: 'Delivery came' }));
+  await user.click(within(screen.getByRole('group', { name: 'Supplier' })).getByRole('button', { name: 'Ajantha (Wholesale)' }));
+  expect(screen.getByRole('textbox', { name: 'kg of Pizza Flour' })).toBeTruthy();
 });

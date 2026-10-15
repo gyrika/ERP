@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
+import type { Actor } from '../domain/auth.ts';
+import { OwnerPin } from './OwnerPin.tsx';
 import {
   countedSince, countsDue, dailyStreak, dayGrid, monthStart, startOfDay, tiersOf, weekStart, type DayCell, type DueCount, type Tier,
 } from '../domain/counting.ts';
-import { requireOwner } from '../services/auth.ts';
 import { answerGap, setCountTier, useCountHistory, useGapCases, useInventory } from '../services/inventoryStore.ts';
 import { asked, MAX_NOTE, type GapCase } from '../domain/gapReview.ts';
 import { reasonLabel } from '../domain/counting.ts';
@@ -79,7 +79,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
         <div className="mgr__title-row">
           <h1 className="mgr__title">Counts</h1>
           {phone ? null : edit === 'pin'
-            ? <OwnerPin onOpen={setEdit} onCancel={() => setEdit('closed')} />
+            ? <OwnerPin onOpen={setEdit} onCancel={() => setEdit('closed')} refusal="Only the owner can edit the lists." />
             : (
               <button type="button" className="chip" aria-pressed={!!editor} onClick={() => setEdit(editor ? 'closed' : 'pin')}>
                 {editor ? 'Done' : 'Edit lists'}
@@ -194,40 +194,6 @@ function Question({ gap, name, gapText }: { gap: GapCase; name: string; gapText:
         placeholder="What happened?" onChange={(e) => setNote(e.target.value)} />
       <button type="submit" className="insight__action" disabled={!note.trim()}>Answer</button>
     </form>
-  );
-}
-
-/** The owner's PIN, asked every time; anyone else's PIN is refused. */
-function OwnerPin({ onOpen, onCancel }: { onOpen: (owner: Actor) => void; onCancel: () => void }) {
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState(false);
-  const [checking, setChecking] = useState(false);
-
-  const onChange = async (raw: string) => {
-    const value = raw.replace(/\D/g, '').slice(0, PIN_LENGTH);
-    setPin(value);
-    setError(false);
-    if (value.length !== PIN_LENGTH) return;
-    setChecking(true);
-    const owner = await requireOwner(value);
-    setChecking(false);
-    if (owner) return onOpen(owner);
-    setError(true);
-    setPin('');
-  };
-
-  return (
-    <div className="mgr__pin">
-      <span id="mgr-pin-msg" className={`mgr__pin-msg${error ? ' mgr__pin-msg--error' : ''}`} role={error ? 'alert' : undefined}>
-        {error ? 'Only the owner can edit the lists.' : 'Owner PIN'}
-      </span>
-      <input
-        className={`pin${error ? ' pin--error' : ''}`} type="password" inputMode="numeric" autoComplete="off"
-        value={pin} readOnly={checking} autoFocus aria-label="Owner PIN" aria-invalid={error} aria-describedby="mgr-pin-msg"
-        onChange={(e) => void onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
-      />
-      <button type="button" className="linkbtn" onClick={onCancel}>Cancel</button>
-    </div>
   );
 }
 

@@ -38,14 +38,18 @@ const MANAGER_EVENTS = new Set([
  * May someone with this role record this event? Kitchen taps carry no
  * person (the kitchen screen is shared), so they are checked by device instead.
  */
+/**
+ * Stock decisions that are the owner's alone: which items are counted when (SCRUM-90),
+ * checking a count's gap (SCRUM-95; answering is a manager's), what receiving is counted in (SCRUM-96).
+ */
+export const OWNER_STOCK: ReadonlySet<string> = new Set(['stock.tier_set', 'stock.gap_reviewed', 'stock.receive_unit_set']);
+
 export const mayRecord = (role: Role, type: string): boolean => {
   if (type.startsWith('kitchen.')) return true;
   if (CASHIER_EVENTS.has(type)) return role !== 'kitchen';
   if (MANAGER_EVENTS.has(type)) return managesRole(role);
   // Which items are counted daily, weekly or monthly: the owner's choice (SCRUM-90).
-  if (type === 'stock.tier_set') return role === 'owner';
-  // Checking a count's gap is the owner's; answering the owner, a manager's (SCRUM-95).
-  if (type === 'stock.gap_reviewed') return role === 'owner';
+  if (OWNER_STOCK.has(type)) return role === 'owner';
   // Stock counts and supplier prices are a manager's job (SCRUM-41).
   if (type.startsWith('stock.')) return managesRole(role);
   // The menu is the owner's; marking something sold out is a manager's job during service.

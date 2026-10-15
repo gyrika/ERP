@@ -107,6 +107,8 @@ export type InventoryRow = InventoryItem & {
   units: LearnedUnit[];
   /** How often the owner wants it counted; null: chosen automatically (tiersOf). */
   tier: Tier | null;
+  /** What receiving it is counted in, the owner's choice (SCRUM-96); null: packs. */
+  receiveUnit: string | null;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -198,6 +200,7 @@ interface Shelf {
   counted: boolean;
   units: LearnedUnit[];
   tier: Tier | null;
+  receiveUnit: string | null;
 }
 
 /**
@@ -234,7 +237,7 @@ export const stockFromEvents = (
   { usageOf = bookUsage, gapsOf = bookGaps, now = Date.now() }: StockOptions = {},
 ): Stock => {
   const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
-    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null,
+    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null,
   }]));
   const take = (usage: readonly RecipeLine[], sign: 1 | -1) => {
     for (const { inventoryId, qtyBaseUnits } of usage) {
@@ -269,7 +272,7 @@ export const stockFromEvents = (
       case 'stock.item_added':
         if (!shelves.has(e.item.id)) {
           shelves.set(e.item.id, {
-            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null,
+            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null,
           });
         }
         break;
@@ -317,6 +320,11 @@ export const stockFromEvents = (
         if (!shelf) break;
         shelf.units = shelf.units.filter((u) => u.name.toLowerCase() !== e.name.toLowerCase());
         if (e.base > 0) shelf.units.push({ name: e.name, base: e.base });
+        break;
+      }
+      case 'stock.receive_unit_set': {
+        const shelf = shelves.get(e.itemId);
+        if (shelf) shelf.receiveUnit = e.unit === 'pack' ? null : e.unit;
         break;
       }
       case 'stock.tier_set': {
@@ -390,7 +398,7 @@ export const stockFromEvents = (
     }
   }
 
-  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted, units, tier }) => {
+  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted, units, tier, receiveUnit }) => {
     const usedPerDay = (used.get(item.id) ?? 0) / days;
     return {
       ...item,
@@ -404,6 +412,7 @@ export const stockFromEvents = (
       lastCountedAt: countedAt.get(item.id) ?? null,
       units,
       tier,
+      receiveUnit,
     };
   });
   return { rows, untrackedSold };

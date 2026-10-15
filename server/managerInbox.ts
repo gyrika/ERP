@@ -1,4 +1,4 @@
-import { managesRole } from '../src/domain/auth.ts';
+import { managesRole, OWNER_STOCK } from '../src/domain/auth.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
 import type { Device } from './store.ts';
 import { validatePush } from './validate.ts';
@@ -27,7 +27,7 @@ export interface ManagerInboxOptions {
 /** What the shop takes from a phone: stock, by a manager or owner; count lists and gap checks by an owner only. */
 export const takesFromPhone = (e: SyncEvent): boolean =>
   e.type.startsWith('stock.') && 'actor' in e && managesRole(e.actor.role) &&
-  ((e.type !== 'stock.tier_set' && e.type !== 'stock.gap_reviewed') || e.actor.role === 'owner');
+  (!OWNER_STOCK.has(e.type) || e.actor.role === 'owner');
 
 export function startManagerInbox(o: ManagerInboxOptions) {
   const http = o.fetch ?? fetch;
