@@ -5,6 +5,7 @@ import {
 } from '../domain/counting.ts';
 import { requireOwner } from '../services/auth.ts';
 import { setCountTier, useCountHistory, useInventory } from '../services/inventoryStore.ts';
+import { useWaitingPhotos } from '../services/photos.ts';
 import { CountFlow } from './CountFlow.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -35,6 +36,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   /** Edit lists: closed, asking for the owner's PIN, or open for that owner. */
   const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
   const editor = typeof edit === 'object' ? edit : null;
+  const waiting = useWaitingPhotos();
 
   useEffect(() => {
     if (!editor) return;
@@ -74,6 +76,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
               </button>
             )}
         </div>
+        {waiting > 0 && <p className="mgr__hint" role="status">{waiting} {waiting === 1 ? 'photo waits' : 'photos wait'} for the shop Wi-Fi; they send by themselves.</p>}
         {editor && <p className="mgr__hint">Move any item to another list. Automatic follows what sales use.</p>}
 
         <section className="mgr__today" aria-label="Today">

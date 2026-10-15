@@ -7,10 +7,10 @@ import {
   type StockStatus,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
-import { fmt } from '../domain/money.ts';
 import { AddIngredientModal } from './AddIngredientModal.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
+import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import { StockSheet } from './StockSheet.tsx';
 import { CountFlow } from './CountFlow.tsx';
 import { DeliverySheet } from './DeliverySheet.tsx';
@@ -66,6 +66,8 @@ export function InventoryView({
   const due = useMemo(() => countsDue(items, tiers, Date.now()), [items, tiers]);
   const dueIds = useMemo(() => new Set(due.filter((d) => d.state !== 'never').map((d) => d.id)), [due]);
   const [counting, setCounting] = useState<DueCount[] | null>(null);
+  const now = Date.now();
+  const countedSoFar = items.filter((i) => i.counted).length;
 
   const removeItem = (id: string, name: string) => {
     try {
@@ -122,7 +124,7 @@ export function InventoryView({
             <span className="count-due__sub">
               {[
                 due.some((d) => d.state === 'overdue') && `${due.filter((d) => d.state === 'overdue').length} overdue`,
-                due.some((d) => d.state === 'never') && `${due.filter((d) => d.state === 'never').length} never counted`,
+                countedSoFar < items.length && `${countedSoFar} of ${items.length} counted once`,
               ].filter(Boolean).join(' · ') || 'Count what is left; the app compares.'}
             </span>
           </div>
@@ -160,7 +162,8 @@ export function InventoryView({
                      {item.name}
                    </button>
                  </h2>
-                 <div className="inv-row__sub" aria-label="Suppliers">
+                 <div className="inv-row__sub">
+                 <span aria-label="Suppliers">
                    {!item.supplierIds.some((id) => supplierNames.has(id)) && 'No active suppliers'}
                    {item.supplierIds.filter((id) => supplierNames.has(id)).map((id, i) => (
                      <span key={id}>
@@ -170,20 +173,24 @@ export function InventoryView({
                          : supplierNames.get(id)}
                      </span>
                    ))}
+                 </span>
+                 <span className="inv-row__counted"> · {item.lastCountedAt === null ? 'never counted' : `counted ${daysAgo(item.lastCountedAt, now)}`}</span>
                  </div>
                </div>
                <div className="inv-row__quantity" aria-label="Available stock and pack size">
                  <span className={`inv-row__status inv-row__status--${status}`}>{STATUS_LABELS[status]}</span>
-                 {/* Blind count: while it is due, the shelf amount stays hidden until it is counted. */}
-                 <strong>
-                   {dueIds.has(item.id) ? 'Count due' : formatQuantity(Math.max(0, item.onHandBaseUnits), item.baseUnit)}
-                   {' / '}
-                   {formatQuantity(item.packQty, item.baseUnit)}
-                 </strong>
+                 {/* Never a fake zero: an item never counted shows no amount. Blind count: while
+                     it is due, the amount stays hidden until it is counted, and says so. */}
+                 {item.counted && (dueIds.has(item.id)
+                   ? <strong>Count due · hidden</strong>
+                   : <>
+                     <strong>{formatStock(item.onHandBaseUnits, item)}</strong>
+                     <Level days={item.lastsDays} status={status} />
+                   </>)}
+                 {!item.counted && <span className="inv-row__lasts">{formatQuantity(item.packQty, item.baseUnit)} a pack</span>}
                  {status === 'unsure'
                    ? <span className="inv-row__lasts">{missedText(item.missedSales)}</span>
-                   : formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
-                 <span className="inv-row__price">Rs {fmt(item.workingPriceCents)} a pack</span>
+                   : item.counted && !dueIds.has(item.id) && formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
                </div>
                <div className="inv-row__actions">
                  {(status === 'low' || status === 'out') && item.supplierIds.some((id) => supplierNames.has(id)) && (
@@ -199,6 +206,9 @@ export function InventoryView({
       {updatingItem && (
         <StockSheet
           item={updatingItem}
+          suppliers={suppliers}
+          countDue={dueIds.has(updatingItem.id)}
+          onOrder={() => { setUpdating(null); setOrdering(updatingItem.id); }}
           onCount={() => {
             setUpdating(null);
             setCounting([due.find((d) => d.id === updatingItem.id) ?? { id: updatingItem.id, tier: tiers.get(updatingItem.id) ?? 'monthly', state: updatingItem.counted ? 'due' : 'never', lastCountedAt: updatingItem.lastCountedAt }]);
@@ -217,5 +227,17 @@ export function InventoryView({
         <AddIngredientModal onClose={() => setShowAdd(false)} onSave={addInventoryItem} />
       )}
     </div>
+  );
+}
+
+/** How long what is left lasts, against a week: a full bar is a week or more. */
+const WEEK = 7;
+function Level({ days, status }: { days: number | null; status: StockStatus }) {
+  if (days === null && status !== 'out') return null;
+  const share = status === 'out' ? 0 : Math.min(1, (days ?? 0) / WEEK);
+  return (
+    <span className={`inv-level inv-level--${status}`} aria-hidden="true">
+      <span style={{ width: `${Math.max(share * 100, status === 'out' ? 0 : 6)}%` }} />
+    </span>
   );
 }

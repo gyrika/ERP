@@ -2,6 +2,7 @@ import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
+import { photoFolder } from './photos.ts';
 import { dryRunPrinter, switchablePrinter, systemPrinter } from './printer.ts';
 import { startOnline, type Online } from './online.ts';
 import { createFleet } from './fleet.ts';
@@ -89,6 +90,7 @@ const fleet = process.env.CLOUD_ADMIN_KEY
   : null;
 
 const server = createApp({
+  photos: photoFolder(`${dataDir}/photos`),
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
   printer,

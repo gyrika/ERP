@@ -9,6 +9,8 @@ import {
 import type { UpdateStep } from '../src/domain/updating.ts';
 import { isPin } from './pins.ts';
 import { OnlineError, type Online, type OnlineAnswer } from './online.ts';
+import { MAX_PHOTO_BYTES, isJpeg, type PhotoStore } from './photos.ts';
+import { isPhotoId } from '../src/domain/photos.ts';
 import type { RawPrinter } from './printer.ts';
 import type { ReplicaStatus } from './replicator.ts';
 import type { Fleet } from './fleet.ts';
@@ -40,6 +42,8 @@ export interface AppOptions {
   version?: () => string;
   /** An update under way (src/domain/updating.ts), so the counter can say so; null when none. */
   updating?: () => UpdateStep | null;
+  /** Shelf photos (SCRUM-94), kept on this PC. Omit and photos answer 503. */
+  photos?: PhotoStore;
   /** The developer's Shops screen (only where CLOUD_ADMIN_KEY is set: the developer's laptop). */
   fleet?: Fleet | null;
   now?: () => number;
@@ -113,7 +117,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, now = Date.now }: AppOptions): Server {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -125,8 +129,10 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
    * may only record kitchen taps. Returns why an event is refused, or null.
    */
   const refusal = (device: Device, e: SyncEvent, sessions: Awaited<ReturnType<EventStore['sessions']>>): string | null => {
-    if (e.type.startsWith('kitchen.')) return device.kind === 'owner' ? 'not from this device' : null;
-    if (device.kind !== 'counter') return 'only the counter records orders and stock';
+    if (e.type.startsWith('kitchen.')) return device.kind === 'owner' || device.kind === 'manager' ? 'not from this device' : null;
+    // The manager's phone counts and receives stock (SCRUM-94); orders, menu and recipes stay on the counter.
+    if (device.kind === 'manager' && !e.type.startsWith('stock.')) return 'the manager phone records stock only';
+    if (device.kind !== 'counter' && device.kind !== 'manager') return 'only the counter records orders and stock';
     if (!('actor' in e)) return 'this event does not say who did it';
     const { actor } = e;
     const s = sessions.find((x) => x.staffId === actor.id && x.role === actor.role
@@ -208,7 +214,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       const purpose = body?.purpose === 'manager' ? 'manager' : 'shift';
       const staff = isPin(body?.pin) ? await store.staffByPin(device.tenantId, body.pin) : null;
       // A cashier's own PIN in the manager box is simply a wrong PIN: it says nothing about who exists.
-      if (!staff || (purpose === 'manager' && !managesRole(staff.role))) {
+      // The same on the manager's phone: it opens for managers and owners only (SCRUM-94).
+      if (!staff || ((purpose === 'manager' || device.kind === 'manager') && !managesRole(staff.role))) {
         const count = (w?.count ?? 0) + 1;
         wrong.set(device.id, count >= MAX_WRONG ? { count: 0, until: t + WRONG_WAIT_MS } : { count, until: 0 });
         throw new HttpError(401, 'wrong_pin', 'wrong PIN');
@@ -234,6 +241,28 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       try { await printer.print(bytes); }
       catch (e) { console.error(e); throw new HttpError(503, 'printer', 'the printer did not take the receipt'); }
       json(res, 200, { ok: true });
+      return;
+    }
+    if (url.pathname === '/api/v1/photos' || url.pathname.startsWith('/api/v1/photos/')) {
+      const device = await authenticate(req, url);
+      // Proof of a count: the counter and the manager's phone, never a kitchen tablet.
+      if (device.kind !== 'counter' && device.kind !== 'manager') throw new HttpError(403, 'forbidden', 'only the counter and the manager phone see photos');
+      if (!photos) throw new HttpError(503, 'server', 'photos are not kept on this server');
+      if (url.pathname === '/api/v1/photos' && req.method === 'POST') {
+        const body = await readBody(req) as { id?: unknown; data?: unknown };
+        if (!isPhotoId(body?.id) || typeof body?.data !== 'string') throw new HttpError(400, 'invalid_event', 'body must be { id: ph-…, data: base64 JPEG }');
+        const jpeg = Buffer.from(body.data, 'base64');
+        if (!isJpeg(jpeg) || jpeg.length > MAX_PHOTO_BYTES) throw new HttpError(400, 'invalid_event', 'not a JPEG photo, or too large');
+        photos.save(device.tenantId, body.id, jpeg);
+        json(res, 200, { ok: true });
+        return;
+      }
+      const id = url.pathname.slice('/api/v1/photos/'.length);
+      if (req.method !== 'GET' || !isPhotoId(id)) throw new HttpError(404, 'server', 'no such photo');
+      const jpeg = photos.read(device.tenantId, id);
+      if (!jpeg) throw new HttpError(404, 'server', 'no such photo');
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000, immutable' });
+      res.end(jpeg);
       return;
     }
     if (url.pathname === '/api/v1/online' || url.pathname.startsWith('/api/v1/online/')) {
