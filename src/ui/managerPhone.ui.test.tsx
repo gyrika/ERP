@@ -7,7 +7,7 @@ import { CountFlow } from './CountFlow.tsx';
 import { addEvents, readAll } from './eventLog.ts';
 import { ManagerView } from './ManagerView.tsx';
 
-// The manager's phone (SCRUM-94): a big gap needs a shelf photo; the phone shows counts and stock only.
+// The manager's phone app (SCRUM-94): a big gap needs a shelf photo; the phone shows counts and stock only.
 
 beforeEach(() => localStorage.clear());
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -62,20 +62,13 @@ test('the counter PC asks only for the reason (no camera there)', async () => {
   expect(screen.queryByLabelText('Shelf photo')).toBeNull();
 });
 
-test('the paired phone shows Manager and Inventory only, with Lock instead of the Register', () => {
-  localStorage.setItem('cb.sync.token', 't');
-  localStorage.setItem('cb.sync.kind', 'manager');
+test('the manager phone app shows Manager and Inventory only, no Register and no Edit lists', () => {
+  vi.stubEnv('VITE_SITE', 'cloud');
+  localStorage.setItem('cb.manager.token', 'k'.repeat(43));
   render(<ManagerView />);
   const nav = within(screen.getByRole('navigation', { name: 'Owner sections' }));
   expect(nav.getAllByRole('link').map((a) => a.textContent)).toEqual(['Manager', 'Inventory']);
-  expect(nav.getByRole('button', { name: 'Lock' })).toBeTruthy();
   expect(nav.queryByText('Register')).toBeNull();
-});
-
-test('the phone lock screen has no kitchen hint', async () => {
-  localStorage.setItem('cb.sync.token', 't');
-  localStorage.setItem('cb.sync.kind', 'manager');
-  const { LockScreen } = await import('./LockScreen.tsx');
-  render(<LockScreen />);
-  expect(screen.queryByText('Kitchen')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit lists' })).toBeNull();
+  vi.unstubAllEnvs();
 });

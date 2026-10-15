@@ -281,7 +281,7 @@ const counted = (id: string, actor: { id: string; name: string; role: string }, 
   ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor, type: 'stock.counted', itemId: 'inv-0006', counted: 1000, expected: 2000,
     entries: [], reason: 'unknown', valueCents: -260000, tier: 'daily', ...(photo ? { photo } : {}) });
 
-test('the manager phone opens for managers and owners only, and records stock only', async () => {
+test('a manager-kind device (the phones\' inbox) opens for managers and owners only, and records stock only', async () => {
   const store = memoryStore();
   await store.addStaff(SHOP, 'Nimal', 'cashier', '1111');
   const manager = await store.addStaff(SHOP, 'Ravi', 'manager', '2580');
@@ -315,23 +315,25 @@ test('only the owner sets how often an item is counted, even sending the event i
   await s.stop();
 });
 
-test('photos: a JPEG goes in once under its id and comes back to the same shop only; never to the kitchen', async () => {
+test('photos at the counter: from the cloud the first time, then from this PC; never on the kitchen tablet', async () => {
   const saved = new Map<string, Buffer>();
   const photos = {
     save: (t: string, id: string, b: Buffer) => { if (!saved.has(`${t}/${id}`)) saved.set(`${t}/${id}`, b); },
     read: (t: string, id: string) => saved.get(`${t}/${id}`) ?? null,
   };
-  const s = await start(memoryStore(), undefined, { photos });
   const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  let asked = 0;
+  const cloudPhoto = async (_t: string, id: string) => { asked++; return id === 'ph-abcdefgh12' ? jpeg : null; };
+  const s = await start(memoryStore(), undefined, { photos, cloudPhoto });
   const id = 'ph-abcdefgh12';
-  assert.equal((await s.call('/api/v1/photos', s.tokens.counter, { id, data: jpeg.toString('base64') })).status, 200);
-  assert.equal((await s.call('/api/v1/photos', s.tokens.counter, { id, data: Buffer.from('<svg/>').toString('base64') })).status, 400, 'only JPEGs');
-  assert.equal((await s.call('/api/v1/photos', s.tokens.counter, { id: '../x', data: jpeg.toString('base64') })).status, 400);
-
-  const back = await s.call(`/api/v1/photos/${id}`, s.tokens.counter);
-  assert.equal(back.headers.get('content-type'), 'image/jpeg');
-  assert.deepEqual(Buffer.from(await back.arrayBuffer()), jpeg);
-  assert.equal((await s.call(`/api/v1/photos/${id}`, s.tokens.other)).status, 404, "another shop's device finds nothing");
+  for (let i = 0; i < 2; i++) {
+    const back = await s.call(`/api/v1/photos/${id}`, s.tokens.counter);
+    assert.equal(back.headers.get('content-type'), 'image/jpeg');
+    assert.deepEqual(Buffer.from(await back.arrayBuffer()), jpeg);
+  }
+  assert.equal(asked, 1, 'kept on this PC after the first time');
+  assert.equal((await s.call('/api/v1/photos/ph-unknown123', s.tokens.counter)).status, 404);
   assert.equal((await s.call(`/api/v1/photos/${id}`, s.tokens.kitchen)).status, 403);
+  assert.equal((await s.call('/api/v1/photos', s.tokens.counter, { id, data: jpeg.toString('base64') })).status, 404, 'phones send photos to the cloud, not here');
   await s.stop();
 });

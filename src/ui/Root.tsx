@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
-import { adminShop, fleetShop, isCloudSite, isKitchenDevice, isManagerDevice, ownerToken, syncToken } from '../services/pairing.ts';
+import { loadMe } from '../services/managerPhone.ts';
+import { adminShop, fleetShop, isCloudSite, isKitchenDevice, isManagerPhone, ownerToken, syncToken } from '../services/pairing.ts';
 import { isDemo } from './storage.ts';
 import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { App } from './App.tsx';
@@ -147,6 +148,8 @@ export function Root() {
   }, [hash, inKitchen, show, go, seesOwner, kitchenOnly, needsLogin, staff]);
 
   // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
+  // A manager's phone app (SCRUM-94): the counts and the stock, nothing else.
+  if (isManagerPhone()) return <ManagerPhone inventory={hash === '#inventory'} />;
   if (isCloudSite()) return ownerToken() || isDemo() || adminShop() ? <OwnerView phone /> : <OwnerWelcome />;
   if (setup === 'checking') return <div className="setup" aria-busy="true" />;
   if (setup === 'new') return <SetupWizard mode="first" />;
@@ -158,11 +161,6 @@ export function Root() {
   }
   if (hash === '#receipt') return <ReceiptPreview />; // setup page, not a cashier screen
   if (kitchenOnly) return <Kitchen onSwitch={staff ? lock : undefined} />;
-  // The manager's phone (SCRUM-94): a manager's PIN, then the counts and the stock, nothing else.
-  if (isManagerDevice()) {
-    if (!staff) return <LockScreen />;
-    return hash === '#inventory' ? <InventoryView /> : <ManagerView />;
-  }
   if (inKitchen) return <Kitchen onBack={fromRegister || needsLogin ? () => show(false) : undefined} />;
   if (needsLogin && !staff) return <LockScreen />;
   // Managers and owners only (SCRUM-41); anyone else typing the address gets the Register.
@@ -189,4 +187,13 @@ export function Root() {
     <App onKitchen={() => show(true)} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}
       onSwitch={needsLogin ? lock : undefined} canManageStock={mayManageStock} />
   );
+}
+
+/** The manager's phone app: who it belongs to comes from the cloud once, then the counts. */
+function ManagerPhone({ inventory }: { inventory: boolean }) {
+  const [me, setMe] = useState<'loading' | 'ready' | string>('loading');
+  useEffect(() => { loadMe().then(() => setMe('ready'), (e: unknown) => setMe(e instanceof Error ? e.message : String(e))); }, []);
+  if (me === 'loading') return <div className="setup" aria-busy="true" />;
+  if (me !== 'ready') return <main className="setup"><p className="setup__error" role="alert">{me}</p></main>;
+  return inventory ? <InventoryView /> : <ManagerView />;
 }

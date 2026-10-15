@@ -5,7 +5,7 @@ import {
 import { formatQuantity } from '../domain/quantity.ts';
 import { fmt } from '../domain/money.ts';
 import { learnUnit, recordCount, type InventoryRow } from '../services/inventoryStore.ts';
-import { isManagerDevice } from '../services/pairing.ts';
+import { isManagerPhone } from '../services/pairing.ts';
 import { keepPhoto, newPhotoId, shrinkPhoto } from '../services/photos.ts';
 
 /**
@@ -17,7 +17,7 @@ import { keepPhoto, newPhotoId, shrinkPhoto } from '../services/photos.ts';
  * Stop any time (×, Esc or a tap outside): what is saved stays saved.
  * On the manager's phone a big gap also needs a photo of the shelf (SCRUM-94): the
  * camera opens straight away, the photo is shrunk on the phone and kept until the
- * shop PC has it. (The counter PC has no camera, so it asks only for the reason.)
+ * cloud has it. (The counter PC has no camera, so it asks only for the reason.)
  */
 const FRACTIONS = [{ v: 0.25, label: '¼' }, { v: 0.5, label: '½' }, { v: 0.75, label: '¾' }];
 const TIER_LABEL: Record<Tier, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
@@ -25,7 +25,7 @@ const number = (raw: string): number | null => (/^\d+(\.\d{1,3})?$/.test(raw.tri
 
 interface Done { name: string; gapCents: number; big: boolean; undo: () => void; index: number }
 
-export function CountFlow({ due, rows, onClose, photoRequired = isManagerDevice() }: {
+export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone() }: {
   due: DueCount[]; rows: InventoryRow[]; onClose: () => void;
   /** A big gap needs a shelf photo (the manager's phone). */
   photoRequired?: boolean;

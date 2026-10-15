@@ -6,6 +6,8 @@ import {
 import { requireOwner } from '../services/auth.ts';
 import { setCountTier, useCountHistory, useInventory } from '../services/inventoryStore.ts';
 import { useWaitingPhotos } from '../services/photos.ts';
+import { useInstall } from '../services/ownerApp.ts';
+import { isManagerPhone } from '../services/pairing.ts';
 import { CountFlow } from './CountFlow.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -37,6 +39,9 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
   const editor = typeof edit === 'object' ? edit : null;
   const waiting = useWaitingPhotos();
+  // The manager's phone app (SCRUM-94): offered for the home screen; the lists are edited at the shop.
+  const phone = isManagerPhone();
+  const install = useInstall();
 
   useEffect(() => {
     if (!editor) return;
@@ -68,7 +73,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
       <main className="owner__main mgr" aria-label="Manager">
         <div className="mgr__title-row">
           <h1 className="mgr__title">Counts</h1>
-          {edit === 'pin'
+          {phone ? null : edit === 'pin'
             ? <OwnerPin onOpen={setEdit} onCancel={() => setEdit('closed')} />
             : (
               <button type="button" className="chip" aria-pressed={!!editor} onClick={() => setEdit(editor ? 'closed' : 'pin')}>
@@ -76,7 +81,16 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
               </button>
             )}
         </div>
-        {waiting > 0 && <p className="mgr__hint" role="status">{waiting} {waiting === 1 ? 'photo waits' : 'photos wait'} for the shop Wi-Fi; they send by themselves.</p>}
+        {phone && install.kind === 'button' && (
+          <p className="owner__install">
+            <span>Put CheesyBeez Manager on your home screen.</span>
+            <button type="button" className="insight__action" onClick={install.install}>Install app</button>
+          </p>
+        )}
+        {phone && install.kind === 'iphone' && (
+          <p className="owner__install">To put it on your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
+        )}
+        {waiting > 0 && <p className="mgr__hint" role="status">{waiting} {waiting === 1 ? 'photo waits' : 'photos wait'} for the signal; they send by themselves.</p>}
         {editor && <p className="mgr__hint">Move any item to another list. Automatic follows what sales use.</p>}
 
         <section className="mgr__today" aria-label="Today">

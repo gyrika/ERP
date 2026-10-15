@@ -1,3 +1,4 @@
+import { managesRole } from '../src/domain/auth.ts';
 import type { IncomingMessage } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
@@ -175,9 +176,9 @@ export function setupApi(ctx: SetupContext) {
     /**
      * A QR code's link. kitchen: a tablet on the shop Wi-Fi becomes the Kitchen screen.
      * owner: a phone gets the Owner view from the cloud. counter: another screen on this PC.
-     * manager: the manager's phone on the shop Wi-Fi, for counts and photos (SCRUM-94).
+     * manager: a manager's phone app from the cloud, made for one person (SCRUM-94).
      */
-    async pair(body: { kind?: unknown; ownerPin?: unknown }) {
+    async pair(body: { kind?: unknown; ownerPin?: unknown; staffId?: unknown }) {
       await authorise(body.ownerPin);
       const s = requireShop();
       if (body.kind === 'owner') {
@@ -191,11 +192,25 @@ export function setupApi(ctx: SetupContext) {
         const { token } = (await r.json()) as { token: string };
         return { link: `${cloud.url}/?owner=${token}#owner` };
       }
-      if (body.kind === 'kitchen' || body.kind === 'manager') {
+      if (body.kind === 'manager') {
+        const cloud = ctx.cloud();
+        if (!cloud) throw new SetupError(409, 'not_ready', 'connect the cloud copy first');
+        const person = (await ctx.store.listStaff(s.id)).find((m) => m.id === body.staffId && m.active);
+        if (!person || !managesRole(person.role)) throw new SetupError(400, 'invalid', 'pick a manager or an owner');
+        const r = await http(`${cloud.url}/api/v1/devices`, {
+          method: 'POST', headers: { authorization: `Bearer ${cloud.token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ kind: 'manager', actor: { id: person.id, name: person.name, role: person.role } }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!r.ok) throw new SetupError(502, 'not_ready', 'the cloud did not answer: is the internet up?');
+        const { token } = (await r.json()) as { token: string };
+        return { link: `${cloud.url}/?manager=${token}#manager` };
+      }
+      if (body.kind === 'kitchen') {
         const host = lanAddress();
         if (!host) throw new SetupError(409, 'not_ready', 'this PC is not on a network: connect it to the shop Wi-Fi');
-        const { token } = await ctx.store.addDevice(s.id, s.name, body.kind);
-        return { link: `http://${host}:${ctx.port}/?pair=${token}&shop=${encodeURIComponent(s.id)}&as=${body.kind}#${body.kind}` };
+        const { token } = await ctx.store.addDevice(s.id, s.name, 'kitchen');
+        return { link: `http://${host}:${ctx.port}/?pair=${token}&shop=${encodeURIComponent(s.id)}&as=kitchen#kitchen` };
       }
       if (body.kind === 'counter') {
         const { token } = await ctx.store.addDevice(s.id, s.name, 'counter');

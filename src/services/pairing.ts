@@ -10,6 +10,7 @@ const TOKEN = 'cb.sync.token';
 const KIND = 'cb.sync.kind';
 const SHOP = 'cb.sync.shop';
 const OWNER = 'cb.owner.token';
+const MANAGER = 'cb.manager.token';
 
 const get = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
 const set = (k: string, v: string): void => { try { localStorage.setItem(k, v); } catch { /* blocked */ } };
@@ -23,11 +24,17 @@ export const pairFromUrl = (): void => {
     url.searchParams.delete('owner');
     history.replaceState(null, '', url.pathname + url.search + url.hash);
   }
+  // A manager's phone: `?manager=<token>` from Shop setup → Devices (SCRUM-94).
+  const manager = url.searchParams.get('manager');
+  if (manager) {
+    set(MANAGER, manager);
+    url.searchParams.delete('manager');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
   const token = url.searchParams.get('pair');
   if (!token) return;
   set(TOKEN, token);
-  const as = url.searchParams.get('as');
-  set(KIND, as === 'kitchen' || as === 'manager' ? as : 'counter');
+  set(KIND, url.searchParams.get('as') === 'kitchen' ? 'kitchen' : 'counter');
   const shop = url.searchParams.get('shop');
   if (shop) set(SHOP, shop);
   url.searchParams.delete('pair');
@@ -44,17 +51,24 @@ export const pairedShop = (): string | null => get(SHOP);
 /** A kitchen device shows the kitchen and nothing else, with no login (the server enforces the same). */
 export const isKitchenDevice = (): boolean => syncToken() !== null && get(KIND) === 'kitchen';
 
-/** The manager's phone (SCRUM-94): Manager and Inventory only, opened with a manager's PIN. */
-export const isManagerDevice = (): boolean => syncToken() !== null && get(KIND) === 'manager';
 
 /** The owner's phone token for the cloud copy (read-only), if this device has one. */
 export const ownerToken = (): string | null => (isDemo() ? null : get(OWNER));
+
+/** A manager's phone app's key (SCRUM-94), if this device has one. */
+export const managerToken = (): string | null => (isDemo() ? null : get(MANAGER));
 
 /**
  * The cloud build (`npm run build:cloud`, served by the cloud Worker) holds only
  * the Owner view: nobody on the internet reaches a register there.
  */
 export const isCloudSite = (): boolean => import.meta.env.VITE_SITE === 'cloud';
+
+/**
+ * The manager's phone app (SCRUM-94): the cloud site opened from a manager's QR code.
+ * Manager and Inventory only, signed by the person the phone was made for.
+ */
+export const isManagerPhone = (): boolean => isCloudSite() && managerToken() !== null;
 
 /** The Shops screen's shop on the developer's laptop (`#shops/<id>`, read through the local server). */
 export const fleetShop = (): string | null => /^#shops\/([a-z0-9-]{1,64})$/.exec(location.hash)?.[1] ?? null;

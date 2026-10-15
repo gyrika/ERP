@@ -1,6 +1,8 @@
+import type { Actor } from '../../src/domain/auth.ts';
 import { PULL_LIMIT, PUSH_BATCH, type ApiError, type PullResponse, type SyncedEvent } from '../../src/domain/sync.ts';
 import { validatePush } from '../../server/validate.ts';
 import { HttpError, json, sha256Hex } from './http.ts';
+import { managerRoutes, parseActor } from './manager.ts';
 import { onlineRoutes } from './online.ts';
 import { projectSales } from './sales.ts';
 
@@ -27,8 +29,9 @@ export interface D1Like {
   batch(statements: D1Statement[]): Promise<{ meta: { changes: number } }[]>;
 }
 
-export type Kind = 'shop_server' | 'owner';
-export interface CloudDevice { id: string; tenantId: string; kind: Kind }
+export type Kind = 'shop_server' | 'owner' | 'manager';
+/** actor: a manager phone's person (SCRUM-94); null for every other device. */
+export interface CloudDevice { id: string; tenantId: string; kind: Kind; actor: Actor | null }
 
 /** POST /api/v1/replica: events exactly as the shop server holds them, oldest first. */
 export interface ReplicaPush { events: SyncedEvent[] }
@@ -85,12 +88,12 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
     const h = req.headers.get('authorization');
     const token = h?.startsWith('Bearer ') ? h.slice(7) : null;
     const row = token
-      ? await db.prepare('SELECT id, tenant_id, kind FROM devices WHERE token_hash = ?').bind(await sha256Hex(token))
-        .first<{ id: string; tenant_id: string; kind: Kind }>()
+      ? await db.prepare('SELECT id, tenant_id, kind, actor FROM devices WHERE token_hash = ?').bind(await sha256Hex(token))
+        .first<{ id: string; tenant_id: string; kind: Kind; actor: string | null }>()
       : null;
     if (!row) throw new HttpError(401, 'unauthorized', 'unknown device token');
     if (!allowed.includes(row.kind)) throw new HttpError(403, 'forbidden', 'not for this device');
-    return { id: row.id, tenantId: row.tenant_id, kind: row.kind };
+    return { id: row.id, tenantId: row.tenant_id, kind: row.kind, actor: row.kind === 'manager' ? parseActor(row.actor) : null };
   };
 
   const lastSourceSeq = async (tenantId: string): Promise<number> =>
@@ -114,6 +117,8 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
     if (url.pathname === '/api/v1/health' && req.method === 'GET') return json(200, { ok: true, serverTime: now() });
     const online = await onlineRoutes(req, url, { db, now, ...order, authenticate });
     if (online) return online;
+    const manager = await managerRoutes(req, url, { db, now, authenticate });
+    if (manager) return manager;
 
     if (url.pathname === '/api/v1/replica') {
       const device = await authenticate(req, ['shop_server']);
@@ -184,26 +189,34 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
       return json(200, { token });
     }
 
-    // The owners' phones, managed by the shop server (the setup wizard's QR codes, and withdrawing a lost phone).
+    // The owners' and managers' phones, managed by the shop server (the setup wizard's QR codes, and withdrawing a lost phone).
     if (url.pathname === '/api/v1/devices' || url.pathname.startsWith('/api/v1/devices/')) {
       const device = await authenticate(req, ['shop_server']);
       if (url.pathname === '/api/v1/devices' && req.method === 'GET') {
         const { results } = await db.prepare(
-          "SELECT id, created_at FROM devices WHERE tenant_id = ? AND kind = 'owner' ORDER BY created_at")
-          .bind(device.tenantId).all<{ id: string; created_at: number }>();
-        return json(200, { devices: results.map((r) => ({ id: r.id, createdAt: r.created_at })) });
+          "SELECT id, kind, actor, created_at FROM devices WHERE tenant_id = ? AND kind IN ('owner', 'manager') ORDER BY created_at")
+          .bind(device.tenantId).all<{ id: string; kind: Kind; actor: string | null; created_at: number }>();
+        return json(200, { devices: results.map((r) => ({
+          id: r.id, kind: r.kind, createdAt: r.created_at, ...(r.kind === 'manager' ? { person: parseActor(r.actor)?.name ?? null } : {}),
+        })) });
       }
       if (url.pathname === '/api/v1/devices' && req.method === 'POST') {
+        let body: { kind?: unknown; actor?: unknown } = {};
+        try { body = (await req.json()) as typeof body; } catch { /* {} : an owner phone, as before */ }
+        const kind: Kind = body.kind === 'manager' ? 'manager' : 'owner';
+        // A manager phone is made for one manager or owner of this shop (the shop server says who).
+        const actor = kind === 'manager' ? parseActor(JSON.stringify(body.actor ?? null)) : null;
+        if (kind === 'manager' && !actor) throw new HttpError(400, 'invalid_event', 'a manager phone needs its person: a manager or an owner');
         const token = newToken();
         const id = newId();
-        await db.prepare("INSERT INTO devices (id, tenant_id, kind, token_hash, created_at) VALUES (?, ?, 'owner', ?, ?)")
-          .bind(id, device.tenantId, await sha256Hex(token), now()).run();
+        await db.prepare('INSERT INTO devices (id, tenant_id, kind, token_hash, created_at, actor) VALUES (?, ?, ?, ?, ?, ?)')
+          .bind(id, device.tenantId, kind, await sha256Hex(token), now(), actor ? JSON.stringify({ id: actor.id, name: actor.name, role: actor.role }) : null).run();
         return json(200, { id, token });
       }
       if (req.method === 'DELETE') {
         const id = decodeURIComponent(url.pathname.slice('/api/v1/devices/'.length));
-        // Only this shop's owner phones: never a shop server, never another shop's device.
-        const r = await db.prepare("DELETE FROM devices WHERE id = ? AND tenant_id = ? AND kind = 'owner'")
+        // Only this shop's phones: never a shop server, never another shop's device.
+        const r = await db.prepare("DELETE FROM devices WHERE id = ? AND tenant_id = ? AND kind IN ('owner', 'manager')")
           .bind(id, device.tenantId).run();
         return json(r.meta.changes ? 200 : 404, { removed: r.meta.changes });
       }
@@ -212,7 +225,7 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
 
     if (url.pathname === '/api/v1/events' && req.method === 'GET') {
       // Reading the copy: the owner's phone later, or a shop server rebuilding itself.
-      const device = await authenticate(req, ['shop_server', 'owner']);
+      const device = await authenticate(req, ['shop_server', 'owner', 'manager']);
       const after = Math.max(0, Number(url.searchParams.get('after')) || 0);
       const limit = Math.min(PULL_LIMIT, Math.max(1, Number(url.searchParams.get('limit')) || PULL_LIMIT));
       const { results } = await db.prepare(

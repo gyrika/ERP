@@ -42,12 +42,16 @@ export interface AppOptions {
   version?: () => string;
   /** An update under way (src/domain/updating.ts), so the counter can say so; null when none. */
   updating?: () => UpdateStep | null;
-  /** Shelf photos (SCRUM-94), kept on this PC. Omit and photos answer 503. */
+  /** Shelf photos (SCRUM-94): a copy on this PC of the ones in the cloud. Omit and photos answer 503. */
   photos?: PhotoStore;
+  /** Fetches a shelf photo from the cloud (the manager phones keep them there); null when it has none. */
+  cloudPhoto?: (tenantId: string, id: string) => Promise<Buffer | null>;
   /** The developer's Shops screen (only where CLOUD_ADMIN_KEY is set: the developer's laptop). */
   fleet?: Fleet | null;
   now?: () => number;
 }
+
+export type Ingest = (device: Device, events: SyncEvent[]) => Promise<number>;
 
 const MAX_BODY = 1_000_000; // 100 events are far below this
 const MAX_PRINT = 64_000; // a long receipt is ~3 KB of ESC/POS
@@ -117,7 +121,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, now = Date.now }: AppOptions): Server {
+export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, cloudPhoto, now = Date.now }: AppOptions): Server & { ingest: Ingest } {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -245,21 +249,17 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     }
     if (url.pathname === '/api/v1/photos' || url.pathname.startsWith('/api/v1/photos/')) {
       const device = await authenticate(req, url);
-      // Proof of a count: the counter and the manager's phone, never a kitchen tablet.
-      if (device.kind !== 'counter' && device.kind !== 'manager') throw new HttpError(403, 'forbidden', 'only the counter and the manager phone see photos');
+      // Proof of a count, shown at the counter; never on a kitchen tablet.
+      if (device.kind !== 'counter') throw new HttpError(403, 'forbidden', 'only the counter sees photos');
       if (!photos) throw new HttpError(503, 'server', 'photos are not kept on this server');
-      if (url.pathname === '/api/v1/photos' && req.method === 'POST') {
-        const body = await readBody(req) as { id?: unknown; data?: unknown };
-        if (!isPhotoId(body?.id) || typeof body?.data !== 'string') throw new HttpError(400, 'invalid_event', 'body must be { id: ph-…, data: base64 JPEG }');
-        const jpeg = Buffer.from(body.data, 'base64');
-        if (!isJpeg(jpeg) || jpeg.length > MAX_PHOTO_BYTES) throw new HttpError(400, 'invalid_event', 'not a JPEG photo, or too large');
-        photos.save(device.tenantId, body.id, jpeg);
-        json(res, 200, { ok: true });
-        return;
-      }
       const id = url.pathname.slice('/api/v1/photos/'.length);
       if (req.method !== 'GET' || !isPhotoId(id)) throw new HttpError(404, 'server', 'no such photo');
-      const jpeg = photos.read(device.tenantId, id);
+      // From this PC's copy; the first time, from the cloud (then kept here, for when the internet is down).
+      let jpeg = photos.read(device.tenantId, id);
+      if (!jpeg && cloudPhoto) {
+        const got = await cloudPhoto(device.tenantId, id).catch(() => null);
+        if (got && isJpeg(got) && got.length <= MAX_PHOTO_BYTES) { photos.save(device.tenantId, id, got); jpeg = got; }
+      }
       if (!jpeg) throw new HttpError(404, 'server', 'no such photo');
       res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000, immutable' });
       res.end(jpeg);
@@ -395,6 +395,14 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     }
   };
 
+  /** Events from elsewhere (the manager phones, through the cloud): stored as from `device`, then streamed as usual. */
+  const ingest: Ingest = async (device, events) => {
+    const { stored } = await store.push(device, events, now());
+    broadcast(device.tenantId, stored);
+    if (stored.length) onStored?.(device.tenantId, stored.map((s) => s.event));
+    return stored.length;
+  };
+
   // Stopping must not wait for devices to hang up: close their streams first.
   const close = server.close.bind(server);
   server.close = (cb) => {
@@ -403,5 +411,5 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     server.closeAllConnections();
     return close(cb);
   };
-  return server;
+  return Object.assign(server, { ingest });
 }

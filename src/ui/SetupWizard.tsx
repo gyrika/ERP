@@ -334,15 +334,49 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
   );
 }
 
+/**
+ * The manager's phone app (SCRUM-94), from the cloud like the owner's: made for one
+ * person, so its counts are signed with them. Pick who, then scan.
+ */
+function ManagerPhoneCard({ available, ownerPin, onError }: { available: boolean; ownerPin?: string; onError: (m: string) => void }) {
+  const [people, setPeople] = useState<{ id: string; name: string; role: Role }[] | null>(null);
+  const [link, setLink] = useState<{ name: string; url: string } | null>(null);
+  const title = "Manager's phone";
+  const pick = async () => {
+    onError('');
+    try { setPeople((await setupClient.staff(ownerPin)).staff.filter((m) => m.active && (m.role === 'manager' || m.role === 'owner'))); }
+    catch (e) { onError(e instanceof Error ? e.message : String(e)); }
+  };
+  const show = async (person: { id: string; name: string }) => {
+    onError('');
+    try { setLink({ name: person.name, url: (await setupClient.pair('manager', ownerPin, person.id)).link }); }
+    catch (e) { onError(e instanceof Error ? e.message : String(e)); }
+  };
+  return (
+    <section className="setup__device" aria-label={title}>
+      <h2>{title}</h2>
+      {!available ? <p className="setup__hint">Connect to the cloud first (the step before), then come back here.</p>
+        : link ? <><QrCode text={link.url} label={`QR code for ${link.name}'s phone`} />
+          <p className="setup__hint">Scan it with {link.name}'s phone. It opens today's counts, from anywhere, and can go on the home screen.</p></>
+        : people ? (people.length
+          ? <div className="chips" role="group" aria-label="Whose phone">
+            {people.map((p) => <button key={p.id} type="button" className="chip" onClick={() => void show(p)}>{p.name}</button>)}
+          </div>
+          : <p className="setup__hint">Add a manager first (Staff), then come back here.</p>)
+        : <button type="button" className="chip chip--solid" onClick={() => void pick()}>Show QR code</button>}
+    </section>
+  );
+}
+
 function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPin?: string; onFinish?: () => void }) {
-  const [links, setLinks] = useState<{ kitchen?: string; manager?: string; owner?: string }>({});
+  const [links, setLinks] = useState<{ kitchen?: string; owner?: string }>({});
   const [error, setError] = useState('');
-  const show = async (kind: 'kitchen' | 'manager' | 'owner') => {
+  const show = async (kind: 'kitchen' | 'owner') => {
     setError('');
     try { const { link } = await setupClient.pair(kind, ownerPin); setLinks((l) => ({ ...l, [kind]: link })); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const card = (kind: 'kitchen' | 'manager' | 'owner', title: string, how: string, available: boolean, why: string) => (
+  const card = (kind: 'kitchen' | 'owner', title: string, how: string, available: boolean, why: string) => (
     <section className="setup__device" aria-label={title}>
       <h2>{title}</h2>
       {links[kind]
@@ -356,7 +390,7 @@ function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPi
     <div className="setup__form">
       <div className="setup__devices">
         {card('kitchen', 'Kitchen tablet', "Scan it with the tablet's camera. The tablet must be on the shop's Wi-Fi.", true, '')}
-        {card('manager', "Manager's phone", "Scan it with the manager's phone on the shop's Wi-Fi. It opens the counts with a manager's PIN.", true, '')}
+        <ManagerPhoneCard available={state.cloud} ownerPin={ownerPin} onError={setError} />
         {card('owner', "Owner's phone", "Scan it with the owner's phone. It then shows the Owner view, from anywhere.", state.cloud,
           'Connect to the cloud first (the step before), then come back here.')}
       </div>

@@ -1,13 +1,13 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { PHOTO_MAX_SIDE, PHOTO_TARGET_BYTES } from '../domain/photos.ts';
 import { storageKey } from '../ui/storage.ts';
-import { syncToken } from './pairing.ts';
+import { managerToken, ownerToken, syncToken } from './pairing.ts';
 
 /**
  * Shelf photos on this device (SCRUM-94). A photo is shrunk on the phone to about
  * 150 KB, kept here until the shop PC has it (the shop Wi-Fi comes and goes), then
- * sent on its own; the count only carries its id. Without a server (development,
- * the demo) photos simply stay on this device.
+ * sent on its own to the cloud, where the shop PC and the owner see it; the count
+ * only carries its id. Without a cloud key (development, the demo) photos stay here.
  */
 const QUEUE = () => storageKey('photos.queue');
 const RETRY_MS = 30_000;
@@ -51,7 +51,7 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 
 /** Sends what is waiting; whatever the shop PC has is taken off this device. */
 export const flushPhotos = async (): Promise<void> => {
-  const token = syncToken();
+  const token = managerToken();
   if (!token) return;
   if (timer) { clearTimeout(timer); timer = null; }
   for (const [id, data] of Object.entries(readQueue())) {
@@ -93,7 +93,8 @@ export function usePhotoUrl(id: string | null | undefined): string | null {
     if (!id) return;
     const local = readQueue()[id];
     if (local) { setUrl(`data:image/jpeg;base64,${local}`); return; }
-    const token = syncToken();
+    // The phones read from the cloud; the counter from its shop PC (which fetches it from the cloud once).
+    const token = managerToken() ?? ownerToken() ?? syncToken();
     if (!token) return;
     let gone = false;
     let made: string | null = null;

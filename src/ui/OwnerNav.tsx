@@ -7,8 +7,8 @@
  */
 import { useSyncExternalStore } from 'react';
 import { usesLogin } from '../services/auth.ts';
-import { isManagerDevice } from '../services/pairing.ts';
-import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
+import { isManagerPhone } from '../services/pairing.ts';
+import { signedIn, subscribeAuth } from '../services/serverAuth.ts';
 
 export type Section = 'owner' | 'manager' | 'menu' | 'recipes' | 'inventory' | 'suppliers' | 'setup';
 
@@ -31,8 +31,8 @@ export function OwnerNav({ current, onRegister }: {
 }) {
   const role = useSyncExternalStore(subscribeAuth, () => signedIn()?.role ?? null);
   const isOwner = !usesLogin() || role === 'owner';
-  // The manager's phone (SCRUM-94): counts and stock only, and Lock instead of the Register.
-  const phone = isManagerDevice();
+  // The manager's phone app (SCRUM-94): counts and stock only, and no Register.
+  const phone = isManagerPhone();
   return (
     <header className="owner__head">
       <span className="brand">CheesyBeez</span>
@@ -41,7 +41,7 @@ export function OwnerNav({ current, onRegister }: {
           <a key={s.id} href={`#${s.id}`} aria-current={s.id === current ? 'page' : undefined}>{s.label}</a>
         ))}
         {phone
-          ? <button type="button" className="owner__back" onClick={lock}>Lock</button>
+          ? null
           : onRegister
             ? <button type="button" className="owner__back" onClick={onRegister}>Register</button>
             : <a href="#">Register</a>}
