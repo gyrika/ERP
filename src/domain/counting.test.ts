@@ -49,6 +49,16 @@ test('the items carrying most of the spend are counted daily, then weekly, the r
   assert.deepEqual(Object.fromEntries(tiersOf(rows)), { cheese: 'daily', flour: 'weekly', oregano: 'monthly', salt: 'monthly', unused: 'monthly' });
 });
 
+test('before the first sale the dearest packs start daily (8) and weekly (12)', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => ({ id: `i${String(i).padStart(2, '0')}`, usedPerDay: 0, packQty: 1, workingPriceCents: (30 - i) * 1000 }));
+  const tiers = tiersOf(rows);
+  assert.equal(tiers.get('i00'), 'daily');
+  assert.equal(tiers.get('i07'), 'daily');
+  assert.equal(tiers.get('i08'), 'weekly');
+  assert.equal(tiers.get('i19'), 'weekly');
+  assert.equal(tiers.get('i20'), 'monthly');
+});
+
 test("today's list: due by tier, overdue first, never-counted last; counted today drops off", () => {
   const tiers = new Map<string, Tier>([['a', 'daily'], ['b', 'weekly'], ['c', 'daily'], ['d', 'monthly'], ['e', 'daily']]);
   const due = countsDue([

@@ -12,6 +12,7 @@ import { learnUnit, recordCount, type InventoryRow } from '../services/inventory
  * opened pack by eye or weighed, a tray). They never see what the app expects
  * until they have counted (a blind count), so the number is theirs. A match is
  * saved at once; a gap beyond the allowance asks why before the item is done.
+ * Stop any time (×, Esc or a tap outside): what is saved stays saved.
  */
 const FRACTIONS = [{ v: 0.25, label: '¼' }, { v: 0.5, label: '½' }, { v: 0.75, label: '¾' }];
 const TIER_LABEL: Record<Tier, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
@@ -37,8 +38,9 @@ export function CountFlow({ due, rows, onClose }: {
   const short = results.filter((r) => r.cents < 0).reduce((s, r) => s + r.cents, 0);
 
   return (
-    <div className="inv-modal-backdrop">
+    <div className="inv-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section className="inv-modal count" role="dialog" aria-modal="true" aria-label="Count">
+        <button type="button" className="count__close" aria-label="Stop counting" onClick={onClose}>×</button>
         {last && (
           <p className="count__saved" role="status">
             {last.name}: {last.big ? `gap of Rs ${fmt(Math.abs(last.gapCents))} saved` : 'matches'}.

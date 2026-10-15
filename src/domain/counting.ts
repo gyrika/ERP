@@ -96,17 +96,30 @@ export const TIER_DAYS: Record<Tier, number> = { daily: 1, weekly: 7, monthly: 3
 export const DAILY_SHARE = 0.7;
 export const WEEKLY_SHARE = 0.9;
 
-/** Per item, from what it costs a week (price x how much the sales use). Unused items are monthly. */
+/** Before any sales: the dearest packs, this many daily and the next ones weekly. */
+export const START_DAILY = 8;
+export const START_WEEKLY = 12;
+
+/**
+ * Per item, from what it costs a week (price x how much the sales use). Unused items
+ * are monthly. Before the first sale nothing is used yet, so the dearest packs start
+ * daily and weekly; real sales take over as soon as there are any.
+ */
 export const tiersOf = (rows: readonly { id: string; usedPerDay: number; packQty: number; workingPriceCents: Cents }[]): Map<string, Tier> => {
   const spend = rows
     .map((r) => ({ id: r.id, week: r.packQty > 0 ? (r.usedPerDay * 7 / r.packQty) * r.workingPriceCents : 0 }))
     .sort((a, b) => b.week - a.week || a.id.localeCompare(b.id));
   const total = spend.reduce((s, r) => s + r.week, 0);
   const tiers = new Map<string, Tier>();
+  if (total <= 0) {
+    [...rows].sort((a, b) => b.workingPriceCents - a.workingPriceCents || a.id.localeCompare(b.id))
+      .forEach((r, i) => tiers.set(r.id, i < START_DAILY ? 'daily' : i < START_DAILY + START_WEEKLY ? 'weekly' : 'monthly'));
+    return tiers;
+  }
   let before = 0;
   for (const r of spend) {
     // An item belongs to the band where its spend starts, so the biggest item is always daily.
-    const at = total > 0 ? before / total : 1;
+    const at = before / total;
     tiers.set(r.id, r.week <= 0 ? 'monthly' : at < DAILY_SHARE ? 'daily' : at < WEEKLY_SHARE ? 'weekly' : 'monthly');
     before += r.week;
   }
