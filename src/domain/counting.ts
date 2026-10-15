@@ -35,6 +35,29 @@ export const unitsOf = (item: { baseUnit: BaseUnit; packQty: number; units?: rea
   ...BUILT_IN[item.baseUnit],
 ];
 
+/** A unit id as unitsOf makes them: the pack, a built-in unit, or a learned one ("unit:Tray"). */
+export const isUnitId = (u: unknown): u is string =>
+  typeof u === 'string' && /^(pack|kg|g|L|ml|pcs|sheets|unit:[A-Za-z][A-Za-z ]{0,19})$/.test(u);
+
+/**
+ * What receiving this item is counted in (SCRUM-96): the owner's choice, else the pack.
+ * A choice that no longer fits the item (a learned unit removed) falls back to the pack.
+ */
+export const receiveUnitOf = (item: { baseUnit: BaseUnit; packQty: number; units?: readonly LearnedUnit[]; receiveUnit?: string | null }): CountUnit => {
+  const units = unitsOf(item);
+  return units.find((u) => u.id === item.receiveUnit) ?? units[0];
+};
+
+/** So many of a unit, in packs (what the stock is kept in). */
+export const toPacks = (qty: number, unit: CountUnit, packQty: number): number => (packQty > 0 ? (qty * unit.base) / packQty : 0);
+
+/** A pack's price as the price of one of `unit`, and back (whole cents). */
+export const unitPrice = (packCents: number, unit: CountUnit, packQty: number): number => Math.round((packCents * unit.base) / packQty);
+export const packPrice = (unitCents: number, unit: CountUnit, packQty: number): number => Math.round((unitCents * packQty) / unit.base);
+
+/** The unit's short name for a sentence: "pack", "kg", "Tray". */
+export const unitName = (unit: CountUnit): string => (unit.id === 'pack' ? 'pack' : unit.id.startsWith('unit:') ? unit.id.slice(5) : unit.id);
+
 /** "Tray", "Box": a short name, not a number and not one of the built-in units. */
 export const checkUnitName = (name: string, item: { baseUnit: BaseUnit; units?: readonly LearnedUnit[] }): string | null => {
   const n = name.trim();

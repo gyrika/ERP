@@ -1,4 +1,4 @@
-import { managesRole, type Actor, type Role } from '../../src/domain/auth.ts';
+import { managesRole, OWNER_STOCK, type Actor, type Role } from '../../src/domain/auth.ts';
 import { isPhotoId } from '../../src/domain/photos.ts';
 import { PULL_LIMIT, PUSH_BATCH, type PushResponse, type SyncEvent } from '../../src/domain/sync.ts';
 import { validatePush } from '../../server/validate.ts';
@@ -30,7 +30,7 @@ export const phoneRefusal = (e: SyncEvent, actor: Actor, kind: Kind = 'manager')
   if (kind === 'owner' && e.type !== 'stock.gap_reviewed') return "the owner's phone only checks gaps";
   if (!e.type.startsWith('stock.')) return 'the manager phone records stock only';
   if (!('actor' in e) || e.actor.id !== actor.id || e.actor.role !== actor.role) return 'not the person this phone belongs to';
-  if ((e.type === 'stock.tier_set' || e.type === 'stock.gap_reviewed') && actor.role !== 'owner') return 'only the owner does this';
+  if (OWNER_STOCK.has(e.type) && actor.role !== 'owner') return 'only the owner does this';
   return null;
 };
 

@@ -1109,3 +1109,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .mgr__ask p { margin: 0; }
 .mgr__ask-q { color: var(--ink-2); }
 .mgr__ask .insight__action { align-self: flex-end; }
+
+/* What receiving is counted in, the owner's choice (SCRUM-96). */
+.receive-unit { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink-2); font-size: 14px; }
+.receive-unit b { color: var(--ink); font-weight: 600; }
