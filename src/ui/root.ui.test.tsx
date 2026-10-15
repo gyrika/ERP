@@ -72,7 +72,7 @@ test('finding an ingredient supplier routes to the filtered supplier view', asyn
   const user = userEvent.setup();
   render(<Root />);
 
-  await user.click(screen.getAllByRole('button', { name: 'Find supplier' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'Prima / David Stores (Wholesale)' })[0]);
 
   expect(location.hash).toBe('#suppliers');
   expect(screen.getByRole('heading', { name: 'Targeted Suppliers' })).toBeTruthy();
@@ -97,7 +97,7 @@ test('adding a supplier with a new ingredient updates Inventory and Find Supplie
   const ingredientRow = screen.getByRole('heading', { name: 'End-to-end Flour' }).closest('.inv-row') as HTMLElement;
   expect(within(ingredientRow).getByText('End-to-end Supplier')).toBeTruthy();
 
-  await user.click(within(ingredientRow).getByRole('button', { name: 'Find supplier' }));
+  await user.click(within(ingredientRow).getByRole('button', { name: 'End-to-end Supplier' }));
   expect(await screen.findByRole('heading', { name: 'Targeted Suppliers' })).toBeTruthy();
   const supplierToggle = screen.getByRole('button', { name: 'Expand End-to-end Supplier' });
   await user.click(supplierToggle);

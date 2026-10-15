@@ -7,13 +7,16 @@ import { formatPacks, formatQuantity } from './quantity.ts';
 /**
  * Serves the manager with a delivery in hand: they know how many packs and the
  * price, the app knows everything else. Saved at once with Undo on the screen.
- * Count opens the count screen (CountFlow: blind count, units, reasons).
+ * Count opens the count screen (CountFlow: blind count, units, reasons). Removing
+ * the item lives here, out of the way, with Undo on the inventory screen.
  */
-export function StockSheet({ item, onClose, onDone, onCount }: {
+export function StockSheet({ item, onClose, onDone, onCount, onRemove }: {
   item: InventoryRow;
   /** Count opens the count screen for this item. */
   onCount: () => void;
   onClose: () => void;
+  /** Takes the item off the inventory (Undo on the inventory screen). */
+  onRemove?: () => void;
   /** What was recorded, and how to take it back. */
   onDone: (message: string, undo: () => void) => void;
 }) {
@@ -46,7 +49,7 @@ export function StockSheet({ item, onClose, onDone, onCount }: {
   };
 
   return (
-    <div className="inv-modal-backdrop">
+    <div className="inv-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <form className="inv-modal" role="dialog" aria-modal="true" aria-labelledby="stock-sheet-title" onSubmit={save}>
         <h2 id="stock-sheet-title">{item.name}</h2>
         <div className="inv-mode" role="group" aria-label="What happened">
@@ -75,6 +78,9 @@ export function StockSheet({ item, onClose, onDone, onCount }: {
           <button type="button" className="inv-modal__cancel" onClick={onClose}>Cancel</button>
           <button type="submit" className="insight__action">Save</button>
         </div>
+        {onRemove && (
+          <button type="button" className="linkbtn inv-modal__remove" aria-label={`Remove ${item.name}`} onClick={onRemove}>Remove from inventory</button>
+        )}
       </form>
     </div>
   );

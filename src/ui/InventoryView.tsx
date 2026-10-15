@@ -13,6 +13,8 @@ import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
 import { StockSheet } from './StockSheet.tsx';
 import { CountFlow } from './CountFlow.tsx';
+import { DeliverySheet } from './DeliverySheet.tsx';
+import { OrderSheet } from './OrderSheet.tsx';
 import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
@@ -22,6 +24,12 @@ const STATUS_LABELS: Record<StockStatus, string> = {
   ok: 'In stock',
   unknown: 'Not counted yet',
 };
+
+/**
+ * Inventory (SCRUM-92: fewer buttons). Tap a row to open its sheet (received, count,
+ * remove); "Delivery came" takes a whole bill at once; Order shows only on items
+ * that are low or out. The supplier's name opens that supplier.
+ */
 
 /** Why a row says "Check shelf": what it has not been able to take off. */
 const missedText = (n: number) => `${n} sold since the last count not taken off`;
@@ -39,6 +47,8 @@ export function InventoryView({
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [updating, setUpdating] = useState<string | null>(null);
+  const [ordering, setOrdering] = useState<string | null>(null);
+  const [delivery, setDelivery] = useState(false);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo: () => void } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
@@ -50,6 +60,7 @@ export function InventoryView({
       .some((text) => text.toLowerCase().includes(q)));
   }, [items, query, supplierNames]);
   const updatingItem = items.find((item) => item.id === updating) ?? null;
+  const orderingItem = items.find((item) => item.id === ordering) ?? null;
   // Today's count: what the money says to count, and since when.
   const tiers = useMemo(() => tiersOf(items), [items]);
   const due = useMemo(() => countsDue(items, tiers, Date.now()), [items, tiers]);
@@ -85,7 +96,10 @@ export function InventoryView({
       <OwnerNav current="inventory" onRegister={onRegister} />
       <div className="inv-page__head">
          <h1 className="supplier-heading">Inventory Dashboard</h1>
-         <button type="button" className="insight__action" onClick={() => setShowAdd(true)}>+ Add Ingredient</button>
+         <div className="inv-page__actions">
+           <button type="button" className="inv-page__primary" onClick={() => { setDelivery(true); setArchived(null); setError(''); }}>Delivery came</button>
+           <button type="button" className="inv-page__secondary" onClick={() => setShowAdd(true)}>+ Add Ingredient</button>
+         </div>
       </div>
 
       {(archived || error) && (
@@ -138,11 +152,24 @@ export function InventoryView({
            const status = stockStatus(item);
 
            return (
-             <article key={item.id} className="inv-row">
+             <article key={item.id} className="inv-row"
+               onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a')) { setUpdating(item.id); setArchived(null); setError(''); } }}>
                <div className="inv-row__main">
-                 <h2 className="inv-row__name">{item.name}</h2>
+                 <h2 className="inv-row__name">
+                   <button type="button" className="inv-row__open" onClick={() => { setUpdating(item.id); setArchived(null); setError(''); }}>
+                     {item.name}
+                   </button>
+                 </h2>
                  <div className="inv-row__sub" aria-label="Suppliers">
-                   {item.supplierIds.map((id) => supplierNames.get(id)).filter(Boolean).join(', ') || 'No active suppliers'}
+                   {!item.supplierIds.some((id) => supplierNames.has(id)) && 'No active suppliers'}
+                   {item.supplierIds.filter((id) => supplierNames.has(id)).map((id, i) => (
+                     <span key={id}>
+                       {i > 0 && ', '}
+                       {onFindSupplier
+                         ? <button type="button" className="inv-row__source" onClick={() => onFindSupplier(item.id)}>{supplierNames.get(id)}</button>
+                         : supplierNames.get(id)}
+                     </span>
+                   ))}
                  </div>
                </div>
                <div className="inv-row__quantity" aria-label="Available stock and pack size">
@@ -159,34 +186,11 @@ export function InventoryView({
                  <span className="inv-row__price">Rs {fmt(item.workingPriceCents)} a pack</span>
                </div>
                <div className="inv-row__actions">
-                 <button
-                   type="button"
-                   className="inv-row__update"
-                   aria-label={`Update ${item.name}`}
-                   onClick={() => { setUpdating(item.id); setArchived(null); setError(''); }}
-                 >
-                   Update
-                 </button>
-                 {onFindSupplier && (
-                   <button
-                     type="button"
-                     className="inv-row__supplier"
-                     onClick={() => onFindSupplier(item.id)}
-                   >
-                     Find supplier
+                 {(status === 'low' || status === 'out') && item.supplierIds.some((id) => supplierNames.has(id)) && (
+                   <button type="button" className="inv-row__order" aria-label={`Order ${item.name}`} onClick={() => setOrdering(item.id)}>
+                     Order
                    </button>
                  )}
-                 <button
-                   type="button"
-                   className="inv-row__remove"
-                   aria-label={`Remove ${item.name}`}
-                   title={`Remove ${item.name}`}
-                   onClick={() => removeItem(item.id, item.name)}
-                 >
-                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                     <path d="M4 7h16M10 11v6m4-6v6M5 7l1 13h12l1-13M9 7V4h6v3" />
-                   </svg>
-                 </button>
                </div>
              </article>
            );
@@ -199,9 +203,14 @@ export function InventoryView({
             setUpdating(null);
             setCounting([due.find((d) => d.id === updatingItem.id) ?? { id: updatingItem.id, tier: tiers.get(updatingItem.id) ?? 'monthly', state: updatingItem.counted ? 'due' : 'never', lastCountedAt: updatingItem.lastCountedAt }]);
           }}
+          onRemove={() => { setUpdating(null); removeItem(updatingItem.id, updatingItem.name); }}
           onClose={() => setUpdating(null)}
           onDone={(message, undo) => setDone({ message, undo })}
         />
+      )}
+      {orderingItem && <OrderSheet item={orderingItem} items={items} suppliers={suppliers} onClose={() => setOrdering(null)} />}
+      {delivery && (
+        <DeliverySheet items={items} suppliers={suppliers} onClose={() => setDelivery(false)} onDone={(message, undo) => setDone({ message, undo })} />
       )}
       {counting && <CountFlow due={counting} rows={items} onClose={() => setCounting(null)} />}
       {showAdd && (
