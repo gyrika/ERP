@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { answersFromEvents, type Answer, type CostContext } from '../domain/costing.ts';
 import type { Actor } from '../domain/auth.ts';
+import { countHistory, gapOf, type CountEntry, type CountRecord, type GapReason, type Tier } from '../domain/counting.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
-import { countDifference, inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
+import { inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
 import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import type { Cents } from '../domain/types.ts';
@@ -148,11 +149,30 @@ export const receiveStock = (row: InventoryRow, packs: number, priceCents: Cents
   };
 };
 
-/** A count of the shelf: records only the difference from what was expected. Returns the Undo. */
-export const countStock = (row: InventoryRow, countedPacks: number): (() => void) => {
-  const delta = countDifference(row, countedPacks);
-  adjustStock(row.id, delta, 'audit');
-  return () => adjustStock(row.id, -delta, 'audit');
+/**
+ * A shelf count (counting.ts): what is left, compared with what the app expected, with
+ * the reason for a big gap. Returns the Undo.
+ */
+export const recordCount = (
+  row: InventoryRow, entries: CountEntry[], counted: number, reason: GapReason | null, tier: Tier,
+): (() => void) => {
+  const expected = row.onHandBaseUnits;
+  const { valueCents } = gapOf(expected, counted, row);
+  const e = appendEvent({
+    type: 'stock.counted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: row.id,
+    counted, expected, entries, reason, valueCents, tier,
+  });
+  return () => { appendEvent({ type: 'stock.count_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), countId: e.id }); };
+};
+
+/** A unit learned for an item ("Tray" = 30 pcs), audited like any stock change. */
+export const learnUnit = (itemId: string, name: string, base: number): void => {
+  appendEvent({ type: 'stock.unit_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, name: name.trim(), base });
+};
+
+/** The owner's choice of how often an item is counted (null: automatic), signed by the owner's PIN. */
+export const setCountTier = (itemId: string, tier: Tier | null, owner: Actor): void => {
+  appendEvent({ type: 'stock.tier_set', at: Date.now(), orderNumber: 0, actor: owner, itemId, tier });
 };
 
 /** A supplier's new price, audited with the old one (integer cents). */
@@ -205,6 +225,12 @@ export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; 
       untrackedSold: stock.untrackedSold,
     };
   }, [events]);
+}
+
+/** Every standing shelf count, oldest first (the Manager page's progress). */
+export function useCountHistory(): CountRecord[] {
+  const events = useShopHistory();
+  return useMemo(() => countHistory(events), [events]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */

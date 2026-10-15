@@ -4,6 +4,7 @@ import type { RecipeEvent } from './costing.ts';
 import type { MenuEvent } from './menuEdits.ts';
 import type { Cents } from './types.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
+import type { CountEntry, GapReason, Tier } from './counting.ts';
 
 /**
  * The sync contract between devices and the server (SCRUM-59, 60, 29, 30).
@@ -49,7 +50,22 @@ export type StockEvent =
   | (StockBase & { type: 'stock.item_added'; item: InventoryItem })
   | (StockBase & { type: 'stock.supplier_added'; supplier: Supplier; linkedItemIds: string[] })
   | (StockItemBase & { type: 'stock.item_archived' | 'stock.item_restored' })
-  | (StockBase & { type: 'stock.supplier_archived' | 'stock.supplier_restored'; supplierId: string });
+  | (StockBase & { type: 'stock.supplier_archived' | 'stock.supplier_restored'; supplierId: string })
+  /**
+   * A shelf count (counting.ts): what was left, what the app expected then (both in base
+   * units), how it was counted, and why it differs when the gap is beyond the allowance.
+   * The shelf becomes counted - expected + what it was, so concurrent sales stay exact.
+   */
+  | (StockItemBase & {
+    type: 'stock.counted'; counted: number; expected: number; entries: CountEntry[];
+    reason: GapReason | null; valueCents: Cents; tier: Tier;
+  })
+  /** Takes back a count (Undo on the count screen). */
+  | (StockBase & { type: 'stock.count_undone'; countId: string })
+  /** A unit learned for an item: "Tray" = 30 pcs (base: 0 removes it). */
+  | (StockItemBase & { type: 'stock.unit_set'; name: string; base: number })
+  /** The owner fixes how often an item is counted; null hands it back to the automatic choice. */
+  | (StockItemBase & { type: 'stock.tier_set'; tier: Tier | null });
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
 export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | RecipeEvent;
@@ -61,6 +77,7 @@ export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.u
 export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
+  'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',

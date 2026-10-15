@@ -4,6 +4,7 @@ import type { InventoryItem, Supplier } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
 import { fmt } from './money.ts';
 import { formatQuantity } from './quantity.ts';
+import { reasonLabel } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine } from './types.ts';
 import { lineItemName } from './halves.ts';
@@ -273,16 +274,24 @@ const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock'], now:
 const countedShort = (events: readonly SyncEvent[], stock: ShopData['stock'], now: number): Insight | null => {
   if (!stock) return null;
   const since = daysBack(startOfDay(now), 7);
-  const short = new Map<string, number>(); // packs, below zero
-  for (const e of events) {
-    if (e.type !== 'stock.adjusted' || e.reason !== 'audit' || e.at < since || e.at > now) continue;
-    short.set(e.itemId, (short.get(e.itemId) ?? 0) + e.deltaPacks);
-  }
   const rows = inventoryFromEvents(stock.items, events, { now });
+  const short = new Map<string, number>(); // packs, below zero
+  /** The manager's reasons for this week's gaps (shelf counts), per item. */
+  const why = new Map<string, Set<string>>();
+  const undone = new Set(events.flatMap((e) => (e.type === 'stock.count_undone' ? [e.countId] : [])));
+  for (const e of events) {
+    if (e.at < since || e.at > now) continue;
+    if (e.type === 'stock.adjusted' && e.reason === 'audit') short.set(e.itemId, (short.get(e.itemId) ?? 0) + e.deltaPacks);
+    if (e.type === 'stock.counted' && !undone.has(e.id)) {
+      const packQty = rows.find((r) => r.id === e.itemId)?.packQty ?? 1;
+      short.set(e.itemId, (short.get(e.itemId) ?? 0) + (e.counted - e.expected) / packQty);
+      if (e.reason) why.set(e.itemId, new Set([...(why.get(e.itemId) ?? []), reasonLabel(e.reason)]));
+    }
+  }
   const lost = [...short]
     .map(([id, packs]) => ({ row: rows.find((r) => r.id === id), packs }))
     .filter((x): x is { row: (typeof rows)[number]; packs: number } => !!x.row && x.packs < 0)
-    .map(({ row, packs }) => ({ row, qty: -packs * row.packQty, cents: Math.round(-packs * row.workingPriceCents) }))
+    .map(({ row, packs }) => ({ row, qty: -packs * row.packQty, cents: Math.round(-packs * row.workingPriceCents), why: [...(why.get(row.id) ?? [])] }))
     .sort((a, b) => b.cents - a.cents || a.row.name.localeCompare(b.row.name));
   if (!lost.length) return null;
   const [top] = lost;
@@ -294,7 +303,11 @@ const countedShort = (events: readonly SyncEvent[], stock: ShopData['stock'], no
     detail: `${lost.length > 1 ? `And ${plural(lost.length - 1, 'more item')}. ` : ''}Rs ${fmt(total)} in all: waste or loss.`,
     action: {
       label: 'See counts',
-      items: lost.map((l) => ({ primary: l.row.name, secondary: `${formatQuantity(l.qty, l.row.baseUnit)} below expected`, amount: l.cents })),
+      items: lost.map((l) => ({
+        primary: l.row.name,
+        secondary: `${formatQuantity(l.qty, l.row.baseUnit)} below expected${l.why.length ? ` · ${l.why.join(', ')}` : ''}`,
+        amount: l.cents,
+      })),
     },
   };
 };

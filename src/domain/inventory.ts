@@ -3,6 +3,7 @@ import type { SyncEvent } from './sync.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { answersFromEvents, type Answer, type RecipeEvent } from './costing.ts';
 import { bookGaps, bookUsage, type GapsOf, type RecipeLine, type UsageOf } from './stockUsage.ts';
+import type { LearnedUnit, Tier } from './counting.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -100,6 +101,12 @@ export type InventoryRow = InventoryItem & {
    * (a batch output the owner has not confirmed): the shelf holds less than shown.
    */
   missedSales: number;
+  /** When it was last counted (a shelf count or an older audit), or null. */
+  lastCountedAt: number | null;
+  /** Units learned for it ("Tray" = 30 pcs), for counting. */
+  units: LearnedUnit[];
+  /** How often the owner wants it counted; null: chosen automatically (tiersOf). */
+  tier: Tier | null;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -189,6 +196,8 @@ interface Shelf {
   onHandBaseUnits: number;
   archived: boolean;
   counted: boolean;
+  units: LearnedUnit[];
+  tier: Tier | null;
 }
 
 /**
@@ -225,7 +234,7 @@ export const stockFromEvents = (
   { usageOf = bookUsage, gapsOf = bookGaps, now = Date.now() }: StockOptions = {},
 ): Stock => {
   const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
-    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false,
+    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null,
   }]));
   const take = (usage: readonly RecipeLine[], sign: 1 | -1) => {
     for (const { inventoryId, qtyBaseUnits } of usage) {
@@ -245,6 +254,8 @@ export const stockFromEvents = (
   const gaps = new Map<string, { untracked: boolean; items: string[]; qty: number }>();
   /** When each item was last counted (an audit): missed sales before it are already corrected. */
   const countedAt = new Map<string, number>();
+  /** Each shelf count's correction, for its Undo: the amount and the count time it replaced. */
+  const counts = new Map<string, { itemId: string; delta: number; previous: number | undefined }>();
   /** For a manager's Undo: what the line had taken before the change (null: nothing). */
   const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null; gaps: { untracked: boolean; items: string[]; qty: number } | null }>();
   const setLine = (lineId: string, usage: RecipeLine[] | null) => {
@@ -258,7 +269,7 @@ export const stockFromEvents = (
       case 'stock.item_added':
         if (!shelves.has(e.item.id)) {
           shelves.set(e.item.id, {
-            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false,
+            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null,
           });
         }
         break;
@@ -280,6 +291,37 @@ export const stockFromEvents = (
         shelf.counted = true;
         if (e.reason === 'audit') countedAt.set(e.itemId, e.at);
         shelf.onHandBaseUnits += e.deltaPacks * shelf.item.packQty;
+        break;
+      }
+      case 'stock.counted': {
+        const shelf = shelves.get(e.itemId);
+        if (!shelf) break;
+        const delta = e.counted - e.expected;
+        counts.set(e.id, { itemId: e.itemId, delta, previous: countedAt.get(e.itemId) });
+        shelf.counted = true;
+        shelf.onHandBaseUnits += delta;
+        countedAt.set(e.itemId, e.at);
+        break;
+      }
+      case 'stock.count_undone': {
+        const c = counts.get(e.countId);
+        const shelf = c && shelves.get(c.itemId);
+        if (!c || !shelf) break;
+        counts.delete(e.countId);
+        shelf.onHandBaseUnits -= c.delta;
+        if (c.previous === undefined) countedAt.delete(c.itemId); else countedAt.set(c.itemId, c.previous);
+        break;
+      }
+      case 'stock.unit_set': {
+        const shelf = shelves.get(e.itemId);
+        if (!shelf) break;
+        shelf.units = shelf.units.filter((u) => u.name.toLowerCase() !== e.name.toLowerCase());
+        if (e.base > 0) shelf.units.push({ name: e.name, base: e.base });
+        break;
+      }
+      case 'stock.tier_set': {
+        const shelf = shelves.get(e.itemId);
+        if (shelf) shelf.tier = e.tier;
         break;
       }
       case 'stock.price_set': {
@@ -348,7 +390,7 @@ export const stockFromEvents = (
     }
   }
 
-  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted }) => {
+  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted, units, tier }) => {
     const usedPerDay = (used.get(item.id) ?? 0) / days;
     return {
       ...item,
@@ -359,6 +401,9 @@ export const stockFromEvents = (
       usedPerDay,
       lastsDays: counted && onHandBaseUnits > 0 && usedPerDay > 0 ? onHandBaseUnits / usedPerDay : null,
       missedSales: missed.get(item.id) ?? 0,
+      lastCountedAt: countedAt.get(item.id) ?? null,
+      units,
+      tier,
     };
   });
   return { rows, untrackedSold };

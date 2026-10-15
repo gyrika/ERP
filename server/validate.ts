@@ -1,5 +1,6 @@
 import { MENU } from '../src/domain/menu.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
+import { isGapReason } from '../src/domain/counting.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import type { MenuItem } from '../src/domain/types.ts';
 import {
@@ -102,6 +103,24 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       (e.type === 'stock.supplier_archived' || e.type === 'stock.supplier_restored') &&
       !shortString(e.supplierId)
     ) return { reason: `event ${e.id} has an invalid supplier id` };
+    if (e.type === 'stock.counted') {
+      const amount = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= -1e9 && n <= 1e9;
+      const entries = e.entries;
+      if (
+        !shortString(e.itemId) || !amount(e.counted) || (e.counted as number) < 0 || !amount(e.expected) ||
+        !Array.isArray(entries) || entries.length > 10 ||
+        !entries.every((x) => isObj(x) && shortString(x.unit, 40) && amount(x.qty) && (x.qty as number) >= 0) ||
+        !(e.reason === null || isGapReason(e.reason)) || !Number.isSafeInteger(e.valueCents) ||
+        !['daily', 'weekly', 'monthly'].includes(String(e.tier))
+      ) return { reason: `event ${e.id} has an invalid count` };
+    }
+    if (e.type === 'stock.count_undone' && !shortString(e.countId)) return { reason: `event ${e.id} has an invalid count id` };
+    if (e.type === 'stock.unit_set' && (
+      !shortString(e.itemId) || !shortString(e.name, 20) || typeof e.base !== 'number' || !Number.isFinite(e.base) || (e.base as number) < 0
+    )) return { reason: `event ${e.id} has an invalid unit` };
+    if (e.type === 'stock.tier_set' && (!shortString(e.itemId) || !(e.tier === null || ['daily', 'weekly', 'monthly'].includes(String(e.tier))))) {
+      return { reason: `event ${e.id} has an invalid count tier` };
+    }
     if (e.type.startsWith('menu.') && e.orderNumber !== 0) return { reason: `event ${e.id} has an invalid menu order number` };
     if (e.type === 'recipe.answer_set') {
       const valid = (a: unknown) => a === null || (isObj(a) && checkAnswer(String(e.question), a as Answer) === null);

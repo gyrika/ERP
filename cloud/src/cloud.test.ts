@@ -159,7 +159,8 @@ test("the owner's questions: only with the link's key; every save kept, the newe
   assert.equal((await ask('right-key', 'POST', { answers: { tuna: 45 } })).status, 400, 'answers are text');
   assert.equal((await ask('wrong', 'POST', { answers: {} })).status, 401);
   const page = questionsPage();
-  assert.ok(page.includes('id="tuna"') && page.includes('Pizza 10 min, burger 3 min, pasta 20 min'));
+  assert.ok(page.includes('id="sauceYield"') && page.includes('name="pastaRecipe" value="Chicken Alfredo, penne"'));
+  assert.ok(page.includes('no more questions'));
 });
 
 test('the download page: always the newest installer, and a plain fallback if GitHub is away', async () => {
