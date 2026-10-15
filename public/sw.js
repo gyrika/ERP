@@ -3,12 +3,13 @@
 const CACHE = 'cheesybeez-owner-v1';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(
-  caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
+  caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith('cheesybeez-owner-') && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
 ));
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/')) return;
   if (e.request.mode === 'navigate') {
+    if (url.pathname !== '/') return;
     // The page: fresh when online, the last copy when not.
     e.respondWith(fetch(e.request).then((r) => {
       const copy = r.clone();

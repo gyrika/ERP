@@ -44,10 +44,26 @@ export const ownerManifest = (key: string | null) => ({
   ],
 });
 
+export const orderManifest = (customerDomain: boolean) => ({
+  name: 'CheesyBeez Ordering',
+  short_name: 'CheesyBeez',
+  description: 'Order pizza, burgers and pasta for pickup at CheesyBeez.',
+  start_url: customerDomain ? '/' : '/order',
+  scope: customerDomain ? '/' : '/order',
+  display: 'standalone',
+  background_color: '#FAF6EF',
+  theme_color: '#FAF6EF',
+  icons: [
+    { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+    { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+    { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+  ],
+});
+
 /** Customers' address: its home page is the ordering page (order.html); /order shows it on any address. */
 const CUSTOMER_HOST = 'cheesybeez.com';
 
-/** Cloudflare Workers entry point: the API under /api/, the owner's app for everything else. */
+/** Cloudflare Workers entry point: customer ordering, its API, and the separate owner app. */
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -55,6 +71,11 @@ export default {
       return Promise.resolve(Response.redirect(`https://${CUSTOMER_HOST}${url.pathname}${url.search}`, 301));
     }
     if (url.hostname === CUSTOMER_HOST && url.pathname === '/') return env.ASSETS.fetch(new Request(new URL('/order', url), request));
+    if (url.pathname === '/order.webmanifest') {
+      return Promise.resolve(new Response(JSON.stringify(orderManifest(url.hostname === CUSTOMER_HOST)), {
+        headers: { 'content-type': 'application/manifest+json', 'cache-control': 'public, max-age=3600' },
+      }));
+    }
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
       return adminRoutes(request, url, {
         db: env.DB,
