@@ -11,7 +11,7 @@ import type { Cents } from '../domain/types.ts';
 import { currentCashier } from './auth.ts';
 import { newLineId } from '../domain/order.ts';
 import { useShopEvents } from './ownerData.ts';
-import { itemStory, usedIn, type ItemStory } from '../domain/itemStory.ts';
+import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } from '../domain/itemStory.ts';
 import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
 
@@ -258,9 +258,11 @@ export function useCountHistory(): CountRecord[] {
 }
 
 /** One item's story for its sheet (SCRUM-93): last count, delivery, price change, and what uses it. */
-export function useItemStory(itemId: string): ItemStory & { usedIn: string[] } {
+export function useItemStory(itemId: string): ItemStory & { usedIn: string[]; history: HistoryEntry[] } {
   const events = useShopHistory();
-  return useMemo(() => ({ ...itemStory(events, itemId), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId) }), [events, itemId]);
+  return useMemo(() => ({
+    ...itemStory(events, itemId), history: itemHistory(events, itemId), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId),
+  }), [events, itemId]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */

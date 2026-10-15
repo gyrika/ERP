@@ -17,7 +17,7 @@ const counted = (itemId: string, at: number, base: number): SyncEvent =>
 
 const openCount = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
   await user.click(screen.getByRole('button', { name }));
-  await user.click(screen.getByRole('button', { name: 'Count' }));
+  await user.click(screen.getByRole('tab', { name: 'Count' }));
   return within(screen.getByRole('form', { name: `Count ${name}` }));
 };
 

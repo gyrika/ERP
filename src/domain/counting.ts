@@ -193,12 +193,12 @@ export const countsDue = (
 // ----- progress (the Manager page) -----
 
 /** One standing count (undone ones left out). */
-export interface CountRecord { id: string; itemId: string; at: number; big: boolean; by: string }
+export interface CountRecord { id: string; itemId: string; at: number; big: boolean; by: string; reason: GapReason | null; valueCents: Cents }
 
 export const countHistory = (events: readonly SyncEvent[]): CountRecord[] => {
   const undone = new Set(events.flatMap((e) => (e.type === 'stock.count_undone' ? [e.countId] : [])));
   return events.flatMap((e) => (e.type === 'stock.counted' && !undone.has(e.id)
-    ? [{ id: e.id, itemId: e.itemId, at: e.at, big: e.reason !== null, by: e.actor.name }]
+    ? [{ id: e.id, itemId: e.itemId, at: e.at, big: e.reason !== null, by: e.actor.name, reason: e.reason, valueCents: e.valueCents }]
     : []));
 };
 

@@ -182,7 +182,7 @@ test('supplier cards render fallback message when phone is missing', () => {
   spy.mockRestore();
 });
 
-const flourRow = () => screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
+const flourRow = () => within(screen.getByRole('main', { name: 'Inventory' })).getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
 const amount = () => within(flourRow()).getByLabelText('Available stock and pack size').textContent;
 
 test('a delivery: packs in and the new price in one go, saved at once; Undo takes both back', async () => {
@@ -195,15 +195,15 @@ test('a delivery: packs in and the new price in one go, saved at once; Undo take
   await user.clear(price);
   await user.type(price, '6,550{Enter}');
 
-  expect(screen.queryByRole('dialog')).toBeNull();
+  // The sheet stays on the item, with what was done and its Undo.
   expect(amount()).toContain('2 packs · 50 kg');
-  expect(screen.getByRole('status').textContent).toContain('Received 2 packs of Pizza Flour, price now Rs 6,550 a pack.');
+  expect(sheet.getByRole('status').textContent).toContain('Received 2 packs of Pizza Flour, price now Rs 6,550 a pack.');
   const events = readAll().filter((e) => e.type.startsWith('stock.'));
   expect(events.map((e) => e.type)).toEqual(['stock.adjusted', 'stock.price_set']);
   expect(events[0]).toMatchObject({ itemId: 'inv-0001', deltaPacks: 2, reason: 'receive' });
   expect(events[1]).toMatchObject({ before: 640000, after: 655000 });
 
-  await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
   expect(amount()).toContain('Empty');
 });
 
@@ -212,7 +212,7 @@ test('Count opens the blind count: the gap shows only after counting, then the s
   inventoryStore.adjustStock('inv-0001', 2);
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
-  await user.click(within(screen.getByRole('dialog', { name: 'Pizza Flour' })).getByRole('button', { name: 'Count' }));
+  await user.click(within(screen.getByRole('dialog', { name: 'Pizza Flour' })).getByRole('tab', { name: 'Count' }));
   const form = within(screen.getByRole('form', { name: 'Count Pizza Flour' }));
   expect(screen.queryByText(/expects/)).toBeNull();
   await user.type(form.getByRole('textbox', { name: 'Full packs' }), '1.5');
@@ -280,7 +280,8 @@ test('Order shows only on a low item: the message is written, packs change, What
   expect(within(flourRow()).queryByRole('button', { name: 'Order Pizza Flour' })).toBeNull();
   act(() => inventoryStore.adjustStock('inv-0001', 1)); // 1 pack: low
   await user.click(within(flourRow()).getByRole('button', { name: 'Order Pizza Flour' }));
-  const sheet = within(screen.getByRole('dialog', { name: /^Order from / }));
+  const sheet = within(screen.getByRole('tabpanel', { name: 'Order' }));
+  expect(within(screen.getByRole('dialog', { name: 'Pizza Flour' })).getByRole('tab', { name: 'Order' }).getAttribute('aria-selected')).toBe('true');
   await user.click(sheet.getByRole('button', { name: 'One pack more of Pizza Flour' }));
   expect(sheet.getByLabelText('Message').textContent).toBe('Hi, this is CheesyBeez. Please send:\n2 × Pizza Flour (25 kg packs)\nThank you.');
   expect(sheet.getByText(/^No phone saved for /)).toBeTruthy();
@@ -345,11 +346,40 @@ test('the owner, with his PIN, makes flour received in kg; the sheet and the pri
   await user.type(sheet.getByRole('textbox', { name: /Received \(kg\)/ }), '12.5');
   await user.click(sheet.getByRole('button', { name: 'Save' }));
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.adjusted', deltaPacks: 0.5, reason: 'receive' });
-  expect(screen.getByRole('status').textContent).toContain('Received 12.5 kg of Pizza Flour.');
+  expect(sheet.getByRole('status').textContent).toContain('Received 12.5 kg of Pizza Flour.');
   expect(amount()).toContain('½ pack · 12.5 kg');
 
   // Delivery came asks for flour in kg too.
   await user.click(screen.getByRole('button', { name: 'Delivery came' }));
   await user.click(within(screen.getByRole('group', { name: 'Supplier' })).getByRole('button', { name: 'Ajantha (Wholesale)' }));
   expect(screen.getByRole('textbox', { name: 'kg of Pizza Flour' })).toBeTruthy();
+});
+
+// ----- the sheet's tabs stay in the sheet; history (SCRUM-97) -----
+
+test('Count happens inside the item sheet, then History shows it with the delivery before it', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
+  await user.type(sheet.getByRole('textbox', { name: /Packs received/ }), '2{Enter}');
+  await user.click(sheet.getByRole('tab', { name: 'Count' }));
+  await user.type(sheet.getByRole('textbox', { name: 'Full packs' }), '1.5');
+  await user.click(sheet.getByRole('button', { name: 'Next' }));
+  await user.click(sheet.getByRole('button', { name: 'Spoiled or expired' }));
+
+  // Still the same sheet: now on History, newest first.
+  expect(screen.getByRole('dialog', { name: 'Pizza Flour' })).toBeTruthy();
+  expect(sheet.getByRole('tab', { name: 'History' }).getAttribute('aria-selected')).toBe('true');
+  expect(sheet.getByRole('status').textContent).toMatch(/^Counted: gap of Rs [\d,]+ saved\./);
+  const items = within(sheet.getByRole('list', { name: 'History of Pizza Flour' })).getAllByRole('listitem');
+  expect(items.map((li) => li.textContent?.replace(/^today · [A-Z][a-z]+/, ''))).toEqual([
+    'Counted 37.5 kg · expected 50 kg · 12.5 kg short (Rs 3,200) · Spoiled or expired',
+    'Received 2 packs (50 kg)',
+  ]);
+  // Undo the count: back on Count, and it leaves the history.
+  await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(sheet.getByRole('tab', { name: 'Count' }).getAttribute('aria-selected')).toBe('true');
+  await user.click(sheet.getByRole('tab', { name: 'History' }));
+  expect(within(sheet.getByRole('list', { name: 'History of Pizza Flour' })).getAllByRole('listitem')).toHaveLength(1);
 });
