@@ -1,11 +1,7 @@
 import { useState } from 'react';
 import type { SupplierSummary } from '../domain/inventory.ts';
+import { whatsAppNumber } from '../domain/ordering.ts';
 
-/** WhatsApp links need the country code: 077 123 4567 becomes 94771234567. */
-const whatsAppNumber = (phone: string): string => {
-  const digits = phone.replace(/\D/g, '');
-  return digits.length === 10 && digits.startsWith('0') ? `94${digits.slice(1)}` : digits;
-};
 
 export function SupplierCard({
   summary,

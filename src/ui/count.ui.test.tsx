@@ -16,7 +16,7 @@ const counted = (itemId: string, at: number, base: number): SyncEvent =>
   ({ id: `c-${itemId}-${at}`, shopId: 'shop-demo-cheesybeez', at, orderNumber: 0, actor, type: 'stock.counted', itemId, counted: base, expected: 0, entries: [], reason: null, valueCents: 0, tier: 'daily' });
 
 const openCount = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
-  await user.click(screen.getByRole('button', { name: `Update ${name}` }));
+  await user.click(screen.getByRole('button', { name }));
   await user.click(screen.getByRole('button', { name: 'Count' }));
   return within(screen.getByRole('form', { name: `Count ${name}` }));
 };

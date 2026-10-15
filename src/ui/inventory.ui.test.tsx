@@ -23,18 +23,18 @@ test('every seeded ingredient is listed once, with all of its suppliers', () => 
   expect(within(flour).getByLabelText('Suppliers').textContent).toBe('Prima / David Stores (Wholesale), Ajantha (Wholesale)');
 });
 
-test('Find Supplier hands the ingredient to the supplier board, and only shows when there is one', async () => {
+test("the supplier's name hands the ingredient to the supplier board, and is plain text without one", async () => {
   const user = userEvent.setup();
   const onFindSupplier = vi.fn();
   const { unmount } = render(<InventoryView onFindSupplier={onFindSupplier} />);
 
   const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
-  await user.click(within(flour).getByRole('button', { name: 'Find supplier' }));
+  await user.click(within(flour).getByRole('button', { name: 'Ajantha (Wholesale)' }));
   expect(onFindSupplier).toHaveBeenCalledExactlyOnceWith('inv-0001');
 
   unmount();
   render(<InventoryView />);
-  expect(screen.queryByRole('button', { name: 'Find supplier' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Ajantha (Wholesale)' })).toBeNull();
 });
 
 test('the stock status follows the low-stock threshold live as packs are counted', () => {
@@ -188,7 +188,7 @@ const amount = () => within(flourRow()).getByLabelText('Available stock and pack
 test('a delivery: packs in and the new price in one go, saved at once; Undo takes both back', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
-  await user.click(within(flourRow()).getByRole('button', { name: 'Update Pizza Flour' }));
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   const sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
   await user.type(sheet.getByRole('textbox', { name: /Packs received/ }), '2');
   const price = sheet.getByRole('textbox', { name: /Price per pack/ });
@@ -213,7 +213,7 @@ test('Count opens the blind count: the gap shows only after counting, then the s
   const user = userEvent.setup();
   inventoryStore.adjustStock('inv-0001', 2);
   render(<InventoryView />);
-  await user.click(within(flourRow()).getByRole('button', { name: 'Update Pizza Flour' }));
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   await user.click(within(screen.getByRole('dialog', { name: 'Pizza Flour' })).getByRole('button', { name: 'Count' }));
   const form = within(screen.getByRole('form', { name: 'Count Pizza Flour' }));
   expect(screen.queryByText(/expects/)).toBeNull();
@@ -230,7 +230,7 @@ test('Count opens the blind count: the gap shows only after counting, then the s
 test('nothing typed, nothing saved: the sheet says what is missing', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
-  await user.click(within(flourRow()).getByRole('button', { name: 'Update Pizza Flour' }));
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   await user.click(screen.getByRole('button', { name: 'Save' }));
   expect(screen.getByRole('alert').textContent).toContain('Type the packs received, or a new price.');
   expect(readAll()).toHaveLength(0);
@@ -250,4 +250,49 @@ test('search finds by ingredient, category or supplier; Escape clears it', async
   expect(screen.getByText(/No ingredients match/)).toBeTruthy();
   await user.keyboard('{Escape}');
   expect(names()).toHaveLength(SEED_INVENTORY.length);
+});
+
+// ----- fewer buttons (SCRUM-92) -----
+
+test('Delivery came: pick the supplier, +1 or type each line, one Save; Undo takes the whole delivery back', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(screen.getByRole('button', { name: 'Delivery came' }));
+  await user.click(within(screen.getByRole('group', { name: 'Supplier' })).getByRole('button', { name: 'Ajantha (Wholesale)' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Delivery from Ajantha (Wholesale)' }));
+  expect(sheet.queryByText('Mushrooms')).toBeNull(); // only what this supplier brings
+  await user.click(sheet.getByRole('button', { name: 'One more pack of Pizza Flour' }));
+  await user.click(sheet.getByRole('button', { name: 'One more pack of Pizza Flour' }));
+  expect(sheet.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '2');
+  const second = sheet.getAllByRole('textbox').find((t) => t.getAttribute('aria-label') !== 'Packs of Pizza Flour')!;
+  await user.type(second, '1');
+  await user.click(sheet.getByRole('button', { name: 'Save delivery' }));
+
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByRole('status').textContent).toContain('Delivery from Ajantha (Wholesale): 2 items in.');
+  expect(amount()).toContain('50 kg / 25 kg');
+  expect(readAll().filter((e) => e.type === 'stock.adjusted')).toHaveLength(2);
+  await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(amount()).toContain('0 g / 25 kg');
+});
+
+test('Order shows only on a low item: the message is written, packs change, WhatsApp opens with it', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  expect(within(flourRow()).queryByRole('button', { name: 'Order Pizza Flour' })).toBeNull();
+  act(() => inventoryStore.adjustStock('inv-0001', 1)); // 1 pack: low
+  await user.click(within(flourRow()).getByRole('button', { name: 'Order Pizza Flour' }));
+  const sheet = within(screen.getByRole('dialog', { name: /^Order from / }));
+  await user.click(sheet.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  expect(sheet.getByLabelText('Message').textContent).toBe('Hi, this is CheesyBeez. Please send:\n2 × Pizza Flour (25 kg packs)\nThank you.');
+  expect(sheet.getByText(/^No phone saved for /)).toBeTruthy();
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+test('a tap anywhere on the row opens the item', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(flourRow().querySelector('.inv-row__price')!);
+  expect(screen.getByRole('dialog', { name: 'Pizza Flour' })).toBeTruthy();
 });
