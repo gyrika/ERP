@@ -120,6 +120,20 @@ test('the desktop panel lists the order and opens checkout', async () => {
   expect(screen.getByRole('dialog', { name: 'Your order' })).toBeTruthy();
 });
 
+test('the browser install prompt is offered as an app button', async () => {
+  const user = userEvent.setup();
+  const prompt = vi.fn().mockResolvedValue(undefined);
+  const event = new Event('beforeinstallprompt', { cancelable: true });
+  Object.defineProperty(event, 'prompt', { value: prompt });
+  render(<OrderSite />);
+
+  await act(async () => { window.dispatchEvent(event); });
+  const button = await screen.findByRole('button', { name: 'Install app' });
+  await user.click(button);
+  expect(prompt).toHaveBeenCalledOnce();
+  expect(screen.queryByRole('button', { name: 'Install app' })).toBeNull();
+});
+
 test('pickup info: the town with a Maps link, how to pay; hours, Call and WhatsApp only once the owner gave them', async () => {
   render(<OrderSite />);
   await screen.findByText('Open for pickup');

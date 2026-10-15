@@ -113,13 +113,34 @@ test('a new shop registers itself with the shop code, and only with it', async (
 });
 
 test("the owner's app description carries this phone's key, and nothing else", async () => {
-  const { ownerManifest } = await import('./worker.ts');
+  const { ownerManifest, orderManifest } = await import('./worker.ts');
   const key = 'A'.repeat(43);
   assert.equal(ownerManifest(key).start_url, `/?owner=${key}#owner`, "an iPhone home-screen app has its own storage: the key opens it");
   assert.equal(ownerManifest(null).start_url, '/#owner');
   assert.equal(ownerManifest('"><script>').start_url, '/#owner', 'anything that is not a key is ignored');
   assert.equal(ownerManifest(key).display, 'standalone');
   assert.ok(ownerManifest(key).icons.some((i) => i.purpose === 'maskable'));
+  assert.equal(orderManifest(true).start_url, '/');
+  assert.equal(orderManifest(true).scope, '/');
+  assert.equal(orderManifest(false).start_url, '/order');
+  assert.equal(orderManifest(false).scope, '/order');
+  assert.equal(orderManifest(true).display, 'standalone');
+  assert.ok(orderManifest(true).icons.some((i) => i.purpose === 'maskable'));
+});
+
+test('customer and owner apps have separate home-screen scopes', async () => {
+  const { default: worker } = await import('./worker.ts');
+  const { d1 } = fakeD1();
+  const env = { DB: d1, ASSETS: { fetch: async () => new Response('asset') } };
+  const customer = await worker.fetch(new Request('https://cheesybeez.com/order.webmanifest'), env);
+  assert.equal(customer.status, 200);
+  assert.equal(customer.headers.get('content-type'), 'application/manifest+json');
+  assert.equal((await customer.json()).start_url, '/');
+
+  const cloud = await worker.fetch(new Request('https://cheesybeez-cloud.workers.dev/order.webmanifest'), env);
+  const cloudManifest = await cloud.json();
+  assert.equal(cloudManifest.start_url, '/order');
+  assert.equal(cloudManifest.scope, '/order', 'the customer app must not replace the owner app at /');
 });
 
 test("the owner's questions: only with the link's key; every save kept, the newest returned", async () => {

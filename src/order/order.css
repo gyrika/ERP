@@ -108,6 +108,9 @@ button { cursor: pointer; }
 .o-hero h1 { margin: 0 0 var(--space-1); color: #FFFFFF; font-size: var(--text-hero); line-height: 1.05; letter-spacing: -0.04em; font-weight: 600; }
 .o-hero h1 span { color: #F2C27A; }
 .o-hero p { margin: 0; color: rgba(255, 255, 255, 0.88); font-size: var(--text-body); }
+.o-hero .o-install-help { margin-top: var(--space-1); font-size: var(--text-caption); }
+.o-install { min-height: var(--target); width: fit-content; margin-top: var(--space-2); padding: 0 var(--space-2); border: 0; border-radius: var(--radius-pill); background: #FFFFFF; color: #1F1B16; font-weight: 600; }
+.o-install:focus-visible { outline-color: #FFFFFF; }
 @media (min-width: 1024px) { :root { --hero-h: 380px; } .o-hero h1 { font-size: 56px; } .o-hero p { font-size: var(--text-card); } }
 .o-trust { list-style: none; margin: 0; padding: var(--space-2) var(--space-1); display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); }
 .o-trust li { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); text-align: center; color: var(--body); font-size: var(--text-caption); line-height: 1.3; }

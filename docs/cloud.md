@@ -110,6 +110,15 @@ shop and pay there. Rules in `src/domain/online.ts`; the cloud side in `cloud/sr
 the shop side in `server/online.ts`; the counter's **Online** key in `src/ui/Online.tsx`; the
 customer page in `src/order/` (built as `order.html` by `npm run build:cloud`).
 
+On **cheesybeez.com**, customers can install the ordering page from their browser as a lightweight,
+full-screen app: use **Install app** when offered, or on iPhone/iPad use **Share → Add to Home
+Screen**. The app caches its page and static assets so it can open with a weak connection. Shop
+availability and order status are always fetched live; the cached menu may be stale offline.
+Customers must be online to place an order or refresh its status, and the cloud recalculates the
+price when an order is submitted. On a cloud address, `/order` serves the same customer page and
+can be installed separately with a `/order` scope, so it does not conflict with the owner app at
+the cloud address root.
+
 - **Which shop:** `ORDER_SHOP` in `cloud/wrangler.toml` `[vars]` (the shop id from the setup
   wizard). Change it to the real shop after the install, then `npm run deploy`.
 - **Open or closed:** the counter switches *Taking orders* on (Register → Online). The site takes

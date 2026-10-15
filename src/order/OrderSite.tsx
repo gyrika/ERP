@@ -5,8 +5,10 @@ import { Banknote, Clock, Hamburger, MapPin, MessageCircle, Phone, Pizza, Plus, 
 import { clockText, normalisePhone, onlineLineTotal, onlineTotal, statusText, type OnlineLine } from '../domain/online.ts';
 import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
+import { useInstall } from '../services/ownerApp.ts';
 import { api, remembered, type MyOrder, type Placed, type ShopInfo } from './api.ts';
 import { HERO, PHOTOS, STRIPS, type StripId } from './photos.ts';
+import { isOrderAppHost, setUpOrderApp } from './pwa.ts';
 
 /**
  * cheesybeez.com: order ahead, collect it hot, pay at the shop.
@@ -513,6 +515,8 @@ function Status({ placed, onDone, onAgain }: { placed: Placed; onDone: () => voi
 }
 
 export function OrderSite() {
+  const install = useInstall();
+  const canInstall = isOrderAppHost();
   const [shop, setShop] = useState<ShopInfo | null>(null);
   const [taking, setTaking] = useState<Taking>('loading');
   const checks = useRef(0);
@@ -526,6 +530,7 @@ export function OrderSite() {
   const [toast, setToast] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  useEffect(() => setUpOrderApp(), []);
 
   /** Asks the cloud; only the newest answer counts. A failure keeps the last menu but not the last open/closed. */
   const check = useCallback(() => {
@@ -592,6 +597,12 @@ export function OrderSite() {
         <div className="o-wrap o-hero__text">
           <h1>Order ahead.<br /><span>Collect it hot.</span></h1>
           <p>Order here, collect at the shop.</p>
+          {install.kind === 'button' && (
+            <button type="button" className="o-install" onClick={install.install}>Install app</button>
+          )}
+          {canInstall && install.kind === 'iphone' && (
+            <p className="o-install-help">Install: tap Share, then Add to Home Screen.</p>
+          )}
         </div>
       </section>
       <div className="o-wrap o-layout">

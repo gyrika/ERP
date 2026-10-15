@@ -23,11 +23,12 @@ interface InstallPrompt extends Event { prompt(): Promise<void> }
 
 const standalone = () =>
   window.matchMedia?.('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-const iPhone = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+export const isAppleInstallDevice = (userAgent: string, platform: string, maxTouchPoints: number): boolean =>
+  /iPhone|iPad|iPod/.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1);
 
 /**
- * How to put the app on the home screen, if it is not there yet: a button where the phone
- * offers one (Android), the two taps to do where it does not (iPhone), nothing once installed.
+ * How to put the app on the home screen, if it is not there yet: a button where the browser
+ * offers one (Android), the two taps to do where it does not (Apple mobile), nothing once installed.
  */
 export function useInstall(): { kind: 'none' } | { kind: 'button'; install: () => void } | { kind: 'iphone' } {
   const [prompt, setPrompt] = useState<InstallPrompt | null>(null);
@@ -41,5 +42,5 @@ export function useInstall(): { kind: 'none' } | { kind: 'button'; install: () =
   }, []);
   if (done) return { kind: 'none' };
   if (prompt) return { kind: 'button', install: () => { void prompt.prompt(); setPrompt(null); } };
-  return iPhone() ? { kind: 'iphone' } : { kind: 'none' };
+  return isAppleInstallDevice(navigator.userAgent, navigator.platform, navigator.maxTouchPoints) ? { kind: 'iphone' } : { kind: 'none' };
 }
