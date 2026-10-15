@@ -1,13 +1,16 @@
-import { afterEach, beforeEach, expect, test } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readAll } from './eventLog.ts';
-import { ManagerView } from './ManagerView.tsx';
+import { FAKE_STAFF } from '../fake/data.ts';
+import { EDIT_IDLE_MS, ManagerView } from './ManagerView.tsx';
+
+const pinFor = (role: string) => FAKE_STAFF.find((s) => s.actor.role === role)!.pin;
 
 // The manager's page (SCRUM-90): today's progress, the three count lists, the record.
 
 beforeEach(() => localStorage.clear());
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 test('today, the daily / weekly / monthly lists with one Start each, and the record', async () => {
   const user = userEvent.setup();
@@ -39,8 +42,12 @@ test('the owner moves an item to another list, and back to automatic', async () 
   expect(daily().getByText(/^0 of 8 today$/)).toBeTruthy();
 
   await user.click(screen.getByRole('button', { name: 'Edit lists' }));
+  await user.type(screen.getByLabelText('Owner PIN'), pinFor('manager'));
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Only the owner can edit the lists.');
+  expect(screen.queryByRole('combobox')).toBeNull();
+  await user.type(screen.getByLabelText('Owner PIN'), pinFor('owner'));
   await user.selectOptions(screen.getByRole('combobox', { name: 'How often to count Salt' }), 'daily');
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.tier_set', tier: 'daily' });
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.tier_set', tier: 'daily', actor: { role: 'owner' } });
   expect(daily().getByText('Salt')).toBeTruthy();
   expect(daily().getByText(/^0 of 9 today$/)).toBeTruthy();
 
@@ -49,4 +56,16 @@ test('the owner moves an item to another list, and back to automatic', async () 
   expect(daily().queryByText('Salt')).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Done' }));
   expect(screen.queryByRole('combobox')).toBeNull();
+});
+
+test('Edit lists closes after a minute untouched', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  render(<ManagerView />);
+  await user.click(screen.getByRole('button', { name: 'Edit lists' }));
+  await user.type(screen.getByLabelText('Owner PIN'), pinFor('owner'));
+  expect(await screen.findAllByRole('combobox')).not.toHaveLength(0);
+  act(() => { vi.advanceTimersByTime(EDIT_IDLE_MS + 10); });
+  expect(screen.queryByRole('combobox')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Edit lists' })).toBeTruthy();
 });

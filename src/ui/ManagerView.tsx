@@ -1,10 +1,10 @@
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
 import {
   countedSince, countsDue, dailyStreak, dayGrid, monthStart, startOfDay, tiersOf, weekStart, type DayCell, type DueCount, type Tier,
 } from '../domain/counting.ts';
-import { usesLogin } from '../services/auth.ts';
+import { requireOwner } from '../services/auth.ts';
 import { setCountTier, useCountHistory, useInventory } from '../services/inventoryStore.ts';
-import { signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { CountFlow } from './CountFlow.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -14,13 +14,16 @@ import { OwnerNav } from './OwnerNav.tsx';
  * keeping up. Today's progress, then the three count lists (daily, weekly,
  * monthly) each with one Start, then the record of past days, GitHub style.
  * The same page opens on the manager's phone later (story 2). The owner can move
- * any item to another list (Edit lists); the rest stay automatic.
+ * any item to another list (Edit lists, owner PIN every time, locks after a minute
+ * untouched); the rest stay automatic.
  */
 const TIERS: { id: Tier; label: string; period: string }[] = [
   { id: 'daily', label: 'Daily', period: 'today' },
   { id: 'weekly', label: 'Weekly', period: 'this week' },
   { id: 'monthly', label: 'Monthly', period: 'this month' },
 ];
+/** Edit lists closes after this long untouched. */
+export const EDIT_IDLE_MS = 60_000;
 const DAY_NAMES = ['Mon', '', 'Wed', '', 'Fri', '', ''];
 const dayLabel = (t: number) => new Date(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 const monthLabel = (t: number) => new Date(t).toLocaleDateString('en-GB', { month: 'short' });
@@ -29,9 +32,18 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   const { items } = useInventory();
   const history = useCountHistory();
   const [counting, setCounting] = useState<DueCount[] | null>(null);
-  const [editing, setEditing] = useState(false);
-  const role = useSyncExternalStore(subscribeAuth, () => signedIn()?.role ?? null);
-  const isOwner = !usesLogin() || role === 'owner';
+  /** Edit lists: closed, asking for the owner's PIN, or open for that owner. */
+  const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
+  const editor = typeof edit === 'object' ? edit : null;
+
+  useEffect(() => {
+    if (!editor) return;
+    let t = setTimeout(() => setEdit('closed'), EDIT_IDLE_MS);
+    const awake = () => { clearTimeout(t); t = setTimeout(() => setEdit('closed'), EDIT_IDLE_MS); };
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+    for (const e of events) window.addEventListener(e, awake, { passive: true });
+    return () => { clearTimeout(t); for (const e of events) window.removeEventListener(e, awake); };
+  }, [editor]);
   const now = Date.now();
 
   const tiers = useMemo(() => tiersOf(items), [items]);
@@ -54,13 +66,15 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
       <main className="owner__main mgr" aria-label="Manager">
         <div className="mgr__title-row">
           <h1 className="mgr__title">Counts</h1>
-          {isOwner && (
-            <button type="button" className="chip" aria-pressed={editing} onClick={() => setEditing(!editing)}>
-              {editing ? 'Done' : 'Edit lists'}
-            </button>
-          )}
+          {edit === 'pin'
+            ? <OwnerPin onOpen={setEdit} onCancel={() => setEdit('closed')} />
+            : (
+              <button type="button" className="chip" aria-pressed={!!editor} onClick={() => setEdit(editor ? 'closed' : 'pin')}>
+                {editor ? 'Done' : 'Edit lists'}
+              </button>
+            )}
         </div>
-        {editing && <p className="mgr__hint">Move any item to another list. Automatic follows what sales use.</p>}
+        {editor && <p className="mgr__hint">Move any item to another list. Automatic follows what sales use.</p>}
 
         <section className="mgr__today" aria-label="Today">
           <div className="mgr__today-head">
@@ -94,9 +108,9 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
                     return (
                       <li key={i.id}>
                         <span>{i.name}</span>
-                        {editing ? (
+                        {editor ? (
                           <select className="mgr__pick" aria-label={`How often to count ${i.name}`} value={i.tier ?? 'auto'}
-                            onChange={(e) => setCountTier(i.id, e.target.value === 'auto' ? null : e.target.value as Tier)}>
+                            onChange={(e) => setCountTier(i.id, e.target.value === 'auto' ? null : e.target.value as Tier, editor)}>
                             <option value="auto">Automatic</option>
                             {TIERS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
                           </select>
@@ -131,6 +145,40 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
         </section>
       </main>
       {counting && <CountFlow due={counting} rows={items} onClose={() => setCounting(null)} />}
+    </div>
+  );
+}
+
+/** The owner's PIN, asked every time; anyone else's PIN is refused. */
+function OwnerPin({ onOpen, onCancel }: { onOpen: (owner: Actor) => void; onCancel: () => void }) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const onChange = async (raw: string) => {
+    const value = raw.replace(/\D/g, '').slice(0, PIN_LENGTH);
+    setPin(value);
+    setError(false);
+    if (value.length !== PIN_LENGTH) return;
+    setChecking(true);
+    const owner = await requireOwner(value);
+    setChecking(false);
+    if (owner) return onOpen(owner);
+    setError(true);
+    setPin('');
+  };
+
+  return (
+    <div className="mgr__pin">
+      <span id="mgr-pin-msg" className={`mgr__pin-msg${error ? ' mgr__pin-msg--error' : ''}`} role={error ? 'alert' : undefined}>
+        {error ? 'Only the owner can edit the lists.' : 'Owner PIN'}
+      </span>
+      <input
+        className={`pin${error ? ' pin--error' : ''}`} type="password" inputMode="numeric" autoComplete="off"
+        value={pin} readOnly={checking} autoFocus aria-label="Owner PIN" aria-invalid={error} aria-describedby="mgr-pin-msg"
+        onChange={(e) => void onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
+      />
+      <button type="button" className="linkbtn" onClick={onCancel}>Cancel</button>
     </div>
   );
 }

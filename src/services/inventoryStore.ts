@@ -170,9 +170,9 @@ export const learnUnit = (itemId: string, name: string, base: number): void => {
   appendEvent({ type: 'stock.unit_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, name: name.trim(), base });
 };
 
-/** The owner's choice of how often an item is counted (null: automatic). */
-export const setCountTier = (itemId: string, tier: Tier | null): void => {
-  appendEvent({ type: 'stock.tier_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, tier });
+/** The owner's choice of how often an item is counted (null: automatic), signed by the owner's PIN. */
+export const setCountTier = (itemId: string, tier: Tier | null, owner: Actor): void => {
+  appendEvent({ type: 'stock.tier_set', at: Date.now(), orderNumber: 0, actor: owner, itemId, tier });
 };
 
 /** A supplier's new price, audited with the old one (integer cents). */
