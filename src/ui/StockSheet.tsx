@@ -6,6 +6,7 @@ import type { Supplier } from '../domain/inventoryData.ts';
 import { reasonLabel } from '../domain/counting.ts';
 import { whatsAppLink } from '../domain/ordering.ts';
 import { receiveStock, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
+import { usePhotoUrl } from '../services/photos.ts';
 import { formatLasts, formatPacks, formatQuantity } from './quantity.ts';
 
 /**
@@ -45,6 +46,7 @@ export function StockSheet({ item, suppliers = [], countDue = false, onClose, on
   }, [onClose]);
 
   const story = useItemStory(item.id);
+  const photo = usePhotoUrl(story.lastCount?.photo);
   const sources = suppliers.filter((x) => item.supplierIds.includes(x.id));
   const now = Date.now();
   const typed = parsePacks(packs);
@@ -90,6 +92,9 @@ export function StockSheet({ item, suppliers = [], countDue = false, onClose, on
                   ? `${formatQuantity(Math.abs(story.lastCount.delta), item.baseUnit)} ${story.lastCount.delta < 0 ? 'short' : 'over'}, ${reasonLabel(story.lastCount.reason).toLowerCase()}`
                   : story.lastCount.first ? 'first count' : 'matched'}</>
                 : 'Never'}
+              {story.lastCount?.photo && (photo
+                ? <a className="story__photo" href={photo} target="_blank" rel="noreferrer"><img src={photo} alt={`Shelf photo from the last count of ${item.name}`} /></a>
+                : <span>photo on the shop PC</span>)}
             </dd>
           </div>
           <div>

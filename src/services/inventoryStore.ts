@@ -156,13 +156,13 @@ export const receiveStock = (row: InventoryRow, packs: number, priceCents: Cents
  * the reason for a big gap. Returns the Undo.
  */
 export const recordCount = (
-  row: InventoryRow, entries: CountEntry[], counted: number, reason: GapReason | null, tier: Tier,
+  row: InventoryRow, entries: CountEntry[], counted: number, reason: GapReason | null, tier: Tier, photo: string | null = null,
 ): (() => void) => {
   const expected = row.onHandBaseUnits;
   const { valueCents } = gapOf(expected, counted, row);
   const e = appendEvent({
     type: 'stock.counted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: row.id,
-    counted, expected, entries, reason, valueCents, tier,
+    counted, expected, entries, reason, valueCents, tier, ...(photo ? { photo } : {}),
   });
   return () => { appendEvent({ type: 'stock.count_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), countId: e.id }); };
 };

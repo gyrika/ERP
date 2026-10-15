@@ -26,7 +26,8 @@ export const pairFromUrl = (): void => {
   const token = url.searchParams.get('pair');
   if (!token) return;
   set(TOKEN, token);
-  set(KIND, url.searchParams.get('as') === 'kitchen' ? 'kitchen' : 'counter');
+  const as = url.searchParams.get('as');
+  set(KIND, as === 'kitchen' || as === 'manager' ? as : 'counter');
   const shop = url.searchParams.get('shop');
   if (shop) set(SHOP, shop);
   url.searchParams.delete('pair');
@@ -42,6 +43,9 @@ export const pairedShop = (): string | null => get(SHOP);
 
 /** A kitchen device shows the kitchen and nothing else, with no login (the server enforces the same). */
 export const isKitchenDevice = (): boolean => syncToken() !== null && get(KIND) === 'kitchen';
+
+/** The manager's phone (SCRUM-94): Manager and Inventory only, opened with a manager's PIN. */
+export const isManagerDevice = (): boolean => syncToken() !== null && get(KIND) === 'manager';
 
 /** The owner's phone token for the cloud copy (read-only), if this device has one. */
 export const ownerToken = (): string | null => (isDemo() ? null : get(OWNER));

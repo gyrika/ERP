@@ -175,6 +175,7 @@ export function setupApi(ctx: SetupContext) {
     /**
      * A QR code's link. kitchen: a tablet on the shop Wi-Fi becomes the Kitchen screen.
      * owner: a phone gets the Owner view from the cloud. counter: another screen on this PC.
+     * manager: the manager's phone on the shop Wi-Fi, for counts and photos (SCRUM-94).
      */
     async pair(body: { kind?: unknown; ownerPin?: unknown }) {
       await authorise(body.ownerPin);
@@ -190,17 +191,17 @@ export function setupApi(ctx: SetupContext) {
         const { token } = (await r.json()) as { token: string };
         return { link: `${cloud.url}/?owner=${token}#owner` };
       }
-      if (body.kind === 'kitchen') {
+      if (body.kind === 'kitchen' || body.kind === 'manager') {
         const host = lanAddress();
         if (!host) throw new SetupError(409, 'not_ready', 'this PC is not on a network: connect it to the shop Wi-Fi');
-        const { token } = await ctx.store.addDevice(s.id, s.name, 'kitchen');
-        return { link: `http://${host}:${ctx.port}/?pair=${token}&shop=${encodeURIComponent(s.id)}&as=kitchen#kitchen` };
+        const { token } = await ctx.store.addDevice(s.id, s.name, body.kind);
+        return { link: `http://${host}:${ctx.port}/?pair=${token}&shop=${encodeURIComponent(s.id)}&as=${body.kind}#${body.kind}` };
       }
       if (body.kind === 'counter') {
         const { token } = await ctx.store.addDevice(s.id, s.name, 'counter');
         return { counterToken: token, shopId: s.id };
       }
-      throw new SetupError(400, 'invalid', 'kind must be kitchen, owner or counter');
+      throw new SetupError(400, 'invalid', 'kind must be kitchen, manager, owner or counter');
     },
 
     /**

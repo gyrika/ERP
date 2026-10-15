@@ -1,3 +1,4 @@
+import { isPhotoId } from '../src/domain/photos.ts';
 import { MENU } from '../src/domain/menu.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
 import { isGapReason } from '../src/domain/counting.ts';
@@ -111,7 +112,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !Array.isArray(entries) || entries.length > 10 ||
         !entries.every((x) => isObj(x) && shortString(x.unit, 40) && amount(x.qty) && (x.qty as number) >= 0) ||
         !(e.reason === null || isGapReason(e.reason)) || !Number.isSafeInteger(e.valueCents) ||
-        !['daily', 'weekly', 'monthly'].includes(String(e.tier))
+        !['daily', 'weekly', 'monthly'].includes(String(e.tier)) ||
+        !(e.photo === undefined || e.photo === null || isPhotoId(e.photo))
       ) return { reason: `event ${e.id} has an invalid count` };
     }
     if (e.type === 'stock.count_undone' && !shortString(e.countId)) return { reason: `event ${e.id} has an invalid count id` };

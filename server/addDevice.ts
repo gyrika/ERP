@@ -18,7 +18,7 @@ const { values } = parseArgs({
   },
 });
 
-const kinds: DeviceKind[] = ['counter', 'kitchen', 'owner'];
+const kinds: DeviceKind[] = ['counter', 'kitchen', 'owner', 'manager'];
 if (!process.env.DATABASE_URL) { console.error('Set DATABASE_URL first (see docs/server-setup.md).'); process.exit(1); }
 if (!values.shop) { console.error('--shop is required: the shop id the app stamps on its events.'); process.exit(1); }
 if (!kinds.includes(values.kind as DeviceKind)) { console.error(`--kind must be one of ${kinds.join(', ')}`); process.exit(1); }
@@ -27,6 +27,6 @@ const store = mysqlStore(createPool({ uri: process.env.DATABASE_URL }));
 const { device, token } = await store.addDevice(values.shop, values.name, values.kind as DeviceKind);
 await store.close();
 
-const extra = device.kind === 'kitchen' ? '&as=kitchen#kitchen' : '';
+const extra = device.kind === 'kitchen' ? '&as=kitchen#kitchen' : device.kind === 'manager' ? '&as=manager#manager' : '';
 console.log(`Device ${device.id} (${device.kind}) added to ${device.tenantId}.`);
 console.log(`Open this once on the device:\n  http://${values.host}/?pair=${token}&shop=${encodeURIComponent(device.tenantId)}${extra}`);

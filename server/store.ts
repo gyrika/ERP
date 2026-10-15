@@ -13,7 +13,8 @@ export interface Device {
   tenantId: string;
   kind: DeviceKind;
 }
-export type DeviceKind = 'counter' | 'kitchen' | 'owner';
+/** manager: the manager's phone (SCRUM-94), stock only. */
+export type DeviceKind = 'counter' | 'kitchen' | 'owner' | 'manager';
 
 export interface StaffMember extends Actor {
   active: boolean;
