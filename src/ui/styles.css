@@ -577,7 +577,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 }
 @media (max-width: 640px) {
   .inv-page__head { min-height: 76px; height: auto; flex-basis: auto; align-items: flex-start; flex-direction: column; padding: 12px 16px 8px; }
-  .inv-notice { margin-left: 16px; margin-right: 16px; }
+  .inv-notice, .count-due { margin-left: 16px; margin-right: 16px; }
   .inv-rows { padding: 8px 16px 24px; }
   .inv-search { padding: 8px 20px 0; }
   .inv-row { grid-template-columns: minmax(0, 1fr) minmax(110px, auto) auto; gap: 8px; padding-right: 4px; padding-left: 4px; }
@@ -944,3 +944,32 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .rcard__shared { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .rcard__shared .costq__ask { font-size: 18px; }
 .redit__cost { margin: 0; color: var(--ink-2); font-size: 15px; }
+
+/* ----- Count day (SCRUM-89) ----- */
+.count-due { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 8px 40px 0; padding: 16px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); border-left: 4px solid var(--warn); }
+.count-due__title { display: block; font-size: 17px; font-weight: 600; }
+.count-due__sub { display: block; color: var(--ink-2); font-size: 14px; }
+.inv-modal.count { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.count__head { display: flex; flex-direction: column; gap: 2px; }
+.count__pos { color: var(--ink-2); font-size: 13px; }
+.count__name { margin: 0; font-size: 26px; font-weight: 500; letter-spacing: -0.4px; }
+.count__item, .count__why { display: flex; flex-direction: column; gap: 18px; }
+.count__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px; }
+.count__label, .count__field > span { color: var(--ink-2); font-size: 14px; font-weight: 500; }
+.count__label { width: 100%; }
+.count__field { display: flex; flex-direction: column; gap: 6px; }
+.count__field input { min-height: 48px; width: 120px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); color: var(--ink); font: inherit; font-size: 20px; text-align: right; }
+.count__field--inline input { width: 110px; }
+.count__newunit .count__field input { width: 160px; text-align: left; font-size: 17px; }
+.count__newunit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 14px; border-radius: 12px; background: var(--chip); }
+.count__or { color: var(--ink-2); font-size: 14px; align-self: center; }
+.count__total { margin: 0; min-height: 28px; font-size: 22px; font-weight: 500; }
+.count__gap { margin: 0; font-size: 22px; font-weight: 600; }
+.count__gap--short { color: var(--bad); }
+.count__gap--over { color: var(--warn); }
+.count__hint { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+.count__saved { display: flex; align-items: center; gap: 12px; margin: 0; color: var(--ok-ink); font-size: 15px; }
+.count__done { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.count__done h2 { margin: 0; font-size: 26px; font-weight: 500; }
+.count__done p { margin: 0; color: var(--ink-2); }
+@media (max-width: 520px) { .count-due { flex-direction: column; align-items: stretch; } }

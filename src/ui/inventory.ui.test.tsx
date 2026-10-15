@@ -11,7 +11,7 @@ beforeEach(() => localStorage.clear());
 
 /** A stock row as the screens get it. */
 const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
-  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null, missedSales: 0 });
+  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [] });
 afterEach(cleanup);
 
 test('every seeded ingredient is listed once, with all of its suppliers', () => {
@@ -209,20 +209,22 @@ test('a delivery: packs in and the new price in one go, saved at once; Undo take
   expect(amount()).toContain('Rs 6,400 a pack');
 });
 
-test('a count sets the shelf to what was counted, and says how far off the app was', async () => {
+test('Count opens the blind count: the gap shows only after counting, then the shelf is what was counted', async () => {
   const user = userEvent.setup();
   inventoryStore.adjustStock('inv-0001', 2);
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Update Pizza Flour' }));
-  const sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
-  await user.click(sheet.getByRole('button', { name: 'Count' }));
-  expect(sheet.getByText(/The app expects 2 packs/)).toBeTruthy();
-  await user.type(sheet.getByRole('textbox', { name: /Packs on the shelf now/ }), '1.5');
-  expect(sheet.getByText(/12.5 kg less than expected/)).toBeTruthy();
-  await user.click(sheet.getByRole('button', { name: 'Save' }));
+  await user.click(within(screen.getByRole('dialog', { name: 'Pizza Flour' })).getByRole('button', { name: 'Count' }));
+  const form = within(screen.getByRole('form', { name: 'Count Pizza Flour' }));
+  expect(screen.queryByText(/expects/)).toBeNull();
+  await user.type(form.getByRole('textbox', { name: 'Full packs' }), '1.5');
+  await user.click(form.getByRole('button', { name: 'Next' }));
+  expect(screen.getByText(/^12.5 kg short · Rs /)).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Delivery was short' }));
+  await user.click(screen.getByRole('button', { name: 'Close' }));
 
   expect(amount()).toContain('37.5 kg / 25 kg');
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.adjusted', deltaPacks: -0.5, reason: 'audit' });
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', counted: 37500, expected: 50000, reason: 'delivery-short' });
 });
 
 test('nothing typed, nothing saved: the sheet says what is missing', async () => {

@@ -12,6 +12,8 @@ import { AddIngredientModal } from './AddIngredientModal.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
 import { StockSheet } from './StockSheet.tsx';
+import { CountFlow } from './CountFlow.tsx';
+import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
@@ -48,6 +50,11 @@ export function InventoryView({
       .some((text) => text.toLowerCase().includes(q)));
   }, [items, query, supplierNames]);
   const updatingItem = items.find((item) => item.id === updating) ?? null;
+  // Today's count: what the money says to count, and since when.
+  const tiers = useMemo(() => tiersOf(items), [items]);
+  const due = useMemo(() => countsDue(items, tiers, Date.now()), [items, tiers]);
+  const dueIds = useMemo(() => new Set(due.filter((d) => d.state !== 'never').map((d) => d.id)), [due]);
+  const [counting, setCounting] = useState<DueCount[] | null>(null);
 
   const removeItem = (id: string, name: string) => {
     try {
@@ -94,6 +101,21 @@ export function InventoryView({
         </div>
       )}
 
+      {due.length > 0 && (
+        <div className="count-due" role="region" aria-label="Today's count">
+          <div>
+            <strong className="count-due__title">Today's count · {due.length} {due.length === 1 ? 'item' : 'items'}</strong>
+            <span className="count-due__sub">
+              {[
+                due.some((d) => d.state === 'overdue') && `${due.filter((d) => d.state === 'overdue').length} overdue`,
+                due.some((d) => d.state === 'never') && `${due.filter((d) => d.state === 'never').length} never counted`,
+              ].filter(Boolean).join(' · ') || 'Count what is left; the app compares.'}
+            </span>
+          </div>
+          <button type="button" className="insight__action" onClick={() => { setCounting(due); setDone(null); }}>Start</button>
+        </div>
+      )}
+
       {untrackedSold > 0 && (
         <div className="inv-notice" role="status">
           {untrackedSold} {untrackedSold === 1 ? 'item' : 'items'} sold this week took no stock: no recipe yet.
@@ -125,8 +147,9 @@ export function InventoryView({
                </div>
                <div className="inv-row__quantity" aria-label="Available stock and pack size">
                  <span className={`inv-row__status inv-row__status--${status}`}>{STATUS_LABELS[status]}</span>
+                 {/* Blind count: while it is due, the shelf amount stays hidden until it is counted. */}
                  <strong>
-                   {formatQuantity(Math.max(0, item.onHandBaseUnits), item.baseUnit)}
+                   {dueIds.has(item.id) ? 'Count due' : formatQuantity(Math.max(0, item.onHandBaseUnits), item.baseUnit)}
                    {' / '}
                    {formatQuantity(item.packQty, item.baseUnit)}
                  </strong>
@@ -172,10 +195,15 @@ export function InventoryView({
       {updatingItem && (
         <StockSheet
           item={updatingItem}
+          onCount={() => {
+            setUpdating(null);
+            setCounting([due.find((d) => d.id === updatingItem.id) ?? { id: updatingItem.id, tier: tiers.get(updatingItem.id) ?? 'monthly', state: updatingItem.counted ? 'due' : 'never', lastCountedAt: updatingItem.lastCountedAt }]);
+          }}
           onClose={() => setUpdating(null)}
           onDone={(message, undo) => setDone({ message, undo })}
         />
       )}
+      {counting && <CountFlow due={counting} rows={items} onClose={() => setCounting(null)} />}
       {showAdd && (
         <AddIngredientModal onClose={() => setShowAdd(false)} onSave={addInventoryItem} />
       )}
