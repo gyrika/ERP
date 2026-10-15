@@ -14,7 +14,7 @@ import type { Cents, MenuItem, SizeId } from './types.ts';
  */
 export interface ItemStory {
   /** first: it set the starting amount, so there was nothing to compare. */
-  lastCount: { at: number; by: string; delta: number; reason: GapReason | null; first: boolean } | null;
+  lastCount: { at: number; by: string; delta: number; reason: GapReason | null; first: boolean; photo: string | null } | null;
   lastDelivery: { at: number; packs: number; by: string } | null;
   lastPrice: { at: number; before: Cents; after: Cents } | null;
 }
@@ -27,7 +27,7 @@ export const itemStory = (events: readonly SyncEvent[], itemId: string): ItemSto
   for (const e of events) {
     if (!('itemId' in e) || e.itemId !== itemId) continue;
     if (e.type === 'stock.counted' && !undone.has(e.id)) {
-      lastCount = { at: e.at, by: e.actor.name, delta: e.counted - Math.max(0, e.expected), reason: e.reason, first: lastCount === null };
+      lastCount = { at: e.at, by: e.actor.name, delta: e.counted - Math.max(0, e.expected), reason: e.reason, first: lastCount === null, photo: e.photo ?? null };
     } else if (e.type === 'stock.adjusted' && e.reason === 'receive') {
       // An Undo of a delivery is the same packs taken back: it cancels that delivery.
       if (e.deltaPacks > 0) deliveries.push({ at: e.at, packs: e.deltaPacks, by: e.actor.name });

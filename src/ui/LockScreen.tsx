@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PIN_LENGTH } from '../domain/auth.ts';
 import { login, type LoginResult } from '../services/serverAuth.ts';
+import { isManagerDevice } from '../services/pairing.ts';
 
 /**
  * The counter's front door (SCRUM-40). Several people share one PC through a
@@ -74,7 +75,8 @@ export function LockScreen() {
             : <span key={i} />))}
         </div>
       </div>
-      <p className="lock__hint">Kitchen <kbd>F2</kbd></p>
+      {/* The manager phone has no kitchen and no keyboard (SCRUM-94). */}
+      {!isManagerDevice() && <p className="lock__hint">Kitchen <kbd>F2</kbd></p>}
     </main>
   );
 }

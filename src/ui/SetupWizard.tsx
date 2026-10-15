@@ -335,14 +335,14 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
 }
 
 function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPin?: string; onFinish?: () => void }) {
-  const [links, setLinks] = useState<{ kitchen?: string; owner?: string }>({});
+  const [links, setLinks] = useState<{ kitchen?: string; manager?: string; owner?: string }>({});
   const [error, setError] = useState('');
-  const show = async (kind: 'kitchen' | 'owner') => {
+  const show = async (kind: 'kitchen' | 'manager' | 'owner') => {
     setError('');
     try { const { link } = await setupClient.pair(kind, ownerPin); setLinks((l) => ({ ...l, [kind]: link })); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const card = (kind: 'kitchen' | 'owner', title: string, how: string, available: boolean, why: string) => (
+  const card = (kind: 'kitchen' | 'manager' | 'owner', title: string, how: string, available: boolean, why: string) => (
     <section className="setup__device" aria-label={title}>
       <h2>{title}</h2>
       {links[kind]
@@ -356,6 +356,7 @@ function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPi
     <div className="setup__form">
       <div className="setup__devices">
         {card('kitchen', 'Kitchen tablet', "Scan it with the tablet's camera. The tablet must be on the shop's Wi-Fi.", true, '')}
+        {card('manager', "Manager's phone", "Scan it with the manager's phone on the shop's Wi-Fi. It opens the counts with a manager's PIN.", true, '')}
         {card('owner', "Owner's phone", "Scan it with the owner's phone. It then shows the Owner view, from anywhere.", state.cloud,
           'Connect to the cloud first (the step before), then come back here.')}
       </div>

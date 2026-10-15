@@ -1078,3 +1078,14 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .story__suppliers { flex-direction: column; align-items: flex-start !important; }
 .story__supplier { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink) !important; }
 @media (max-width: 520px) { .story > div { grid-template-columns: 1fr; gap: 2px; } }
+
+/* The manager's phone (SCRUM-94): the shelf photo for a big gap. */
+.count__camera { display: flex; align-items: center; justify-content: center; min-height: 56px; cursor: pointer; text-align: center; }
+.count__camera[aria-busy='true'] { opacity: 0.6; pointer-events: none; }
+.count__photo { width: 100%; max-height: 40dvh; object-fit: cover; border-radius: 12px; }
+.story__photo { display: block; flex-basis: 100%; }
+.story__photo img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+@media (max-width: 520px) {
+  .inv-modal.count { width: 100vw; max-height: 100dvh; border-radius: 0; }
+  .owner__nav { gap: 4px; }
+}

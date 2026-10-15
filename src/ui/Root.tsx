@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
-import { adminShop, fleetShop, isCloudSite, isKitchenDevice, ownerToken, syncToken } from '../services/pairing.ts';
+import { adminShop, fleetShop, isCloudSite, isKitchenDevice, isManagerDevice, ownerToken, syncToken } from '../services/pairing.ts';
 import { isDemo } from './storage.ts';
 import { lock, signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { App } from './App.tsx';
@@ -158,6 +158,11 @@ export function Root() {
   }
   if (hash === '#receipt') return <ReceiptPreview />; // setup page, not a cashier screen
   if (kitchenOnly) return <Kitchen onSwitch={staff ? lock : undefined} />;
+  // The manager's phone (SCRUM-94): a manager's PIN, then the counts and the stock, nothing else.
+  if (isManagerDevice()) {
+    if (!staff) return <LockScreen />;
+    return hash === '#inventory' ? <InventoryView /> : <ManagerView />;
+  }
   if (inKitchen) return <Kitchen onBack={fromRegister || needsLogin ? () => show(false) : undefined} />;
   if (needsLogin && !staff) return <LockScreen />;
   // Managers and owners only (SCRUM-41); anyone else typing the address gets the Register.
