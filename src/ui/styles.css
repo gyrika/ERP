@@ -876,10 +876,40 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   --primary: #F5F5F7; --on-primary: #000000; --card-shadow: none; --ok-ink: #30A46C; --gold: #D4B26A;
   color: var(--ink); color-scheme: dark;
 }
-.vault__lock { min-height: calc(100dvh - 60px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px 16px 96px; text-align: center; }
+.vault__lock { min-height: calc(100dvh - 60px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px 16px 96px; text-align: center; position: relative; isolation: isolate; overflow: hidden; }
+.vault__lock > :not(.vault__scene) { position: relative; z-index: 1; }
+
+/* The lock's background (SCRUM-91): an open recipe book under one warm lamp, too blurred to read. */
+.vault__scene { position: absolute; inset: 0; z-index: 0; pointer-events: none; display: grid; place-items: center; perspective: 900px; }
+.vault__lamp { position: absolute; inset: 0; background: radial-gradient(ellipse 46% 42% at 50% 46%, rgba(212, 178, 106, 0.22), rgba(212, 178, 106, 0.06) 55%, transparent 75%); animation: vault-lamp 7s ease-in-out infinite alternate; }
+.vault__tome { width: min(92vw, 820px); height: auto; transform: rotateX(38deg) translateY(4%); filter: blur(7px); opacity: 0.75; }
+.vault__page { fill: #2A2318; stroke: #3A3020; stroke-width: 1; }
+.vault__spine { stroke: #120E08; stroke-width: 3; }
+.vault__ink { fill: #6E5A36; }
+.vault__sketch { fill: none; stroke: #6E5A36; stroke-width: 3; }
+/* A shade over the middle so the PIN reads cleanly on the page. */
+.vault__scene::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse 28% 24% at 50% 50%, rgba(0, 0, 0, 0.72), transparent 100%); }
+@keyframes vault-lamp { from { opacity: 0.8; } to { opacity: 1; } }
+.vault__icon--error { animation: shake 220ms var(--ease); }
+
+/* The right PIN: the shackle springs, the doors part, the recipes come into focus (about 450 ms). */
+.vault__shackle { transform-box: fill-box; transform-origin: 100% 100%; }
+.vault__doors { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; pointer-events: none; }
+.vault__door { position: absolute; top: 0; bottom: 0; width: 50.5%; background: #000; animation: 330ms var(--ease) 120ms both; }
+.vault__door--left { left: 0; box-shadow: inset -1px 0 0 rgba(212, 178, 106, 0.55); animation-name: vault-door-left; }
+.vault__door--right { right: 0; box-shadow: inset 1px 0 0 rgba(212, 178, 106, 0.55); animation-name: vault-door-right; }
+.vault__icon--open { position: relative; color: var(--gold); animation: vault-fade 160ms var(--ease) 260ms both; }
+.vault__icon--open .vault__shackle { animation: vault-spring 140ms cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+@keyframes vault-door-left { to { transform: translateX(-100%); } }
+@keyframes vault-door-right { to { transform: translateX(100%); } }
+@keyframes vault-spring { to { transform: translateY(-3px) rotate(-24deg); } }
+@keyframes vault-fade { to { opacity: 0; transform: scale(1.15); } }
+.vault__focus > * { animation: vault-focus 380ms var(--ease) 90ms both; }
+@keyframes vault-focus { from { filter: blur(12px); opacity: 0.4; } to { filter: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .vault__doors { display: none; } .vault__lamp { animation: none; } }
 .vault__icon { color: var(--gold); }
 .vault__name { margin: 0; font-size: 28px; font-weight: 500; letter-spacing: -0.6px; }
-.vault__lock .pin { width: 200px; }
+.vault__lock .pin { width: 200px; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(2px); }
 .vault__msg { margin: 0; min-height: 22px; color: var(--ink-3); font-size: 15px; }
 .vault__msg[role='alert'] { color: var(--bad); }
 

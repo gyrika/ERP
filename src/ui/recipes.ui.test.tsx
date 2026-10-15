@@ -5,7 +5,7 @@ import { setMenuState } from '../domain/menu.ts';
 import { EMPTY_MENU_STATE } from '../domain/menuEdits.ts';
 import { FAKE_STAFF } from '../fake/data.ts';
 import { readAll } from './eventLog.ts';
-import { RECIPES_IDLE_MS } from './RecipesView.tsx';
+import { DOORS_MS, RECIPES_IDLE_MS } from './RecipesView.tsx';
 import { Root } from './Root.tsx';
 
 const pinFor = (role: string) => FAKE_STAFF.find((s) => s.actor.role === role)!.pin;
@@ -110,4 +110,16 @@ test('a minute untouched locks the recipes again', async () => {
   act(() => { vi.advanceTimersByTime(RECIPES_IDLE_MS + 10); });
   expect(screen.getByRole('heading', { name: 'CheesyBeez recipes' })).toBeTruthy();
   expect(screen.queryByText('Margherita Medium')).toBeNull();
+});
+
+test('the right PIN opens the doors over the recipes, and they are gone in a moment', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  const { container } = render(<Root />);
+  expect(container.querySelector('.vault__scene')).toBeTruthy();
+  await open(user);
+  expect(container.querySelector('.vault__doors')).toBeTruthy();
+  expect(screen.getByText('Margherita Medium')).toBeTruthy();
+  act(() => { vi.advanceTimersByTime(DOORS_MS + 10); });
+  expect(container.querySelector('.vault__doors')).toBeNull();
 });

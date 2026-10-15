@@ -26,8 +26,15 @@ import { OwnerNav } from './OwnerNav.tsx';
  * untouched or when he leaves, and every opening is in the audit trail
  * (recipe.viewed). Amounts stay blurred until a recipe is opened.
  * Each save is one audited recipe.answer_set with an Undo; nothing is filled in for him.
+ *
+ * The lock is staged like a safe (SCRUM-91): an open recipe book lies blurred under
+ * one warm lamp behind the PIN; the right PIN springs the gold lock, two dark doors
+ * slide apart and the recipes come into focus. The recipes are there at once (the
+ * doors only cover them for under half a second), so nothing ever waits on it.
  */
 export const RECIPES_IDLE_MS = 60_000;
+/** How long the doors stay over the recipes after the right PIN (the CSS takes less). */
+export const DOORS_MS = 600;
 /** A gap in this many recipes or more is asked once, above them all. */
 const SHARED_GAP = 3;
 
@@ -102,6 +109,13 @@ const statusText = (e: Entry) => {
 
 export function RecipesView({ onRegister }: { onRegister?: () => void }) {
   const [owner, setOwner] = useState<Actor | null>(null);
+  const [doors, setDoors] = useState(false);
+
+  useEffect(() => {
+    if (!doors) return;
+    const t = setTimeout(() => setDoors(false), DOORS_MS);
+    return () => clearTimeout(t);
+  }, [doors]);
 
   // Lock after a minute untouched, and whenever the screen goes away.
   useEffect(() => {
@@ -117,8 +131,9 @@ export function RecipesView({ onRegister }: { onRegister?: () => void }) {
     <div className="owner vault">
       <OwnerNav current="recipes" onRegister={onRegister} />
       {owner
-        ? <Book owner={owner} onLock={() => setOwner(null)} />
-        : <Lock onOpen={(actor) => { recipesViewed(actor); setOwner(actor); }} />}
+        ? <div className={doors ? 'vault__focus' : undefined}><Book owner={owner} onLock={() => setOwner(null)} /></div>
+        : <Lock onOpen={(actor) => { recipesViewed(actor); setOwner(actor); setDoors(true); }} />}
+      {owner && doors && <Doors />}
     </div>
   );
 }
@@ -143,10 +158,8 @@ function Lock({ onOpen }: { onOpen: (owner: Actor) => void }) {
 
   return (
     <main className="vault__lock" aria-label="Recipes, locked">
-      <svg className="vault__icon" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
-        <rect x="5" y="11" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
+      <Scene />
+      <LockIcon className={`vault__icon${error ? ' vault__icon--error' : ''}`} />
       <h1 className="vault__name">CheesyBeez recipes</h1>
       <input
         className={`pin${error ? ' pin--error' : ''}`} type="password" inputMode="numeric" autoComplete="off"
@@ -157,6 +170,56 @@ function Lock({ onOpen }: { onOpen: (owner: Actor) => void }) {
         {error ? 'Only the owner can open the recipes.' : 'Owner PIN'}
       </p>
     </main>
+  );
+}
+
+/** The gold padlock; its shackle is its own group so it can spring open. */
+function LockIcon({ className }: { className: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
+      <path className="vault__shackle" d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="5" y="11" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+// Handwriting on the pages: line widths (of 100) per page, fixed so it never jumps.
+const LEFT_LINES = [62, 88, 74, 0, 80, 54, 92, 68, 0, 84, 46, 76];
+const RIGHT_LINES = [0, 0, 0, 0, 0, 0, 0, 70, 90, 58, 82, 64];
+
+/** An open recipe book under one lamp, too blurred to read: the background of the lock. */
+function Scene() {
+  const lines = (xs: number[], x0: number) => xs.map((w, i) => (w
+    ? <rect key={i} x={x0} y={46 + i * 15} width={w * 1.3} height="3.2" rx="1.6" />
+    : null));
+  return (
+    <div className="vault__scene" aria-hidden="true">
+      <div className="vault__lamp" />
+      <svg className="vault__tome" viewBox="0 0 320 240" preserveAspectRatio="xMidYMid meet">
+        <path className="vault__page" d="M160 22 C 120 12 52 12 14 22 L 14 226 C 52 216 120 216 160 228 Z" />
+        <path className="vault__page" d="M160 22 C 200 12 268 12 306 22 L 306 226 C 268 216 200 216 160 228 Z" />
+        <path className="vault__spine" d="M160 22 L 160 228" />
+        <g className="vault__ink">
+          <rect x="34" y="30" width="78" height="6" rx="3" />
+          {lines(LEFT_LINES, 34)}
+          <circle cx="234" cy="80" r="40" className="vault__sketch" />
+          <circle cx="234" cy="80" r="31" className="vault__sketch" />
+          <circle cx="220" cy="68" r="5" /><circle cx="248" cy="74" r="5" /><circle cx="230" cy="96" r="5" /><circle cx="252" cy="94" r="4" />
+          {lines(RIGHT_LINES, 182)}
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+/** Right after the PIN: the lock springs and two dark doors slide apart over the recipes. */
+function Doors() {
+  return (
+    <div className="vault__doors" aria-hidden="true">
+      <div className="vault__door vault__door--left" />
+      <div className="vault__door vault__door--right" />
+      <LockIcon className="vault__icon vault__icon--open" />
+    </div>
   );
 }
 
