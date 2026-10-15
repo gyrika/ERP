@@ -24,9 +24,10 @@ export interface ManagerInboxOptions {
   every?: number;
 }
 
-/** What the shop takes from a manager phone: stock, by a manager or owner; count lists by an owner only. */
+/** What the shop takes from a phone: stock, by a manager or owner; count lists and gap checks by an owner only. */
 export const takesFromPhone = (e: SyncEvent): boolean =>
-  e.type.startsWith('stock.') && 'actor' in e && managesRole(e.actor.role) && (e.type !== 'stock.tier_set' || e.actor.role === 'owner');
+  e.type.startsWith('stock.') && 'actor' in e && managesRole(e.actor.role) &&
+  ((e.type !== 'stock.tier_set' && e.type !== 'stock.gap_reviewed') || e.actor.role === 'owner');
 
 export function startManagerInbox(o: ManagerInboxOptions) {
   const http = o.fetch ?? fetch;

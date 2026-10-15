@@ -1,4 +1,5 @@
 import { isPhotoId } from '../src/domain/photos.ts';
+import { isNote } from '../src/domain/gapReview.ts';
 import { MENU } from '../src/domain/menu.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
 import { isGapReason } from '../src/domain/counting.ts';
@@ -123,6 +124,10 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'stock.tier_set' && (!shortString(e.itemId) || !(e.tier === null || ['daily', 'weekly', 'monthly'].includes(String(e.tier))))) {
       return { reason: `event ${e.id} has an invalid count tier` };
     }
+    if ((e.type === 'stock.gap_reviewed' || e.type === 'stock.gap_answered') && (
+      !shortString(e.itemId) || !shortString(e.countId) || !isNote(e.note) ||
+      (e.type === 'stock.gap_reviewed' && e.decision !== 'ok' && e.decision !== 'ask')
+    )) return { reason: `event ${e.id} has an invalid gap review` };
     if (e.type.startsWith('menu.') && e.orderNumber !== 0) return { reason: `event ${e.id} has an invalid menu order number` };
     if (e.type === 'recipe.answer_set') {
       const valid = (a: unknown) => a === null || (isObj(a) && checkAnswer(String(e.question), a as Answer) === null);

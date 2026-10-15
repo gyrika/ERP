@@ -1,6 +1,6 @@
 import type { Actor, AuthService } from '../domain/auth.ts';
 import { fakeAuth } from '../fake/fakeAuth.ts';
-import { isManagerPhone, syncToken } from './pairing.ts';
+import { phoneToken, syncToken } from './pairing.ts';
 import { phoneAuth } from './managerPhone.ts';
 import { serverAuth } from './serverAuth.ts';
 
@@ -10,8 +10,8 @@ import { serverAuth } from './serverAuth.ts';
  * no lock screen.
  */
 export const usesLogin = (): boolean => syncToken() !== null;
-// The manager's phone app is signed by the person it was made for (SCRUM-94).
-const auth = (): AuthService => (isManagerPhone() ? phoneAuth : usesLogin() ? serverAuth : fakeAuth);
+// The phone apps sign with the person the phone was made for (SCRUM-94/95).
+const auth = (): AuthService => (phoneToken() ? phoneAuth : usesLogin() ? serverAuth : fakeAuth);
 
 /** The single manager check every screen uses. */
 export const requireManager = (pin: string): Promise<Actor | null> => auth().verifyManagerPin(pin);

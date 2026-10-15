@@ -12,6 +12,7 @@ import { currentCashier } from './auth.ts';
 import { newLineId } from '../domain/order.ts';
 import { useShopEvents } from './ownerData.ts';
 import { itemStory, usedIn, type ItemStory } from '../domain/itemStory.ts';
+import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
 
 /**
@@ -171,6 +172,22 @@ export const recordCount = (
 export const learnUnit = (itemId: string, name: string, base: number): void => {
   appendEvent({ type: 'stock.unit_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, name: name.trim(), base });
 };
+
+/** The owner on a count's gap (SCRUM-95): OK, or a question for the manager. */
+export const reviewGap = (gap: GapCase, decision: 'ok' | 'ask', note = ''): void => {
+  appendEvent({ type: 'stock.gap_reviewed', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: gap.itemId, countId: gap.countId, decision, note: note.trim() });
+};
+
+/** The manager answers the owner's question about a gap. */
+export const answerGap = (gap: GapCase, note: string): void => {
+  appendEvent({ type: 'stock.gap_answered', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: gap.itemId, countId: gap.countId, note: note.trim() });
+};
+
+/** The gaps in the counts and where each stands (SCRUM-95). */
+export function useGapCases(): GapCase[] {
+  const events = useShopHistory();
+  return useMemo(() => gapCases(events), [events]);
+}
 
 /** The owner's choice of how often an item is counted (null: automatic), signed by the owner's PIN. */
 export const setCountTier = (itemId: string, tier: Tier | null, owner: Actor): void => {

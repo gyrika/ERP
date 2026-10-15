@@ -88,3 +88,17 @@ test('the manager app installs with its key in the address it opens', () => {
   assert.equal(managerManifest('../evil').start_url, '/#manager');
   assert.equal(managerManifest(null).name, 'CheesyBeez Manager');
 });
+
+test("the owner's phone signs as the owner and may only check gaps (SCRUM-95)", async () => {
+  const { call } = await setup();
+  const me = await (await call('/api/v1/me', 'owner-a')).json();
+  assert.deepEqual(me, { actor: { id: 'dev-owner-a', name: 'Owner', role: 'owner' }, shopId: SHOP });
+  const reviewed = { id: 'r1', shopId: SHOP, at: 6000, orderNumber: 0, actor: me.actor, type: 'stock.gap_reviewed', itemId: 'inv-0006', countId: 'c1', decision: 'ask', note: 'Why?' };
+  const r = await (await call('/api/v1/inbox', 'owner-a', { events: [reviewed, count('c9', me.actor)] })).json();
+  assert.deepEqual(r.accepted.map((a: { id: string }) => a.id), ['r1']);
+  assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['c9']);
+  // A manager's phone cannot check a gap.
+  const { token } = await (await call('/api/v1/devices', 'server-a', { kind: 'manager', actor: ravi })).json();
+  const m = await (await call('/api/v1/inbox', token, { events: [{ ...reviewed, id: 'r2', actor: ravi }] })).json();
+  assert.deepEqual(m.rejected.map((x: { id: string }) => x.id), ['r2']);
+});

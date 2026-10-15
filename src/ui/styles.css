@@ -1089,3 +1089,23 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .inv-modal.count { width: 100vw; max-height: 100dvh; border-radius: 0; }
   .owner__nav { gap: 4px; }
 }
+
+/* The owner checks the gaps; the manager answers (SCRUM-95). */
+.gaps { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.gap { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 14px; background: var(--chip); }
+.gap__head { display: flex; justify-content: space-between; gap: 12px; font-size: 16px; }
+.gap__head .num { font-weight: 600; }
+.gap__head .gap__short { color: var(--bad); }
+.gap__sub { margin: 0; color: var(--ink-2); font-size: 14px; }
+.gap__photo { width: 100%; max-height: 260px; object-fit: cover; border-radius: 10px; }
+.gap__talk { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-left: 3px solid var(--gold); border-radius: 0 10px 10px 0; background: var(--surface); }
+.gap__talk p { margin: 0; font-size: 14px; }
+.gap__ask { display: flex; flex-direction: column; gap: 8px; }
+.gap__actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.mgr__asks { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); border-left: 4px solid var(--gold); }
+.mgr__asks h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.mgr__ask { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.mgr__ask:first-of-type { border-top: 0; padding-top: 0; }
+.mgr__ask p { margin: 0; }
+.mgr__ask-q { color: var(--ink-2); }
+.mgr__ask .insight__action { align-self: flex-end; }

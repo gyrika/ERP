@@ -1,12 +1,12 @@
 import type { Actor, AuthService } from '../domain/auth.ts';
 import type { PushResponse } from '../domain/sync.ts';
 import { markRejected, markSynced, readAll, readOutbox, subscribeEvents } from '../ui/eventLog.ts';
-import { managerToken } from './pairing.ts';
+import { phoneToken } from './pairing.ts';
 
 /**
- * The manager's phone app (SCRUM-94), served by the cloud like the owner's. The phone
- * was made for one person at the shop PC: the cloud says who (/api/v1/me), and every
- * count it records is signed with them. What it records goes to the cloud's inbox,
+ * The phone apps (SCRUM-94/95), served by the cloud. A manager's phone was made for one
+ * person at the shop PC; the owner's phone signs as the owner. The cloud says who
+ * (/api/v1/me), and everything it records is signed with them. What it records goes to the cloud's inbox,
  * from where the shop PC takes it; on weak signal it simply waits on the phone.
  */
 const ME = 'cb.manager.me';
@@ -19,7 +19,7 @@ const readMe = (): Me | null => { try { return JSON.parse(localStorage.getItem(M
 export const loadMe = async (): Promise<Me | null> => {
   const known = readMe();
   if (known) return known;
-  const token = managerToken();
+  const token = phoneToken();
   if (!token) return null;
   const r = await fetch('/api/v1/me', { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
   if (!r.ok) throw new Error(r.status === 401 ? 'This link is no longer valid. Ask for a new QR code.' : `cloud ${r.status}`);
@@ -40,7 +40,7 @@ let busy = false;
 
 /** Sends what this phone recorded to the cloud's inbox; whatever does not get through waits. */
 export const flushOutbox = async (): Promise<void> => {
-  const token = managerToken();
+  const token = phoneToken();
   if (!token || busy) return;
   busy = true;
   clearTimeout(timer);
