@@ -4,7 +4,14 @@ import {
   countedSince, countsDue, dailyStreak, dayGrid, monthStart, startOfDay, tiersOf, weekStart, type DayCell, type DueCount, type Tier,
 } from '../domain/counting.ts';
 import { requireOwner } from '../services/auth.ts';
-import { setCountTier, useCountHistory, useInventory } from '../services/inventoryStore.ts';
+import { answerGap, setCountTier, useCountHistory, useGapCases, useInventory } from '../services/inventoryStore.ts';
+import { asked, MAX_NOTE, type GapCase } from '../domain/gapReview.ts';
+import { reasonLabel } from '../domain/counting.ts';
+import { formatQuantity } from '../domain/quantity.ts';
+import { fmt } from '../domain/money.ts';
+import { useWaitingPhotos } from '../services/photos.ts';
+import { useInstall } from '../services/ownerApp.ts';
+import { isManagerPhone } from '../services/pairing.ts';
 import { CountFlow } from './CountFlow.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -35,6 +42,11 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   /** Edit lists: closed, asking for the owner's PIN, or open for that owner. */
   const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
   const editor = typeof edit === 'object' ? edit : null;
+  const waiting = useWaitingPhotos();
+  const questions = asked(useGapCases());
+  // The manager's phone app (SCRUM-94): offered for the home screen; the lists are edited at the shop.
+  const phone = isManagerPhone();
+  const install = useInstall();
 
   useEffect(() => {
     if (!editor) return;
@@ -66,7 +78,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
       <main className="owner__main mgr" aria-label="Manager">
         <div className="mgr__title-row">
           <h1 className="mgr__title">Counts</h1>
-          {edit === 'pin'
+          {phone ? null : edit === 'pin'
             ? <OwnerPin onOpen={setEdit} onCancel={() => setEdit('closed')} />
             : (
               <button type="button" className="chip" aria-pressed={!!editor} onClick={() => setEdit(editor ? 'closed' : 'pin')}>
@@ -74,7 +86,28 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
               </button>
             )}
         </div>
+        {phone && install.kind === 'button' && (
+          <p className="owner__install">
+            <span>Put CheesyBeez Manager on your home screen.</span>
+            <button type="button" className="insight__action" onClick={install.install}>Install app</button>
+          </p>
+        )}
+        {phone && install.kind === 'iphone' && (
+          <p className="owner__install">To put it on your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
+        )}
+        {waiting > 0 && <p className="mgr__hint" role="status">{waiting} {waiting === 1 ? 'photo waits' : 'photos wait'} for the signal; they send by themselves.</p>}
         {editor && <p className="mgr__hint">Move any item to another list. Automatic follows what sales use.</p>}
+
+        {questions.length > 0 && (
+          <section className="mgr__asks" aria-label="The owner asks">
+            <h2>The owner asks</h2>
+            {questions.map((q) => {
+              const item = items.find((i) => i.id === q.itemId);
+              return <Question key={q.countId} gap={q} name={item?.name ?? q.itemId}
+                gapText={`${item ? formatQuantity(Math.abs(q.delta), item.baseUnit) : Math.abs(q.delta)} ${q.delta < 0 ? 'short' : 'over'} · ${reasonLabel(q.reason)} · Rs ${fmt(Math.abs(q.valueCents))}`} />;
+            })}
+          </section>
+        )}
 
         <section className="mgr__today" aria-label="Today">
           <div className="mgr__today-head">
@@ -146,6 +179,21 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
       </main>
       {counting && <CountFlow due={counting} rows={items} onClose={() => setCounting(null)} />}
     </div>
+  );
+}
+
+/** One question from the owner about a gap, answered in a line or two (SCRUM-95). */
+function Question({ gap, name, gapText }: { gap: GapCase; name: string; gapText: string }) {
+  const [note, setNote] = useState('');
+  if (gap.review.kind !== 'asked') return null;
+  return (
+    <form className="mgr__ask" aria-label={`Question about ${name}`} onSubmit={(e) => { e.preventDefault(); if (note.trim()) answerGap(gap, note); }}>
+      <p><strong>{name}</strong> · {gapText}</p>
+      <p className="mgr__ask-q">{gap.review.by}: {gap.review.note || 'Please explain.'}</p>
+      <textarea className="inv-modal__input" rows={2} maxLength={MAX_NOTE} value={note} aria-label={`Your answer about ${name}`}
+        placeholder="What happened?" onChange={(e) => setNote(e.target.value)} />
+      <button type="submit" className="insight__action" disabled={!note.trim()}>Answer</button>
+    </form>
   );
 }
 

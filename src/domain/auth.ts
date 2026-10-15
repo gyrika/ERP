@@ -42,6 +42,10 @@ export const mayRecord = (role: Role, type: string): boolean => {
   if (type.startsWith('kitchen.')) return true;
   if (CASHIER_EVENTS.has(type)) return role !== 'kitchen';
   if (MANAGER_EVENTS.has(type)) return managesRole(role);
+  // Which items are counted daily, weekly or monthly: the owner's choice (SCRUM-90).
+  if (type === 'stock.tier_set') return role === 'owner';
+  // Checking a count's gap is the owner's; answering the owner, a manager's (SCRUM-95).
+  if (type === 'stock.gap_reviewed') return role === 'owner';
   // Stock counts and supplier prices are a manager's job (SCRUM-41).
   if (type.startsWith('stock.')) return managesRole(role);
   // The menu is the owner's; marking something sold out is a manager's job during service.

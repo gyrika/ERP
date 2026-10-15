@@ -21,6 +21,9 @@ export interface ShopSettings {
   cloudSecret?: string;
   /** The counter is taking online orders from cheesybeez.com. */
   onlineOpen?: boolean;
+  /** The manager phones' inbox in the cloud (SCRUM-94): how far this shop has taken it, and the local device it files under. */
+  managerInboxSeq?: number;
+  managerInboxDevice?: string;
 }
 
 export function settingsFile(file: string) {

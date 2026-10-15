@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -95,6 +95,49 @@ test('backups: a checked copy taken while the store is open, the newest 14 kept,
     assert.equal(kept.length, 14);
     assert.equal(kept[0], 'pos-20261103-040000-nightly.sqlite', 'the oldest ones go first');
     await store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("SQLite store: a shop's existing database takes the manager phone (SCRUM-94) and keeps its history and rules", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cb-sqlite-'));
+  const file = join(dir, 'pos.sqlite');
+  try {
+    // A database as the shop has it today: only the first migration, with a device, a sale and a login.
+    const old = new DatabaseSync(file);
+    old.exec('PRAGMA foreign_keys = ON');
+    old.exec('CREATE TABLE schema_migrations (id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)');
+    old.exec(readFileSync(new URL('./sqlite/001-init.sql', import.meta.url), 'utf8'));
+    old.prepare('INSERT INTO schema_migrations VALUES (?, ?)').run('001-init.sql', 1);
+    old.close();
+    let store = sqliteStore(file);
+    const { device, token } = await store.addDevice(SHOP, 'Shop A', 'counter');
+    await store.push(device, [ev('a')], 1);
+    await store.close();
+    // Pretend the shop was on the old version: take the new migration off, so opening applies it.
+    const raw0 = new DatabaseSync(file);
+    raw0.exec("DELETE FROM schema_migrations WHERE id = '002-manager-phone.sql'");
+    raw0.exec(`PRAGMA foreign_keys = OFF; BEGIN;
+      CREATE TABLE d2 (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES shops(id), kind TEXT NOT NULL CHECK (kind IN ('counter', 'kitchen', 'owner')), token_hash TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL);
+      INSERT INTO d2 SELECT * FROM devices; DROP TABLE devices; ALTER TABLE d2 RENAME TO devices; COMMIT;`);
+    raw0.close();
+
+    store = sqliteStore(file);
+    assert.deepEqual(await store.deviceByToken(token), device, 'devices kept');
+    assert.equal(await store.lastSeq(SHOP), 1, 'history kept');
+    const phone = await store.addDevice(SHOP, 'Shop A', 'manager');
+    assert.equal(phone.device.kind, 'manager');
+    await store.close();
+
+    const raw = new DatabaseSync(file);
+    raw.exec('PRAGMA foreign_keys = ON');
+    const refs = raw.prepare('PRAGMA foreign_key_list(events)').all() as { table: string }[];
+    assert.ok(refs.some((r) => r.table === 'devices'), 'events still point at devices');
+    assert.deepEqual(raw.prepare('PRAGMA foreign_key_check').all(), []);
+    assert.throws(() => raw.exec('DELETE FROM events'), /never deleted/);
+    assert.throws(() => raw.exec("INSERT INTO devices VALUES ('x', 'shop-a', 'toaster', 'h', 1)"), /CHECK/);
+    raw.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

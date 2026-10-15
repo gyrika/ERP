@@ -16,7 +16,7 @@ const counted = (itemId: string, at: number, base: number): SyncEvent =>
   ({ id: `c-${itemId}-${at}`, shopId: 'shop-demo-cheesybeez', at, orderNumber: 0, actor, type: 'stock.counted', itemId, counted: base, expected: 0, entries: [], reason: null, valueCents: 0, tier: 'daily' });
 
 const openCount = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
-  await user.click(screen.getByRole('button', { name: `Update ${name}` }));
+  await user.click(screen.getByRole('button', { name }));
   await user.click(screen.getByRole('button', { name: 'Count' }));
   return within(screen.getByRole('form', { name: `Count ${name}` }));
 };
@@ -62,7 +62,7 @@ test('blind count: no expected amount before counting; a big gap asks why and sa
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', itemId: 'inv-0006', counted: 5400, expected: 6000, reason: 'spoiled' });
 
   await user.click(screen.getByRole('button', { name: 'Close' }));
-  expect(within(mozz).getByText(/^5.4 kg/)).toBeTruthy();
+  expect(within(mozz).getByText('2¾ packs · 5.4 kg')).toBeTruthy();
 });
 
 test('a small gap matches with no question; Undo takes the count back', async () => {

@@ -16,7 +16,8 @@ test('inventory items render as compact name, status, and supplier rows', () => 
   const firstRow = list.querySelector<HTMLElement>('.inv-row')!;
   expect(firstRow.querySelector('.inv-row__name')?.textContent).toBe('Pizza Flour');
   expect(firstRow.querySelector('.inv-row__status')?.textContent).toBe('Not counted yet');
-  expect(within(firstRow).getByRole('button', { name: 'Find supplier' })).toBeTruthy();
+  expect(within(firstRow).getByRole('button', { name: 'Prima / David Stores (Wholesale)' })).toBeTruthy();
+  expect(within(firstRow).queryByRole('button', { name: 'Order Pizza Flour' })).toBeNull(); // only when low or out
 });
 
 test('new ingredient requires suppliers and saves as a stock event', async () => {
@@ -35,10 +36,11 @@ test('new ingredient requires suppliers and saves as a stock event', async () =>
   expect(readItems().find((item) => item.name === 'Sea Salt')?.supplierIds).toEqual(['sup_prima']);
 }, 15_000);
 
-test('ingredient can be archived from its row and restored with Undo', async () => {
+test('ingredient can be removed from its sheet and restored with Undo', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
 
+  await user.click(screen.getByRole('button', { name: 'Pizza Flour' }));
   await user.click(screen.getByRole('button', { name: 'Remove Pizza Flour' }));
   expect(screen.queryByRole('heading', { name: 'Pizza Flour' })).toBeNull();
   expect(readItems().some((item) => item.id === 'inv-0001')).toBe(false);
