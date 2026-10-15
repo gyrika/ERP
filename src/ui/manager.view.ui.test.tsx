@@ -18,7 +18,7 @@ test('today, the daily / weekly / monthly lists with one Start each, and the rec
   expect(screen.getByRole('img', { name: 'Count record, last 52 weeks' })).toBeTruthy();
   expect(within(screen.getByRole('region', { name: 'Count record' })).getByText('No streak yet')).toBeTruthy();
 
-  // No sales yet, so everything is monthly: start that group and count the first item.
+  // Before any sales the 8 dearest packs are daily; count the first monthly item.
   const monthly = within(screen.getByRole('region', { name: 'Monthly counts' }));
   await user.click(monthly.getByRole('button', { name: /^Start monthly · \d+$/ }));
   const form = within(screen.getByRole('form', { name: /^Count / }));
@@ -30,4 +30,23 @@ test('today, the daily / weekly / monthly lists with one Start each, and the rec
   expect(today.getByText(/^1 of \d+ counted today$/)).toBeTruthy();
   expect(monthly.getAllByText('Done')).toHaveLength(1);
   expect(monthly.getByText(/^1 of \d+ this month$/)).toBeTruthy();
+});
+
+test('the owner moves an item to another list, and back to automatic', async () => {
+  const user = userEvent.setup();
+  render(<ManagerView />);
+  const daily = () => within(screen.getByRole('region', { name: 'Daily counts' }));
+  expect(daily().getByText(/^0 of 8 today$/)).toBeTruthy();
+
+  await user.click(screen.getByRole('button', { name: 'Edit lists' }));
+  await user.selectOptions(screen.getByRole('combobox', { name: 'How often to count Salt' }), 'daily');
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.tier_set', tier: 'daily' });
+  expect(daily().getByText('Salt')).toBeTruthy();
+  expect(daily().getByText(/^0 of 9 today$/)).toBeTruthy();
+
+  await user.selectOptions(screen.getByRole('combobox', { name: 'How often to count Salt' }), 'auto');
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.tier_set', tier: null });
+  expect(daily().queryByText('Salt')).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Done' }));
+  expect(screen.queryByRole('combobox')).toBeNull();
 });

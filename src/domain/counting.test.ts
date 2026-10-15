@@ -59,6 +59,28 @@ test('before the first sale the dearest packs start daily (8) and weekly (12)', 
   assert.equal(tiers.get('i20'), 'monthly');
 });
 
+test("the owner's choice wins over the automatic one", () => {
+  const rows = [
+    { id: 'cheese', usedPerDay: 1000, packQty: 1000, workingPriceCents: 100000, tier: 'monthly' as const },
+    { id: 'flour', usedPerDay: 1000, packQty: 1000, workingPriceCents: 20000, tier: null },
+    { id: 'salt', usedPerDay: 0, packQty: 1000, workingPriceCents: 50000, tier: 'daily' as const },
+  ];
+  assert.deepEqual(Object.fromEntries(tiersOf(rows)), { cheese: 'monthly', salt: 'daily', flour: 'daily' });
+});
+
+test('a tier set by the owner folds onto the item; null hands it back', () => {
+  const set = (id: string, at: number, tier: Tier | null): SyncEvent =>
+    ({ id, shopId: 's', at, orderNumber: 0, actor, type: 'stock.tier_set', itemId: MOZZ.id, tier });
+  const row = (events: SyncEvent[]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === MOZZ.id)!;
+  assert.equal(row([]).tier, null);
+  assert.equal(row([set('a', 1, 'daily')]).tier, 'daily');
+  assert.equal(row([set('a', 1, 'daily'), set('b', 2, null)]).tier, null);
+  const push = (tier: unknown) => validatePush({ events: [{ id: 't', shopId: 'shop-1', at: 1, orderNumber: 0, actor, type: 'stock.tier_set', itemId: MOZZ.id, tier }] }, 'shop-1');
+  assert.equal('reason' in push('weekly'), false);
+  assert.equal('reason' in push(null), false);
+  assert.equal('reason' in push('hourly'), true);
+});
+
 test("today's list: due by tier, overdue first, never-counted last; counted today drops off", () => {
   const tiers = new Map<string, Tier>([['a', 'daily'], ['b', 'weekly'], ['c', 'daily'], ['d', 'monthly'], ['e', 'daily']]);
   const due = countsDue([

@@ -63,7 +63,9 @@ export type StockEvent =
   /** Takes back a count (Undo on the count screen). */
   | (StockBase & { type: 'stock.count_undone'; countId: string })
   /** A unit learned for an item: "Tray" = 30 pcs (base: 0 removes it). */
-  | (StockItemBase & { type: 'stock.unit_set'; name: string; base: number });
+  | (StockItemBase & { type: 'stock.unit_set'; name: string; base: number })
+  /** The owner fixes how often an item is counted; null hands it back to the automatic choice. */
+  | (StockItemBase & { type: 'stock.tier_set'; tier: Tier | null });
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
 export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | RecipeEvent;
@@ -75,7 +77,7 @@ export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.u
 export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
-  'stock.counted', 'stock.count_undone', 'stock.unit_set',
+  'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',

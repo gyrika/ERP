@@ -118,6 +118,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'stock.unit_set' && (
       !shortString(e.itemId) || !shortString(e.name, 20) || typeof e.base !== 'number' || !Number.isFinite(e.base) || (e.base as number) < 0
     )) return { reason: `event ${e.id} has an invalid unit` };
+    if (e.type === 'stock.tier_set' && (!shortString(e.itemId) || !(e.tier === null || ['daily', 'weekly', 'monthly'].includes(String(e.tier))))) {
+      return { reason: `event ${e.id} has an invalid count tier` };
+    }
     if (e.type.startsWith('menu.') && e.orderNumber !== 0) return { reason: `event ${e.id} has an invalid menu order number` };
     if (e.type === 'recipe.answer_set') {
       const valid = (a: unknown) => a === null || (isObj(a) && checkAnswer(String(e.question), a as Answer) === null);

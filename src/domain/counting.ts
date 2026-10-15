@@ -103,14 +103,19 @@ export const START_WEEKLY = 12;
 /**
  * Per item, from what it costs a week (price x how much the sales use). Unused items
  * are monthly. Before the first sale nothing is used yet, so the dearest packs start
- * daily and weekly; real sales take over as soon as there are any.
+ * daily and weekly; real sales take over as soon as there are any. An item the
+ * owner fixed (stock.tier_set) keeps the owner's choice.
  */
-export const tiersOf = (rows: readonly { id: string; usedPerDay: number; packQty: number; workingPriceCents: Cents }[]): Map<string, Tier> => {
+export const tiersOf = (
+  all: readonly { id: string; usedPerDay: number; packQty: number; workingPriceCents: Cents; tier?: Tier | null }[],
+): Map<string, Tier> => {
+  // The owner's choice wins; the rest are shared out among themselves.
+  const tiers = new Map<string, Tier>(all.flatMap((r) => (r.tier ? [[r.id, r.tier] as const] : [])));
+  const rows = all.filter((r) => !r.tier);
   const spend = rows
     .map((r) => ({ id: r.id, week: r.packQty > 0 ? (r.usedPerDay * 7 / r.packQty) * r.workingPriceCents : 0 }))
     .sort((a, b) => b.week - a.week || a.id.localeCompare(b.id));
   const total = spend.reduce((s, r) => s + r.week, 0);
-  const tiers = new Map<string, Tier>();
   if (total <= 0) {
     [...rows].sort((a, b) => b.workingPriceCents - a.workingPriceCents || a.id.localeCompare(b.id))
       .forEach((r, i) => tiers.set(r.id, i < START_DAILY ? 'daily' : i < START_DAILY + START_WEEKLY ? 'weekly' : 'monthly'));

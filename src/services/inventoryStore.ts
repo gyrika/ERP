@@ -170,6 +170,11 @@ export const learnUnit = (itemId: string, name: string, base: number): void => {
   appendEvent({ type: 'stock.unit_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, name: name.trim(), base });
 };
 
+/** The owner's choice of how often an item is counted (null: automatic). */
+export const setCountTier = (itemId: string, tier: Tier | null): void => {
+  appendEvent({ type: 'stock.tier_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, tier });
+};
+
 /** A supplier's new price, audited with the old one (integer cents). */
 export const setWorkingPrice = (itemId: string, cents: Cents): void => {
   const row = readItems().find((i) => i.id === itemId);

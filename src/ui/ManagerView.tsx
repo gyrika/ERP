@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
   countedSince, countsDue, dailyStreak, dayGrid, monthStart, startOfDay, tiersOf, weekStart, type DayCell, type DueCount, type Tier,
 } from '../domain/counting.ts';
-import { useCountHistory, useInventory } from '../services/inventoryStore.ts';
+import { usesLogin } from '../services/auth.ts';
+import { setCountTier, useCountHistory, useInventory } from '../services/inventoryStore.ts';
+import { signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { CountFlow } from './CountFlow.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -11,7 +13,8 @@ import { OwnerNav } from './OwnerNav.tsx';
  * know the shop; what they need next is what to count today, and how they are
  * keeping up. Today's progress, then the three count lists (daily, weekly,
  * monthly) each with one Start, then the record of past days, GitHub style.
- * The same page opens on the manager's phone later (story 2).
+ * The same page opens on the manager's phone later (story 2). The owner can move
+ * any item to another list (Edit lists); the rest stay automatic.
  */
 const TIERS: { id: Tier; label: string; period: string }[] = [
   { id: 'daily', label: 'Daily', period: 'today' },
@@ -26,6 +29,9 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   const { items } = useInventory();
   const history = useCountHistory();
   const [counting, setCounting] = useState<DueCount[] | null>(null);
+  const [editing, setEditing] = useState(false);
+  const role = useSyncExternalStore(subscribeAuth, () => signedIn()?.role ?? null);
+  const isOwner = !usesLogin() || role === 'owner';
   const now = Date.now();
 
   const tiers = useMemo(() => tiersOf(items), [items]);
@@ -46,7 +52,15 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
     <div className="owner">
       <OwnerNav current="manager" onRegister={onRegister} />
       <main className="owner__main mgr" aria-label="Manager">
-        <h1 className="mgr__title">Counts</h1>
+        <div className="mgr__title-row">
+          <h1 className="mgr__title">Counts</h1>
+          {isOwner && (
+            <button type="button" className="chip" aria-pressed={editing} onClick={() => setEditing(!editing)}>
+              {editing ? 'Done' : 'Edit lists'}
+            </button>
+          )}
+        </div>
+        {editing && <p className="mgr__hint">Move any item to another list. Automatic follows what sales use.</p>}
 
         <section className="mgr__today" aria-label="Today">
           <div className="mgr__today-head">
@@ -80,9 +94,17 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
                     return (
                       <li key={i.id}>
                         <span>{i.name}</span>
-                        <span className={`mgr__chip mgr__chip--${state}`}>
-                          {state === 'done' ? 'Done' : state === 'overdue' ? 'Overdue' : state === 'never' ? 'First count' : 'Due'}
-                        </span>
+                        {editing ? (
+                          <select className="mgr__pick" aria-label={`How often to count ${i.name}`} value={i.tier ?? 'auto'}
+                            onChange={(e) => setCountTier(i.id, e.target.value === 'auto' ? null : e.target.value as Tier)}>
+                            <option value="auto">Automatic</option>
+                            {TIERS.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                          </select>
+                        ) : (
+                          <span className={`mgr__chip mgr__chip--${state}`}>
+                            {state === 'done' ? 'Done' : state === 'overdue' ? 'Overdue' : state === 'never' ? 'First count' : 'Due'}
+                          </span>
+                        )}
                       </li>
                     );
                   })}

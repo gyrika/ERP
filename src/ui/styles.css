@@ -980,6 +980,9 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 /* ----- Manager page: counts and their record (SCRUM-90) ----- */
 .mgr { max-width: 960px; display: flex; flex-direction: column; gap: 24px; padding-bottom: 64px; }
 .mgr__title { margin: 8px 0 0; font-size: 34px; font-weight: 500; letter-spacing: -0.8px; }
+.mgr__title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mgr__hint { margin: -8px 0 0; color: var(--ink-2); font-size: 14px; }
+.mgr__pick { flex: none; min-height: 36px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; }
 .mgr__today { display: flex; flex-direction: column; gap: 12px; padding: 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
 .mgr__today-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .mgr__today-label { color: var(--ink-2); font-size: 15px; }
