@@ -274,3 +274,66 @@ test('menu: only a logged-in owner changes prices and names; a manager may mark 
   assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['price-by-manager']);
   await s.stop();
 });
+
+// ----- the manager's phone and shelf photos (SCRUM-94) -----
+
+const counted = (id: string, actor: { id: string; name: string; role: string }, photo?: string) =>
+  ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor, type: 'stock.counted', itemId: 'inv-0006', counted: 1000, expected: 2000,
+    entries: [], reason: 'unknown', valueCents: -260000, tier: 'daily', ...(photo ? { photo } : {}) });
+
+test('a manager-kind device (the phones\' inbox) opens for managers and owners only, and records stock only', async () => {
+  const store = memoryStore();
+  await store.addStaff(SHOP, 'Nimal', 'cashier', '1111');
+  const manager = await store.addStaff(SHOP, 'Ravi', 'manager', '2580');
+  const s = await start(store);
+  const phone = await store.addDevice(SHOP, 'Shop A', 'manager');
+  const login = (pin: string) => s.call('/api/v1/login', phone.token, { pin, purpose: 'shift' });
+  assert.equal((await login('1111')).status, 401, "a cashier's PIN does not open the manager phone");
+  assert.equal((await login('2580')).status, 200);
+
+  const ravi = { id: manager.id, name: 'Ravi', role: 'manager' };
+  const r = await (await s.push(phone.token, [counted('c', ravi), order('o', 'order.sent', ravi), ev('tap')])).json();
+  assert.deepEqual(r.accepted.map((a: { id: string }) => a.id), ['c']);
+  assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['o', 'tap']);
+  await s.stop();
+});
+
+test('only the owner sets how often an item is counted, even sending the event itself', async () => {
+  const store = memoryStore();
+  const manager = await store.addStaff(SHOP, 'Ravi', 'manager', '2580');
+  const owner = await store.addStaff(SHOP, 'Owner', 'owner', '9999');
+  const s = await start(store);
+  await s.call('/api/v1/login', s.tokens.counter, { pin: '2580', purpose: 'shift' });
+  await s.call('/api/v1/login', s.tokens.counter, { pin: '9999', purpose: 'shift' });
+  const tier = (id: string, actor: { id: string; name: string; role: string }) =>
+    ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor, type: 'stock.tier_set', itemId: 'inv-0006', tier: 'daily' });
+  const r = await (await s.push(s.tokens.counter, [
+    tier('m', { id: manager.id, name: 'Ravi', role: 'manager' }), tier('o', { id: owner.id, name: 'Owner', role: 'owner' }),
+  ])).json();
+  assert.deepEqual(r.accepted.map((a: { id: string }) => a.id), ['o']);
+  assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['m']);
+  await s.stop();
+});
+
+test('photos at the counter: from the cloud the first time, then from this PC; never on the kitchen tablet', async () => {
+  const saved = new Map<string, Buffer>();
+  const photos = {
+    save: (t: string, id: string, b: Buffer) => { if (!saved.has(`${t}/${id}`)) saved.set(`${t}/${id}`, b); },
+    read: (t: string, id: string) => saved.get(`${t}/${id}`) ?? null,
+  };
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  let asked = 0;
+  const cloudPhoto = async (_t: string, id: string) => { asked++; return id === 'ph-abcdefgh12' ? jpeg : null; };
+  const s = await start(memoryStore(), undefined, { photos, cloudPhoto });
+  const id = 'ph-abcdefgh12';
+  for (let i = 0; i < 2; i++) {
+    const back = await s.call(`/api/v1/photos/${id}`, s.tokens.counter);
+    assert.equal(back.headers.get('content-type'), 'image/jpeg');
+    assert.deepEqual(Buffer.from(await back.arrayBuffer()), jpeg);
+  }
+  assert.equal(asked, 1, 'kept on this PC after the first time');
+  assert.equal((await s.call('/api/v1/photos/ph-unknown123', s.tokens.counter)).status, 404);
+  assert.equal((await s.call(`/api/v1/photos/${id}`, s.tokens.kitchen)).status, 403);
+  assert.equal((await s.call('/api/v1/photos', s.tokens.counter, { id, data: jpeg.toString('base64') })).status, 404, 'phones send photos to the cloud, not here');
+  await s.stop();
+});

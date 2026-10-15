@@ -7,12 +7,13 @@ import {
   type StockStatus,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
-import { fmt } from '../domain/money.ts';
 import { AddIngredientModal } from './AddIngredientModal.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
-import { StockSheet } from './StockSheet.tsx';
+import { daysAgo, formatStock } from '../domain/itemStory.ts';
+import { StockSheet, type SheetTab } from './StockSheet.tsx';
 import { CountFlow } from './CountFlow.tsx';
+import { DeliverySheet } from './DeliverySheet.tsx';
 import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
@@ -22,6 +23,12 @@ const STATUS_LABELS: Record<StockStatus, string> = {
   ok: 'In stock',
   unknown: 'Not counted yet',
 };
+
+/**
+ * Inventory (SCRUM-92: fewer buttons). Tap a row to open its sheet (received, count,
+ * remove); "Delivery came" takes a whole bill at once; Order shows only on items
+ * that are low or out. The supplier's name opens that supplier.
+ */
 
 /** Why a row says "Check shelf": what it has not been able to take off. */
 const missedText = (n: number) => `${n} sold since the last count not taken off`;
@@ -38,7 +45,10 @@ export function InventoryView({
   const [archived, setArchived] = useState<{ id: string; name: string } | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  /** The item whose sheet is open, and on which tab. */
   const [updating, setUpdating] = useState<string | null>(null);
+  const [sheetTab, setSheetTab] = useState<SheetTab>('received');
+  const [delivery, setDelivery] = useState(false);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo: () => void } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
@@ -55,6 +65,8 @@ export function InventoryView({
   const due = useMemo(() => countsDue(items, tiers, Date.now()), [items, tiers]);
   const dueIds = useMemo(() => new Set(due.filter((d) => d.state !== 'never').map((d) => d.id)), [due]);
   const [counting, setCounting] = useState<DueCount[] | null>(null);
+  const now = Date.now();
+  const countedSoFar = items.filter((i) => i.counted).length;
 
   const removeItem = (id: string, name: string) => {
     try {
@@ -85,7 +97,10 @@ export function InventoryView({
       <OwnerNav current="inventory" onRegister={onRegister} />
       <div className="inv-page__head">
          <h1 className="supplier-heading">Inventory Dashboard</h1>
-         <button type="button" className="insight__action" onClick={() => setShowAdd(true)}>+ Add Ingredient</button>
+         <div className="inv-page__actions">
+           <button type="button" className="inv-page__primary" onClick={() => { setDelivery(true); setArchived(null); setError(''); }}>Delivery came</button>
+           <button type="button" className="inv-page__secondary" onClick={() => setShowAdd(true)}>+ Add Ingredient</button>
+         </div>
       </div>
 
       {(archived || error) && (
@@ -108,7 +123,7 @@ export function InventoryView({
             <span className="count-due__sub">
               {[
                 due.some((d) => d.state === 'overdue') && `${due.filter((d) => d.state === 'overdue').length} overdue`,
-                due.some((d) => d.state === 'never') && `${due.filter((d) => d.state === 'never').length} never counted`,
+                countedSoFar < items.length && `${countedSoFar} of ${items.length} counted once`,
               ].filter(Boolean).join(' · ') || 'Count what is left; the app compares.'}
             </span>
           </div>
@@ -138,55 +153,50 @@ export function InventoryView({
            const status = stockStatus(item);
 
            return (
-             <article key={item.id} className="inv-row">
+             <article key={item.id} className="inv-row"
+               onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a')) { setUpdating(item.id); setSheetTab('received'); setArchived(null); setError(''); } }}>
                <div className="inv-row__main">
-                 <h2 className="inv-row__name">{item.name}</h2>
-                 <div className="inv-row__sub" aria-label="Suppliers">
-                   {item.supplierIds.map((id) => supplierNames.get(id)).filter(Boolean).join(', ') || 'No active suppliers'}
+                 <h2 className="inv-row__name">
+                   <button type="button" className="inv-row__open" onClick={() => { setUpdating(item.id); setSheetTab('received'); setArchived(null); setError(''); }}>
+                     {item.name}
+                   </button>
+                 </h2>
+                 <div className="inv-row__sub">
+                 <span aria-label="Suppliers">
+                   {!item.supplierIds.some((id) => supplierNames.has(id)) && 'No active suppliers'}
+                   {item.supplierIds.filter((id) => supplierNames.has(id)).map((id, i) => (
+                     <span key={id}>
+                       {i > 0 && ', '}
+                       {onFindSupplier
+                         ? <button type="button" className="inv-row__source" onClick={() => onFindSupplier(item.id)}>{supplierNames.get(id)}</button>
+                         : supplierNames.get(id)}
+                     </span>
+                   ))}
+                 </span>
+                 <span className="inv-row__counted"> · {item.lastCountedAt === null ? 'never counted' : `counted ${daysAgo(item.lastCountedAt, now)}`}</span>
                  </div>
                </div>
                <div className="inv-row__quantity" aria-label="Available stock and pack size">
                  <span className={`inv-row__status inv-row__status--${status}`}>{STATUS_LABELS[status]}</span>
-                 {/* Blind count: while it is due, the shelf amount stays hidden until it is counted. */}
-                 <strong>
-                   {dueIds.has(item.id) ? 'Count due' : formatQuantity(Math.max(0, item.onHandBaseUnits), item.baseUnit)}
-                   {' / '}
-                   {formatQuantity(item.packQty, item.baseUnit)}
-                 </strong>
+                 {/* Never a fake zero: an item never counted shows no amount. Blind count: while
+                     it is due, the amount stays hidden until it is counted, and says so. */}
+                 {item.counted && (dueIds.has(item.id)
+                   ? <strong>Count due · hidden</strong>
+                   : <>
+                     <strong>{formatStock(item.onHandBaseUnits, item)}</strong>
+                     <Level days={item.lastsDays} status={status} />
+                   </>)}
+                 {!item.counted && <span className="inv-row__lasts">{formatQuantity(item.packQty, item.baseUnit)} a pack</span>}
                  {status === 'unsure'
                    ? <span className="inv-row__lasts">{missedText(item.missedSales)}</span>
-                   : formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
-                 <span className="inv-row__price">Rs {fmt(item.workingPriceCents)} a pack</span>
+                   : item.counted && !dueIds.has(item.id) && formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
                </div>
                <div className="inv-row__actions">
-                 <button
-                   type="button"
-                   className="inv-row__update"
-                   aria-label={`Update ${item.name}`}
-                   onClick={() => { setUpdating(item.id); setArchived(null); setError(''); }}
-                 >
-                   Update
-                 </button>
-                 {onFindSupplier && (
-                   <button
-                     type="button"
-                     className="inv-row__supplier"
-                     onClick={() => onFindSupplier(item.id)}
-                   >
-                     Find supplier
+                 {(status === 'low' || status === 'out') && item.supplierIds.some((id) => supplierNames.has(id)) && (
+                   <button type="button" className="inv-row__order" aria-label={`Order ${item.name}`} onClick={() => { setUpdating(item.id); setSheetTab('order'); }}>
+                     Order
                    </button>
                  )}
-                 <button
-                   type="button"
-                   className="inv-row__remove"
-                   aria-label={`Remove ${item.name}`}
-                   title={`Remove ${item.name}`}
-                   onClick={() => removeItem(item.id, item.name)}
-                 >
-                   <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                     <path d="M4 7h16M10 11v6m4-6v6M5 7l1 13h12l1-13M9 7V4h6v3" />
-                   </svg>
-                 </button>
                </div>
              </article>
            );
@@ -194,19 +204,37 @@ export function InventoryView({
       </main>
       {updatingItem && (
         <StockSheet
+          key={updatingItem.id}
           item={updatingItem}
-          onCount={() => {
-            setUpdating(null);
-            setCounting([due.find((d) => d.id === updatingItem.id) ?? { id: updatingItem.id, tier: tiers.get(updatingItem.id) ?? 'monthly', state: updatingItem.counted ? 'due' : 'never', lastCountedAt: updatingItem.lastCountedAt }]);
-          }}
+          items={items}
+          suppliers={suppliers}
+          tab={sheetTab}
+          countDue={dueIds.has(updatingItem.id)}
+          countAs={due.find((d) => d.id === updatingItem.id)
+            ?? { id: updatingItem.id, tier: tiers.get(updatingItem.id) ?? 'monthly', state: updatingItem.counted ? 'due' : 'never', lastCountedAt: updatingItem.lastCountedAt }}
+          onRemove={() => { setUpdating(null); removeItem(updatingItem.id, updatingItem.name); }}
           onClose={() => setUpdating(null)}
-          onDone={(message, undo) => setDone({ message, undo })}
         />
+      )}
+      {delivery && (
+        <DeliverySheet items={items} suppliers={suppliers} onClose={() => setDelivery(false)} onDone={(message, undo) => setDone({ message, undo })} />
       )}
       {counting && <CountFlow due={counting} rows={items} onClose={() => setCounting(null)} />}
       {showAdd && (
         <AddIngredientModal onClose={() => setShowAdd(false)} onSave={addInventoryItem} />
       )}
     </div>
+  );
+}
+
+/** How long what is left lasts, against a week: a full bar is a week or more. */
+const WEEK = 7;
+function Level({ days, status }: { days: number | null; status: StockStatus }) {
+  if (days === null && status !== 'out') return null;
+  const share = status === 'out' ? 0 : Math.min(1, (days ?? 0) / WEEK);
+  return (
+    <span className={`inv-level inv-level--${status}`} aria-hidden="true">
+      <span style={{ width: `${Math.max(share * 100, status === 'out' ? 0 : 6)}%` }} />
+    </span>
   );
 }

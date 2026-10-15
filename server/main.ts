@@ -2,6 +2,9 @@ import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
+import { photoFolder } from './photos.ts';
+import { startManagerInbox } from './managerInbox.ts';
+import type { Device } from './store.ts';
 import { dryRunPrinter, switchablePrinter, systemPrinter } from './printer.ts';
 import { startOnline, type Online } from './online.ts';
 import { createFleet } from './fleet.ts';
@@ -65,10 +68,20 @@ const updates = updatesApi({
 });
 let replicator: ReturnType<typeof startReplicator> | null = null;
 let online: Online | null = null;
+let inbox: ReturnType<typeof startManagerInbox> | null = null;
+/** The local device the manager phones' events are filed under: made the first time one arrives. */
+const inboxDevice = async (shop: string): Promise<Device> => {
+  const id = settings.get().managerInboxDevice;
+  if (id) return { id, tenantId: shop, kind: 'manager' };
+  const { device } = await store.addDevice(shop, settings.get().shopName ?? shop, 'manager');
+  settings.set({ managerInboxDevice: device.id });
+  return device;
+};
 /** Copy to the cloud, and take online orders, when there is a link and a shop; again when the wizard connects it. */
 const startCloud = () => {
   replicator?.stop();
   online?.stop();
+  inbox?.stop();
   const link = cloudLink();
   const shop = cloudShop();
   replicator = link && shop ? startReplicator({
@@ -80,8 +93,15 @@ const startCloud = () => {
     isOpen: () => settings.get().onlineOpen === true,
     setOpen: (open) => { settings.set({ onlineOpen: open }); },
   }) : null;
+  // The manager phones count on mobile data, into the cloud: take what they recorded (SCRUM-94).
+  inbox = link && shop ? startManagerInbox({
+    url: link.url, token: link.token, tenantId: shop,
+    device: () => inboxDevice(shop),
+    ingest: (device, events) => server.ingest(device, events),
+    cursor: () => settings.get().managerInboxSeq ?? 0,
+    setCursor: (seq) => { if (seq !== settings.get().managerInboxSeq) settings.set({ managerInboxSeq: seq }); },
+  }) : null;
 };
-startCloud();
 
 // The developer's Shops screen: only where server/.env has the admin password (the developer's laptop).
 const fleet = process.env.CLOUD_ADMIN_KEY
@@ -89,6 +109,13 @@ const fleet = process.env.CLOUD_ADMIN_KEY
   : null;
 
 const server = createApp({
+  photos: photoFolder(`${dataDir}/photos`),
+  cloudPhoto: async (tenantId, id) => {
+    const link = cloudLink();
+    if (!link || tenantId !== cloudShop()) return null;
+    const r = await fetch(`${link.url}/api/v1/photos/${id}`, { headers: { authorization: `Bearer ${link.token}` }, signal: AbortSignal.timeout(15_000) });
+    return r.ok ? Buffer.from(await r.arrayBuffer()) : null;
+  },
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
   printer,
@@ -100,6 +127,8 @@ const server = createApp({
   updating: () => activeUpdate(updates.status(), Date.now()),
   fleet,
 });
+// After the server exists: the manager phones' inbox files events through it.
+startCloud();
 
 server.listen(port, '0.0.0.0', () => {
   const s = settings.get();
@@ -113,6 +142,6 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
-const stop = () => { replicator?.stop(); online?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
+const stop = () => { replicator?.stop(); online?.stop(); inbox?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

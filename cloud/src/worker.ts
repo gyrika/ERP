@@ -44,6 +44,16 @@ export const ownerManifest = (key: string | null) => ({
   ],
 });
 
+/** The manager's phone app (SCRUM-94): the same app, opening on the counts with that phone's key. */
+export const managerManifest = (key: string | null) => ({
+  ...ownerManifest(null),
+  name: 'CheesyBeez Manager',
+  short_name: 'CB Manager',
+  description: "Today's counts, from the shelf.",
+  id: '/manager',
+  start_url: key && /^[A-Za-z0-9_-]{20,64}$/.test(key) ? `/?manager=${key}#manager` : '/#manager',
+});
+
 export const orderManifest = (customerDomain: boolean) => ({
   name: 'CheesyBeez Ordering',
   short_name: 'CheesyBeez',
@@ -98,6 +108,11 @@ export default {
     }
     if (url.pathname === '/owner.webmanifest') {
       return Promise.resolve(new Response(JSON.stringify(ownerManifest(url.searchParams.get('k'))), {
+        headers: { 'content-type': 'application/manifest+json', 'cache-control': 'no-store' },
+      }));
+    }
+    if (url.pathname === '/manager.webmanifest') {
+      return Promise.resolve(new Response(JSON.stringify(managerManifest(url.searchParams.get('k'))), {
         headers: { 'content-type': 'application/manifest+json', 'cache-control': 'no-store' },
       }));
     }

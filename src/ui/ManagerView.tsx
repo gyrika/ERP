@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
+import type { Actor } from '../domain/auth.ts';
+import { OwnerPin } from './OwnerPin.tsx';
 import {
   countedSince, countsDue, dailyStreak, dayGrid, monthStart, startOfDay, tiersOf, weekStart, type DayCell, type DueCount, type Tier,
 } from '../domain/counting.ts';
-import { requireOwner } from '../services/auth.ts';
-import { setCountTier, useCountHistory, useInventory } from '../services/inventoryStore.ts';
+import { answerGap, setCountTier, useCountHistory, useGapCases, useInventory } from '../services/inventoryStore.ts';
+import { asked, MAX_NOTE, type GapCase } from '../domain/gapReview.ts';
+import { reasonLabel } from '../domain/counting.ts';
+import { formatQuantity } from '../domain/quantity.ts';
+import { fmt } from '../domain/money.ts';
+import { useWaitingPhotos } from '../services/photos.ts';
+import { useInstall } from '../services/ownerApp.ts';
+import { isManagerPhone } from '../services/pairing.ts';
 import { CountFlow } from './CountFlow.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -35,6 +42,13 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   /** Edit lists: closed, asking for the owner's PIN, or open for that owner. */
   const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
   const editor = typeof edit === 'object' ? edit : null;
+  const waiting = useWaitingPhotos();
+  /** A day picked on the record: its counts are listed below it (SCRUM-97). */
+  const [picked, setPicked] = useState<number | null>(null);
+  const questions = asked(useGapCases());
+  // The manager's phone app (SCRUM-94): offered for the home screen; the lists are edited at the shop.
+  const phone = isManagerPhone();
+  const install = useInstall();
 
   useEffect(() => {
     if (!editor) return;
@@ -66,15 +80,36 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
       <main className="owner__main mgr" aria-label="Manager">
         <div className="mgr__title-row">
           <h1 className="mgr__title">Counts</h1>
-          {edit === 'pin'
-            ? <OwnerPin onOpen={setEdit} onCancel={() => setEdit('closed')} />
+          {phone ? null : edit === 'pin'
+            ? <OwnerPin onOpen={setEdit} onCancel={() => setEdit('closed')} refusal="Only the owner can edit the lists." />
             : (
               <button type="button" className="chip" aria-pressed={!!editor} onClick={() => setEdit(editor ? 'closed' : 'pin')}>
                 {editor ? 'Done' : 'Edit lists'}
               </button>
             )}
         </div>
+        {phone && install.kind === 'button' && (
+          <p className="owner__install">
+            <span>Put CheesyBeez Manager on your home screen.</span>
+            <button type="button" className="insight__action" onClick={install.install}>Install app</button>
+          </p>
+        )}
+        {phone && install.kind === 'iphone' && (
+          <p className="owner__install">To put it on your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
+        )}
+        {waiting > 0 && <p className="mgr__hint" role="status">{waiting} {waiting === 1 ? 'photo waits' : 'photos wait'} for the signal; they send by themselves.</p>}
         {editor && <p className="mgr__hint">Move any item to another list. Automatic follows what sales use.</p>}
+
+        {questions.length > 0 && (
+          <section className="mgr__asks" aria-label="The owner asks">
+            <h2>The owner asks</h2>
+            {questions.map((q) => {
+              const item = items.find((i) => i.id === q.itemId);
+              return <Question key={q.countId} gap={q} name={item?.name ?? q.itemId}
+                gapText={`${item ? formatQuantity(Math.abs(q.delta), item.baseUnit) : Math.abs(q.delta)} ${q.delta < 0 ? 'short' : 'over'} · ${reasonLabel(q.reason)} · Rs ${fmt(Math.abs(q.valueCents))}`} />;
+            })}
+          </section>
+        )}
 
         <section className="mgr__today" aria-label="Today">
           <div className="mgr__today-head">
@@ -138,7 +173,23 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
             <h2>Record</h2>
             <span className="num">{streak > 0 ? `Daily count done ${streak} ${streak === 1 ? 'day' : 'days'} in a row` : 'No streak yet'}</span>
           </header>
-          <Grid cells={cells} />
+          <Grid cells={cells} picked={picked} onPick={(d) => setPicked(picked === d ? null : d)} />
+          {picked !== null && (
+            <div className="mgr__day" aria-label={`Counts on ${dayLabel(picked)}`} role="region">
+              <h3>{dayLabel(picked)}</h3>
+              <ul>
+                {history.filter((c) => startOfDay(c.at) === picked).slice().reverse().map((c) => (
+                  <li key={c.id}>
+                    <span>{items.find((i) => i.id === c.itemId)?.name ?? c.itemId}</span>
+                    <span className={c.big && c.valueCents < 0 ? 'mgr__day-gap' : 'mgr__day-ok'}>
+                      {c.big ? `${c.valueCents < 0 ? 'short' : 'over'} Rs ${fmt(Math.abs(c.valueCents))} · ${reasonLabel(c.reason!)}` : 'matched'}
+                    </span>
+                    <span className="mgr__day-by">{c.by} · {new Date(c.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="mgr__legend" aria-hidden="true">
             <span>Less</span>{[0, 1, 2, 3].map((l) => <i key={l} className={`mgr__cell mgr__cell--${l}`} />)}<span>Every daily item</span>
           </div>
@@ -149,59 +200,41 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   );
 }
 
-/** The owner's PIN, asked every time; anyone else's PIN is refused. */
-function OwnerPin({ onOpen, onCancel }: { onOpen: (owner: Actor) => void; onCancel: () => void }) {
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState(false);
-  const [checking, setChecking] = useState(false);
-
-  const onChange = async (raw: string) => {
-    const value = raw.replace(/\D/g, '').slice(0, PIN_LENGTH);
-    setPin(value);
-    setError(false);
-    if (value.length !== PIN_LENGTH) return;
-    setChecking(true);
-    const owner = await requireOwner(value);
-    setChecking(false);
-    if (owner) return onOpen(owner);
-    setError(true);
-    setPin('');
-  };
-
+/** One question from the owner about a gap, answered in a line or two (SCRUM-95). */
+function Question({ gap, name, gapText }: { gap: GapCase; name: string; gapText: string }) {
+  const [note, setNote] = useState('');
+  if (gap.review.kind !== 'asked') return null;
   return (
-    <div className="mgr__pin">
-      <span id="mgr-pin-msg" className={`mgr__pin-msg${error ? ' mgr__pin-msg--error' : ''}`} role={error ? 'alert' : undefined}>
-        {error ? 'Only the owner can edit the lists.' : 'Owner PIN'}
-      </span>
-      <input
-        className={`pin${error ? ' pin--error' : ''}`} type="password" inputMode="numeric" autoComplete="off"
-        value={pin} readOnly={checking} autoFocus aria-label="Owner PIN" aria-invalid={error} aria-describedby="mgr-pin-msg"
-        onChange={(e) => void onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
-      />
-      <button type="button" className="linkbtn" onClick={onCancel}>Cancel</button>
-    </div>
+    <form className="mgr__ask" aria-label={`Question about ${name}`} onSubmit={(e) => { e.preventDefault(); if (note.trim()) answerGap(gap, note); }}>
+      <p><strong>{name}</strong> · {gapText}</p>
+      <p className="mgr__ask-q">{gap.review.by}: {gap.review.note || 'Please explain.'}</p>
+      <textarea className="inv-modal__input" rows={2} maxLength={MAX_NOTE} value={note} aria-label={`Your answer about ${name}`}
+        placeholder="What happened?" onChange={(e) => setNote(e.target.value)} />
+      <button type="submit" className="insight__action" disabled={!note.trim()}>Answer</button>
+    </form>
   );
 }
 
-function Grid({ cells }: { cells: DayCell[] }) {
+function Grid({ cells, picked, onPick }: { cells: DayCell[]; picked: number | null; onPick: (day: number) => void }) {
   const weeks: DayCell[][] = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
   return (
     <div className="mgr__grid-wrap">
-      <div className="mgr__grid" role="img" aria-label={`Count record, last ${weeks.length} weeks`}>
+      <div className="mgr__grid" role="group" aria-label={`Count record, last ${weeks.length} weeks`}>
         <div className="mgr__days" aria-hidden="true">{DAY_NAMES.map((d, i) => <span key={i}>{d}</span>)}</div>
         {weeks.map((w, wi) => (
           <div key={wi} className="mgr__week">
             <span className="mgr__month" aria-hidden="true">
               {wi === 0 || new Date(w[0].day).getMonth() !== new Date(weeks[wi - 1][0].day).getMonth() ? monthLabel(w[0].day) : ''}
             </span>
-            {w.map((c) => (
-              <i
-                key={c.day}
-                className={`mgr__cell mgr__cell--${c.level ?? 'future'}`}
-                title={c.level === null ? undefined : `${dayLabel(c.day)} · ${c.counted ? `${c.daily} daily, ${c.counted} counted${c.gaps ? ` · ${c.gaps} ${c.gaps === 1 ? 'gap' : 'gaps'}` : ''}` : 'no counts'}`}
-              />
-            ))}
+            {w.map((c) => {
+              const label = c.level === null ? undefined : `${dayLabel(c.day)} · ${c.counted ? `${c.daily} daily, ${c.counted} counted${c.gaps ? ` · ${c.gaps} ${c.gaps === 1 ? 'gap' : 'gaps'}` : ''}` : 'no counts'}`;
+              // A day with counts opens its list (SCRUM-97); an empty day has nothing to show.
+              return c.counted
+                ? <button key={c.day} type="button" className={`mgr__cell mgr__cell--${c.level} mgr__cell--pick`} aria-pressed={picked === c.day}
+                    title={label} aria-label={label} onClick={() => onPick(c.day)} />
+                : <i key={c.day} className={`mgr__cell mgr__cell--${c.level ?? 'future'}`} title={label} />;
+            })}
           </div>
         ))}
       </div>

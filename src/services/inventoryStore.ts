@@ -11,6 +11,9 @@ import type { Cents } from '../domain/types.ts';
 import { currentCashier } from './auth.ts';
 import { newLineId } from '../domain/order.ts';
 import { useShopEvents } from './ownerData.ts';
+import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } from '../domain/itemStory.ts';
+import { gapCases, type GapCase } from '../domain/gapReview.ts';
+import { menuItems } from '../domain/menu.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -154,13 +157,13 @@ export const receiveStock = (row: InventoryRow, packs: number, priceCents: Cents
  * the reason for a big gap. Returns the Undo.
  */
 export const recordCount = (
-  row: InventoryRow, entries: CountEntry[], counted: number, reason: GapReason | null, tier: Tier,
+  row: InventoryRow, entries: CountEntry[], counted: number, reason: GapReason | null, tier: Tier, photo: string | null = null,
 ): (() => void) => {
   const expected = row.onHandBaseUnits;
   const { valueCents } = gapOf(expected, counted, row);
   const e = appendEvent({
     type: 'stock.counted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: row.id,
-    counted, expected, entries, reason, valueCents, tier,
+    counted, expected, entries, reason, valueCents, tier, ...(photo ? { photo } : {}),
   });
   return () => { appendEvent({ type: 'stock.count_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), countId: e.id }); };
 };
@@ -169,6 +172,27 @@ export const recordCount = (
 export const learnUnit = (itemId: string, name: string, base: number): void => {
   appendEvent({ type: 'stock.unit_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, name: name.trim(), base });
 };
+
+/** What receiving an item is counted in (SCRUM-96), the owner's choice, signed by the owner's PIN. */
+export const setReceiveUnit = (itemId: string, unit: string, owner: Actor): void => {
+  appendEvent({ type: 'stock.receive_unit_set', at: Date.now(), orderNumber: 0, actor: owner, itemId, unit });
+};
+
+/** The owner on a count's gap (SCRUM-95): OK, or a question for the manager. */
+export const reviewGap = (gap: GapCase, decision: 'ok' | 'ask', note = ''): void => {
+  appendEvent({ type: 'stock.gap_reviewed', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: gap.itemId, countId: gap.countId, decision, note: note.trim() });
+};
+
+/** The manager answers the owner's question about a gap. */
+export const answerGap = (gap: GapCase, note: string): void => {
+  appendEvent({ type: 'stock.gap_answered', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: gap.itemId, countId: gap.countId, note: note.trim() });
+};
+
+/** The gaps in the counts and where each stands (SCRUM-95). */
+export function useGapCases(): GapCase[] {
+  const events = useShopHistory();
+  return useMemo(() => gapCases(events), [events]);
+}
 
 /** The owner's choice of how often an item is counted (null: automatic), signed by the owner's PIN. */
 export const setCountTier = (itemId: string, tier: Tier | null, owner: Actor): void => {
@@ -231,6 +255,14 @@ export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; 
 export function useCountHistory(): CountRecord[] {
   const events = useShopHistory();
   return useMemo(() => countHistory(events), [events]);
+}
+
+/** One item's story for its sheet (SCRUM-93): last count, delivery, price change, and what uses it. */
+export function useItemStory(itemId: string): ItemStory & { usedIn: string[]; history: HistoryEntry[] } {
+  const events = useShopHistory();
+  return useMemo(() => ({
+    ...itemStory(events, itemId), history: itemHistory(events, itemId), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId),
+  }), [events, itemId]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */

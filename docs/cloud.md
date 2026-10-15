@@ -78,6 +78,24 @@ that holds only the Owner view, so nobody on the internet reaches a register the
   in D1 (`npx wrangler d1 execute cheesybeez-cloud --remote --command "DELETE FROM devices WHERE id = '…'"`).
   The phone then shows "This link is no longer valid".
 
+## The manager's phone (SCRUM-94)
+
+The same address serves the **Manager app**: today's counts and the stock, nothing else. It is
+made for one person, at the shop PC: Shop setup → Devices → **Manager's phone** → pick the manager
+→ QR code. Scanning it opens `…/?manager=<secret>#manager`; **Install app** (Android) or Share →
+Add to Home Screen (iPhone) makes it an app (`/manager.webmanifest`).
+
+- It reads the shop like the owner's phone does. What it records (counts, deliveries: `stock.*`
+  only, signed with its person) goes to the cloud's **inbox** (`POST /api/v1/inbox`); the shop
+  server takes it into its own log every 15 seconds (`server/managerInbox.ts`), filed under one
+  local device of kind `manager`, and copies it back up as usual. No internet at the shop: the
+  counts wait in the cloud and arrive when it is back.
+- **Shelf photos** for a big gap go to the cloud (`POST /api/v1/photos`, table `photos`, ~150 KB
+  each, about 50 MB a year for one shop). The counter fetches one the first time it is shown
+  and keeps a copy in `C:\ProgramData\CheesyBeez\photos`.
+- No PIN on the phone: it is that person's phone. A lost phone: delete its row in `devices`
+  (as for the owner's phone).
+
 ## The owner's questions page
 
 `/questions?k=<key>` is a plain page (no account, no app) where the owner answers what the POS still

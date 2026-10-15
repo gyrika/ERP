@@ -18,7 +18,7 @@ test('today, the daily / weekly / monthly lists with one Start each, and the rec
   const today = within(screen.getByRole('region', { name: 'Today' }));
   expect(today.getByText(/^0 of \d+ counted today$/)).toBeTruthy();
   for (const t of ['Daily', 'Weekly', 'Monthly']) expect(screen.getByRole('region', { name: `${t} counts` })).toBeTruthy();
-  expect(screen.getByRole('img', { name: 'Count record, last 52 weeks' })).toBeTruthy();
+  expect(screen.getByRole('group', { name: 'Count record, last 52 weeks' })).toBeTruthy();
   expect(within(screen.getByRole('region', { name: 'Count record' })).getByText('No streak yet')).toBeTruthy();
 
   // Before any sales the 8 dearest packs are daily; count the first monthly item.
@@ -68,4 +68,20 @@ test('Edit lists closes after a minute untouched', async () => {
   act(() => { vi.advanceTimersByTime(EDIT_IDLE_MS + 10); });
   expect(screen.queryByRole('combobox')).toBeNull();
   expect(screen.getByRole('button', { name: 'Edit lists' })).toBeTruthy();
+});
+
+test("tap a day on the record: that day's counts are listed", async () => {
+  const user = userEvent.setup();
+  render(<ManagerView />);
+  const monthly = within(screen.getByRole('region', { name: 'Monthly counts' }));
+  await user.click(monthly.getByRole('button', { name: /^Start monthly · \d+$/ }));
+  await user.type(within(screen.getByRole('form', { name: /^Count / })).getByRole('textbox', { name: 'Full packs' }), '1');
+  await user.click(screen.getByRole('button', { name: 'Next' }));
+  await user.keyboard('{Escape}');
+
+  const record = within(screen.getByRole('region', { name: 'Count record' }));
+  await user.click(record.getByRole('button', { name: /counted$/ }));
+  const day = within(screen.getByRole('region', { name: /^Counts on / }));
+  expect(day.getAllByRole('listitem')).toHaveLength(1);
+  expect(day.getByText('matched')).toBeTruthy();
 });

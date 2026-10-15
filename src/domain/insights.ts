@@ -1,3 +1,4 @@
+import { gapCases, shortStreaks, toCheck, weekLoss, type GapCase } from './gapReview.ts';
 import { costsToAnswer, marginsFell } from './costInsights.ts';
 import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
@@ -36,7 +37,12 @@ export interface Insight {
   detail: string;
   /** The one tap: open the list behind the card. */
   action: { label: string; items: InsightItem[] };
+  /** Gaps for the owner to check (SCRUM-95): the list behind the card is answered, not just read. */
+  cases?: CaseView[];
 }
+
+/** One gap as the owner sees it: the case, the item's name and the gap in words. */
+export interface CaseView { gap: GapCase; name: string; gapText: string }
 
 export interface DaySummary {
   salesCents: Cents;
@@ -296,11 +302,13 @@ const countedShort = (events: readonly SyncEvent[], stock: ShopData['stock'], no
   if (!lost.length) return null;
   const [top] = lost;
   const total = lost.reduce((n, l) => n + l.cents, 0);
+  // The week before, for scale (SCRUM-95): shelf counts only, the same way.
+  const { lastWeek } = weekLoss(events, now);
   return {
     id: 'counted-short',
     tone: 'attention',
     title: `${top.row.name} counted ${formatQuantity(top.qty, top.row.baseUnit)} below expected this week`,
-    detail: `${lost.length > 1 ? `And ${plural(lost.length - 1, 'more item')}. ` : ''}Rs ${fmt(total)} in all: waste or loss.`,
+    detail: `${lost.length > 1 ? `And ${plural(lost.length - 1, 'more item')}. ` : ''}Rs ${fmt(total)} in all: waste or loss.${lastWeek > 0 ? ` Last week: Rs ${fmt(lastWeek)}.` : ''}`,
     action: {
       label: 'See counts',
       items: lost.map((l) => ({
@@ -309,6 +317,48 @@ const countedShort = (events: readonly SyncEvent[], stock: ShopData['stock'], no
         amount: l.cents,
       })),
     },
+  };
+};
+
+/**
+ * Gaps beyond the allowance the owner has not OK'd (SCRUM-95): each with the manager's
+ * reason and photo; the owner says OK, or asks. Answers come back on the same card.
+ */
+const gapsToCheck = (events: readonly SyncEvent[], stock: ShopData['stock']): Insight | null => {
+  const open = toCheck(gapCases(events));
+  if (!open.length) return null;
+  const items = stock ? inventoryFromEvents(stock.items, events) : [];
+  const cases = open.map((gap) => {
+    const item = items.find((i) => i.id === gap.itemId);
+    const qty = item ? formatQuantity(Math.abs(gap.delta), item.baseUnit) : `${Math.abs(gap.delta)}`;
+    return { gap, name: item?.name ?? gap.itemId, gapText: `${qty} ${gap.delta < 0 ? 'short' : 'over'} · ${reasonLabel(gap.reason)}` };
+  });
+  const answered = open.filter((g) => g.review.kind === 'asked' && g.review.answer).length;
+  const [first] = cases;
+  return {
+    id: 'gaps-to-check',
+    tone: 'attention',
+    title: open.length === 1 ? `${first.name}: ${first.gapText}` : `${plural(open.length, 'gap')} in the counts to check`,
+    detail: answered ? `${plural(answered, 'answer')} from the manager.`
+      : `With the manager's reason${open.some((g) => g.photo) ? ' and a photo of the shelf' : ''}. OK it, or ask.`,
+    action: { label: 'Check', items: [] },
+    cases,
+  };
+};
+
+/** An item short beyond the allowance three counts running: a pattern worth a look. */
+const shortStreak = (events: readonly SyncEvent[], stock: ShopData['stock']): Insight | null => {
+  const streaks = shortStreaks(events);
+  if (!streaks.length || !stock) return null;
+  const items = inventoryFromEvents(stock.items, events);
+  const named = streaks.map((s) => ({ ...s, name: items.find((i) => i.id === s.itemId)?.name ?? s.itemId }));
+  const [top] = named;
+  return {
+    id: 'short-streak',
+    tone: 'attention',
+    title: `${top.name} short ${top.counts} counts in a row`,
+    detail: `Rs ${fmt(top.cents)} over those counts. Not bad luck: worth a look at how it is kept or used.`,
+    action: { label: 'See items', items: named.map((s) => ({ primary: s.name, secondary: `short ${s.counts} counts in a row`, amount: s.cents })) },
   };
 };
 
@@ -371,6 +421,8 @@ export const rulesSuggestions: SuggestionsService = {
       discountsToday(events, sales, now),
       kitchenSlow(events, now),
       runningLow(events, stock, now),
+      gapsToCheck(events, stock),
+      shortStreak(events, stock),
       countedShort(events, stock, now),
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
