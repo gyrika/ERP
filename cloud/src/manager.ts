@@ -22,13 +22,21 @@ export interface ManagerContext {
 export const MAX_PHOTO_BYTES = 400_000;
 const isJpeg = (b: Uint8Array) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
 
-/** What a manager phone may record: stock, signed by its own person (and lists only by an owner). */
-export const phoneRefusal = (e: SyncEvent, actor: Actor): string | null => {
+/**
+ * What a phone may record. A manager phone: stock, signed by its own person (count lists and
+ * gap checks only if that person is an owner). The owner's phone: checking gaps only (SCRUM-95).
+ */
+export const phoneRefusal = (e: SyncEvent, actor: Actor, kind: Kind = 'manager'): string | null => {
+  if (kind === 'owner' && e.type !== 'stock.gap_reviewed') return "the owner's phone only checks gaps";
   if (!e.type.startsWith('stock.')) return 'the manager phone records stock only';
   if (!('actor' in e) || e.actor.id !== actor.id || e.actor.role !== actor.role) return 'not the person this phone belongs to';
-  if (e.type === 'stock.tier_set' && actor.role !== 'owner') return 'only the owner changes the count lists';
+  if ((e.type === 'stock.tier_set' || e.type === 'stock.gap_reviewed') && actor.role !== 'owner') return 'only the owner does this';
   return null;
 };
+
+/** The owner's phones were made before phones had a person: they sign as the owner, by phone. */
+const phoneActor = (device: CloudDevice): Actor | null =>
+  device.kind === 'owner' ? { id: device.id, name: 'Owner', role: 'owner' } : device.actor;
 
 export const parseActor = (raw: string | null): Actor | null => {
   try {
@@ -40,16 +48,17 @@ export const parseActor = (raw: string | null): Actor | null => {
 export async function managerRoutes(req: Request, url: URL, c: ManagerContext): Promise<Response | null> {
   const { db, now } = c;
 
-  // Who this phone is: the person it was made for, and the shop.
+  // Who this phone is: the person it was made for (the owner's: the owner), and the shop.
   if (url.pathname === '/api/v1/me' && req.method === 'GET') {
-    const device = await c.authenticate(req, ['manager']);
-    return json(200, { actor: device.actor, shopId: device.tenantId });
+    const device = await c.authenticate(req, ['manager', 'owner']);
+    return json(200, { actor: phoneActor(device), shopId: device.tenantId });
   }
 
   if (url.pathname === '/api/v1/inbox') {
     if (req.method === 'POST') {
-      const device = await c.authenticate(req, ['manager']);
-      if (!device.actor) throw new HttpError(403, 'forbidden', 'this phone belongs to nobody');
+      const device = await c.authenticate(req, ['manager', 'owner']);
+      const actor = phoneActor(device);
+      if (!actor) throw new HttpError(403, 'forbidden', 'this phone belongs to nobody');
       let body: unknown;
       try { body = await req.json(); } catch { throw new HttpError(400, 'invalid_event', 'body is not JSON'); }
       const events = (body as { events?: unknown })?.events;
@@ -61,7 +70,7 @@ export async function managerRoutes(req: Request, url: URL, c: ManagerContext): 
       }
       const rejected: { id: string; reason: string }[] = [];
       const allowed = checked.events.filter((e) => {
-        const why = phoneRefusal(e, device.actor!);
+        const why = phoneRefusal(e, actor, device.kind);
         if (why) rejected.push({ id: e.id, reason: why });
         return !why;
       });

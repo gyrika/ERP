@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { httpTransport, pairFromUrl, startSync, syncToken } from './services/syncClient.ts';
 import { startPhotoSync } from './services/photos.ts';
 import { startManagerPhone } from './services/managerPhone.ts';
-import { isManagerPhone } from './services/pairing.ts';
+import { isManagerPhone, phoneToken } from './services/pairing.ts';
 import { setUpOwnerApp } from './services/ownerApp.ts';
 import { Root } from './ui/Root.tsx';
 import { UpdateScreen } from './ui/UpdateScreen.tsx';
@@ -20,8 +20,9 @@ pairFromUrl();
 setUpOwnerApp(); // after pairing: the owner's key goes into the phone app's description
 const token = syncToken();
 if (token) startSync(httpTransport(token));
-// The manager's phone app (SCRUM-94): its counts and shelf photos go to the cloud.
-if (isManagerPhone()) { startManagerPhone(); startPhotoSync(); }
+// The phone apps (SCRUM-94/95): what they record, and the manager's shelf photos, go to the cloud.
+if (phoneToken()) startManagerPhone(); // the owner's OK / Ask too (SCRUM-95)
+if (isManagerPhone()) startPhotoSync();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

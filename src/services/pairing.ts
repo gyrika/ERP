@@ -70,6 +70,9 @@ export const isCloudSite = (): boolean => import.meta.env.VITE_SITE === 'cloud';
  */
 export const isManagerPhone = (): boolean => isCloudSite() && managerToken() !== null;
 
+/** A phone app of the shop (a manager's, or the owner's): it records through the cloud (SCRUM-95). */
+export const phoneToken = (): string | null => (isCloudSite() ? managerToken() ?? ownerToken() : null);
+
 /** The Shops screen's shop on the developer's laptop (`#shops/<id>`, read through the local server). */
 export const fleetShop = (): string | null => /^#shops\/([a-z0-9-]{1,64})$/.exec(location.hash)?.[1] ?? null;
 

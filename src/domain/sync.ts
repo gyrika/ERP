@@ -67,7 +67,11 @@ export type StockEvent =
   /** A unit learned for an item: "Tray" = 30 pcs (base: 0 removes it). */
   | (StockItemBase & { type: 'stock.unit_set'; name: string; base: number })
   /** The owner fixes how often an item is counted; null hands it back to the automatic choice. */
-  | (StockItemBase & { type: 'stock.tier_set'; tier: Tier | null });
+  | (StockItemBase & { type: 'stock.tier_set'; tier: Tier | null })
+  /** The owner on a count's gap (SCRUM-95): OK, or a question to the manager. */
+  | (StockItemBase & { type: 'stock.gap_reviewed'; countId: string; decision: 'ok' | 'ask'; note: string })
+  /** The manager answers the owner's question about a gap. */
+  | (StockItemBase & { type: 'stock.gap_answered'; countId: string; note: string });
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
 export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | RecipeEvent;
@@ -79,7 +83,7 @@ export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.u
 export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
-  'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set',
+  'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',
