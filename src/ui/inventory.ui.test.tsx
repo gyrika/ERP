@@ -50,7 +50,7 @@ test('the stock status follows the low-stock threshold live as packs are counted
   expect(status()).toBe('Low stock');
   act(() => inventoryStore.adjustStock('inv-0001', 1));
   expect(status()).toBe('In stock');
-  expect(within(flour).getByLabelText('Available stock and pack size').textContent).toContain('50 kg / 25 kg');
+  expect(within(flour).getByLabelText('Available stock and pack size').textContent).toContain('2 packs · 50 kg');
 });
 
 test('counted stock survives a reload', () => {
@@ -60,7 +60,7 @@ test('counted stock survives a reload', () => {
   render(<InventoryView />);
 
   const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
-  expect(within(flour).getByLabelText('Available stock and pack size').textContent).toContain('50 kg / 25 kg');
+  expect(within(flour).getByLabelText('Available stock and pack size').textContent).toContain('2 packs · 50 kg');
   expect(within(flour).getByText('In stock')).toBeTruthy();
 });
 
@@ -141,7 +141,7 @@ test('inventory rows show available base quantity against the plan pack size', (
   render(<InventoryView />);
 
   const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
-  expect(within(row).getByLabelText('Available stock and pack size').textContent).toContain('12.4 kg / 25 kg');
+  expect(within(row).getByLabelText('Available stock and pack size').textContent).toContain('½ pack · 12.4 kg');
   spy.mockRestore();
 });
 
@@ -196,8 +196,7 @@ test('a delivery: packs in and the new price in one go, saved at once; Undo take
   await user.type(price, '6,550{Enter}');
 
   expect(screen.queryByRole('dialog')).toBeNull();
-  expect(amount()).toContain('50 kg / 25 kg');
-  expect(amount()).toContain('Rs 6,550 a pack');
+  expect(amount()).toContain('2 packs · 50 kg');
   expect(screen.getByRole('status').textContent).toContain('Received 2 packs of Pizza Flour, price now Rs 6,550 a pack.');
   const events = readAll().filter((e) => e.type.startsWith('stock.'));
   expect(events.map((e) => e.type)).toEqual(['stock.adjusted', 'stock.price_set']);
@@ -205,8 +204,7 @@ test('a delivery: packs in and the new price in one go, saved at once; Undo take
   expect(events[1]).toMatchObject({ before: 640000, after: 655000 });
 
   await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(amount()).toContain('0 g / 25 kg');
-  expect(amount()).toContain('Rs 6,400 a pack');
+  expect(amount()).toContain('Empty');
 });
 
 test('Count opens the blind count: the gap shows only after counting, then the shelf is what was counted', async () => {
@@ -223,7 +221,7 @@ test('Count opens the blind count: the gap shows only after counting, then the s
   await user.click(screen.getByRole('button', { name: 'Delivery was short' }));
   await user.click(screen.getByRole('button', { name: 'Close' }));
 
-  expect(amount()).toContain('37.5 kg / 25 kg');
+  expect(amount()).toContain('1½ packs · 37.5 kg');
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', counted: 37500, expected: 50000, reason: 'delivery-short' });
 });
 
@@ -270,10 +268,10 @@ test('Delivery came: pick the supplier, +1 or type each line, one Save; Undo tak
 
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(screen.getByRole('status').textContent).toContain('Delivery from Ajantha (Wholesale): 2 items in.');
-  expect(amount()).toContain('50 kg / 25 kg');
+  expect(amount()).toContain('2 packs · 50 kg');
   expect(readAll().filter((e) => e.type === 'stock.adjusted')).toHaveLength(2);
   await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(amount()).toContain('0 g / 25 kg');
+  expect(amount()).toContain('Empty');
 });
 
 test('Order shows only on a low item: the message is written, packs change, WhatsApp opens with it', async () => {
@@ -293,6 +291,36 @@ test('Order shows only on a low item: the message is written, packs change, What
 test('a tap anywhere on the row opens the item', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
-  await user.click(flourRow().querySelector('.inv-row__price')!);
+  await user.click(flourRow().querySelector('.inv-row__quantity')!);
   expect(screen.getByRole('dialog', { name: 'Pizza Flour' })).toBeTruthy();
+});
+
+// ----- the item's story (SCRUM-93) -----
+
+test('never a fake zero: an item not counted yet shows no amount, only its pack size', () => {
+  render(<InventoryView />);
+  const text = within(flourRow()).getByLabelText('Available stock and pack size').textContent;
+  expect(text).toBe('Not counted yet25 kg a pack');
+  expect(within(flourRow()).getByText(/never counted/)).toBeTruthy();
+});
+
+test("the sheet tells the item's whole story: shelf, last delivery, price change, what uses it", async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  let story = within(screen.getByRole('dialog', { name: 'Pizza Flour' }).querySelector('dl')!);
+  expect(story.getByText('Not counted yet: count it once to start')).toBeTruthy();
+  expect(story.getByText('Never')).toBeTruthy();
+  expect(story.getByText('None recorded yet')).toBeTruthy();
+  expect(story.getByText(/^\d+ menu items: /)).toBeTruthy();
+
+  await user.type(screen.getByRole('textbox', { name: /Packs received/ }), '2');
+  const price = screen.getByRole('textbox', { name: /Price per pack/ });
+  await user.clear(price);
+  await user.type(price, '6,550{Enter}');
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  story = within(screen.getByRole('dialog', { name: 'Pizza Flour' }).querySelector('dl')!);
+  expect(story.getByText('2 packs · 50 kg')).toBeTruthy();
+  expect(story.getByText(/^today · 2 packs · /)).toBeTruthy();
+  expect(story.getByText('↑ Rs 150 today')).toBeTruthy();
 });

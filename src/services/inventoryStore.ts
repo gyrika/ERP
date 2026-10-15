@@ -11,6 +11,8 @@ import type { Cents } from '../domain/types.ts';
 import { currentCashier } from './auth.ts';
 import { newLineId } from '../domain/order.ts';
 import { useShopEvents } from './ownerData.ts';
+import { itemStory, usedIn, type ItemStory } from '../domain/itemStory.ts';
+import { menuItems } from '../domain/menu.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -231,6 +233,12 @@ export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; 
 export function useCountHistory(): CountRecord[] {
   const events = useShopHistory();
   return useMemo(() => countHistory(events), [events]);
+}
+
+/** One item's story for its sheet (SCRUM-93): last count, delivery, price change, and what uses it. */
+export function useItemStory(itemId: string): ItemStory & { usedIn: string[] } {
+  const events = useShopHistory();
+  return useMemo(() => ({ ...itemStory(events, itemId), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId) }), [events, itemId]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */

@@ -1057,3 +1057,24 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .order__off { pointer-events: none; opacity: 0.45; }
 .order__nophone { margin: 0; color: var(--ink-2); font-size: 14px; }
 .inv-modal.delivery .inv-modal__actions { position: sticky; bottom: -24px; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--surface); border-top: 1px solid var(--line); }
+
+/* An item's story (SCRUM-93): the row says enough at a glance; the sheet says everything. */
+.inv-level { display: block; width: 100%; max-width: 120px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.inv-level span { display: block; height: 100%; border-radius: 2px; background: var(--ok); transition: width 250ms var(--ease); }
+.inv-level--low span, .inv-level--unsure span { background: var(--warn); }
+.inv-level--out span { background: var(--bad); }
+.inv-row__counted { color: var(--ink-3); }
+.inv-modal.stock-sheet { position: relative; }
+.inv-modal.stock-sheet h2 { margin: 0; padding-right: 48px; }
+.story { display: flex; flex-direction: column; margin: 0; border-radius: 14px; background: var(--chip); padding: 4px 16px; }
+.story > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.story > div:first-child { border-top: 0; }
+.story dt { color: var(--ink-3); font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; padding-top: 2px; }
+.story dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 15px; color: var(--ink); }
+.story dd > span { color: var(--ink-2); font-size: 14px; }
+.story dd strong { font-size: 17px; font-weight: 600; }
+.story__price--up { color: var(--bad) !important; }
+.story__price--down { color: var(--ok-ink) !important; }
+.story__suppliers { flex-direction: column; align-items: flex-start !important; }
+.story__supplier { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink) !important; }
+@media (max-width: 520px) { .story > div { grid-template-columns: 1fr; gap: 2px; } }
