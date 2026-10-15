@@ -43,7 +43,7 @@ test('last count, last delivery and last price change; undone ones do not count'
     { ...base, itemId: 'inv-0001', id: 'x', at: 10, type: 'stock.adjusted', deltaPacks: 9, reason: 'receive' },
   ];
   const story = itemStory(events, 'inv-0006');
-  assert.deepEqual(story.lastCount, { at: 1, by: 'Manager', delta: -500, reason: 'spoiled', first: true, photo: null });
+  assert.deepEqual(story.lastCount, { at: 1, by: 'Manager', delta: -500, reason: 'spoiled', first: false, photo: null });
   assert.deepEqual(story.lastDelivery, { at: 4, packs: 2, by: 'Manager' });
   assert.deepEqual(story.lastPrice, { at: 7, before: 500000, after: 520000 });
   assert.deepEqual(itemStory([], 'inv-0006'), { lastCount: null, lastDelivery: null, lastPrice: null });

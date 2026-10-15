@@ -11,10 +11,9 @@ import { AddIngredientModal } from './AddIngredientModal.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
 import { daysAgo, formatStock } from '../domain/itemStory.ts';
-import { StockSheet } from './StockSheet.tsx';
+import { StockSheet, type SheetTab } from './StockSheet.tsx';
 import { CountFlow } from './CountFlow.tsx';
 import { DeliverySheet } from './DeliverySheet.tsx';
-import { OrderSheet } from './OrderSheet.tsx';
 import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
@@ -46,8 +45,9 @@ export function InventoryView({
   const [archived, setArchived] = useState<{ id: string; name: string } | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  /** The item whose sheet is open, and on which tab. */
   const [updating, setUpdating] = useState<string | null>(null);
-  const [ordering, setOrdering] = useState<string | null>(null);
+  const [sheetTab, setSheetTab] = useState<SheetTab>('received');
   const [delivery, setDelivery] = useState(false);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo: () => void } | null>(null);
@@ -60,7 +60,6 @@ export function InventoryView({
       .some((text) => text.toLowerCase().includes(q)));
   }, [items, query, supplierNames]);
   const updatingItem = items.find((item) => item.id === updating) ?? null;
-  const orderingItem = items.find((item) => item.id === ordering) ?? null;
   // Today's count: what the money says to count, and since when.
   const tiers = useMemo(() => tiersOf(items), [items]);
   const due = useMemo(() => countsDue(items, tiers, Date.now()), [items, tiers]);
@@ -155,10 +154,10 @@ export function InventoryView({
 
            return (
              <article key={item.id} className="inv-row"
-               onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a')) { setUpdating(item.id); setArchived(null); setError(''); } }}>
+               onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a')) { setUpdating(item.id); setSheetTab('received'); setArchived(null); setError(''); } }}>
                <div className="inv-row__main">
                  <h2 className="inv-row__name">
-                   <button type="button" className="inv-row__open" onClick={() => { setUpdating(item.id); setArchived(null); setError(''); }}>
+                   <button type="button" className="inv-row__open" onClick={() => { setUpdating(item.id); setSheetTab('received'); setArchived(null); setError(''); }}>
                      {item.name}
                    </button>
                  </h2>
@@ -194,7 +193,7 @@ export function InventoryView({
                </div>
                <div className="inv-row__actions">
                  {(status === 'low' || status === 'out') && item.supplierIds.some((id) => supplierNames.has(id)) && (
-                   <button type="button" className="inv-row__order" aria-label={`Order ${item.name}`} onClick={() => setOrdering(item.id)}>
+                   <button type="button" className="inv-row__order" aria-label={`Order ${item.name}`} onClick={() => { setUpdating(item.id); setSheetTab('order'); }}>
                      Order
                    </button>
                  )}
@@ -205,20 +204,18 @@ export function InventoryView({
       </main>
       {updatingItem && (
         <StockSheet
+          key={updatingItem.id}
           item={updatingItem}
+          items={items}
           suppliers={suppliers}
+          tab={sheetTab}
           countDue={dueIds.has(updatingItem.id)}
-          onOrder={() => { setUpdating(null); setOrdering(updatingItem.id); }}
-          onCount={() => {
-            setUpdating(null);
-            setCounting([due.find((d) => d.id === updatingItem.id) ?? { id: updatingItem.id, tier: tiers.get(updatingItem.id) ?? 'monthly', state: updatingItem.counted ? 'due' : 'never', lastCountedAt: updatingItem.lastCountedAt }]);
-          }}
+          countAs={due.find((d) => d.id === updatingItem.id)
+            ?? { id: updatingItem.id, tier: tiers.get(updatingItem.id) ?? 'monthly', state: updatingItem.counted ? 'due' : 'never', lastCountedAt: updatingItem.lastCountedAt }}
           onRemove={() => { setUpdating(null); removeItem(updatingItem.id, updatingItem.name); }}
           onClose={() => setUpdating(null)}
-          onDone={(message, undo) => setDone({ message, undo })}
         />
       )}
-      {orderingItem && <OrderSheet item={orderingItem} items={items} suppliers={suppliers} onClose={() => setOrdering(null)} />}
       {delivery && (
         <DeliverySheet items={items} suppliers={suppliers} onClose={() => setDelivery(false)} onDone={(message, undo) => setDone({ message, undo })} />
       )}

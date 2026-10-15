@@ -43,6 +43,8 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
   const editor = typeof edit === 'object' ? edit : null;
   const waiting = useWaitingPhotos();
+  /** A day picked on the record: its counts are listed below it (SCRUM-97). */
+  const [picked, setPicked] = useState<number | null>(null);
   const questions = asked(useGapCases());
   // The manager's phone app (SCRUM-94): offered for the home screen; the lists are edited at the shop.
   const phone = isManagerPhone();
@@ -171,7 +173,23 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
             <h2>Record</h2>
             <span className="num">{streak > 0 ? `Daily count done ${streak} ${streak === 1 ? 'day' : 'days'} in a row` : 'No streak yet'}</span>
           </header>
-          <Grid cells={cells} />
+          <Grid cells={cells} picked={picked} onPick={(d) => setPicked(picked === d ? null : d)} />
+          {picked !== null && (
+            <div className="mgr__day" aria-label={`Counts on ${dayLabel(picked)}`} role="region">
+              <h3>{dayLabel(picked)}</h3>
+              <ul>
+                {history.filter((c) => startOfDay(c.at) === picked).slice().reverse().map((c) => (
+                  <li key={c.id}>
+                    <span>{items.find((i) => i.id === c.itemId)?.name ?? c.itemId}</span>
+                    <span className={c.big && c.valueCents < 0 ? 'mgr__day-gap' : 'mgr__day-ok'}>
+                      {c.big ? `${c.valueCents < 0 ? 'short' : 'over'} Rs ${fmt(Math.abs(c.valueCents))} · ${reasonLabel(c.reason!)}` : 'matched'}
+                    </span>
+                    <span className="mgr__day-by">{c.by} · {new Date(c.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="mgr__legend" aria-hidden="true">
             <span>Less</span>{[0, 1, 2, 3].map((l) => <i key={l} className={`mgr__cell mgr__cell--${l}`} />)}<span>Every daily item</span>
           </div>
@@ -197,25 +215,26 @@ function Question({ gap, name, gapText }: { gap: GapCase; name: string; gapText:
   );
 }
 
-function Grid({ cells }: { cells: DayCell[] }) {
+function Grid({ cells, picked, onPick }: { cells: DayCell[]; picked: number | null; onPick: (day: number) => void }) {
   const weeks: DayCell[][] = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
   return (
     <div className="mgr__grid-wrap">
-      <div className="mgr__grid" role="img" aria-label={`Count record, last ${weeks.length} weeks`}>
+      <div className="mgr__grid" role="group" aria-label={`Count record, last ${weeks.length} weeks`}>
         <div className="mgr__days" aria-hidden="true">{DAY_NAMES.map((d, i) => <span key={i}>{d}</span>)}</div>
         {weeks.map((w, wi) => (
           <div key={wi} className="mgr__week">
             <span className="mgr__month" aria-hidden="true">
               {wi === 0 || new Date(w[0].day).getMonth() !== new Date(weeks[wi - 1][0].day).getMonth() ? monthLabel(w[0].day) : ''}
             </span>
-            {w.map((c) => (
-              <i
-                key={c.day}
-                className={`mgr__cell mgr__cell--${c.level ?? 'future'}`}
-                title={c.level === null ? undefined : `${dayLabel(c.day)} · ${c.counted ? `${c.daily} daily, ${c.counted} counted${c.gaps ? ` · ${c.gaps} ${c.gaps === 1 ? 'gap' : 'gaps'}` : ''}` : 'no counts'}`}
-              />
-            ))}
+            {w.map((c) => {
+              const label = c.level === null ? undefined : `${dayLabel(c.day)} · ${c.counted ? `${c.daily} daily, ${c.counted} counted${c.gaps ? ` · ${c.gaps} ${c.gaps === 1 ? 'gap' : 'gaps'}` : ''}` : 'no counts'}`;
+              // A day with counts opens its list (SCRUM-97); an empty day has nothing to show.
+              return c.counted
+                ? <button key={c.day} type="button" className={`mgr__cell mgr__cell--${c.level} mgr__cell--pick`} aria-pressed={picked === c.day}
+                    title={label} aria-label={label} onClick={() => onPick(c.day)} />
+                : <i key={c.day} className={`mgr__cell mgr__cell--${c.level ?? 'future'}`} title={label} />;
+            })}
           </div>
         ))}
       </div>

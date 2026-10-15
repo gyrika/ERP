@@ -7,6 +7,10 @@ import { packPrice, reasonLabel, receiveUnitOf, toPacks, unitName, unitPrice, un
 import type { Actor } from '../domain/auth.ts';
 import { whatsAppLink } from '../domain/ordering.ts';
 import { receiveStock, setReceiveUnit, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
+import { CountItem } from './CountFlow.tsx';
+import { OrderPanel } from './OrderSheet.tsx';
+import type { DueCount } from '../domain/counting.ts';
+import type { HistoryEntry } from '../domain/itemStory.ts';
 import { OwnerPin } from './OwnerPin.tsx';
 import { isManagerPhone } from '../services/pairing.ts';
 import { usePhotoUrl } from '../services/photos.ts';
@@ -21,25 +25,40 @@ import { formatLasts, formatPacks, formatQuantity } from './quantity.ts';
  * shelf amount stays hidden (a blind count), and the sheet says so.
  * Receiving is counted in what the owner chose for this item (SCRUM-96): packs, kg,
  * or a unit like Tray; the price is per that unit too. Changing it needs his PIN.
- * Count opens the count screen (CountFlow: blind count, units, reasons). Removing
- * the item lives here, out of the way, with Undo on the inventory screen.
+ * Received · Count · Order · History are tabs of this one sheet (SCRUM-97): counting
+ * or ordering this item never leaves it, and what was just done shows here with its
+ * Undo. History lists every count (with its gap, reason, photo and the owner's word),
+ * delivery and price change, newest first. Removing the item lives here, out of the
+ * way, with Undo on the inventory screen.
  */
-export function StockSheet({ item, suppliers = [], countDue = false, onClose, onDone, onCount, onOrder, onRemove }: {
+export type SheetTab = 'received' | 'count' | 'order' | 'history';
+const TABS: { id: SheetTab; label: string }[] = [
+  { id: 'received', label: 'Received' }, { id: 'count', label: 'Count' }, { id: 'order', label: 'Order' }, { id: 'history', label: 'History' },
+];
+
+export function StockSheet({ item, items = [], suppliers = [], countAs, countDue = false, tab: firstTab = 'received', photoRequired, onClose, onRemove }: {
   item: InventoryRow;
+  /** Every item, for the order (this supplier's other low items go in the same message). */
+  items?: InventoryRow[];
   /** Its suppliers, with phone numbers when saved. */
   suppliers?: Supplier[];
-  /** Its count is due: the shelf amount stays hidden until it is counted. */
+  /** How a count of it is recorded (its list, and whether it is a first count). */
+  countAs?: DueCount;
+  /** Its count is due: a blind count, so the shelf amount stays hidden until it is counted. */
   countDue?: boolean;
-  /** Order opens the order sheet for this item. */
-  onOrder?: () => void;
-  /** Count opens the count screen for this item. */
-  onCount: () => void;
+  /** The tab it opens on (the row's Order button opens Order). */
+  tab?: SheetTab;
+  /** A big gap needs a shelf photo (the manager's phone). */
+  photoRequired?: boolean;
   onClose: () => void;
   /** Takes the item off the inventory (Undo on the inventory screen). */
   onRemove?: () => void;
-  /** What was recorded, and how to take it back. */
-  onDone: (message: string, undo: () => void) => void;
 }) {
+  const [tab, setTab] = useState<SheetTab>(firstTab);
+  /** What was just done in this sheet, with its Undo. */
+  const [done, setDone] = useState<{ message: string; undo: () => void; tab: SheetTab } | null>(null);
+  /** A new key starts a fresh count form after each saved count. */
+  const [countKey, setCountKey] = useState(0);
   const unit = receiveUnitOf(item);
   const isPack = unit.id === 'pack';
   const name = unitName(unit);
@@ -77,13 +96,19 @@ export function StockSheet({ item, suppliers = [], countDue = false, onClose, on
       ...(qty > 0 ? [`Received ${isPack ? formatPacks(qty) : `${qty} ${name}`} of ${item.name}`] : [`${item.name}`]),
       ...(cents !== item.workingPriceCents ? [`price now Rs ${fmt(unitPrice(cents, unit, item.packQty))} a ${name}`] : []),
     ];
-    onDone(`${parts.join(', ')}.`, undo);
-    onClose();
+    setDone({ message: `${parts.join(', ')}.`, undo, tab: 'received' });
+    setPacks('');
+  };
+
+  const counted = (gapCents: number, big: boolean, undo: () => void) => {
+    setDone({ message: big ? `Counted: gap of Rs ${fmt(Math.abs(gapCents))} saved.` : 'Counted: it matches.', undo, tab: 'count' });
+    setCountKey(countKey + 1);
+    setTab('history');
   };
 
   return (
     <div className="inv-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <form className="inv-modal stock-sheet" role="dialog" aria-modal="true" aria-labelledby="stock-sheet-title" onSubmit={save}>
+      <section className="inv-modal stock-sheet" role="dialog" aria-modal="true" aria-labelledby="stock-sheet-title">
         <button type="button" className="count__close" aria-label="Close" onClick={onClose}>×</button>
         <h2 id="stock-sheet-title">{item.name}</h2>
 
@@ -150,12 +175,38 @@ export function StockSheet({ item, suppliers = [], countDue = false, onClose, on
           </div>
         </dl>
 
-        <div className="inv-mode" role="group" aria-label="What happened">
-          <button type="button" className="pill" aria-pressed>Received</button>
-          <button type="button" className="pill" aria-pressed={false} onClick={onCount}>Count</button>
-          {onOrder && sources.length > 0 && <button type="button" className="pill" aria-pressed={false} onClick={onOrder}>Order</button>}
+        <div className="inv-mode sheet-tabs" role="tablist" aria-label={item.name}>
+          {TABS.filter((t) => t.id !== 'order' || sources.length > 0).map((t) => (
+            <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} className="pill" aria-selected={tab === t.id} aria-controls={`panel-${t.id}`}
+              onClick={() => { setTab(t.id); setError(''); }}>{t.label}</button>
+          ))}
         </div>
 
+        {done && (
+          <p className="count__saved" role="status">
+            {done.message}
+            <button type="button" className="linkbtn" onClick={() => { done.undo(); setDone(null); setTab(done.tab); }}>Undo</button>
+          </p>
+        )}
+
+        {tab === 'count' && (
+          <div role="tabpanel" id="panel-count" aria-labelledby="tab-count">
+            <CountItem key={countKey} embedded row={item} position=""
+              due={countAs ?? { id: item.id, tier: 'monthly', state: item.counted ? 'due' : 'never', lastCountedAt: item.lastCountedAt }}
+              photoRequired={photoRequired ?? isManagerPhone()} onSaved={counted} />
+          </div>
+        )}
+
+        {tab === 'order' && (
+          <div role="tabpanel" id="panel-order" aria-labelledby="tab-order"><OrderPanel item={item} items={items} suppliers={suppliers} /></div>
+        )}
+
+        {tab === 'history' && (
+          <div role="tabpanel" id="panel-history" aria-labelledby="tab-history"><History item={item} entries={story.history} /></div>
+        )}
+
+        {tab === 'received' && (
+        <form role="tabpanel" id="panel-received" aria-labelledby="tab-received" className="sheet-panel" onSubmit={save}>
         <div className="receive-unit">
           {unitEdit === 'closed' && (
             <>
@@ -193,13 +244,61 @@ export function StockSheet({ item, suppliers = [], countDue = false, onClose, on
 
         {error && <p className="inv-modal__error" role="alert">{error}</p>}
         <div className="inv-modal__actions">
-          <button type="button" className="inv-modal__cancel" onClick={onClose}>Cancel</button>
+          <button type="button" className="inv-modal__cancel" onClick={onClose}>Close</button>
           <button type="submit" className="insight__action">Save</button>
         </div>
+        </form>
+        )}
+
         {onRemove && (
           <button type="button" className="linkbtn inv-modal__remove" aria-label={`Remove ${item.name}`} onClick={onRemove}>Remove from inventory</button>
         )}
-      </form>
+      </section>
     </div>
+  );
+}
+
+/** Everything that happened to this item, newest first (SCRUM-97). */
+function History({ item, entries }: { item: InventoryRow; entries: HistoryEntry[] }) {
+  const now = Date.now();
+  if (!entries.length) return <p className="history__none">Nothing yet: no counts, deliveries or price changes for {item.name}.</p>;
+  const q = (n: number) => formatQuantity(Math.abs(n), item.baseUnit);
+  return (
+    <ol className="history" aria-label={`History of ${item.name}`}>
+      {entries.map((h, i) => (
+        <li key={i} className={`history__item history__item--${h.kind}`}>
+          <span className="history__when">{daysAgo(h.at, now)} · {h.by}</span>
+          {h.kind === 'count' && <HistoryCount item={item} h={h} q={q} />}
+          {h.kind === 'delivery' && <span>Received {formatPacks(h.packs)} ({q(h.packs * item.packQty)})</span>}
+          {h.kind === 'price' && (
+            <span>Price Rs {fmt(h.before)} → <b>Rs {fmt(h.after)}</b> a pack
+              <span className={`story__price story__price--${h.after > h.before ? 'up' : 'down'}`}> {h.after > h.before ? '↑' : '↓'} Rs {fmt(Math.abs(h.after - h.before))}</span>
+            </span>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function HistoryCount({ item, h, q }: { item: InventoryRow; h: Extract<HistoryEntry, { kind: 'count' }>; q: (n: number) => string }) {
+  const photo = usePhotoUrl(h.photo);
+  const review = h.review;
+  return (
+    <>
+      <span>
+        Counted <b>{q(h.counted)}</b>
+        {h.first ? ' · first count' : <> · expected {q(Math.max(0, h.expected))} · {h.reason
+          ? <span className={h.delta < 0 ? 'history__short' : undefined}>{q(h.delta)} {h.delta < 0 ? 'short' : 'over'} (Rs {fmt(Math.abs(h.valueCents))}) · {reasonLabel(h.reason)}</span>
+          : 'matched'}</>}
+      </span>
+      {h.photo && (photo
+        ? <a href={photo} target="_blank" rel="noreferrer"><img className="history__photo" src={photo} alt={`Shelf photo of ${item.name}`} /></a>
+        : <span className="history__sub">photo</span>)}
+      {review && review.kind === 'ok' && <span className="history__sub">Owner: OK</span>}
+      {review && review.kind === 'asked' && (
+        <span className="history__sub">{review.by} asked: {review.note || 'Please explain.'}{review.answer ? ` · ${review.answer.by}: ${review.answer.note}` : ' · not answered yet'}</span>
+      )}
+    </>
   );
 }

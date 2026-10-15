@@ -57,7 +57,7 @@ export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone()
           </p>
         )}
         {row ? (
-          <Item
+          <CountItem
             key={`${row.id}-${index}`} row={row} due={current} position={`${index + 1} of ${due.length}`} photoRequired={photoRequired}
             onSaved={(gapCents, big, undo) => {
               setResults([...results, { big, cents: gapCents }]);
@@ -82,9 +82,14 @@ export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone()
   );
 }
 
-function Item({ row, due, position, photoRequired, onSaved, onSkip }: {
+/**
+ * One item's count. Also used inside the item's own sheet (SCRUM-97: `embedded`, no
+ * header of its own and no Skip), so counting one item never leaves that item.
+ */
+export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, embedded = false }: {
   row: InventoryRow; due: DueCount; position: string; photoRequired: boolean;
-  onSaved: (gapCents: number, big: boolean, undo: () => void) => void; onSkip: () => void;
+  onSaved: (gapCents: number, big: boolean, undo: () => void) => void; onSkip?: () => void;
+  embedded?: boolean;
 }) {
   const units = unitsOf(row);
   const loose = units.filter((u) => !u.id.startsWith('unit:') && u.id !== 'pack');
@@ -155,7 +160,7 @@ function Item({ row, due, position, photoRequired, onSaved, onSkip }: {
     setError('');
   };
 
-  const head = (
+  const head = embedded ? null : (
     <header className="count__head">
       <span className="count__pos num">{position} · {TIER_LABEL[due.tier]}{due.state === 'overdue' ? ' · overdue' : due.state === 'never' ? ' · first count' : ''}</span>
       <h2 className="count__name">{row.name}</h2>
@@ -263,7 +268,7 @@ function Item({ row, due, position, photoRequired, onSaved, onSkip }: {
       </p>
       {error && <p className="inv-modal__error" role="alert">{error}</p>}
       <div className="inv-modal__actions">
-        <button type="button" className="inv-modal__cancel" onClick={onSkip}>Skip</button>
+        {onSkip && <button type="button" className="inv-modal__cancel" onClick={onSkip}>Skip</button>}
         <button type="submit" className="insight__action">Next</button>
       </div>
     </form>
