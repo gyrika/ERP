@@ -3,7 +3,7 @@ import type { SyncEvent } from './sync.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { answersFromEvents, type Answer, type RecipeEvent } from './costing.ts';
 import { bookGaps, bookUsage, type GapsOf, type RecipeLine, type UsageOf } from './stockUsage.ts';
-import type { LearnedUnit } from './counting.ts';
+import type { LearnedUnit, Tier } from './counting.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -105,6 +105,8 @@ export type InventoryRow = InventoryItem & {
   lastCountedAt: number | null;
   /** Units learned for it ("Tray" = 30 pcs), for counting. */
   units: LearnedUnit[];
+  /** How often the owner wants it counted; null: chosen automatically (tiersOf). */
+  tier: Tier | null;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -195,6 +197,7 @@ interface Shelf {
   archived: boolean;
   counted: boolean;
   units: LearnedUnit[];
+  tier: Tier | null;
 }
 
 /**
@@ -231,7 +234,7 @@ export const stockFromEvents = (
   { usageOf = bookUsage, gapsOf = bookGaps, now = Date.now() }: StockOptions = {},
 ): Stock => {
   const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
-    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [],
+    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null,
   }]));
   const take = (usage: readonly RecipeLine[], sign: 1 | -1) => {
     for (const { inventoryId, qtyBaseUnits } of usage) {
@@ -266,7 +269,7 @@ export const stockFromEvents = (
       case 'stock.item_added':
         if (!shelves.has(e.item.id)) {
           shelves.set(e.item.id, {
-            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [],
+            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null,
           });
         }
         break;
@@ -314,6 +317,11 @@ export const stockFromEvents = (
         if (!shelf) break;
         shelf.units = shelf.units.filter((u) => u.name.toLowerCase() !== e.name.toLowerCase());
         if (e.base > 0) shelf.units.push({ name: e.name, base: e.base });
+        break;
+      }
+      case 'stock.tier_set': {
+        const shelf = shelves.get(e.itemId);
+        if (shelf) shelf.tier = e.tier;
         break;
       }
       case 'stock.price_set': {
@@ -382,7 +390,7 @@ export const stockFromEvents = (
     }
   }
 
-  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted, units }) => {
+  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted, units, tier }) => {
     const usedPerDay = (used.get(item.id) ?? 0) / days;
     return {
       ...item,
@@ -395,6 +403,7 @@ export const stockFromEvents = (
       missedSales: missed.get(item.id) ?? 0,
       lastCountedAt: countedAt.get(item.id) ?? null,
       units,
+      tier,
     };
   });
   return { rows, untrackedSold };

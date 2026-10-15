@@ -9,6 +9,7 @@ import { App } from './App.tsx';
 import { InventoryView } from './InventoryView.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { LockScreen } from './LockScreen.tsx';
+import { ManagerView } from './ManagerView.tsx';
 import { MenuView } from './MenuView.tsx';
 import { useMenu } from './menuStore.ts';
 import { OwnerView } from './OwnerView.tsx';
@@ -166,6 +167,7 @@ export function Root() {
   // The developer's Shops screen (only answers on the developer's laptop: server/fleet.ts).
   if (hash === '#shops' && seesOwner) return <ShopsView onBack={() => go('')} />;
   if (fleetShop() && seesOwner) return <OwnerView key={hash} shop={fleetShop()!} onBack={() => go('#shops')} />;
+  if (hash === '#manager' && mayManageStock) return <ManagerView onRegister={() => go('')} />;
   if (hash === '#inventory' && mayManageStock) {
     return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;
   }

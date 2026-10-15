@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ALLOW_CENTS, checkUnitName, countedBase, countsDue, gapOf, reasonsFor, tiersOf, unitsOf, type Tier,
+  ALLOW_CENTS, checkUnitName, countedBase, countedSince, countHistory, countsDue, dailyStreak, dayGrid, gapOf, reasonsFor, tiersOf,
+  unitsOf, type Tier,
 } from './counting.ts';
 import { inventoryFromEvents } from './inventory.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
@@ -46,6 +47,38 @@ test('the items carrying most of the spend are counted daily, then weekly, the r
     { id: 'unused', usedPerDay: 0, packQty: 1, workingPriceCents: 900000 },
   ];
   assert.deepEqual(Object.fromEntries(tiersOf(rows)), { cheese: 'daily', flour: 'weekly', oregano: 'monthly', salt: 'monthly', unused: 'monthly' });
+});
+
+test('before the first sale the dearest packs start daily (8) and weekly (12)', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => ({ id: `i${String(i).padStart(2, '0')}`, usedPerDay: 0, packQty: 1, workingPriceCents: (30 - i) * 1000 }));
+  const tiers = tiersOf(rows);
+  assert.equal(tiers.get('i00'), 'daily');
+  assert.equal(tiers.get('i07'), 'daily');
+  assert.equal(tiers.get('i08'), 'weekly');
+  assert.equal(tiers.get('i19'), 'weekly');
+  assert.equal(tiers.get('i20'), 'monthly');
+});
+
+test("the owner's choice wins over the automatic one", () => {
+  const rows = [
+    { id: 'cheese', usedPerDay: 1000, packQty: 1000, workingPriceCents: 100000, tier: 'monthly' as const },
+    { id: 'flour', usedPerDay: 1000, packQty: 1000, workingPriceCents: 20000, tier: null },
+    { id: 'salt', usedPerDay: 0, packQty: 1000, workingPriceCents: 50000, tier: 'daily' as const },
+  ];
+  assert.deepEqual(Object.fromEntries(tiersOf(rows)), { cheese: 'monthly', salt: 'daily', flour: 'daily' });
+});
+
+test('a tier set by the owner folds onto the item; null hands it back', () => {
+  const set = (id: string, at: number, tier: Tier | null): SyncEvent =>
+    ({ id, shopId: 's', at, orderNumber: 0, actor, type: 'stock.tier_set', itemId: MOZZ.id, tier });
+  const row = (events: SyncEvent[]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === MOZZ.id)!;
+  assert.equal(row([]).tier, null);
+  assert.equal(row([set('a', 1, 'daily')]).tier, 'daily');
+  assert.equal(row([set('a', 1, 'daily'), set('b', 2, null)]).tier, null);
+  const push = (tier: unknown) => validatePush({ events: [{ id: 't', shopId: 'shop-1', at: 1, orderNumber: 0, actor, type: 'stock.tier_set', itemId: MOZZ.id, tier }] }, 'shop-1');
+  assert.equal('reason' in push('weekly'), false);
+  assert.equal('reason' in push(null), false);
+  assert.equal('reason' in push('hourly'), true);
 });
 
 test("today's list: due by tier, overdue first, never-counted last; counted today drops off", () => {
@@ -96,4 +129,36 @@ test('the server takes well-formed counts and units only', () => {
   const unit = { id: 'u', shopId: 'shop-1', at: 1, orderNumber: 0, actor, type: 'stock.unit_set', itemId: MOZZ.id, name: 'Tray', base: 30 };
   assert.deepEqual(validatePush({ events: [unit] }, 'shop-1'), { events: [unit] });
   assert.ok('reason' in validatePush({ events: [{ ...unit, base: -1 }] }, 'shop-1'));
+});
+
+// ----- progress -----
+
+
+test('the record: undone counts drop out; each day shaded by how much of the daily count was done', () => {
+  const at = (daysAgo: number) => NOW - daysAgo * DAY;
+  const c = (id: string, item: string, daysAgo: number, reason: string | null = null): SyncEvent =>
+    ({ id, shopId: 's', at: at(daysAgo), orderNumber: 0, actor, type: 'stock.counted', itemId: item, counted: 1, expected: 1, entries: [], reason: reason as never, valueCents: 0, tier: 'daily' });
+  const history = countHistory([
+    c('a', 'x', 0), c('b', 'y', 0),
+    c('c', 'x', 1), c('d', 'y', 1, 'spoiled'),
+    c('e', 'x', 2),
+    c('f', 'x', 3), c('g', 'y', 3),
+    { id: 'u', shopId: 's', at: at(3), orderNumber: 0, actor, type: 'stock.count_undone', countId: 'g' },
+  ]);
+  assert.equal(history.length, 6);
+  const cells = dayGrid(history, new Set(['x', 'y']), NOW, 2);
+  assert.equal(cells.length, 14);
+  const byAgo = (n: number) => cells.find((cell) => cell.day === new Date(new Date(at(n)).setHours(0, 0, 0, 0)).getTime())!;
+  assert.deepEqual([byAgo(0).level, byAgo(1).level, byAgo(2).level, byAgo(3).level], [3, 3, 2, 2]);
+  assert.equal(byAgo(1).gaps, 1);
+  assert.ok(cells.some((cell) => cell.level === null), 'days after today are blank');
+  assert.equal(dailyStreak(cells, NOW), 2);
+  assert.equal(countedSince(history, ['x', 'y', 'z'], at(0) - 3600_000), 2);
+});
+
+test('a streak survives today still being open', () => {
+  const history = countHistory([
+    { id: 'a', shopId: 's', at: NOW - DAY, orderNumber: 0, actor, type: 'stock.counted', itemId: 'x', counted: 1, expected: 1, entries: [], reason: null, valueCents: 0, tier: 'daily' },
+  ]);
+  assert.equal(dailyStreak(dayGrid(history, new Set(['x']), NOW, 2), NOW), 1);
 });

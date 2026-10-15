@@ -11,7 +11,7 @@ beforeEach(() => localStorage.clear());
 
 /** A stock row as the screens get it. */
 const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
-  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [] });
+  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null });
 afterEach(cleanup);
 
 test('every seeded ingredient is listed once, with all of its suppliers', () => {

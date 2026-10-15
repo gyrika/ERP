@@ -9,11 +9,12 @@ import { useSyncExternalStore } from 'react';
 import { usesLogin } from '../services/auth.ts';
 import { signedIn, subscribeAuth } from '../services/serverAuth.ts';
 
-export type Section = 'owner' | 'menu' | 'recipes' | 'inventory' | 'suppliers' | 'setup';
+export type Section = 'owner' | 'manager' | 'menu' | 'recipes' | 'inventory' | 'suppliers' | 'setup';
 
 /** ownerOnly: the owner's recipes are the shop's secret; managers do not see the link. */
 const SECTIONS: { id: Section; label: string; ownerOnly?: boolean }[] = [
   { id: 'owner', label: 'Owner' },
+  { id: 'manager', label: 'Manager' },
   { id: 'menu', label: 'Menu' },
   { id: 'recipes', label: 'Recipes', ownerOnly: true },
   { id: 'inventory', label: 'Inventory' },

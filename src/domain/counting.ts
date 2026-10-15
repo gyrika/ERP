@@ -1,5 +1,6 @@
 import type { BaseUnit } from './inventoryData.ts';
 import { formatQuantity } from './quantity.ts';
+import type { SyncEvent } from './sync.ts';
 import type { Cents } from './types.ts';
 
 /**
@@ -95,17 +96,35 @@ export const TIER_DAYS: Record<Tier, number> = { daily: 1, weekly: 7, monthly: 3
 export const DAILY_SHARE = 0.7;
 export const WEEKLY_SHARE = 0.9;
 
-/** Per item, from what it costs a week (price x how much the sales use). Unused items are monthly. */
-export const tiersOf = (rows: readonly { id: string; usedPerDay: number; packQty: number; workingPriceCents: Cents }[]): Map<string, Tier> => {
+/** Before any sales: the dearest packs, this many daily and the next ones weekly. */
+export const START_DAILY = 8;
+export const START_WEEKLY = 12;
+
+/**
+ * Per item, from what it costs a week (price x how much the sales use). Unused items
+ * are monthly. Before the first sale nothing is used yet, so the dearest packs start
+ * daily and weekly; real sales take over as soon as there are any. An item the
+ * owner fixed (stock.tier_set) keeps the owner's choice.
+ */
+export const tiersOf = (
+  all: readonly { id: string; usedPerDay: number; packQty: number; workingPriceCents: Cents; tier?: Tier | null }[],
+): Map<string, Tier> => {
+  // The owner's choice wins; the rest are shared out among themselves.
+  const tiers = new Map<string, Tier>(all.flatMap((r) => (r.tier ? [[r.id, r.tier] as const] : [])));
+  const rows = all.filter((r) => !r.tier);
   const spend = rows
     .map((r) => ({ id: r.id, week: r.packQty > 0 ? (r.usedPerDay * 7 / r.packQty) * r.workingPriceCents : 0 }))
     .sort((a, b) => b.week - a.week || a.id.localeCompare(b.id));
   const total = spend.reduce((s, r) => s + r.week, 0);
-  const tiers = new Map<string, Tier>();
+  if (total <= 0) {
+    [...rows].sort((a, b) => b.workingPriceCents - a.workingPriceCents || a.id.localeCompare(b.id))
+      .forEach((r, i) => tiers.set(r.id, i < START_DAILY ? 'daily' : i < START_DAILY + START_WEEKLY ? 'weekly' : 'monthly'));
+    return tiers;
+  }
   let before = 0;
   for (const r of spend) {
     // An item belongs to the band where its spend starts, so the biggest item is always daily.
-    const at = total > 0 ? before / total : 1;
+    const at = before / total;
     tiers.set(r.id, r.week <= 0 ? 'monthly' : at < DAILY_SHARE ? 'daily' : at < WEEKLY_SHARE ? 'weekly' : 'monthly');
     before += r.week;
   }
@@ -147,3 +166,82 @@ export const countsDue = (
   const TIER: Record<Tier, number> = { daily: 0, weekly: 1, monthly: 2 };
   return out.sort((a, b) => STATE[a.state] - STATE[b.state] || TIER[a.tier] - TIER[b.tier] || a.id.localeCompare(b.id));
 };
+
+// ----- progress (the Manager page) -----
+
+/** One standing count (undone ones left out). */
+export interface CountRecord { id: string; itemId: string; at: number; big: boolean; by: string }
+
+export const countHistory = (events: readonly SyncEvent[]): CountRecord[] => {
+  const undone = new Set(events.flatMap((e) => (e.type === 'stock.count_undone' ? [e.countId] : [])));
+  return events.flatMap((e) => (e.type === 'stock.counted' && !undone.has(e.id)
+    ? [{ id: e.id, itemId: e.itemId, at: e.at, big: e.reason !== null, by: e.actor.name }]
+    : []));
+};
+
+export interface DayCell {
+  /** Start of the day (local). */
+  day: number;
+  /** Items counted that day (each once). */
+  counted: number;
+  /** Of today's daily items, how many were counted that day. */
+  daily: number;
+  gaps: number;
+  /** 0 nothing, 1 some, 2 most, 3 every daily item (the GitHub-style shade); null: a future day. */
+  level: 0 | 1 | 2 | 3 | null;
+}
+
+/**
+ * The progress grid, GitHub style: `weeks` columns of 7 days (Monday first), the last
+ * ending this week. A day's shade is how much of the daily count was done, measured
+ * against the items that are daily today (tiers follow spend, so this is the fair
+ * yardstick for a manager looking back).
+ */
+export const dayGrid = (history: readonly CountRecord[], dailyIds: ReadonlySet<string>, now: number, weeks = 26): DayCell[] => {
+  const today = startOfDay(now);
+  const weekday = (new Date(today).getDay() + 6) % 7; // Monday 0
+  const first = startOfDay(today - (weekday + (weeks - 1) * 7) * DAY + 12 * 3600_000);
+  const byDay = new Map<number, CountRecord[]>();
+  for (const c of history) {
+    const d = startOfDay(c.at);
+    byDay.set(d, [...(byDay.get(d) ?? []), c]);
+  }
+  const cells: DayCell[] = [];
+  for (let i = 0; i < weeks * 7; i++) {
+    const day = startOfDay(first + i * DAY + 12 * 3600_000); // noon steps survive clock changes
+    const list = byDay.get(day) ?? [];
+    const items = new Set(list.map((c) => c.itemId));
+    const daily = [...items].filter((id) => dailyIds.has(id)).length;
+    const share = dailyIds.size ? daily / dailyIds.size : items.size ? 1 : 0;
+    cells.push({
+      day, counted: items.size, daily, gaps: list.filter((c) => c.big).length,
+      level: day > today ? null : share >= 1 ? 3 : share >= 0.5 ? 2 : items.size > 0 ? 1 : 0,
+    });
+  }
+  return cells;
+};
+
+/** Days in a row, up to today, with every daily item counted; today still open does not break it. */
+export const dailyStreak = (cells: readonly DayCell[], now: number): number => {
+  const today = startOfDay(now);
+  let n = 0;
+  for (let i = cells.length - 1; i >= 0; i--) {
+    const c = cells[i];
+    if (c.level === null) continue;
+    if (c.level === 3) n++;
+    else if (c.day === today) continue;
+    else break;
+  }
+  return n;
+};
+
+/** Of these items, how many were counted since `from`. */
+export const countedSince = (history: readonly CountRecord[], ids: readonly string[], from: number): number => {
+  const done = new Set(history.filter((c) => c.at >= from).map((c) => c.itemId));
+  return ids.filter((id) => done.has(id)).length;
+};
+
+/** Monday 00:00 of this week, and the 1st of this month. */
+export const weekStart = (now: number): number => { const t = startOfDay(now); return t - ((new Date(t).getDay() + 6) % 7) * DAY; };
+export const monthStart = (now: number): number => { const d = new Date(now); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); };
+export { startOfDay };

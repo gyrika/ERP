@@ -110,9 +110,9 @@ test('one nav bar on every owner screen: same links, the current one marked, Reg
   render(<Root />);
   const nav = () => within(screen.getByRole('navigation', { name: 'Owner sections' }));
   const current = () => nav().getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent);
-  const links = ['Owner', 'Menu', 'Recipes', 'Inventory', 'Suppliers', 'Shop setup'];
+  const links = ['Owner', 'Manager', 'Menu', 'Recipes', 'Inventory', 'Suppliers', 'Shop setup'];
 
-  for (const [link, main] of [['Suppliers', 'Suppliers'], ['Owner', 'Owner'], ['Menu', 'Menu'], ['Recipes', 'Recipes, locked'], ['Shop setup', 'Shop setup'], ['Inventory', 'Inventory']]) {
+  for (const [link, main] of [['Suppliers', 'Suppliers'], ['Owner', 'Owner'], ['Menu', 'Menu'], ['Recipes', 'Recipes, locked'], ['Manager', 'Manager'], ['Shop setup', 'Shop setup'], ['Inventory', 'Inventory']]) {
     await user.click(nav().getByRole('link', { name: link }));
     expect(await screen.findByRole('main', { name: main })).toBeTruthy();
     expect(nav().getAllByRole('link').map((a) => a.textContent)).toEqual(links);
