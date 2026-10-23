@@ -17,3 +17,7 @@ excel/
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Tool caches
+.playwright-mcp/
+tsconfig.tsbuildinfo
