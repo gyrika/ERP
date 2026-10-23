@@ -50,8 +50,14 @@ export interface PurchaseGrn {
   lines: GrnLine[];
   shortDecision: 'wait' | 'close' | null;
   overDecision: 'accept' | 'return' | null;
-  /** Taken back: when, and why. */
-  undone: { at: number; reason: string } | null;
+  /** Who received the delivery. */
+  receivedBy: string;
+  /** The manager whose PIN approved a delivery that differed from its order; null: as ordered. */
+  approvedBy: { name: string; role: string } | null;
+  /** What that manager approved, in plain words: "short", "extra", "price changed". */
+  differs: string[];
+  /** Taken back: when, why, and by which manager. */
+  undone: { at: number; reason: string; by: string | null } | null;
 }
 
 export interface PurchaseState {
@@ -97,11 +103,23 @@ export const mergeLines = (lines: readonly PoLine[]): PoLine[] => {
   }));
 };
 
+/** What a GRN's manager approved, against its order: short, extra, a changed price. */
+const differsFrom = (g: { lines: readonly GrnLine[]; shortDecision: unknown; overDecision: unknown }, ordered: readonly PoLine[]): string[] => {
+  const price = g.lines.some((l) => {
+    const was = ordered.find((o) => o.itemId === l.itemId)?.unitPriceCents;
+    return was !== undefined && l.unitPriceCents !== undefined && was !== l.unitPriceCents;
+  });
+  return [g.shortDecision ? 'short' : '', g.overDecision ? 'extra' : '', price ? 'price changed' : ''].filter(Boolean);
+};
+
 export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick<StockSettings, 'leadSamples'> = STOCK_DEFAULTS): PurchaseState => {
   interface Doc { id: string; poNo: string | undefined; supplierId: string; lines: PoLine[]; at: number; actor: Actor; cancelled: string | null }
   const docs = new Map<string, Doc>();
-  const grns = new Map<string, { id: string; grnNo: string | undefined; orderId: string; supplierId: string; at: number; lines: GrnLine[]; closes: boolean; shortDecision: 'wait' | 'close' | null; overDecision: 'accept' | 'return' | null }>();
-  const undone = new Map<string, { at: number; reason: string }>();
+  const grns = new Map<string, {
+    id: string; grnNo: string | undefined; orderId: string; supplierId: string; at: number; lines: GrnLine[]; closes: boolean;
+    shortDecision: 'wait' | 'close' | null; overDecision: 'accept' | 'return' | null; receivedBy: string; approvedBy: { name: string; role: string } | null;
+  }>();
+  const undone = new Map<string, { at: number; reason: string; by: string | null }>();
   /** Live GRNs per order, as the events arrive: an edit or cancel after one is ignored. */
   const live = new Map<string, Set<string>>();
   /** The number the shop server gave each document; until it arrives the document is "pending". */
@@ -128,10 +146,11 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
       const d = docs.get(e.orderId);
       if (d) d.cancelled = null;
     } else if (e.type === 'stock.grn') {
-      grns.set(e.id, { id: e.id, grnNo: e.grnNo, orderId: e.orderId, supplierId: e.supplierId, at: e.at, lines: e.lines, closes: e.shortDecision !== 'wait', shortDecision: e.shortDecision ?? null, overDecision: e.overDecision ?? null });
+      grns.set(e.id, { id: e.id, grnNo: e.grnNo, orderId: e.orderId, supplierId: e.supplierId, at: e.at, lines: e.lines, closes: e.shortDecision !== 'wait', shortDecision: e.shortDecision ?? null, overDecision: e.overDecision ?? null,
+        receivedBy: e.actor.name, approvedBy: e.approvedBy ? { name: e.approvedBy.name, role: e.approvedBy.role } : null });
       live.set(e.orderId, (live.get(e.orderId) ?? new Set()).add(e.id));
     } else if (e.type === 'stock.grn_undone') {
-      undone.set(e.grnId, { at: e.at, reason: e.reason ?? '' });
+      undone.set(e.grnId, { at: e.at, reason: e.reason ?? '', by: e.approvedBy?.name ?? null });
       const g = grns.get(e.grnId);
       if (g) live.get(g.orderId)?.delete(e.grnId);
     }
@@ -180,7 +199,8 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
   const poNoOf = new Map(orders.map((o) => [o.id, o.poNo]));
   const grnList = [...grns.values()].sort((a, b) => b.at - a.at).map((g): PurchaseGrn => ({
     id: g.id, grnNo: numbers.get(g.id) ?? g.grnNo ?? pendingNumber('GRN'), orderId: g.orderId, poNo: poNoOf.get(g.orderId) ?? pendingNumber('PO'), supplierId: g.supplierId, at: g.at, lines: g.lines,
-    shortDecision: g.shortDecision, overDecision: g.overDecision, undone: undone.get(g.id) ?? null,
+    shortDecision: g.shortDecision, overDecision: g.overDecision, receivedBy: g.receivedBy, approvedBy: g.approvedBy,
+    differs: differsFrom(g, docs.get(g.orderId)?.lines ?? []), undone: undone.get(g.id) ?? null,
   }));
 
   return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier, drafts };

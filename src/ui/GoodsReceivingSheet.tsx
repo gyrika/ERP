@@ -249,7 +249,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
       <p className="flow-hint">GRN history</p>
       {purchases.grns.map((g) => (
         <ChoiceCard key={g.id} name={`${g.grnNo} · ${supplierName(g.supplierId)}`} tone={g.undone ? undefined : 'ok'}
-          line={`${g.poNo} · ${day(g.at)} · Rs ${fmt(grnValueCents(g.lines))}${g.undone ? ` · Undone: ${g.undone.reason}` : ''}`}
+          corner={g.undone ? `Undone by ${g.undone.by ?? 'a manager'}` : g.approvedBy ? `Approved by ${g.approvedBy.name}` : undefined}
+          line={`${g.poNo} · ${day(g.at)} · Rs ${fmt(grnValueCents(g.lines))} · Received by ${g.receivedBy}${g.undone ? ` · Undone: ${g.undone.reason}` : ''}`}
           label={`Open ${g.grnNo}`} onClick={() => view(g.id)} />
       ))}
     </section>

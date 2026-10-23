@@ -1250,6 +1250,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .flow-card--warn { border-left-color: var(--warn); }
 .flow-card--bad { border-left-color: var(--bad); }
 .flow-card__text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* A quiet fact at the top right of a card (who approved a GRN). */
+.flow-card__corner { flex: none; align-self: flex-start; max-width: 45%; overflow: hidden; font-size: 13px; font-weight: 600; color: var(--ink-3); text-overflow: ellipsis; white-space: nowrap; }
 .flow-card__name { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
 .flow-card__line { font-size: 15px; color: var(--ink-2); }
 .flow-card__tag { align-self: flex-start; margin-top: 2px; padding: 2px 10px; border-radius: 980px; background: var(--surface); font-size: 13px; font-weight: 600; color: var(--ink-2); }
@@ -1328,8 +1330,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 @media (prefers-reduced-motion: reduce) { .side, .side--open { transition: none; } }
 
 /* The owner screens in ChatGPT's look (SCRUM-131): white page, light grey sidebar with no edge,
-   neutral greys, hairlines instead of shadows; charcoal in the dark. Only the pages that hold the
-   sidebar take it; the counter, the kitchen and the recipes vault keep their own. */
+   neutral greys, hairlines instead of shadows; in the dark, the counter's true-black tokens. Only
+   the pages that hold the sidebar take it; the counter, the kitchen and the recipes vault keep their own. */
 :is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
   --ground: #FFFFFF; --surface: #FFFFFF; --panel: #FFFFFF; --chip: #F4F4F4; --side: #F9F9F9;
   --ink: #0D0D0D; --ink-2: #5D5D5D; --ink-3: #8F8F8F; --line: #E5E5E5; --inv-card-border: #E5E5E5;
@@ -1339,15 +1341,15 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) :is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
-    --ground: #212121; --surface: #2A2A2A; --panel: #212121; --chip: #303030; --side: #181818;
-    --ink: #ECECEC; --ink-2: #B4B4B4; --ink-3: #8F8F8F; --line: #383838; --inv-card-border: #383838;
-    --primary: #ECECEC; --on-primary: #0D0D0D; --scrim: rgba(0, 0, 0, 0.5);
+    --ground: #000000; --surface: #1C1C1E; --panel: #121214; --chip: #2C2C2E; --side: #0E0E10;
+    --ink: #F5F5F7; --ink-2: #98989D; --ink-3: #6B6B70; --line: #3A3A3C; --inv-card-border: #262626;
+    --primary: #F5F5F7; --on-primary: #000000; --scrim: rgba(0, 0, 0, 0.55);
   }
 }
 :root[data-theme='dark'] :is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
-  --ground: #212121; --surface: #2A2A2A; --panel: #212121; --chip: #303030; --side: #181818;
-  --ink: #ECECEC; --ink-2: #B4B4B4; --ink-3: #8F8F8F; --line: #383838; --inv-card-border: #383838;
-  --primary: #ECECEC; --on-primary: #0D0D0D; --scrim: rgba(0, 0, 0, 0.5);
+  --ground: #000000; --surface: #1C1C1E; --panel: #121214; --chip: #2C2C2E; --side: #0E0E10;
+  --ink: #F5F5F7; --ink-2: #98989D; --ink-3: #6B6B70; --line: #3A3A3C; --inv-card-border: #262626;
+  --primary: #F5F5F7; --on-primary: #000000; --scrim: rgba(0, 0, 0, 0.55);
 }
 :is(.owner, .inv-page, .setup):not(.vault) > .side { border-right-color: transparent; }
 /* "Ask or find" reads as one of the rows, as ChatGPT's search does, not as a boxed field. */

@@ -270,3 +270,24 @@ test('a GRN is worth what went into stock at the delivered price, in whole cents
   assert.equal(grnLineCents(lines[2]), null);
   assert.equal(grnValueCents(lines), 1280500);
 });
+
+test('a GRN says who received it, which manager approved it and what, and who undid it', () => {
+  const nimal: Actor = { id: 'c1', name: 'Nimal', role: 'cashier' };
+  const priced: SyncEvent = { ...base, id: 'p', at: 0, type: 'stock.ordered', poNo: 'PO-0001', supplierId: 'sup_a', lines: [{ itemId: 'flour', packs: 2, unitPriceCents: 640000 }] };
+  const approved: SyncEvent = {
+    ...base, actor: nimal, id: 'g1', at: DAY, type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'p', supplierId: 'sup_a',
+    lines: [{ itemId: 'flour', ordered: 2, received: 1, accepted: 1, unitPriceCents: 660000 }], approvedBy: actor, shortDecision: 'close',
+  };
+  let [g] = purchasesFromEvents([priced, approved]).grns;
+  assert.equal(g.receivedBy, 'Nimal');
+  assert.deepEqual(g.approvedBy, { name: 'Ravi', role: 'manager' });
+  assert.deepEqual(g.differs, ['short', 'price changed']);
+  assert.equal(g.undone, null);
+
+  [g] = purchasesFromEvents([po('a', 0), { ...(grn('g2', 'a', DAY) as object), actor: nimal } as SyncEvent]).grns;
+  assert.equal(g.approvedBy, null, 'as ordered: nobody needed to approve');
+  assert.deepEqual(g.differs, []);
+
+  [g] = purchasesFromEvents([priced, approved, { ...base, id: 'u', at: 2 * DAY, type: 'stock.grn_undone', grnId: 'g1', reason: 'Entered by mistake', approvedBy: actor }]).grns;
+  assert.deepEqual(g.undone, { at: 2 * DAY, reason: 'Entered by mistake', by: 'Ravi' });
+});

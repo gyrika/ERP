@@ -716,6 +716,10 @@ test('GRN: a list ticked one by one; only open orders and only what was ordered;
 
   // Undo: a manager's PIN (a cashier's is refused), then why. The GRN stays listed, marked undone.
   await openGrn(user);
+  // As ordered: the card says who received it, and nobody needed to approve it.
+  const card = () => within(screen.getByRole('region', { name: 'GRN history' })).getByRole('button', { name: 'Open GRN-0001' });
+  expect(card().textContent).toMatch(/Received by \S+/);
+  expect(card().querySelector('.flow-card__corner')).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Open GRN-0001' })); // GRN history: the document has the Undo
   await user.click(screen.getByRole('button', { name: 'Undo GRN-0001' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '1111');
@@ -726,6 +730,7 @@ test('GRN: a list ticked one by one; only open orders and only what was ordered;
   expect(lastEvent()).toMatchObject({ type: 'stock.grn_undone', grnId: grn.id, reason: 'Entered by mistake', approvedBy: { name: 'Ravi', role: 'manager' } });
   expect(amount()).toContain('Empty');
   expect(screen.getByText(/· Undone: Entered by mistake/)).toBeTruthy(); // the GRN stays listed, marked undone
+  expect(screen.getByText('Undone by Ravi', { selector: '.flow-card__corner' })).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Undo GRN-0001' })).toBeNull(); // once
   await user.keyboard('{Escape}'); // back to the list: the order is open again
   await user.click(screen.getByRole('button', { name: /PO-0001 · expected/ }));
@@ -779,6 +784,8 @@ test('GRN shows the order and delivered prices; a changed price is reviewed and 
   // Undoing the GRN puts the old price back.
   await user.keyboard('{Escape}');
   await openGrn(user);
+  // The history card names the manager who approved it, in its corner.
+  expect(within(screen.getByRole('button', { name: 'Open GRN-0001' })).getByText('Approved by Ravi')).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Open GRN-0001' }));
   await user.click(screen.getByRole('button', { name: 'Undo GRN-0001' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
