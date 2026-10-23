@@ -203,6 +203,11 @@ export const setReceiveUnit = (itemId: string, unit: string, owner: Actor): void
   appendEvent({ type: 'stock.receive_unit_set', at: Date.now(), orderNumber: 0, actor: owner, itemId, unit });
 };
 
+/** "Order when below" this many packs (SCRUM-135; null: automatic), the owner's choice, signed by the owner's PIN. */
+export const setOrderBelow = (itemId: string, packs: number | null, owner: Actor): void => {
+  appendEvent({ type: 'stock.limit_set', at: Date.now(), orderNumber: 0, actor: owner, itemId, packs });
+};
+
 /** The owner on a count's gap (SCRUM-95): OK, or a question for the manager. */
 export const reviewGap = (gap: GapCase, decision: 'ok' | 'ask', note = ''): void => {
   appendEvent({ type: 'stock.gap_reviewed', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: gap.itemId, countId: gap.countId, decision, note: note.trim() });

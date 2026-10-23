@@ -13,7 +13,7 @@ beforeEach(() => localStorage.clear());
 
 /** A stock row as the screens get it. */
 const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
-  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, suggestedPacks: 0, suggestedSupplierId: null, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null, receiveUnit: null });
+  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, suggestedPacks: 0, suggestedSupplierId: null, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null, receiveUnit: null, orderBelowPacks: null });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); receivePage = null; orderPage = null; });
 
 /**
@@ -999,6 +999,39 @@ test("the sheet tells the item's whole story: shelf, last delivery, price change
   expect(story.getByText('2 packs · 50 kg')).toBeTruthy();
   expect(story.getByText(/^today · 2 packs · /)).toBeTruthy();
   expect(story.getByText('↑ Rs 150 today')).toBeTruthy();
+});
+
+// ----- "Order when below", the owner's number (SCRUM-135) -----
+
+test('the owner, with his PIN, sets flour to order when below 2 packs; Undo and Automatic hand it back', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  const sheet = () => within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
+  await user.click(sheet().getByRole('tab', { name: 'Order' }));
+  expect(sheet().getByText('automatic')).toBeTruthy();
+
+  await user.click(sheet().getByRole('button', { name: 'Change order when below' }));
+  await user.type(sheet().getByLabelText('Owner PIN'), '2580'); // the manager's: refused
+  expect(sheet().getByRole('alert').textContent).toBe('Only the owner sets when to order.');
+  await user.type(sheet().getByLabelText('Owner PIN'), '9999');
+  await user.type(sheet().getByRole('textbox', { name: /Order when below/ }), 'none');
+  await user.click(sheet().getByRole('button', { name: 'Save' }));
+  expect(sheet().getByRole('alert').textContent).toMatch(/Type a number of packs/);
+  await user.clear(sheet().getByRole('textbox', { name: /Order when below/ }));
+  await user.type(sheet().getByRole('textbox', { name: /Order when below/ }), '2{Enter}');
+  expect(lastEvent()).toMatchObject({ type: 'stock.limit_set', itemId: 'inv-0001', packs: 2, actor: { role: 'owner' } });
+  expect(sheet().getByRole('status').textContent).toMatch(/order when below 2 packs/);
+
+  await user.click(within(sheet().getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(lastEvent()).toMatchObject({ type: 'stock.limit_set', packs: null });
+  expect(sheet().getByText('automatic')).toBeTruthy();
+
+  act(() => inventoryStore.setOrderBelow('inv-0001', 3, { id: 'o', name: 'Owner', role: 'owner' }));
+  await user.click(sheet().getByRole('button', { name: 'Change order when below' }));
+  await user.type(sheet().getByLabelText('Owner PIN'), '9999');
+  await user.click(sheet().getByRole('button', { name: 'Automatic' }));
+  expect(lastEvent()).toMatchObject({ type: 'stock.limit_set', packs: null });
 });
 
 // ----- what receiving is counted in (SCRUM-96) -----

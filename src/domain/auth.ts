@@ -40,9 +40,10 @@ const MANAGER_EVENTS = new Set([
  */
 /**
  * Stock decisions that are the owner's alone: which items are counted when (SCRUM-90),
- * checking a count's gap (SCRUM-95; answering is a manager's), what receiving is counted in (SCRUM-96), the stock rules' numbers.
+ * checking a count's gap (SCRUM-95; answering is a manager's), what receiving is counted in (SCRUM-96), the stock rules' numbers,
+ * and an item's "Order when below" (SCRUM-135).
  */
-export const OWNER_STOCK: ReadonlySet<string> = new Set(['stock.tier_set', 'stock.gap_reviewed', 'stock.receive_unit_set', 'stock.settings_set']);
+export const OWNER_STOCK: ReadonlySet<string> = new Set(['stock.tier_set', 'stock.gap_reviewed', 'stock.receive_unit_set', 'stock.settings_set', 'stock.limit_set']);
 
 export const mayRecord = (role: Role, type: string): boolean => {
   if (type.startsWith('kitchen.')) return true;

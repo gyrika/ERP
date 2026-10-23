@@ -37,6 +37,8 @@ export interface SuggestRow {
   onHandBaseUnits: number;
   packQty: number;
   supplierIds: readonly string[];
+  /** The owner's "Order when below" in packs (SCRUM-135); null or absent: the days rule below. */
+  orderBelowPacks?: number | null;
 }
 
 /** The supplier an item is ordered from: the one it last came from, else its first active one. */
@@ -51,8 +53,10 @@ const supplierOf = (row: SuggestRow, active: ReadonlySet<string>, last: Readonly
  *   reorder point = daily use × (delivery time + spare days)
  *   suggest when on hand + on order <= reorder point
  *   packs = daily use × (delivery time + order days) − (on hand + on order), rounded up
- * Items never counted, archived, with no use, or with no active supplier are skipped.
- * Never 0 or negative packs. `onOrderPacks` is what open orders still owe, in packs.
+ * An item the owner gave "Order when below N packs" (SCRUM-135) is suggested when on hand
+ * + on order < N instead, used or not, and the packs bring it back to at least N.
+ * Items never counted, archived, with no use (and no owner's number), or with no active
+ * supplier are skipped. Never 0 or negative packs. `onOrderPacks` is what open orders still owe, in packs.
  */
 export const suggestions = (
   rows: readonly SuggestRow[],
@@ -64,13 +68,15 @@ export const suggestions = (
 ): Suggestion[] => {
   const out: Suggestion[] = [];
   for (const row of rows) {
-    if (row.archived || !row.counted || row.usedPerDay <= 0 || row.packQty <= 0) continue;
+    const below = row.orderBelowPacks ?? null;
+    if (row.archived || !row.counted || row.packQty <= 0 || (below === null && row.usedPerDay <= 0)) continue;
     const supplierId = supplierOf(row, active, lastSupplier);
     if (!supplierId) continue;
     const lead = leadDays.get(supplierId) ?? settings.defaultLeadDays;
     const have = Math.max(0, row.onHandBaseUnits) + (onOrderPacks.get(row.id) ?? 0) * row.packQty;
-    if (have > row.usedPerDay * (lead + settings.spareDays)) continue;
-    const packs = Math.max(1, Math.ceil((row.usedPerDay * (lead + settings.orderDays) - have) / row.packQty));
+    if (below === null ? have > row.usedPerDay * (lead + settings.spareDays) : have >= below * row.packQty) continue;
+    const want = Math.max(row.usedPerDay * (lead + settings.orderDays), (below ?? 0) * row.packQty);
+    const packs = Math.max(1, Math.ceil((want - have) / row.packQty));
     out.push({ itemId: row.id, supplierId, packs, stockQty: packs * row.packQty });
   }
   return out;

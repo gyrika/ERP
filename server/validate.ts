@@ -185,6 +185,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         return { reason: `event ${e.id} undoes a GRN without a manager or a reason` };
       }
     }
+    if (e.type === 'stock.limit_set' && (!shortString(e.itemId) || !(e.packs === null || (packs(e.packs) && (e.packs as number) > 0)))) {
+      return { reason: `event ${e.id} has an invalid order-when-below` };
+    }
     if (e.type === 'stock.receive_unit_set' && (!shortString(e.itemId) || !isUnitId(e.unit))) {
       return { reason: `event ${e.id} has an invalid receiving unit` };
     }

@@ -54,6 +54,25 @@ test('never 0 or negative packs; items with no use, never counted, archived or w
   assert.equal(ask(row(0, 1000, { supplierIds: ['gone'] })).length, 0);
 });
 
+test("the owner's \"Order when below N packs\" replaces the days rule for that item (SCRUM-135)", () => {
+  const below = (onHand: number, n: number | null, used = 1000) => row(onHand, used, { orderBelowPacks: n });
+  assert.equal(ask(below(5000, 2)).length, 0, '2.5 packs, below 2: not yet, though the days rule would order');
+  assert.equal(ask(below(4000, 2)).length, 0, 'exactly 2 packs is not below 2');
+  assert.equal(ask(below(3999, 2)).length, 1, 'just under 2 packs: order');
+  assert.equal(ask(below(9000, 5)).length, 1, 'a high number orders earlier than the days rule');
+  assert.equal(ask(below(3000, 2), 1).length, 0, 'what is on order counts here too');
+  assert.equal(ask(below(5000, null)).length, 1, 'null: the days rule again');
+});
+
+test('an owner\'s number works for items that do not sell (no use yet), and tops them up to at least N', () => {
+  const unused = (onHand: number, n: number) => row(onHand, 0, { orderBelowPacks: n });
+  assert.equal(ask(unused(1000, 2))[0].packs, 2, '0.5 packs, below 2: 2 packs makes 2.5');
+  assert.equal(ask(unused(0, 3))[0].packs, 3);
+  assert.equal(ask(unused(4000, 2)).length, 0);
+  assert.equal(ask(row(0, 1000, { orderBelowPacks: 1 }))[0].packs, 5, 'a fast seller still gets its usual order when that is more');
+  assert.equal(ask(row(0, 1000, { orderBelowPacks: 2, counted: false })).length, 0, 'never counted: still skipped');
+});
+
 test('the supplier is the one it last came from, else its first active one', () => {
   const two = row(0, 1000, { supplierIds: ['gone', 'a', 'b'] });
   assert.equal(ask(two)[0].supplierId, 'a');
