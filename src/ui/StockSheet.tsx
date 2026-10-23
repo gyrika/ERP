@@ -10,6 +10,7 @@ import { CountItem } from './CountFlow.tsx';
 import { ItemOrder } from './OrderSheet.tsx';
 import type { DueCount } from '../domain/counting.ts';
 import type { HistoryEntry } from '../domain/itemStory.ts';
+import { wasteReasonLabel } from '../domain/waste.ts';
 import { OwnerPin } from './OwnerPin.tsx';
 import { isManagerPhone } from '../services/pairing.ts';
 import { usePhotoUrl } from '../services/photos.ts';
@@ -239,7 +240,7 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
 /** Everything that happened to this item, newest first (SCRUM-97). */
 function History({ item, entries }: { item: InventoryRow; entries: HistoryEntry[] }) {
   const now = Date.now();
-  if (!entries.length) return <p className="history__none">Nothing yet: no counts, deliveries or price changes for {item.name}.</p>;
+  if (!entries.length) return <p className="history__none">Nothing yet: no counts, deliveries, waste or price changes for {item.name}.</p>;
   const q = (n: number) => formatQuantity(Math.abs(n), item.baseUnit);
   return (
     <ol className="history" aria-label={`History of ${item.name}`}>
@@ -248,6 +249,9 @@ function History({ item, entries }: { item: InventoryRow; entries: HistoryEntry[
           <span className="history__when">{daysAgo(h.at, now)} · {h.by}</span>
           {h.kind === 'count' && <HistoryCount item={item} h={h} q={q} />}
           {h.kind === 'delivery' && <span>Received {formatPacks(h.packs)} ({q(h.packs * item.packQty)})</span>}
+          {h.kind === 'waste' && (
+            <span>Wasted {q(h.qty)}{h.from !== item.name && <> · from {h.from}</>} · {h.note ? `${wasteReasonLabel(h.reason)}: ${h.note}` : wasteReasonLabel(h.reason)}</span>
+          )}
           {h.kind === 'price' && (
             <span>Price Rs {fmt(h.before)} → <b>Rs {fmt(h.after)}</b> a pack
               <span className={`story__price story__price--${h.after > h.before ? 'up' : 'down'}`}> {h.after > h.before ? '↑' : '↓'} Rs {fmt(Math.abs(h.after - h.before))}</span>

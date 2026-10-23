@@ -2,6 +2,7 @@ import { addonOf, batchMakes, prepOf, recipeOf, sourceOf, STOCK_LINE, type Answe
 import { PRODUCTS, type BookLine } from './recipeBook.ts';
 import { FREE_INGREDIENTS, LEAVE_OUT_LINES } from './recipeMap.ts';
 import type { OrderLine } from './types.ts';
+import type { WasteWhat } from './waste.ts';
 
 /**
  * What a sale takes from stock (SCRUM-78), from the owner's own recipes, the same
@@ -72,6 +73,20 @@ export const bookUsage: UsageOf = (line, answers) => {
   const times = Number.isFinite(line.qty) && line.qty > 0 ? line.qty : 1;
   const total = new Map<string, number>();
   for (const l of lines) trace(l, times, answers, total, 0);
+  return [...total].filter(([, q]) => q > 0).map(([inventoryId, qtyBaseUnits]) => ({ inventoryId, qtyBaseUnits }));
+};
+
+/**
+ * What a waste takes (waste.ts), the same way as a sale: a dish through its recipe (no extras,
+ * nothing left out), a semi-processed item through its batch, a raw item as it is.
+ * Empty: no recipe yet, or a batch whose output he has not confirmed.
+ */
+export const wasteUsage = (what: WasteWhat, qty: number, answers: ReadonlyMap<string, Answer>): RecipeLine[] => {
+  if (!(Number.isFinite(qty) && qty > 0)) return [];
+  if (what.kind === 'stock') return [{ inventoryId: what.itemId, qtyBaseUnits: qty }];
+  if (what.kind === 'dish') return bookUsage({ itemId: what.itemId, qty, size: what.size, adds: [], outs: [] }, answers);
+  const total = new Map<string, number>();
+  trace({ name: what.name, qty, unit: what.unit }, 1, answers, total, 0);
   return [...total].filter(([, q]) => q > 0).map(([inventoryId, qtyBaseUnits]) => ({ inventoryId, qtyBaseUnits }));
 };
 
