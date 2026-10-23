@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Supplier } from '../domain/inventoryData.ts';
+import { isPending } from '../domain/docNumbers.ts';
 import { draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
 import { CANCEL_REASONS, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { PoLine } from '../domain/sync.ts';
@@ -51,7 +52,7 @@ export function SupplierDraft({ supplierId, initial, items, suppliers, purchases
     return Object.keys(rest).length === 0;
   };
   const create = () => {
-    const { order, undo } = placeOrder(supplierId, plan.create, purchases.poCount);
+    const { order, undo } = placeOrder(supplierId, plan.create);
     onPlaced({ order, added: false }, undo, without(plan.create));
   };
   const addTo = (a: (typeof plan.add)[number]) => {
@@ -113,7 +114,7 @@ export function PlacedOrder({ placed: { order, added }, items, suppliers }: { pl
   const text = orderMessage(order.lines.flatMap((l) => {
     const row = items.find((i) => i.id === l.itemId);
     return row ? [{ name: row.name, packs: l.packs, packQty: row.packQty, baseUnit: row.baseUnit }] : [];
-  }), 'CheesyBeez', added ? `Hi, this is CheesyBeez. Please add to ${order.poNo}:` : undefined);
+  }), 'CheesyBeez', added ? `Hi, this is CheesyBeez. Please add to ${isPending(order.poNo) ? 'our order' : order.poNo}:` : undefined);
   return (
     <section className="po-card po-card--placed" aria-label={`${order.poNo} ${name}`}>
       <strong>{added ? `Added to ${order.poNo}` : `${order.poNo} placed`} · {name}</strong>

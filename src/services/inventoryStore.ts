@@ -3,18 +3,19 @@ import { answersFromEvents, type Answer, type CostContext } from '../domain/cost
 import type { Actor } from '../domain/auth.ts';
 import { countHistory, gapOf, type CountEntry, type CountRecord, type GapReason, type Tier } from '../domain/counting.ts';
 import type { SyncEvent } from '../domain/sync.ts';
-import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
+import { addEvents, appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
+import { numberingOf, numbersFor, pendingNumber, type DocKind } from '../domain/docNumbers.ts';
 import { inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
 import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import type { Cents } from '../domain/types.ts';
-import { currentCashier } from './auth.ts';
+import { currentCashier, numbersLocally, shopId } from './auth.ts';
 import { newLineId } from '../domain/order.ts';
 import { useShopEvents } from './ownerData.ts';
 import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } from '../domain/itemStory.ts';
 import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
-import { grnNumber, grnProblem, mergeLines, poNumber, purchasesFromEvents, settleGrn, undoCheck, type GrnDecisions, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import { grnProblem, mergeLines, purchasesFromEvents, settleGrn, undoCheck, type GrnDecisions, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 
@@ -288,13 +289,27 @@ const withStockQty = (lines: PoLine[]): PoLine[] => {
 };
 
 /**
- * Places a purchase order (lines with packs only). The number follows every PO this
- * device has seen. Returns the order and its Undo (cancels it).
+ * A device with no server (the demo, development) numbers its own documents, with the same
+ * function the server uses. A paired device or a phone never does: it waits for the server's
+ * number, shown as "pending" until then. Returns the number, or null when it is pending.
  */
-export const placeOrder = (supplierId: string, lines: PoLine[], poCount: number): { order: PurchaseOrder; undo: () => void } => {
+const numberLocally = (docId: string, kind: DocKind): string | null => {
+  if (!numbersLocally()) return null;
+  const events = readAll();
+  const made = numbersFor(shopId(), Date.now(), [{ id: docId, kind }], numberingOf(events.filter((e) => e.id !== docId)));
+  addEvents(made);
+  const e = made[0];
+  return e && e.type === 'stock.numbered' ? e.number : null;
+};
+
+/**
+ * Places a purchase order (lines with packs only). The shop server numbers it; until that
+ * number arrives it is "PO (pending)". Returns the order and its Undo (cancels it).
+ */
+export const placeOrder = (supplierId: string, lines: PoLine[]): { order: PurchaseOrder; undo: () => void } => {
   const kept = withStockQty(lines);
-  const poNo = poNumber(Math.max(poCount, purchasesFromEvents(readAll()).poCount) + 1);
-  const e = appendEvent({ type: 'stock.ordered', at: Date.now(), orderNumber: 0, actor: currentCashier(), poNo, supplierId, lines: kept });
+  const e = appendEvent({ type: 'stock.ordered', at: Date.now(), orderNumber: 0, actor: currentCashier(), supplierId, lines: kept });
+  const poNo = numberLocally(e.id, 'PO') ?? pendingNumber('PO');
   return {
     order: {
       id: e.id, poNo, supplierId, at: e.at, actor: e.actor, status: 'open', editable: true, cancelReason: null,
@@ -334,18 +349,17 @@ export const cancelOrder = (orderId: string, reason: string): (() => void) => {
  * Returns the GRN, or why it is not allowed (`grnProblem`).
  */
 export const receiveGoods = (
-  order: PurchaseOrder, lines: GrnLine[], decisions: GrnDecisions, approvedBy: Actor | null, grnCount: number,
+  order: PurchaseOrder, lines: GrnLine[], decisions: GrnDecisions, approvedBy: Actor | null,
 ): { grnNo: string; id: string } | string => {
   const why = grnProblem(order, lines, decisions, approvedBy);
   if (why) return why;
   const settled = settleGrn(lines, decisions.over);
-  const grnNo = grnNumber(Math.max(grnCount, purchasesFromEvents(readAll()).grnCount) + 1);
   const e = appendEvent({
     type: 'stock.grn', at: Date.now(), orderNumber: 0, actor: currentCashier(),
-    grnNo, orderId: order.id, supplierId: order.supplierId, lines: settled, approvedBy,
+    orderId: order.id, supplierId: order.supplierId, lines: settled, approvedBy,
     ...(decisions.short ? { shortDecision: decisions.short } : {}), ...(decisions.over ? { overDecision: decisions.over } : {}),
   });
-  return { grnNo, id: e.id };
+  return { grnNo: numberLocally(e.id, 'GRN') ?? pendingNumber('GRN'), id: e.id };
 };
 
 /**

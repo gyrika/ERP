@@ -135,7 +135,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     const poLines = (lines: unknown): boolean => Array.isArray(lines) && lines.length > 0 && lines.length <= 200 &&
       lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.packs) && (l.packs as number) > 0 &&
         (l.stockQty === undefined || (typeof l.stockQty === 'number' && Number.isFinite(l.stockQty) && l.stockQty > 0 && l.stockQty <= 1e9)));
-    if (e.type === 'stock.ordered' && (!shortString(e.poNo, 20) || !shortString(e.supplierId) || !poLines(e.lines))) {
+    if (e.type === 'stock.ordered' && ((e.poNo !== undefined && !shortString(e.poNo, 20)) || !shortString(e.supplierId) || !poLines(e.lines))) {
       return { reason: `event ${e.id} has an invalid purchase order` };
     }
     if (e.type === 'stock.order_edited' && (!shortString(e.orderId) || !poLines(e.lines))) return { reason: `event ${e.id} has an invalid order change` };
@@ -147,7 +147,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       const by = e.approvedBy;
       const lines = e.lines;
       if (
-        !shortString(e.grnNo, 20) || !shortString(e.orderId) || !shortString(e.supplierId) || !Array.isArray(lines) || lines.length > 200 ||
+        (e.grnNo !== undefined && !shortString(e.grnNo, 20)) || !shortString(e.orderId) || !shortString(e.supplierId) || !Array.isArray(lines) || lines.length > 200 ||
         !lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received) && (l.accepted === undefined || packs(l.accepted)) && (l.returned === undefined || packs(l.returned))) ||
         !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) ||
         !(e.shortDecision === undefined || e.shortDecision === 'wait' || e.shortDecision === 'close') ||
@@ -164,6 +164,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         const accepted = l.received > l.ordered && e.overDecision === 'return' ? l.ordered : l.received;
         if (Math.abs(l.accepted - accepted) > 1e-6 || Math.abs((l.returned ?? 0) - (l.received - accepted)) > 1e-6) return { reason: `event ${e.id} puts the wrong amount into stock` };
       }
+    }
+    if (e.type === 'stock.numbered' && (!shortString(e.docId, 80) || (e.kind !== 'PO' && e.kind !== 'GRN') || !shortString(e.number, 20))) {
+      return { reason: `event ${e.id} has an invalid document number` };
     }
     if (e.type === 'stock.settings_set') {
       const why = checkStockSetting(e.key, e.value);

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as inventoryStore from '../services/inventoryStore.ts';
-import { appendEvent, readAll } from './eventLog.ts';
+import { addEvents, appendEvent, readAll } from './eventLog.ts';
+import * as authService from '../services/auth.ts';
 import { SEED_INVENTORY } from '../domain/inventoryData.ts';
 import { InventoryView } from './InventoryView.tsx';
 import { SupplierView } from './SupplierView.tsx';
@@ -14,6 +15,8 @@ const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventor
   ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, suggestedPacks: 0, suggestedSupplierId: null, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null, receiveUnit: null });
 afterEach(cleanup);
 
+/** The last thing the shop did: not the number the server gives it afterwards. */
+const lastEvent = () => readAll().filter((e) => e.type !== 'stock.numbered').at(-1);
 const DAY = 24 * 60 * 60 * 1000;
 /** Yesterday's sales: `qty` large margheritas, 222 g of flour each, so flour has a rate of use (7.9 kg a day for 500). */
 const sellPizzas = (qty: number) => appendEvent({
@@ -210,7 +213,8 @@ test("the item's Order tab is the same purchase order: Place order makes a PO, t
   await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
   await user.click(card.getByRole('button', { name: 'Place order' }));
 
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.ordered', poNo: 'PO-0001', lines: [{ itemId: 'inv-0001', packs: 2 }] });
+  expect(lastEvent()).toMatchObject({ type: 'stock.ordered', lines: [{ itemId: 'inv-0001', packs: 2 }] });
+  expect(readAll().find((e) => e.type === 'stock.numbered')).toMatchObject({ docId: lastEvent()!.id, kind: 'PO', number: 'PO-0001' }); // no server here: this device numbers it
   expect(sheet.getByLabelText('Message').textContent).toContain('2 × Pizza Flour (25 kg packs)');
   expect(sheet.getByRole('status').textContent).toContain('PO-0001 placed with Prima / David Stores (Wholesale).');
   await user.keyboard('{Escape}');
@@ -232,10 +236,10 @@ test('the price the supplier charges is changed on the Order tab, audited, with 
   const price = sheet.getByRole('textbox', { name: /Price per pack/ });
   await user.clear(price);
   await user.type(price, '6,550{Enter}');
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.price_set', before: 640000, after: 655000 });
+  expect(lastEvent()).toMatchObject({ type: 'stock.price_set', before: 640000, after: 655000 });
   expect(sheet.getByRole('status').textContent).toContain('Pizza Flour: price now Rs 6,550 a pack.');
   await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.price_set', before: 655000, after: 640000 });
+  expect(lastEvent()).toMatchObject({ type: 'stock.price_set', before: 655000, after: 640000 });
 });
 
 test('Count opens the blind count: the gap shows only after counting, then the shelf is what was counted', async () => {
@@ -253,7 +257,7 @@ test('Count opens the blind count: the gap shows only after counting, then the s
   await user.click(screen.getByRole('button', { name: 'Close' }));
 
   expect(amount()).toContain('1½ packs · 37.5 kg');
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', counted: 37500, expected: 50000, reason: 'delivery-short' });
+  expect(lastEvent()).toMatchObject({ type: 'stock.counted', counted: 37500, expected: 50000, reason: 'delivery-short' });
 });
 
 test('search finds by ingredient, category or supplier; Escape clears it', async () => {
@@ -284,16 +288,17 @@ test('Purchase orders: a draft per supplier from what runs low; Place order save
   await user.click(card.getByRole('button', { name: 'One pack less of Pizza Flour' }));
   await user.click(card.getByRole('button', { name: 'Place order' }));
 
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.ordered', poNo: 'PO-0001', supplierId: expect.any(String), lines: [{ itemId: 'inv-0001', packs: 2 }] });
+  expect(lastEvent()).toMatchObject({ type: 'stock.ordered', supplierId: expect.any(String), lines: [{ itemId: 'inv-0001', packs: 2 }] });
+  expect(readAll().find((e) => e.type === 'stock.numbered')).toMatchObject({ kind: 'PO', number: 'PO-0001' });
   const placed = within(screen.getByRole('region', { name: /^PO-0001 / }));
   expect(placed.getByLabelText('Message').textContent).toBe('Hi, this is CheesyBeez. Please send:\n2 × Pizza Flour (25 kg packs)\nThank you.');
   await user.click(screen.getByRole('button', { name: 'Cancel PO-0001' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.ordered' }); // a reason first: nothing cancelled yet
+  expect(lastEvent()).toMatchObject({ type: 'stock.ordered' }); // a reason first: nothing cancelled yet
   await user.click(within(screen.getByRole('group', { name: 'Why cancel PO-0001' })).getByRole('button', { name: 'Ordered by mistake' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.order_cancelled', reason: 'Ordered by mistake' });
+  expect(lastEvent()).toMatchObject({ type: 'stock.order_cancelled', reason: 'Ordered by mistake' });
   await user.keyboard('{Escape}');
   await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.order_reopened' });
+  expect(lastEvent()).toMatchObject({ type: 'stock.order_reopened' });
   expect(within(flourRow()).getByText('On order 2 · PO-0001')).toBeTruthy();
 });
 
@@ -311,10 +316,10 @@ test('an item already on an open order is added to it, not ordered twice; the ca
   await user.click(card.getByRole('button', { name: 'Add to PO-0001' }));
 
   expect(readAll().filter((e) => e.type === 'stock.ordered')).toHaveLength(1); // no second order
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.order_edited', orderId: expect.any(String), lines: [{ itemId: 'inv-0001', packs: 3, stockQty: 75000 }] });
+  expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', orderId: expect.any(String), lines: [{ itemId: 'inv-0001', packs: 3, stockQty: 75000 }] });
   expect(screen.getByLabelText('Message').textContent).toContain('Please add to PO-0001:\n1 × Pizza Flour');
   await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 2, stockQty: 50000 }] });
+  expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 2, stockQty: 50000 }] });
 });
 
 test('an open order can be changed in its list until goods come; then it is locked', async () => {
@@ -325,7 +330,7 @@ test('an open order can be changed in its list until goods come; then it is lock
   await user.click(screen.getByRole('button', { name: 'Edit PO-0001' }));
   await user.click(screen.getByRole('button', { name: 'One pack more of Pizza Flour on PO-0001' }));
   await user.click(screen.getByRole('button', { name: 'Save PO-0001' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 3 }] });
+  expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 3 }] });
   const onOrder = within(screen.getByRole('region', { name: 'On order' }));
   expect(onOrder.getByText(/3 × Pizza Flour/)).toBeTruthy();
   expect(onOrder.getByText('Open')).toBeTruthy();
@@ -334,7 +339,7 @@ test('an open order can be changed in its list until goods come; then it is lock
   const po = readAll().find((e) => e.type === 'stock.ordered')!;
   act(() => {
     appendEvent({
-      type: 'stock.grn', at: Date.now(), orderNumber: 0, actor: { id: 'm', name: 'Ravi', role: 'manager' }, grnNo: 'GRN-0001', orderId: po.id,
+      type: 'stock.grn', at: Date.now(), orderNumber: 0, actor: { id: 'm', name: 'Ravi', role: 'manager' }, orderId: po.id,
       supplierId: 'sup_prima', lines: [{ itemId: 'inv-0001', ordered: 3, received: 1 }], approvedBy: { id: 'm', name: 'Ravi', role: 'manager' }, shortDecision: 'wait',
     });
   });
@@ -345,8 +350,27 @@ test('an open order can be changed in its list until goods come; then it is lock
   expect(onOrder.queryByRole('button', { name: 'Cancel PO-0001' })).toBeNull();
 });
 
+test('a paired device shows "PO (pending)" until the shop server numbers it, then the number', async () => {
+  const spy = vi.spyOn(authService, 'numbersLocally').mockReturnValue(false); // a server will number it
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs: 2 }]); });
+  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  const onOrder = within(screen.getByRole('region', { name: 'On order' }));
+  expect(onOrder.getByText(/^PO \(pending\) · Prima/)).toBeTruthy();
+  expect(readAll().some((e) => e.type === 'stock.numbered')).toBe(false);
+
+  const po = readAll().find((e) => e.type === 'stock.ordered')!;
+  act(() => { // the server's record arrives with the next pull
+    addEvents([{ id: `num-${po.id}`, shopId: po.shopId, at: Date.now(), orderNumber: 0, actor: { id: 'shop-server', name: 'Shop server', role: 'owner' }, type: 'stock.numbered', docId: po.id, kind: 'PO', number: 'PO-0042' }]);
+  });
+  expect(onOrder.getByText(/^PO-0042 · Prima/)).toBeTruthy();
+  expect(within(flourRow()).getByText('On order 2 · PO-0042')).toBeTruthy();
+  spy.mockRestore();
+});
+
 /** Orders 2 packs of flour from its first supplier. */
-const orderFlour = (packs = 2) => act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs }], 0); });
+const orderFlour = (packs = 2) => act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs }]); });
 
 test('Goods receiving offers only open orders and only what was ordered; as ordered saves without a PIN', async () => {
   const user = userEvent.setup();
@@ -367,8 +391,9 @@ test('Goods receiving offers only open orders and only what was ordered; as orde
   expect(screen.getByRole('status').textContent).toMatch(/^GRN-0001 from .* saved\./);
   const grn = readAll().find((e) => e.type === 'stock.grn')!;
   // One record carries what was owed, what came and what went into stock; no separate movement.
-  expect(grn).toMatchObject({ type: 'stock.grn', grnNo: 'GRN-0001', approvedBy: null, lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2, returned: 0 }] });
+  expect(grn).toMatchObject({ type: 'stock.grn', approvedBy: null, lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2, returned: 0 }] });
   expect(readAll().some((e) => e.type === 'stock.movement')).toBe(false);
+  expect(readAll().find((e) => e.type === 'stock.numbered' && e.kind === 'GRN')).toMatchObject({ docId: grn.id, number: 'GRN-0001' });
   expect(amount()).toContain('2 packs · 50 kg');
   await user.click(screen.getByRole('button', { name: 'GRN' }));
   expect(screen.getByText(/^Nothing on order/)).toBeTruthy(); // the order is closed
@@ -382,7 +407,7 @@ test('Goods receiving offers only open orders and only what was ordered; as orde
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
   expect(readAll().some((e) => e.type === 'stock.grn_undone')).toBe(false); // the PIN alone undoes nothing
   await user.click(within(screen.getByRole('group', { name: 'Reason' })).getByRole('button', { name: 'Entered by mistake' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.grn_undone', grnId: grn.id, reason: 'Entered by mistake', approvedBy: { name: 'Ravi', role: 'manager' } });
+  expect(lastEvent()).toMatchObject({ type: 'stock.grn_undone', grnId: grn.id, reason: 'Entered by mistake', approvedBy: { name: 'Ravi', role: 'manager' } });
   await user.keyboard('{Escape}');
   expect(amount()).toContain('Empty');
   await user.click(screen.getByRole('button', { name: 'GRN' }));
@@ -555,7 +580,7 @@ test('the owner, with his PIN, makes flour received in kg; the sheet and the pri
   expect(sheet.getByRole('alert').textContent).toBe('Only the owner chooses how it is received.');
   await user.type(sheet.getByLabelText('Owner PIN'), '9999');
   await user.click(within(sheet.getByRole('group', { name: 'Received in' })).getByRole('button', { name: 'kg' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.receive_unit_set', unit: 'kg', actor: { role: 'owner' } });
+  expect(lastEvent()).toMatchObject({ type: 'stock.receive_unit_set', unit: 'kg', actor: { role: 'owner' } });
 
   sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
   expect(sheet.getByRole('textbox', { name: /Price per kg/ })).toHaveProperty('value', '256');

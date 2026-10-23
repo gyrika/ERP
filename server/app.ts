@@ -16,6 +16,7 @@ import type { ReplicaStatus } from './replicator.ts';
 import type { Fleet } from './fleet.ts';
 import { SetupError, isLocal, type SetupApi } from './setup.ts';
 import type { Device, EventStore } from './store.ts';
+import { createNumberer } from './numbering.ts';
 import { validatePush } from './validate.ts';
 
 /**
@@ -133,6 +134,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
    * may only record kitchen taps. Returns why an event is refused, or null.
    */
   const refusal = (device: Device, e: SyncEvent, sessions: Awaited<ReturnType<EventStore['sessions']>>): string | null => {
+    // Display numbers come from this server alone: a device cannot give a document a number.
+    if (e.type === 'stock.numbered') return 'only the shop server numbers documents';
     if (e.type.startsWith('kitchen.')) return device.kind === 'owner' || device.kind === 'manager' ? 'not from this device' : null;
     // The manager's phone counts and receives stock (SCRUM-94); orders, menu and recipes stay on the counter.
     if (device.kind === 'manager' && !e.type.startsWith('stock.')) return 'the manager phone records stock only';
@@ -145,6 +148,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     if (!mayRecord(s.role, e.type)) return `a ${s.role} may not do this`;
     return null;
   };
+  const numberDocs = createNumberer(store, now);
   const broadcast = (tenantId: string, events: SyncedEvent[]) => {
     for (const st of streams.get(tenantId) ?? []) {
       if (st.held) st.held.push(...events);
@@ -307,7 +311,9 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
         if (why) rejected.push({ id: e.id, reason: why });
         return !why;
       });
-      const { accepted, stored } = await store.push(device, allowed, now());
+      const { accepted, stored: pushed } = await store.push(device, allowed, now());
+      // New purchase orders and GRNs get their number here, as records after them.
+      const stored = [...pushed, ...await numberDocs(device, allowed)];
       broadcast(device.tenantId, stored);
       if (stored.length) onStored?.(device.tenantId, stored.map((s) => s.event));
       json(res, 200, { accepted, ...(rejected.length ? { rejected } : {}), serverTime: now() } satisfies PushResponse);
@@ -397,10 +403,11 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
 
   /** Events from elsewhere (the manager phones, through the cloud): stored as from `device`, then streamed as usual. */
   const ingest: Ingest = async (device, events) => {
-    const { stored } = await store.push(device, events, now());
+    const { stored: pushed } = await store.push(device, events, now());
+    const stored = [...pushed, ...await numberDocs(device, events)];
     broadcast(device.tenantId, stored);
     if (stored.length) onStored?.(device.tenantId, stored.map((s) => s.event));
-    return stored.length;
+    return pushed.length;
   };
 
   // Stopping must not wait for devices to hang up: close their streams first.

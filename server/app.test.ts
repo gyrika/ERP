@@ -259,6 +259,27 @@ test('stock: only a logged-in manager or owner may change it, and only from the 
   await s.stop();
 });
 
+test('numbers: the server numbers each new PO and GRN, devices cannot number documents themselves', async () => {
+  const s = await staffed();
+  await s.login('2580');
+  const by = { id: s.manager.id, name: 'Ravi', role: 'manager' };
+  const doc = (id: string, type: string, rest: object) => ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor: by, type, ...rest });
+  const po = (id: string) => doc(id, 'stock.ordered', { supplierId: 'sup', lines: [{ itemId: 'inv-0001', packs: 2 }] });
+  const grn = doc('g1', 'stock.grn', { orderId: 'p1', supplierId: 'sup', lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2 }], approvedBy: null });
+  const numbers = async () => Object.fromEntries(((await (await s.call('/api/v1/events?after=0', s.tokens.counter)).json()).events as { event: { type: string; docId?: string; number?: string } }[])
+    .filter((e) => e.event.type === 'stock.numbered').map((e) => [e.event.docId, e.event.number]));
+
+  await s.push(s.tokens.counter, [po('p1'), grn]);
+  await s.push(s.tokens.counter, [po('p2')]);
+  await s.push(s.tokens.counter, [po('p1')]); // the device pushes again: nothing new
+  assert.deepEqual(await numbers(), { p1: 'PO-0001', g1: 'GRN-0001', p2: 'PO-0002' });
+
+  const cheat = await (await s.push(s.tokens.counter, [doc('n1', 'stock.numbered', { docId: 'p9', kind: 'PO', number: 'PO-0001' })])).json();
+  assert.deepEqual(cheat.rejected.map((x: { id: string; reason: string }) => x.reason), ['only the shop server numbers documents']);
+  assert.equal(Object.keys(await numbers()).length, 3);
+  await s.stop();
+});
+
 test('menu: only a logged-in owner changes prices and names; a manager may mark things sold out', async () => {
   const s = await staffed();
   const owner = await s.store.addStaff(SHOP, 'Nisal', 'owner', '1234');

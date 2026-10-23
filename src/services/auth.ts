@@ -20,5 +20,7 @@ export const requireOwner = async (pin: string): Promise<Actor | null> => {
   const actor = await requireManager(pin);
   return actor?.role === 'owner' ? actor : null;
 };
+/** No server to number documents: only the demo and development, never a paired device or a phone. */
+export const numbersLocally = (): boolean => syncToken() === null && !phoneToken();
 export const currentCashier = (): Actor => auth().currentCashier();
 export const shopId = (): string => auth().shopId();

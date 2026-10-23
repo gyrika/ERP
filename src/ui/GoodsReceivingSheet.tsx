@@ -93,7 +93,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
   const finish = (approvedBy: Actor | null) => {
     const got = received();
     if (!got || !order) return;
-    const result = receiveGoods(order, got, decisions, approvedBy, purchases.grnCount);
+    const result = receiveGoods(order, got, decisions, approvedBy);
     if (typeof result === 'string') { setDeciding(null); setError(result); return; }
     const message = `${result.grnNo} from ${supplierName(order.supplierId)} saved${approvedBy ? ', approved by a manager' : ''}.`;
     onDone(message);

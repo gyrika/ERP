@@ -25,7 +25,6 @@ test('an order is open until a GRN receives it or it is cancelled; undo and reop
   ];
   let s = purchasesFromEvents(events);
   assert.deepEqual(s.open.map((o) => o.id), ['po-3']);
-  assert.deepEqual([s.poCount, s.grnCount], [3, 1]);
 
   s = purchasesFromEvents([...events,
     { ...base, id: 'u', at: 2, type: 'stock.grn_undone', grnId: 'g1' },
@@ -202,4 +201,17 @@ test('lead time learns from the first GRN of an order only, and loses it when th
   assert.equal(purchasesFromEvents(evs).leadDays.get('sup_a'), 2);
   assert.equal(purchasesFromEvents([...evs, { ...base, id: 'u2', at: 7 * DAY, type: 'stock.grn_undone', grnId: 'g2', reason: 'x', approvedBy: base.actor }]).leadDays.get('sup_a'), 2);
   assert.equal(purchasesFromEvents([...evs, { ...base, id: 'u2', at: 7 * DAY, type: 'stock.grn_undone', grnId: 'g2', reason: 'x', approvedBy: base.actor }, { ...base, id: 'u1', at: 8 * DAY, type: 'stock.grn_undone', grnId: 'g1', reason: 'x', approvedBy: base.actor }]).leadDays.has('sup_a'), false);
+});
+
+test('a document shows its number from the server, or "pending" until it arrives', () => {
+  const numbered: SyncEvent = { ...base, id: 'n1', at: 1, type: 'stock.numbered', docId: 'po-1', kind: 'PO', number: 'PO-0042' };
+  const orderEvent = { ...po('po-1', 0), poNo: undefined } as SyncEvent;
+  assert.equal(purchasesFromEvents([orderEvent]).orders[0].poNo, 'PO (pending)');
+  assert.equal(purchasesFromEvents([orderEvent, numbered]).orders[0].poNo, 'PO-0042');
+  assert.equal(purchasesFromEvents([po('po-1', 0)]).orders[0].poNo, 'PO-1', 'an older document keeps the number it was written with');
+  const g = { ...grnOf('g1', 'po-1', 1, 2), grnNo: undefined } as SyncEvent;
+  const s = purchasesFromEvents([orderEvent, numbered, g]);
+  assert.equal(s.grns[0].grnNo, 'GRN (pending)');
+  assert.equal(s.grns[0].poNo, 'PO-0042');
+  assert.equal(purchasesFromEvents([orderEvent, numbered, g, { ...base, id: 'n2', at: 3, type: 'stock.numbered', docId: 'g1', kind: 'GRN', number: 'GRN-0007' }]).grns[0].grnNo, 'GRN-0007');
 });

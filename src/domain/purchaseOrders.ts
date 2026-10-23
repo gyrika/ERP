@@ -1,5 +1,6 @@
 import type { Actor } from './auth.ts';
 import type { GrnLine, PoLine, SyncEvent } from './sync.ts';
+import { docNumber, pendingNumber } from './docNumbers.ts';
 import { STOCK_DEFAULTS, type StockSettings } from './stockSettings.ts';
 
 /**
@@ -57,9 +58,6 @@ export interface PurchaseState {
   open: PurchaseOrder[];
   /** Every order, with its status. */
   orders: PurchaseOrder[];
-  /** POs and GRNs ever written: the next numbers follow them. */
-  poCount: number;
-  grnCount: number;
   /** Days a supplier takes from order to first delivery, from its last orders. */
   leadDays: Map<string, number>;
   /** The supplier each item last came from. */
@@ -69,8 +67,8 @@ export interface PurchaseState {
 const DAY = 86_400_000;
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-export const poNumber = (n: number): string => `PO-${String(n).padStart(4, '0')}`;
-export const grnNumber = (n: number): string => `GRN-${String(n).padStart(4, '0')}`;
+export const poNumber = (n: number): string => docNumber('PO', n);
+export const grnNumber = (n: number): string => docNumber('GRN', n);
 
 export const CANCEL_REASONS = ['Ordered by mistake', "Supplier can't deliver", 'No longer needed', 'Other'] as const;
 
@@ -86,17 +84,17 @@ export const mergeLines = (lines: readonly PoLine[]): PoLine[] => {
 };
 
 export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick<StockSettings, 'leadSamples'> = STOCK_DEFAULTS): PurchaseState => {
-  interface Doc { id: string; poNo: string; supplierId: string; lines: PoLine[]; at: number; actor: Actor; cancelled: string | null }
+  interface Doc { id: string; poNo: string | undefined; supplierId: string; lines: PoLine[]; at: number; actor: Actor; cancelled: string | null }
   const docs = new Map<string, Doc>();
-  const grns = new Map<string, { id: string; grnNo: string; orderId: string; supplierId: string; at: number; lines: GrnLine[]; closes: boolean; shortDecision: 'wait' | 'close' | null; overDecision: 'accept' | 'return' | null }>();
+  const grns = new Map<string, { id: string; grnNo: string | undefined; orderId: string; supplierId: string; at: number; lines: GrnLine[]; closes: boolean; shortDecision: 'wait' | 'close' | null; overDecision: 'accept' | 'return' | null }>();
   const undone = new Map<string, { at: number; reason: string }>();
   /** Live GRNs per order, as the events arrive: an edit or cancel after one is ignored. */
   const live = new Map<string, Set<string>>();
-  let poCount = 0;
-  let grnCount = 0;
+  /** The number the shop server gave each document; until it arrives the document is "pending". */
+  const numbers = new Map<string, string>();
   for (const e of events) {
-    if (e.type === 'stock.ordered') {
-      poCount++;
+    if (e.type === 'stock.numbered') numbers.set(e.docId, e.number);
+    else if (e.type === 'stock.ordered') {
       docs.set(e.id, { id: e.id, poNo: e.poNo, supplierId: e.supplierId, lines: e.lines, at: e.at, actor: e.actor, cancelled: null });
     } else if (e.type === 'stock.order_edited') {
       const d = docs.get(e.orderId);
@@ -108,7 +106,6 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
       const d = docs.get(e.orderId);
       if (d) d.cancelled = null;
     } else if (e.type === 'stock.grn') {
-      grnCount++;
       grns.set(e.id, { id: e.id, grnNo: e.grnNo, orderId: e.orderId, supplierId: e.supplierId, at: e.at, lines: e.lines, closes: e.shortDecision !== 'wait', shortDecision: e.shortDecision ?? null, overDecision: e.overDecision ?? null });
       live.set(e.orderId, (live.get(e.orderId) ?? new Set()).add(e.id));
     } else if (e.type === 'stock.grn_undone') {
@@ -151,16 +148,16 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
     const hasGrn = got !== undefined;
     const allIn = lines.every((l) => l.remaining === 0);
     const status: PoStatus = d.cancelled !== null ? 'cancelled' : !hasGrn ? 'open' : allIn || lastCloses.get(d.id) ? 'closed' : 'partly';
-    return { id: d.id, poNo: d.poNo, supplierId: d.supplierId, lines, at: d.at, actor: d.actor, status, editable: !hasGrn && d.cancelled === null, cancelReason: d.cancelled };
+    return { id: d.id, poNo: numbers.get(d.id) ?? d.poNo ?? pendingNumber('PO'), supplierId: d.supplierId, lines, at: d.at, actor: d.actor, status, editable: !hasGrn && d.cancelled === null, cancelReason: d.cancelled };
   });
 
   const poNoOf = new Map(orders.map((o) => [o.id, o.poNo]));
   const grnList = [...grns.values()].sort((a, b) => b.at - a.at).map((g): PurchaseGrn => ({
-    id: g.id, grnNo: g.grnNo, orderId: g.orderId, poNo: poNoOf.get(g.orderId) ?? '', supplierId: g.supplierId, at: g.at, lines: g.lines,
+    id: g.id, grnNo: numbers.get(g.id) ?? g.grnNo ?? pendingNumber('GRN'), orderId: g.orderId, poNo: poNoOf.get(g.orderId) ?? pendingNumber('PO'), supplierId: g.supplierId, at: g.at, lines: g.lines,
     shortDecision: g.shortDecision, overDecision: g.overDecision, undone: undone.get(g.id) ?? null,
   }));
 
-  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, poCount, grnCount, leadDays, lastSupplier };
+  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier };
 };
 
 /** Packs of each item still owed on open orders: they are already coming. */
