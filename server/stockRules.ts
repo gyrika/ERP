@@ -13,7 +13,7 @@ import type { Device, EventStore, StaffMember } from './store.ts';
  */
 const RELEVANT = new Set<string>([
   'stock.ordered', 'stock.order_edited', 'stock.order_cancelled', 'stock.order_reopened',
-  'stock.grn', 'stock.grn_undone', 'stock.counted', 'stock.settings_set',
+  'stock.grn', 'stock.grn_undone', 'stock.counted', 'stock.settings_set', 'stock.price_set',
 ]);
 
 interface Context { state: PurchaseState; settings: StockSettings; staff: readonly StaffMember[]; now: number }
@@ -73,6 +73,12 @@ export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now }: 
       if (!e.reason?.trim()) return 'Say why the GRN is being undone.';
       return approverProblem(e.approvedBy, staff);
     }
+    case 'stock.price_set':
+      // A price a delivery set stands only with that delivery: a refused GRN takes its prices with it.
+      // A price typed by hand (no grnId) is not ours to check; an undone GRN's prices may still go back.
+      return e.grnId === undefined || state.grns.some((g) => g.id === e.grnId)
+        ? null
+        : 'That price came with a delivery that was not saved. Receive the delivery again.';
     case 'stock.counted': {
       // A gap beyond the owner's allowance must say why: the device is not trusted to have asked.
       if (e.reason === null && isBigGap(e.counted - Math.max(0, e.expected), e.expected, e.valueCents, settings) && e.expected > 0) {
