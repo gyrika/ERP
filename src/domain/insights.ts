@@ -4,6 +4,7 @@ import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
 import { fmt } from './money.ts';
+import { grnValueCents, purchasesFromEvents } from './purchaseOrders.ts';
 import { formatQuantity } from './quantity.ts';
 import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
@@ -404,6 +405,37 @@ const bestSeller = (events: readonly SyncEvent[], now: number): Insight | null =
   };
 };
 
+/**
+ * Deliveries a manager approved today (short, extra or at another price) and GRNs undone today:
+ * the decision is made at the shop, and the owner is told who made it.
+ */
+const grnApprovals = (events: readonly SyncEvent[], stock: ShopData['stock'], now: number): Insight | null => {
+  const today = startOfDay(now);
+  const grns = purchasesFromEvents(events).grns.filter((g) => (g.approvedBy && g.at >= today && g.at <= now) || (g.undone && g.undone.at >= today && g.undone.at <= now));
+  if (!grns.length) return null;
+  const supplier = (id: string) => stock?.suppliers.find((s) => s.id === id)?.name ?? 'a supplier';
+  const said = (g: (typeof grns)[number]) => (g.undone && g.undone.at >= today
+    ? `Undone by ${g.undone.by ?? 'a manager'}: ${g.undone.reason}`
+    : `Approved by ${g.approvedBy?.name ?? 'a manager'}${g.differs.length ? ` · ${g.differs.join(', ')}` : ''}`);
+  const [first] = grns;
+  const firstUndone = first.undone !== null && first.undone.at >= today;
+  const who = firstUndone ? first.undone!.by ?? 'A manager' : first.approvedBy?.name ?? 'A manager';
+  return {
+    id: 'grn-approvals',
+    tone: 'info',
+    title: grns.length === 1
+      ? `${who} ${firstUndone ? 'undid' : 'approved'} a delivery: ${first.grnNo} · ${supplier(first.supplierId)}`
+      : `${plural(grns.length, 'delivery approval')} today`,
+    detail: grns.length === 1
+      ? firstUndone ? `Undone: ${first.undone!.reason}.` : `${first.differs.length ? `${first.differs.join(', ').replace(/^./, (c) => c.toUpperCase())} · ` : ''}${rs(grnValueCents(first.lines))}.`
+      : 'What came differed from the order; a manager approved each with their PIN.',
+    action: {
+      label: 'See them',
+      items: grns.map((g) => ({ primary: `${g.grnNo} · ${supplier(g.supplierId)}`, secondary: said(g), amount: grnValueCents(g.lines), at: g.undone?.at ?? g.at })),
+    },
+  };
+};
+
 const ORDER: Record<Tone, number> = { attention: 0, info: 1, good: 2 };
 
 /** The rules engine. Cards needing a decision come first, good news last. */
@@ -428,6 +460,7 @@ export const rulesSuggestions: SuggestionsService = {
       soldWithoutRecipe(events, now),
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
+      grnApprovals(events, stock, now),
       notSelling(events, sales, now),
       bestSeller(events, now),
     ].filter((x): x is Insight => x !== null).sort((a, b) => ORDER[a.tone] - ORDER[b.tone]);

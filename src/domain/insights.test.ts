@@ -132,3 +132,27 @@ test('a count below what the recipes expected this week: the costliest first, wi
   assert.match(card.detail, /^And 1 more item\. Rs [\d,.]+ in all: waste or loss\.$/);
   assert.equal(rulesSuggestions.insights({ events: [], now: friday, stock }).some((i) => i.id === 'counted-short'), false);
 });
+
+const DAY_MS = 24 * 60 * 60_000;
+test('a delivery a manager approved today is told to the owner, with who and what; an undo too; yesterday is not', () => {
+  const ravi = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor };
+  const order: SyncEvent = { ...base, id: 'p', at: friday - 2 * DAY_MS, type: 'stock.ordered', poNo: 'PO-0001', supplierId: 'sup_prima', lines: [{ itemId: 'inv-0001', packs: 2, unitPriceCents: 640000 }] };
+  const grn = (at: number): SyncEvent => ({
+    ...base, id: 'g1', at, type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'p', supplierId: 'sup_prima', approvedBy: ravi,
+    lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2, unitPriceCents: 660000 }],
+  });
+  const feed = (events: SyncEvent[]) => rulesSuggestions.insights({ events, now: friday, stock }).find((i) => i.id === 'grn-approvals');
+
+  assert.equal(feed([order]), undefined, 'nothing approved: no card');
+  const card = feed([order, grn(friday - 60 * 60_000)])!;
+  assert.equal(card.title, 'Ravi approved a delivery: GRN-0001 · Prima / David Stores (Wholesale)');
+  assert.equal(card.detail, 'Price changed · Rs 13,200.');
+  assert.deepEqual(card.action.items.map((i) => i.secondary), ['Approved by Ravi · price changed']);
+  assert.equal(feed([order, grn(friday - DAY_MS)]), undefined, "yesterday's is not today's news");
+
+  const undo: SyncEvent = { ...base, id: 'u', at: friday - 60_000, type: 'stock.grn_undone', grnId: 'g1', reason: 'Entered by mistake', approvedBy: ravi };
+  const undone = feed([order, grn(friday - DAY_MS), undo])!;
+  assert.equal(undone.title, 'Ravi undid a delivery: GRN-0001 · Prima / David Stores (Wholesale)');
+  assert.deepEqual(undone.action.items.map((i) => i.secondary), ['Undone by Ravi: Entered by mistake']);
+});

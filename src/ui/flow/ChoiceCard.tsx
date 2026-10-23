@@ -5,10 +5,12 @@ import type { ReactNode } from 'react';
  * Borderless, with a stripe on the left for how it stands (green fine, orange needs a
  * look, red wrong), the way the Owner feed's cards read.
  */
-export function ChoiceCard({ name, line, tag, badge, tone, pressed, disabled, label, onClick, children }: {
+export function ChoiceCard({ name, line, tag, corner, badge, tone, pressed, disabled, label, onClick, children }: {
   name: string;
   line?: string;
   tag?: string;
+  /** A quiet fact in the top right corner ("Approved by Ravi"). */
+  corner?: string;
   badge?: string | number;
   tone?: 'ok' | 'warn' | 'bad';
   /** For a choice between options: this one is picked. */
@@ -28,6 +30,7 @@ export function ChoiceCard({ name, line, tag, badge, tone, pressed, disabled, la
         {tag && <span className="flow-card__tag">{tag}</span>}
         {children}
       </span>
+      {corner && <span className="flow-card__corner">{corner}</span>}
       {badge !== undefined && badge !== '' && <span className="flow-card__badge">{badge}</span>}
     </button>
   );
