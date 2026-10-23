@@ -34,7 +34,16 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
 }) {
   const titleId = useId();
   const latest = useRef({ onBack, onClose, primary });
+  const sheet = useRef<HTMLDivElement>(null);
+  const stepKey = step ? `${step.index}-${step.label ?? ''}` : 'one';
   latest.current = { onBack, onClose, primary };
+
+  // The sheet takes the keyboard when it opens and at each step (unless focus is already inside it),
+  // so Enter means this sheet's big button, not whatever was focused behind it.
+  useEffect(() => {
+    const el = sheet.current;
+    if (el && keys && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+  }, [stepKey, keys]);
 
   useEffect(() => {
     if (!keys) return;
@@ -55,7 +64,7 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
   return (
     <>
       <div className="scrim" onClick={keys ? onClose : undefined} />
-      <div className={`sheet flow${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div ref={sheet} tabIndex={-1} className={`sheet flow${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="sheet__body flow__body">
           <div className="sheet__title">
             <h1 id={titleId}>{title}</h1>
@@ -71,7 +80,7 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
             </div>
           )}
           {/* A new key per step makes each one slide in. */}
-          <div className="flow__content" key={step ? `${step.index}-${step.label ?? ''}` : 'one'}>{children}</div>
+          <div className="flow__content" key={stepKey}>{children}</div>
           {error && <p className="reason-msg" role="alert">{error}</p>}
         </div>
         {(primary || onBack || extra) && (
