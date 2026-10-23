@@ -144,6 +144,8 @@ test('supplier cards show the name only, no status dot or plus mark', () => {
     expect(within(card).queryByRole('img')).toBeNull();
     expect(card.textContent).not.toMatch(/[+−]/);
   }
+  // Take the screen off before the real hook comes back: the shop's shared history can re-render it at any moment.
+  cleanup();
   spy.mockRestore();
 });
 
@@ -158,6 +160,8 @@ test('inventory rows show available base quantity against the plan pack size', (
 
   const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
   expect(within(row).getByLabelText('Available stock and pack size').textContent).toContain('½ pack · 12.4 kg');
+  // Take the screen off before the real hook comes back: the shop's shared history can re-render it at any moment.
+  cleanup();
   spy.mockRestore();
 });
 
@@ -171,6 +175,8 @@ test('an item with sales it could not take says Check shelf, and sales with no r
   expect(within(row).getByText('4 sold since the last count not taken off')).toBeTruthy();
   expect(screen.getByText(/2 items sold this week took no stock/)).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Answer on Menu' }).getAttribute('href')).toBe('#menu');
+  // Take the screen off before the real hook comes back: the shop's shared history can re-render it at any moment.
+  cleanup();
   spy.mockRestore();
 });
 
@@ -181,6 +187,8 @@ test('a low item stays Low stock even with missed sales: the shelf can only be l
   const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
   expect(within(row).getByText('Low stock')).toBeTruthy();
   expect(screen.queryByText(/took no stock/)).toBeNull();
+  // Take the screen off before the real hook comes back: the shop's shared history can re-render it at any moment.
+  cleanup();
   spy.mockRestore();
 });
 
@@ -195,6 +203,8 @@ test('supplier cards render fallback message when phone is missing', () => {
   expect(screen.getByText('No phone on file')).toBeTruthy();
   expect(screen.queryByRole('link', { name: 'Call Supplier' })).toBeNull();
   expect(screen.queryByRole('link', { name: 'WhatsApp' })).toBeNull();
+  // Take the screen off before the real hook comes back: the shop's shared history can re-render it at any moment.
+  cleanup();
   spy.mockRestore();
 });
 
