@@ -270,6 +270,25 @@ export const questionText = (id: string, menu: readonly MenuItem[]): string => {
   return `Which recipe is ${item?.name.en ?? itemId}${size ? ` ${size}` : ''}`;
 };
 
+/** A gap in the fewest words, for the owner: "Mozzarella Blend batch size", "Basil price". */
+export const gapName = (id: string, menu: readonly MenuItem[]): string => {
+  const subject = questionSubject(id);
+  const kind = questionKind(id);
+  if (kind === 'yield') return `${subject.replace(/ batch$/i, '')} batch size`;
+  if (kind === 'ingredient') return `${subject} price`;
+  return questionText(id, menu).replace(/^Which recipe is (.*)$/, 'the recipe for $1');
+};
+
+/** "waiting on Mozzarella Blend batch size, Pizza Sauce batch size, Basil price and 2 more". */
+export const waitingOn = (missing: readonly string[], menu: readonly MenuItem[], show = 3): string => {
+  // Batch sizes first (each completes many items), then recipes and prices: the Recipes screen's order.
+  const names = [...new Set(missing)]
+    .sort((a, b) => KIND_ORDER[questionKind(a)] - KIND_ORDER[questionKind(b)] || a.localeCompare(b))
+    .map((q) => gapName(q, menu));
+  const more = names.length - show;
+  return `waiting on ${names.slice(0, show).join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
+};
+
 /** His recipes that could be this menu item in this size, for the owner to choose from. */
 export const recipeChoices = (item: MenuItem, size: string): string[] => {
   const names = Object.keys(PRODUCTS);

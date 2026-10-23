@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import {
-  checkOwnLines, linesCost, marginOf, menuCost, recipeOf, recipeQuestion, sizesOf, type CostContext,
+  checkOwnLines, linesCost, marginOf, menuCost, recipeOf, recipeQuestion, sizesOf, waitingOn, type CostContext,
 } from '../domain/costing.ts';
 import { MENU, menuItems, menuState, startingItem } from '../domain/menu.ts';
 import { checkNewItem, checkOverride, newItemSizes, nextMorning, type ItemOverride, type NewItem } from '../domain/menuEdits.ts';
@@ -30,7 +30,8 @@ const startOf = (id: string) => startingItem(id) ?? MENU.find((m) => m.id === id
 const prices = (m: MenuItem) => (m.variants ? m.variants.map((v) => `${v.id} ${fmt(v.price)}`).join(' · ') : fmt(m.price ?? 0));
 
 /**
- * "Cost M 412 · 75%  L 690 · 72%", "Cost so far M 38 · L 66 · 5 to answer in Recipes", or, with
+ * "Cost M 412 · 75%  L 690 · 72%", "Cost so far M 38 · L 66 · waiting on Basil price" (what is
+ * missing by name, so a written recipe never looks wrong), or, with
  * no recipe, what that means for him: its sales take nothing from stock (SCRUM-77, SCRUM-129).
  */
 function CostLine({ item, ctx, onWrite }: { item: MenuItem; ctx: CostContext; onWrite?: () => void }) {
@@ -39,7 +40,8 @@ function CostLine({ item, ctx, onWrite }: { item: MenuItem; ctx: CostContext; on
     price: size ? item.variants!.find((v) => v.id === size)!.price : (item.price ?? 0),
     cost: menuCost(item.id, size, ctx),
   }));
-  const gaps = new Set(sizes.flatMap((s) => s.cost.missing)).size;
+  const missing = sizes.flatMap((s) => s.cost.missing);
+  const gaps = new Set(missing).size;
   if (sizes.every((s) => !s.cost.origin)) {
     return (
       <span className="menuv__cost">
@@ -60,7 +62,7 @@ function CostLine({ item, ctx, onWrite }: { item: MenuItem; ctx: CostContext; on
           </span>
         );
       })}
-      {gaps > 0 && ` · ${gaps} to answer in Recipes`}
+      {gaps > 0 && ` · ${waitingOn(missing, menuItems())}`}
     </span>
   );
 }
@@ -160,7 +162,7 @@ function DishRecipe({ category, name, sizes, rows, onRows, owner, onOwner, ctx }
           {sizes.length > 1 && `${here.label}: `}
           {cost.complete
             ? `costs Rs ${fmt(cost.cents)}${margin === null ? '' : ` · earns ${pct(margin)} of Rs ${fmt(here.price)}`}`
-            : `costs Rs ${fmt(cost.cents)} so far · ${cost.missing.length} ${cost.missing.length === 1 ? 'thing' : 'things'} to answer in Recipes`}
+            : `costs Rs ${fmt(cost.cents)} so far · ${waitingOn(cost.missing, menuItems())}`}
         </p>
       )}
     </div>

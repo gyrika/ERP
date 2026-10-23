@@ -14,7 +14,8 @@ const row = (name: string) => screen.getByText(name, { selector: 'b' }).closest(
 
 test('each item shows its cost so far; one with no recipe says its sales take no stock (SCRUM-129)', () => {
   render(<Root />);
-  expect(row('Margherita').textContent).toMatch(/Cost so far M \d+ · L \d+ · 3 to answer in Recipes/);
+  // What it waits for, by name: the recipe itself is fine.
+  expect(row('Margherita').textContent).toMatch(/Cost so far M \d+ · L \d+ · waiting on Mozzarella Blend batch size, Pizza Sauce batch size, Basil price(?! and)/);
   expect(row('Sausages').textContent).toContain("No recipe yet: its sales don't take stock.");
   expect(within(row('Sausages')).getByRole('button', { name: 'Write the recipe' })).toBeTruthy();
   expect(within(row('Margherita')).queryByRole('button', { name: 'Write the recipe' })).toBeNull();
@@ -29,5 +30,5 @@ test('when every gap of a pizza is answered it shows its cost and margin', () =>
   }
   render(<Root />);
   expect(row('Margherita').textContent).toMatch(/Cost M \d+ \d+% · L \d+ \d+%/);
-  expect(row('Margherita').textContent).not.toContain('to answer');
+  expect(row('Margherita').textContent).not.toContain('waiting on');
 });
