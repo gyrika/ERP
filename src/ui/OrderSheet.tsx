@@ -17,8 +17,8 @@ import { addToOrder, cancelOrder, editOrder, placeOrder, type InventoryRow } fro
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
  *   0 On order, at the top: the open orders, to edit or cancel with a reason until goods come
  *   1 Who?   a big card per supplier with how many items need ordering ("Prima · 3 to order")
- *   2 What?  that supplier's items as cards with a stepper, the suggested packs already in,
- *            totals at the bottom, and one main button: Place order (or Add to PO-0003, which
+ *   2 What?  that supplier's items as a bill (item, qty, price, total), the suggested packs already
+ *            in, "+ Add item" to add more, the total at the bottom, and one main button: Place order (or Add to PO-0003, which
  *            `planOrder` chooses so an item is never on two orders)
  *   3 Send   the message, WhatsApp as the big thing to do; then the next supplier, or Done
  * The item sheet's Order tab is the same step 2 (ItemOrder), started from that item.
@@ -81,49 +81,115 @@ function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], pur
 }
 type Draft = ReturnType<typeof useDraft>;
 
-/** The items of a draft as cards with a stepper each, and the total at the bottom. */
+const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
+
+/**
+ * The draft as a bill: one line per item (name, quantity, price of one pack, line total) and the
+ * total at the bottom. "+ Add item" drops down the supplier's other items; picking one asks how
+ * many, with the price filled in and the line total worked out as it is typed.
+ */
 function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: string; draft: Draft; items: InventoryRow[]; suppliers: Supplier[] }) {
   const { packs, typed, plan, blocked, totals } = draft;
   const name = nameOf(suppliers, supplierId);
   const byId = new Map(items.map((i) => [i.id, i]));
   const extra = items.filter((i) => i.supplierIds.includes(supplierId) && !(i.id in packs));
+  /** The add-item dropdown is open; then the item picked and the quantity being typed. */
+  const [picking, setPicking] = useState(false);
+  const [adding, setAdding] = useState<{ id: string; text: string } | null>(null);
+  const addingRow = adding ? byId.get(adding.id) : undefined;
+  const addingPacks = adding ? parsePacks(adding.text) ?? 0 : 0;
+  const confirmAdd = () => {
+    if (!adding || addingPacks <= 0) return;
+    draft.set(adding.id, addingPacks);
+    setAdding(null);
+  };
+  const lines = Object.entries(packs).flatMap(([id, n]) => { const row = byId.get(id); return row ? [{ id, n, row }] : []; });
+
   return (
     <section className="flow__list" aria-label={`Order from ${name}`}>
-      {Object.keys(packs).length === 0 && <p className="flow-hint">Nothing here yet. Add what you need from {name}.</p>}
-      {Object.keys(packs).length > 0 && (
-        <ul className="flow__list flow__plain" aria-label={`To order from ${name}`}>
-          {Object.entries(packs).map(([id, n]) => {
-            const row = byId.get(id);
-            if (!row) return null;
+      <table className="bill" aria-label={`To order from ${name}`}>
+        <thead>
+          <tr><th scope="col">Item</th><th scope="col" className="bill__qty">Qty</th><th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th><th scope="col"><span className="sr-only">Remove</span></th></tr>
+        </thead>
+        <tbody>
+          {lines.length === 0 && !adding && (
+            <tr><td colSpan={5} className="bill__empty">Nothing on it yet. Add what you need from {name}.</td></tr>
+          )}
+          {lines.map(({ id, n, row }) => {
             const on = plan.onOrder.get(id);
             const why = row.suggestedPacks > 0 && row.usedPerDay > 0
               ? `${formatLasts(row.lastsDays) ? `${formatLasts(row.lastsDays)} · ` : ''}uses about ${formatQuantity(Math.round(row.usedPerDay), row.baseUnit)} a day` : '';
             return (
-              <li key={id} className="flow-card flow-card--item">
-                <span className="flow-card__text">
-                  <span className="flow-card__name">{row.name}</span>
-                  <span className="flow-card__line">{n} × {formatQuantity(row.packQty, row.baseUnit)} = {formatQuantity(n * row.packQty, row.baseUnit)}</span>
-                  {why && <span className="flow-card__line">{why}</span>}
+              <tr key={id}>
+                <td>
+                  <span className="bill__name">{row.name}</span>
+                  <span className="bill__sub">{n} × {formatQuantity(row.packQty, row.baseUnit)} = {formatQuantity(n * row.packQty, row.baseUnit)}</span>
+                  {why && <span className="bill__sub">{why}</span>}
                   {on && <span className="flow-card__tag">On order · {on}{blocked.has(id) ? ': partly received, wait for it or close it first' : ''}</span>}
-                  <button type="button" className="linkbtn" aria-label={`Remove ${row.name}`} onClick={() => draft.remove(id)}>Remove</button>
-                </span>
-                <BigStepper compact value={typed[id] ?? String(n)} unit={word(n, 'pack', 'packs')} label={`Packs of ${row.name}`}
-                  lessLabel={`One pack less of ${row.name}`} moreLabel={`One pack more of ${row.name}`}
-                  onText={(text) => draft.setText(id, text)} onBump={(by) => draft.set(id, n + by)} />
-              </li>
+                </td>
+                <td className="bill__qty">
+                  <span className="qty">
+                    <button type="button" className="qty__btn" aria-label={`One pack less of ${row.name}`} onClick={() => draft.set(id, Math.max(1, n - 1))}>−</button>
+                    <input className="qty__num num" inputMode="decimal" aria-label={`Packs of ${row.name}`} value={typed[id] ?? String(n)}
+                      onChange={(e) => draft.setText(id, e.target.value)} onFocus={(e) => e.currentTarget.select()} />
+                    <button type="button" className="qty__btn" aria-label={`One pack more of ${row.name}`} onClick={() => draft.set(id, n + 1)}>+</button>
+                  </span>
+                </td>
+                <td className="bill__num num">{row.workingPriceCents > 0 ? rs(row.workingPriceCents) : '—'}</td>
+                <td className="bill__num num" aria-label={`Total for ${row.name}`}>{row.workingPriceCents > 0 ? rs(n * row.workingPriceCents) : '—'}</td>
+                <td className="bill__x"><button type="button" className="qty__btn qty__btn--x" aria-label={`Remove ${row.name}`} onClick={() => draft.remove(id)}>×</button></td>
+              </tr>
             );
           })}
-        </ul>
-      )}
-      {extra.length > 0 && (
-        <select className="flow__add" aria-label={`Add an item from ${name}`} value="" onChange={(e) => { if (e.target.value) draft.set(e.target.value, 1); }}>
-          <option value="">+ Add item</option>
-          {extra.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-        </select>
-      )}
-      <p className="flow__total" aria-label="Order total">
-        {totals.items} {word(totals.items, 'item', 'items')} · {totals.packs} {word(totals.packs, 'pack', 'packs')}{totals.cents > 0 ? ` · about Rs ${fmt(totals.cents)}` : ''}
-      </p>
+          {adding && addingRow && (
+            // The item just picked: how many? The price is its own; the total follows what is typed.
+            <tr className="bill__adding" aria-label={`Adding ${addingRow.name}`}>
+              <td><span className="bill__name">{addingRow.name}</span><span className="bill__sub">{formatQuantity(addingRow.packQty, addingRow.baseUnit)} a pack</span></td>
+              <td className="bill__qty">
+                <input className="qty__num qty__num--ask num" inputMode="decimal" autoFocus aria-label={`How many packs of ${addingRow.name}`} placeholder="Qty" value={adding.text}
+                  onChange={(e) => setAdding({ ...adding, text: e.target.value })} onFocus={(e) => e.currentTarget.select()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); confirmAdd(); }
+                    if (e.key === 'Escape') { e.preventDefault(); setAdding(null); }
+                  }} />
+              </td>
+              <td className="bill__num num">{addingRow.workingPriceCents > 0 ? rs(addingRow.workingPriceCents) : '—'}</td>
+              <td className="bill__num num" aria-label={`Total for ${addingRow.name}`}>{addingRow.workingPriceCents > 0 ? rs(addingPacks * addingRow.workingPriceCents) : '—'}</td>
+              <td className="bill__x"><button type="button" className="bill__addline" aria-label={`Add ${addingRow.name}`} disabled={addingPacks <= 0} onClick={confirmAdd}>Add</button></td>
+            </tr>
+          )}
+          {/* Add the next line right under the last one; the list opens in place, so nothing covers the total. */}
+          {!adding && (extra.length > 0 || lines.length > 0) && (
+            <tr className="bill__addrow">
+              <td colSpan={5}>
+                {extra.length === 0 ? <span className="bill__sub">Everything {name} sells is on it.</span> : (
+                  <div className="bill-add" onKeyDown={(e) => { if (e.key === 'Escape' && picking) { e.preventDefault(); setPicking(false); } }}>
+                    <button type="button" className="bill-add__btn" aria-expanded={picking} aria-label={`Add an item from ${name}`} onClick={() => setPicking(!picking)}>+ Add item</button>
+                    {picking && (
+                      <ul className="bill-add__menu" aria-label={`Items from ${name}`}>
+                        {extra.map((i) => (
+                          <li key={i.id}>
+                            <button type="button" className="bill-add__item" onClick={() => { setPicking(false); setAdding({ id: i.id, text: '1' }); }}>
+                              <span>{i.name}</span>
+                              <span className="bill__sub num">{i.workingPriceCents > 0 ? `${rs(i.workingPriceCents)} a pack` : formatQuantity(i.packQty, i.baseUnit)}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </td>
+            </tr>
+          )}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colSpan={3} className="bill__sum">{totals.items} {word(totals.items, 'item', 'items')} · {totals.packs} {word(totals.packs, 'pack', 'packs')}</th>
+            <td colSpan={2} className="bill__num bill__grand num" aria-label="Order total">{rs(totals.cents)}</td>
+          </tr>
+        </tfoot>
+      </table>
     </section>
   );
 }

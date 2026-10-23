@@ -1424,3 +1424,39 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 .po-card__actions { display: flex; gap: 12px; flex: none; }
 .po-why { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .po-why .flow-card { width: auto; min-height: 48px; padding: 8px 14px; border-left: 0; background: var(--surface); }
+/* A purchase order as a bill: item, qty, price of one pack, line total; the total at the bottom. */
+.bill { width: 100%; border-collapse: collapse; font-size: 16px; }
+.bill th { padding: 0 8px 8px; font-size: 13px; font-weight: 600; color: var(--ink-3); text-align: left; text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid var(--line); }
+.bill td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.bill th:first-child, .bill td:first-child { padding-left: 0; }
+.bill th:last-child, .bill td:last-child { padding-right: 0; }
+.bill__name { display: block; font-weight: 600; }
+.bill__sub { display: block; font-size: 13px; color: var(--ink-3); }
+.bill__num { text-align: right; white-space: nowrap; }
+.bill th.bill__num { text-align: right; }
+.bill__qty { width: 150px; text-align: center !important; }
+.bill__x { width: 56px; text-align: right; }
+.bill__empty { color: var(--ink-3); text-align: center; padding: 20px 0 !important; }
+.bill tfoot th, .bill tfoot td { border-bottom: 0; padding-top: 14px; }
+.bill__sum { font-size: 15px !important; font-weight: 500 !important; color: var(--ink-2) !important; text-transform: none !important; letter-spacing: 0 !important; }
+.bill__grand { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; color: var(--ink); }
+.qty { display: inline-flex; align-items: center; gap: 2px; }
+.qty__btn { width: 40px; height: 48px; border-radius: 10px; background: none; color: var(--ink); font-size: 22px; line-height: 1; display: inline-grid; place-items: center; cursor: pointer; }
+.qty__btn:hover { background: var(--chip); }
+.qty__btn:disabled { opacity: 0.35; cursor: default; }
+.qty__btn--x { color: var(--ink-3); }
+.bill__addline { min-height: 48px; padding: 0 6px; background: none; color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.bill__addline:disabled { color: var(--ink-3); text-decoration: none; cursor: default; }
+.qty__num { width: 56px; height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 17px; font-weight: 600; text-align: center; }
+.qty__num:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
+.qty__num--ask { width: 80px; }
+.bill-add { display: flex; flex-direction: column; }
+.bill-add__btn { align-self: flex-start; }
+.bill__addrow td { padding-top: 4px; padding-bottom: 4px; }
+.bill-add__btn { min-height: 48px; padding: 0 4px; background: none; color: var(--ink); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; }
+.bill-add__btn:hover { text-decoration: underline; text-underline-offset: 3px; }
+.bill-add__menu { max-height: 288px; overflow: auto; margin: 4px 0 6px; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); animation: menu-in 150ms var(--ease) both; }
+.bill-add__item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px; border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 16px; text-align: left; cursor: pointer; }
+.bill-add__item:hover, .bill-add__item:focus-visible { background: var(--chip); outline: none; }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (max-width: 520px) { .bill__qty { width: auto; } .bill th, .bill td { padding-left: 4px; padding-right: 4px; } }

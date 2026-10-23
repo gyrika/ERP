@@ -376,7 +376,7 @@ test('an item already on an open order is added to it, not ordered twice; the ca
   await openOrders(user);
   await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
-  await user.selectOptions(card.getByRole('combobox', { name: /^Add an item from/ }), 'inv-0001');
+  await addItem(user, card, 'Pizza Flour', '1');
   expect(card.getByText('1 × 25 kg = 25 kg')).toBeTruthy(); // packs and what they come to
   expect(card.getByText('On order · PO-0001')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Place order' })).toBeNull();
@@ -510,22 +510,29 @@ test('an item opens on Details, or on Order when it needs ordering; the tabs are
   expect(sheet.getByRole('tab', { name: 'Order' }).getAttribute('aria-selected')).toBe('true');
 });
 
-test('the order card and the GRN steps have big − / + buttons, totals and one main button', async () => {
+test('the order is a bill (add item, qty, price, totals) and the GRN steps have big − / + buttons and one main button', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
   await openOrders(user);
   await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(screen.getByRole('button', { name: 'Place order' })).toHaveProperty('disabled', true); // nothing on it yet
-  await user.selectOptions(card.getByRole('combobox', { name: /^Add an item from/ }), 'inv-0001');
+  // + Add item drops down the supplier's items; picking one asks how many, with the price and total worked out.
+  await user.click(card.getByRole('button', { name: /^Add an item from/ }));
+  await user.click(within(card.getByRole('list', { name: /^Items from/ })).getByRole('button', { name: /^Pizza Flour/ }));
+  const qty = card.getByRole('textbox', { name: 'How many packs of Pizza Flour' });
+  await user.clear(qty);
+  await user.type(qty, '2');
+  expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 12,800'); // Rs 6,400 a pack
+  await user.keyboard('{Enter}'); // on the bill
+  expect(screen.getByRole('button', { name: 'Place order' })).toHaveProperty('disabled', false);
   await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
-  await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
-  expect(card.getByLabelText('Order total').textContent).toBe('1 item · 3 packs · about Rs 19,200');
-  expect(card.getByRole('button', { name: 'One pack less of Pizza Flour' }).className).toContain('bigstep__btn');
+  expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 19,200');
+  expect(card.getByLabelText('Order total').textContent).toBe('Rs 19,200');
+  expect(card.getByText('1 item · 3 packs')).toBeTruthy();
   await user.click(card.getByRole('button', { name: 'Remove Pizza Flour' }));
-  expect(card.getByLabelText('Order total').textContent).toBe('0 items · 0 packs');
-  await user.selectOptions(card.getByRole('combobox', { name: /^Add an item from/ }), 'inv-0001');
-  await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  expect(card.getByLabelText('Order total').textContent).toBe('Rs 0');
+  await addItem(user, card, 'Pizza Flour', '2');
   await user.click(screen.getByRole('button', { name: 'Place order' }));
   await user.click(screen.getByRole('button', { name: 'Done' }));
 
@@ -544,6 +551,15 @@ test('the order card and the GRN steps have big − / + buttons, totals and one 
   expect(grn.getByLabelText('Delivery total').textContent).toBe('Expected 2 packs · Received 2 packs');
   expect(grn.getByRole('button', { name: 'Save GRN' })).toBeTruthy();
 });
+
+/** Adds an item to the purchase order's bill: + Add item, pick it, how many, Enter. */
+const addItem = async (user: ReturnType<typeof userEvent.setup>, card: ReturnType<typeof within>, name: string, packs: string) => {
+  await user.click(card.getByRole('button', { name: /^Add an item from/ }));
+  await user.click(within(card.getByRole('list', { name: /^Items from/ })).getByRole('button', { name: new RegExp(`^${name}`) }));
+  const qty = card.getByRole('textbox', { name: `How many packs of ${name}` });
+  await user.clear(qty);
+  await user.type(qty, `${packs}{Enter}`);
+};
 
 /** Orders 2 packs of flour from its first supplier. */
 const orderFlour = (packs = 2) => act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs }]); });
