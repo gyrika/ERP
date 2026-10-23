@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react';
 import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
 import {
-  addonCost, addonOf, addonQuestion, checkOwnLines, marginOf, menuCost, questionKind, recipeOf, recipeQuestion, recipeUnit,
-  sizesOf, STOCK_LINE, stockLine, type Cost, type CostContext, type Recipe,
+  addonCost, addonOf, addonQuestion, checkOwnLines, marginOf, menuCost, questionKind, recipeOf, recipeQuestion,
+  sizesOf, STOCK_LINE, waitingOn, type Cost, type CostContext, type Recipe,
 } from '../domain/costing.ts';
 import { menuItems } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
-import { PREPS, type BookLine } from '../domain/recipeBook.ts';
+import type { BookLine } from '../domain/recipeBook.ts';
 import { MENU_RECIPES } from '../domain/recipeMap.ts';
 import type { MenuItem, Option } from '../domain/types.ts';
 import { requireOwner } from '../services/auth.ts';
-import { answerQuestion, recipesViewed, useCostContext } from '../services/inventoryStore.ts';
+import { answerQuestion, recipesViewed, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { Question } from './CostQuestions.tsx';
 import { useMenu } from './menuStore.ts';
 import { OwnerNav } from './OwnerNav.tsx';
+import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwnerSession, type Draft } from './RecipeLines.tsx';
 
 /**
  * The owner's recipes (SCRUM-75): the shop's secret, so it is kept like one.
@@ -32,7 +33,7 @@ import { OwnerNav } from './OwnerNav.tsx';
  * slide apart and the recipes come into focus. The recipes are there at once (the
  * doors only cover them for under half a second), so nothing ever waits on it.
  */
-export const RECIPES_IDLE_MS = 60_000;
+export { RECIPES_IDLE_MS } from './RecipeLines.tsx';
 /** How long the doors stay over the recipes after the right PIN (the CSS takes less). */
 export const DOORS_MS = 600;
 /** A gap in this many recipes or more is asked once, above them all. */
@@ -100,15 +101,18 @@ const lineName = (name: string, ctx: CostContext) =>
 
 const amountText = (l: BookLine) => `${Number(l.qty.toFixed(3)).toLocaleString('en-US')} ${l.unit}`;
 
+const upper = (t: string) => `${t[0].toUpperCase()}${t.slice(1)}`;
+
 const statusText = (e: Entry) => {
   if (!e.recipe) return 'No recipe yet';
-  if (!e.cost.complete) return `${e.cost.missing.length} ${e.cost.missing.length === 1 ? 'thing' : 'things'} missing`;
+  // What it waits for, by name (SCRUM-129): a written recipe is not wrong, an amount or price is still to come.
+  if (!e.cost.complete) return upper(waitingOn(e.cost.missing, menuItems(), 2));
   const margin = marginOf(e.price, e.cost.cents);
   return `Complete · costs ${fmt(e.cost.cents)}${margin === null ? '' : ` · earns ${Math.round(margin * 100)}%`}`;
 };
 
 export function RecipesView({ onRegister }: { onRegister?: () => void }) {
-  const [owner, setOwner] = useState<Actor | null>(null);
+  const [owner, setOwner] = useOwnerSession();
   const [doors, setDoors] = useState(false);
 
   useEffect(() => {
@@ -116,16 +120,6 @@ export function RecipesView({ onRegister }: { onRegister?: () => void }) {
     const t = setTimeout(() => setDoors(false), DOORS_MS);
     return () => clearTimeout(t);
   }, [doors]);
-
-  // Lock after a minute untouched, and whenever the screen goes away.
-  useEffect(() => {
-    if (!owner) return;
-    let t = setTimeout(() => setOwner(null), RECIPES_IDLE_MS);
-    const awake = () => { clearTimeout(t); t = setTimeout(() => setOwner(null), RECIPES_IDLE_MS); };
-    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
-    for (const e of events) window.addEventListener(e, awake, { passive: true });
-    return () => { clearTimeout(t); for (const e of events) window.removeEventListener(e, awake); };
-  }, [owner]);
 
   return (
     <div className="owner vault">
@@ -373,8 +367,6 @@ function Card({ entry: e, ctx, owner, open, asked, onToggle, onEdit, onSheet, on
   );
 }
 
-interface Draft { name: string; qty: string; unit: string }
-
 /** The cost of an entry if it were made with these lines. */
 const costAs = (entry: Entry, lines: BookLine[], ctx: CostContext): Cost => {
   const answers = new Map(ctx.answers).set(entry.question, { kind: 'own', lines });
@@ -382,17 +374,11 @@ const costAs = (entry: Entry, lines: BookLine[], ctx: CostContext): Cost => {
   return kind === 'addon' ? addonCost(id, { ...ctx, answers }) : menuCost(id, size ?? '', { ...ctx, answers });
 };
 
-const unitFor = (name: string, ctx: CostContext, fallback = 'g'): string =>
-  name.startsWith(STOCK_LINE)
-    ? ctx.items.find((i) => i.id === name.slice(STOCK_LINE.length))?.baseUnit ?? fallback
-    : recipeUnit(name) ?? fallback;
-
-const toDraft = (lines: readonly BookLine[]): Draft[] => lines.map((l) => ({ name: l.name, qty: String(l.qty), unit: l.unit }));
-
 function Editor({ entry, entries, ctx, onSave, onCancel }: {
   entry: Entry; entries: Entry[]; ctx: CostContext; onSave: (lines: BookLine[]) => void; onCancel: () => void;
 }) {
-  const [rows, setRows] = useState<Draft[]>(() => (entry.recipe ? toDraft(entry.recipe.lines) : [{ name: '', qty: '', unit: 'g' }]));
+  const [rows, setRows] = useState<Draft[]>(() => (entry.recipe ? toDraft(entry.recipe.lines) : [EMPTY_ROW]));
+  const { suppliers } = useCatalog();
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -408,23 +394,15 @@ function Editor({ entry, entries, ctx, onSave, onCancel }: {
     .sort((a, b) => Number(b.question.endsWith(`:${sameSize}`)) - Number(a.question.endsWith(`:${sameSize}`)))
     .slice(0, 8);
 
-  // What a line can be: his batches, then his price list. Names copied from his sheet stay choosable.
-  const preps = Object.keys(PREPS).sort();
-  const stock = [...ctx.items].sort((a, b) => a.name.localeCompare(b.name));
-  const known = new Set([...preps, ...stock.map((i) => stockLine(i.id))]);
-
   // What it would cost and earn as written so far (lines with a name and an amount).
-  const draft: BookLine[] = rows.filter((r) => r.name && Number(r.qty) > 0).map((r) => ({ name: r.name, qty: Number(r.qty), unit: r.unit }));
+  const draft = draftLines(rows);
   const preview = draft.length ? costAs(entry, draft, ctx) : null;
   const margin = preview?.complete ? marginOf(entry.price, preview.cents) : null;
 
-  const set = (i: number, patch: Partial<Draft>) => { setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r))); setError(''); };
-
   const save = (ev: FormEvent) => {
     ev.preventDefault();
-    const filled = rows.filter((r) => r.name || r.qty.trim());
-    const lines: BookLine[] = filled.map((r) => ({ name: r.name, qty: Number(r.qty.trim()), unit: r.unit }));
-    if (filled.some((r) => !/^\d+(\.\d{1,4})?$/.test(r.qty.trim()))) return setError('Type each amount as a number, like 90 or 0.5.');
+    const lines = readRows(rows);
+    if (typeof lines === 'string') return setError(lines);
     const wrong = checkOwnLines(lines);
     if (wrong) return setError(wrong);
     onSave(lines);
@@ -444,38 +422,12 @@ function Editor({ entry, entries, ctx, onSave, onCancel }: {
           ))}
         </div>
       )}
-      <ul className="redit__rows">
-        {rows.map((r, i) => (
-          <li key={i} className="redit__row">
-            <select
-              aria-label={`Line ${i + 1}: what goes in`} value={r.name} autoFocus={i === 0 && !r.name}
-              onChange={(e) => set(i, { name: e.target.value, unit: unitFor(e.target.value, ctx, r.unit) })}
-            >
-              <option value="">Choose…</option>
-              {r.name && !known.has(r.name) && <option value={r.name}>{r.name} (your sheet)</option>}
-              <optgroup label="Made in your kitchen">
-                {preps.map((p) => <option key={p} value={p}>{p}</option>)}
-              </optgroup>
-              <optgroup label="Your stock">
-                {stock.map((s) => <option key={s.id} value={stockLine(s.id)}>{s.name}</option>)}
-              </optgroup>
-            </select>
-            <input
-              className="num" inputMode="decimal" aria-label={`Line ${i + 1}: how much`} value={r.qty}
-              onChange={(e) => set(i, { qty: e.target.value })}
-            />
-            <span className="redit__unit">{r.unit}</span>
-            <button type="button" className="redit__remove" aria-label={`Remove line ${i + 1}`}
-              onClick={() => setRows(rows.length > 1 ? rows.filter((_, j) => j !== i) : [{ name: '', qty: '', unit: 'g' }])}>×</button>
-          </li>
-        ))}
-      </ul>
-      <button type="button" className="linkbtn redit__add" onClick={() => setRows([...rows, { name: '', qty: '', unit: 'g' }])}>Add a line</button>
+      <LinesEditor rows={rows} onChange={(r) => { setRows(r); setError(''); }} ctx={ctx} suppliers={suppliers} />
       {preview && (
         <p className="redit__cost num" aria-live="polite">
           {preview.complete
             ? `Costs ${fmt(preview.cents)}${margin === null ? '' : ` · earns ${Math.round(margin * 100)}% of ${fmt(entry.price)}`}`
-            : `Costs ${fmt(preview.cents)} so far · ${preview.missing.length} ${preview.missing.length === 1 ? 'thing' : 'things'} still missing`}
+            : `Costs ${fmt(preview.cents)} so far · ${waitingOn(preview.missing, menuItems())}`}
         </p>
       )}
       {error && <p className="costq__error" role="alert">{error}</p>}

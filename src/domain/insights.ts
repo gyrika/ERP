@@ -1,5 +1,5 @@
 import { gapCases, shortStreaks, toCheck, weekLoss, type GapCase } from './gapReview.ts';
-import { costsToAnswer, marginsFell } from './costInsights.ts';
+import { costsToAnswer, marginsFell, soldWithoutRecipe } from './costInsights.ts';
 import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
@@ -424,6 +424,7 @@ export const rulesSuggestions: SuggestionsService = {
       gapsToCheck(events, stock),
       shortStreak(events, stock),
       countedShort(events, stock, now),
+      soldWithoutRecipe(events, now),
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
       notSelling(events, sales, now),
