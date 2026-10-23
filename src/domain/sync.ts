@@ -6,6 +6,7 @@ import type { Cents } from './types.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 import type { CountEntry, GapReason, Tier } from './counting.ts';
 import type { StockSettings } from './stockSettings.ts';
+import type { WasteReason, WasteWhat } from './waste.ts';
 
 /**
  * The sync contract between devices and the server (SCRUM-59, 60, 29, 30).
@@ -26,6 +27,9 @@ interface KitchenBase {
 
 export type KitchenEvent =
   | (KitchenBase & { type: 'kitchen.seen' })
+  /** The cook started on the ticket; with `kitchen.bumped` it times the cooking (cookLog). */
+  | (KitchenBase & { type: 'kitchen.started' })
+  | (KitchenBase & { type: 'kitchen.unstarted' })
   | (KitchenBase & { type: 'kitchen.bumped' })
   | (KitchenBase & { type: 'kitchen.unbumped' });
 
@@ -99,6 +103,14 @@ export type StockEvent =
   | (StockItemBase & { type: 'stock.movement'; kind: MovementKind; qtyBase: number; docId: string })
   /** The shop server gives a PO or GRN its display number (docNumbers.ts). Only the server writes these. */
   | (StockBase & { type: 'stock.numbered'; docId: string; kind: 'PO' | 'GRN'; number: string })
+  /**
+   * Thrown away instead of sold (manager mode, the bin; waste.ts). Takes stock the way a sale
+   * does: a dish through its recipe, a semi-processed item through its batch, raw directly.
+   */
+  | (StockBase & { type: 'stock.wasted'; what: WasteWhat;
+    /** What it was called when thrown away ("Margherita · Large"), for history and reports. */
+    name: string; qty: number; reason: WasteReason; note?: string })
+  | (StockBase & { type: 'stock.waste_undone'; wasteId: string })
   /** The owner changes one of the stock rules' numbers (stockSettings.ts). */
   | (StockBase & { type: 'stock.settings_set'; key: keyof StockSettings; value: number });
 
@@ -125,12 +137,15 @@ export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | Rec
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;
 
-export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.unbumped'] as const;
+export const KITCHEN_EVENT_TYPES = [
+  'kitchen.seen', 'kitchen.started', 'kitchen.unstarted', 'kitchen.bumped', 'kitchen.unbumped',
+] as const satisfies readonly KitchenEvent['type'][];
 export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
   'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set',
   'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.draft_set', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.numbered', 'stock.settings_set',
+  'stock.wasted', 'stock.waste_undone',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',

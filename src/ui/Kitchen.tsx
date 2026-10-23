@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  cookTimeMs, elapsedLabel, needsAttention, queue, ticketLines, urgency, type LineView,
+  cookTimeMs, elapsedLabel, needsAttention, queue, ticketLines, urgency, type KitchenTicket, type LineView,
 } from '../domain/kitchen.ts';
 import { chime, useSoundBlocked } from './chime.ts';
 import { recordKitchen, useKitchenTickets } from './kitchenStore.ts';
@@ -9,7 +9,9 @@ import { SyncSign } from './SyncSign.tsx';
 /**
  * Kitchen display. Serves the cook: knows the menu, hands busy, standing back
  * from the screen. The only question it answers is "what do I make next?":
- * one column, oldest first, colour = how long it has waited, one tap Done.
+ * one column, oldest first, colour = how long it has waited. Each ticket has
+ * one button that is its next step: Start, then Done. The two taps time the
+ * cooking (cookLog in the domain) for later analysis.
  * It is the kitchen's ONLY channel (no printed tickets), so arrivals, changes
  * and cancellations chime and flash until someone taps the ticket.
  */
@@ -80,7 +82,8 @@ function LineBody({ v, struck = false, showQty = false }: { v: LineView; struck?
 export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: () => void } = {}) {
   const tickets = useKitchenTickets();
   const now = useNow(1000);
-  const [done, setDone] = useState<{ id: string; number: number } | null>(null); // last bumped, for Undo
+  // The last Start or Done, for Undo.
+  const [last, setLast] = useState<{ id: string; number: number; step: 'started' | 'done' } | null>(null);
   const soundBlocked = useSoundBlocked();
   const lastAlert = useRef(0);
   useDarkTheme();
@@ -95,34 +98,36 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
     lastAlert.current = Math.max(lastAlert.current, latestAlert);
   }, [latestAlert]);
 
-  const markDone = (id: string, number: number) => {
-    recordKitchen('kitchen.bumped', { id, number });
-    setDone({ id, number });
+  /** Start a waiting ticket; finish a started one. */
+  const step = (t: KitchenTicket) => {
+    const started = t.startedAt === undefined;
+    recordKitchen(started ? 'kitchen.started' : 'kitchen.bumped', t);
+    setLast({ id: t.id, number: t.number, step: started ? 'started' : 'done' });
     if (navigator.vibrate) navigator.vibrate(8);
   };
 
   const undo = useCallback(() => {
-    if (done === null) return;
-    recordKitchen('kitchen.unbumped', done);
-    setDone(null);
-  }, [done]);
+    if (last === null) return;
+    recordKitchen(last.step === 'started' ? 'kitchen.unstarted' : 'kitchen.unbumped', last);
+    setLast(null);
+  }, [last]);
 
   useEffect(() => {
-    if (done === null) return;
-    const t = setTimeout(() => setDone(null), 6000);
+    if (last === null) return;
+    const t = setTimeout(() => setLast(null), 6000);
     return () => clearTimeout(t);
-  }, [done]);
+  }, [last]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === 'Escape' && onBack) { e.preventDefault(); onBack(); return; }
-      // Space = the oldest ticket is done. A focused button keeps Space for itself.
+      // Space = the oldest ticket's next step (Start, then Done). A focused button keeps Space for itself.
       if (e.key === ' ' && !(e.target instanceof HTMLButtonElement)) {
         e.preventDefault();
         const next = open[0];
-        if (next) markDone(next.id, next.number);
+        if (next) step(next);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -177,6 +182,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                 <span className="ticket__no num">{t.number}</span>
                 {t.changed && <span className="ticket__tag ticket__tag--changed">Changed</span>}
                 {t.addOn && <span className="ticket__tag">Added</span>}
+                {t.startedAt !== undefined && <span className="ticket__tag">Cooking</span>}
                 {/* Neutral, like Added: on the kitchen screen colour means urgency only. */}
                 {t.online && !t.addOn && (
                   <span className="ticket__tag">
@@ -208,17 +214,23 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                   </li>
                 ))}
               </ul>
-              <button type="button" className="ticket__done" aria-label={`Done: ${name}`} onClick={() => markDone(t.id, t.number)}>
-                Done
-              </button>
+              {t.startedAt === undefined ? (
+                <button type="button" className="ticket__start" aria-label={`Start: ${name}`} onClick={() => step(t)}>
+                  Start
+                </button>
+              ) : (
+                <button type="button" className="ticket__done" aria-label={`Done: ${name}`} onClick={() => step(t)}>
+                  Done
+                </button>
+              )}
             </article>
           );
         })}
       </main>
 
-      {done !== null && (
-        <div className="toast" role="status" key={done.id}>
-          <span className="num">{done.number} done</span>
+      {last !== null && (
+        <div className="toast" role="status" key={`${last.id}-${last.step}`}>
+          <span className="num">{last.number} {last.step}</span>
           <button type="button" onClick={undo}>Undo</button>
         </div>
       )}

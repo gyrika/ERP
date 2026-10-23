@@ -41,10 +41,11 @@ function OnlineTag({ order, time = true }: { order: Order; time?: boolean }) {
     : null;
 }
 
+const COOK_LABEL = { waiting: 'Waiting', cooking: 'Cooking', done: 'Done' } as const;
+
 function Cook({ tickets, number }: { tickets: KitchenTicket[]; number: number }) {
-  return cookState(tickets, number) === 'cooking'
-    ? <span className="status status--cooking">Cooking</span>
-    : <span className="status status--done">Done</span>;
+  const state = cookState(tickets, number);
+  return <span className={`status status--${state === 'waiting' ? 'queued' : state}`}>{COOK_LABEL[state]}</span>;
 }
 
 /** Manager mode state and actions, owned by App (which also maps the keys). */

@@ -20,19 +20,21 @@ const sendOne = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
 };
 
-test('one counter PC: F2 flips Register ⇄ Kitchen, the chip shows what is cooking, Space bumps the oldest', async () => {
+test('one counter PC: F2 flips Register ⇄ Kitchen, the chip shows what is left to make, Space bumps the oldest', async () => {
   const user = userEvent.setup();
   render(<Root />);
-  expect(screen.getByRole('button', { name: 'Kitchen: nothing cooking' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Kitchen: nothing to make' })).toBeTruthy();
 
   await sendOne(user);
-  expect(screen.getByRole('button', { name: 'Kitchen: 1 cooking, oldest waiting 00:00' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Kitchen: 1 to make, oldest waiting 00:00' })).toBeTruthy();
 
   await user.keyboard('{F2}');
   expect(location.hash).toBe('#kitchen');
   expect(kitchen().getByRole('article', { name: 'Order 1001' })).toBeTruthy();
 
-  await user.keyboard(' ');
+  await user.keyboard(' '); // Start
+  expect(kitchen().getByRole('button', { name: 'Done: Order 1001' })).toBeTruthy();
+  await user.keyboard(' '); // Done
   expect(kitchen().getByText('No orders waiting')).toBeTruthy();
 
   await user.keyboard('{Control>}z{/Control}');
@@ -43,7 +45,7 @@ test('one counter PC: F2 flips Register ⇄ Kitchen, the chip shows what is cook
   expect(screen.getByRole('complementary', { name: 'Current order' })).toBeTruthy();
 
   // Touch works too: the chip opens the Kitchen, the Register key (or Esc) comes back.
-  await user.click(screen.getByRole('button', { name: /^Kitchen: 1 cooking/ }));
+  await user.click(screen.getByRole('button', { name: /^Kitchen: 1 to make/ }));
   await user.click(screen.getByRole('button', { name: /^Register/ }));
   expect(screen.getByRole('complementary', { name: 'Current order' })).toBeTruthy();
   await user.keyboard('{F2}{Escape}');

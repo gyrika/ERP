@@ -126,7 +126,8 @@ plan below, the rule is marked **Changed**.
 ## New event types
 
 The kitchen's taps become events so the counter and owner see them:
-`kitchen.seen`, `kitchen.bumped`, `kitchen.unbumped` (see `KitchenEvent` in `sync.ts`).
+`kitchen.seen`, `kitchen.started`, `kitchen.unstarted`, `kitchen.bumped`, `kitchen.unbumped`
+(see `KitchenEvent` in `sync.ts`). Start and Done time the cooking: `docs/cook-times.md`.
 
 ## Decision needed: where the server runs
 

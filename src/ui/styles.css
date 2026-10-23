@@ -255,12 +255,14 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 /* Kitchen state: outlined, so it never reads as the payment label beside it. */
 .status--cooking { border: 1px solid var(--line); color: var(--ink); padding: 3px 9px; }
 .status--cooking::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--warn); vertical-align: 1px; }
+.status--queued { border: 1px solid var(--line); color: var(--ink-2); padding: 3px 9px; }
 .status--done { border: 1px solid var(--line); color: var(--ok-ink); padding: 3px 9px; }
 .status--done::before { content: '✓ '; }
 .panel__foot { padding: 28px 36px 36px; display: flex; flex-direction: column; gap: 20px; }
 .total { font-size: 46px; font-weight: 500; letter-spacing: -2px; line-height: 1; }
 .cta { width: 100%; height: 72px; border-radius: 14px; background: var(--primary); color: var(--on-primary); font-size: 18px; font-weight: 500; letter-spacing: -0.3px; }
 .cta:disabled { opacity: 0.28; }
+.cta--danger { background: var(--bad); color: #fff; }
 .empty { margin: auto 0; display: flex; flex-direction: column; gap: 8px; color: var(--ink-3); font-size: 15px; line-height: 1.5; letter-spacing: -0.2px; }
 .empty b { color: var(--ink-2); font-weight: 500; }
 
@@ -336,7 +338,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 /* Alert: arrival, change or cancel. Flashes until tapped; never mistaken for urgency colour. */
 .ticket--alert { animation: rise 200ms var(--ease), alert 1s steps(2, jump-none) infinite; box-shadow: 0 0 0 3px #F5F5F7; }
 .ticket__ack { position: absolute; inset: 0; z-index: 1; border-radius: 16px; }
-.ticket--alert .ticket__done { position: relative; z-index: 2; }
+.ticket--alert .ticket__done, .ticket--alert .ticket__start { position: relative; z-index: 2; }
 .ticket__tag--changed { background: var(--bad); color: #000; }
 .ticket__struck { display: flex; flex-direction: column; gap: 4px; color: var(--bad); text-decoration-thickness: 3px; }
 .ticket__struck .ticket__detail { color: var(--bad); }
@@ -345,7 +347,9 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .kitchen__sound { margin: 0 40px 14px; min-height: 56px; border-radius: 14px; background: var(--warn); color: #000; font-size: 18px; font-weight: 600; }
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ticket__done { min-height: 96px; border-radius: 14px; background: var(--ok); color: #000; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
-.ticket__done:hover { filter: brightness(1.06); }
+.ticket__done:hover, .ticket__start:hover { filter: brightness(1.06); }
+/* Start is neutral (colour on this screen means urgency); Done turns green once cooking. */
+.ticket__start { min-height: 96px; border-radius: 14px; background: #F5F5F7; color: #000; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes alert { 0% { background: #1C1C1E; } 100% { background: #3A3A3C; } }
@@ -615,7 +619,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .kitchen__head, .kitchen__list { padding-left: 16px; padding-right: 16px; }
   .ticket { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 18px 18px 18px 20px; }
   .ticket__meta { flex-direction: row; align-items: baseline; justify-content: space-between; }
-  .ticket__done { min-height: 64px; }
+  .ticket__done, .ticket__start { min-height: 64px; }
 }
 
 /* ---------- phones (portrait): order stacks under the menu ---------- */
@@ -1169,6 +1173,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .history__item--count::before { background: var(--ink-2); }
 .history__item--delivery::before { background: var(--ok); }
 .history__item--price::before { background: var(--gold); }
+.history__item--waste::before { background: var(--bad); }
 .history__when { color: var(--ink-3); font-size: 12px; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; }
 .history__sub { color: var(--ink-2); font-size: 13px; }
 .history__short { color: var(--bad); }
@@ -1516,3 +1521,18 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
   body.print-grn .grn-doc__undone { border-left: 5px solid #000 !important; }
   @page { margin: 16mm; }
 }
+
+/* ---------- waste (manager mode, the bin) ---------- */
+.corner__bin { display: inline-flex; align-items: center; gap: 6px; }
+.waste__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.waste__row { width: 100%; min-height: 52px; padding: 0 16px; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 17px; color: var(--ink); text-align: left; }
+.waste__row:hover, .waste__row[aria-selected='true'] { background: var(--chip); }
+.waste__group { font-size: 14px; color: var(--ink-3); white-space: nowrap; }
+.waste__none { margin: 0; font-size: 15px; color: var(--ink-3); }
+.waste__picked { display: flex; align-items: baseline; gap: 16px; }
+.waste__name { font-size: 24px; font-weight: 500; letter-spacing: -0.5px; }
+.waste__qty { display: flex; align-items: center; gap: 12px; font-size: 17px; color: var(--ink-2); }
+.waste__qty .note { width: 160px; font-size: 20px; }
+.waste__takes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 16px; }
+.waste__takes li { display: flex; justify-content: space-between; gap: 16px; max-width: 480px; }
+.waste__takes .num { color: var(--ink-2); }
