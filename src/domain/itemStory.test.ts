@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { daysAgo, formatStock, itemStory, usedIn } from './itemStory.ts';
+import { daysAgo, formatStock, itemHistory, itemStory, usedIn } from './itemStory.ts';
 import { MENU } from './menu.ts';
 import type { SyncEvent } from './sync.ts';
 
@@ -53,4 +53,11 @@ test('used in: the menu items whose recipe takes from it', () => {
   const pizzaFlour = usedIn(MENU, new Map(), 'inv-0001');
   assert.ok(pizzaFlour.length > 0, 'the dough uses pizza flour');
   assert.deepEqual(usedIn(MENU, new Map(), 'no-such-item'), []);
+});
+
+test('a GRN shows as a delivery in packs, and its GRN_UNDO cancels it', () => {
+  const mv = (id: string, at: number, kind: 'GRN' | 'GRN_UNDO', qtyBase: number): SyncEvent => ({ ...base, id, at, type: 'stock.movement', kind, qtyBase, docId: 'g' });
+  const events = [mv('m1', 1, 'GRN', 50000), mv('m2', 2, 'GRN', 25000), mv('m3', 3, 'GRN_UNDO', -25000)];
+  assert.deepEqual(itemHistory(events, 'inv-0006', 25000).map((h) => h.kind === 'delivery' && h.packs), [2]);
+  assert.deepEqual(itemHistory(events, 'inv-0006'), [], 'without the pack size it cannot say packs');
 });

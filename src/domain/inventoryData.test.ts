@@ -318,3 +318,20 @@ test('T27: packs are typed as plain numbers; a count records only the difference
     { ...stockIn(MOZZ, countDifference({ onHandBaseUnits: 1850, packQty: 2000 }, 0.5)), id: 'count' }]);
   assert.equal(counted, 1000, 'after a count the stock is what was counted');
 });
+
+test('stock movements: GRN in, GRN_UNDO out, COUNT_ADJUST either way; the shelf is their sum; old adjustments still count', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const flour = SEED_INVENTORY[0].id;
+  const move = (id: string, kind: 'GRN' | 'GRN_UNDO' | 'COUNT_ADJUST', qtyBase: number) =>
+    ({ ...base, id, type: 'stock.movement' as const, itemId: flour, kind, qtyBase, docId: 'doc' });
+  const row = (events: Parameters<typeof inventoryFromEvents>[1]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === flour)!;
+
+  assert.equal(row([move('a', 'GRN', 50000), move('b', 'GRN_UNDO', -50000)]).onHandBaseUnits, 0, 'an undone GRN leaves exactly nothing');
+  const mixed = row([{ ...base, id: 'old', type: 'stock.adjusted', itemId: flour, deltaPacks: 1 }, move('a', 'GRN', 25000), move('c', 'COUNT_ADJUST', -5000)]);
+  assert.equal(mixed.onHandBaseUnits, 45000);
+  assert.equal(mixed.counted, true);
+  assert.equal(row([move('c', 'COUNT_ADJUST', 100)]).lastCountedAt, 1, 'a count adjustment is a count');
+  assert.equal(row([move('a', 'GRN', 100)]).lastCountedAt, null, 'a delivery is not');
+  assert.equal(inventoryFromEvents(SEED_INVENTORY, [{ ...move('z', 'GRN', 5), itemId: 'gone' }]).length, SEED_INVENTORY.length);
+});

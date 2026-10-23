@@ -296,6 +296,14 @@ export const stockFromEvents = (
         shelf.onHandBaseUnits += e.deltaPacks * shelf.item.packQty;
         break;
       }
+      case 'stock.movement': {
+        const shelf = shelves.get(e.itemId);
+        if (!shelf) break;
+        shelf.counted = true;
+        shelf.onHandBaseUnits += e.qtyBase;
+        if (e.kind === 'COUNT_ADJUST') countedAt.set(e.itemId, e.at);
+        break;
+      }
       case 'stock.counted': {
         const shelf = shelves.get(e.itemId);
         if (!shelf) break;

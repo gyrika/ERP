@@ -87,8 +87,17 @@ export type StockEvent =
   | (StockBase & { type: 'stock.grn'; grnNo: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null })
   /** A GRN taken back (Undo): its order is open again. */
   | (StockBase & { type: 'stock.grn_undone'; grnId: string })
+  /** One stock movement, in base units (g, ml, pcs, sheets); docId: the GRN or count it belongs to. */
+  | (StockItemBase & { type: 'stock.movement'; kind: MovementKind; qtyBase: number; docId: string })
   /** The owner changes one of the stock rules' numbers (stockSettings.ts). */
   | (StockBase & { type: 'stock.settings_set'; key: keyof StockSettings; value: number });
+
+/**
+ * Stock moves only by these (stockMovements.ts): GRN in, GRN_UNDO out, COUNT_ADJUST ±.
+ * Sales are not stored: they are worked out from paid orders and their recipes.
+ */
+export const MOVEMENT_KINDS = ['GRN', 'GRN_UNDO', 'COUNT_ADJUST'] as const;
+export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
 export interface PoLine { itemId: string; packs: number }
 export interface GrnLine { itemId: string; ordered: number; received: number }
@@ -104,7 +113,7 @@ export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
   'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set',
-  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.grn', 'stock.grn_undone', 'stock.settings_set',
+  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.settings_set',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',

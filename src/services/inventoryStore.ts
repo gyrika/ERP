@@ -15,7 +15,7 @@ import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } fro
 import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
 import { grnNumber, poNumber, purchasesFromEvents, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
-import type { GrnLine, PoLine } from '../domain/sync.ts';
+import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 
 /**
@@ -132,27 +132,29 @@ export const restoreSupplier = (supplierId: string): void => {
   appendEvent({ type: 'stock.supplier_restored', at: Date.now(), orderNumber: 0, actor: currentCashier(), supplierId });
 };
 
-/** Packs in (+) or out (-), with why. The screen offers "out" only while there is stock. */
-export const adjustStock = (itemId: string, deltaPacks: number, reason?: 'waste' | 'audit' | 'receive'): void => {
-  if (deltaPacks === 0 || !Number.isFinite(deltaPacks) || !readItems().some((i) => i.id === itemId)) return;
-  appendEvent({
-    type: 'stock.adjusted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, deltaPacks,
-    ...(reason ? { reason } : {}),
-  });
+/**
+ * THE one way stock changes (besides sales, which come from paid orders): a movement in
+ * base units. GRN in, GRN_UNDO out, COUNT_ADJUST either way. Nothing edits a stock
+ * figure; the shelf is the sum of its movements. Returns false for an item that is
+ * not here or an amount that is not a real change.
+ */
+export const addStockMovement = (kind: MovementKind, itemId: string, qtyBase: number, docId: string): boolean => {
+  if (qtyBase === 0 || !Number.isFinite(qtyBase) || !readItems().some((i) => i.id === itemId)) return false;
+  if ((kind === 'GRN' && qtyBase < 0) || (kind === 'GRN_UNDO' && qtyBase > 0)) return false;
+  appendEvent({ type: 'stock.movement', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, kind, qtyBase, docId });
+  return true;
 };
 
 /**
- * A delivery: packs in, and the price paid per pack if it changed (both audited).
- * 0 packs with a new price just updates the price. Returns the Undo.
+ * Packs in (+) or out (-): a GRN movement when it is a delivery, else a count correction.
+ * The screens offer it for nothing else; kept for starting stock and for tests.
  */
-export const receiveStock = (row: InventoryRow, packs: number, priceCents: Cents): (() => void) => {
-  const before = row.workingPriceCents;
-  if (packs > 0) adjustStock(row.id, packs, 'receive');
-  if (priceCents !== before) setWorkingPrice(row.id, priceCents);
-  return () => {
-    if (packs > 0) adjustStock(row.id, -packs, 'receive');
-    if (priceCents !== before) setWorkingPrice(row.id, before);
-  };
+export const adjustStock = (itemId: string, deltaPacks: number, reason?: 'waste' | 'audit' | 'receive'): void => {
+  const item = readItems().find((i) => i.id === itemId);
+  if (!item) return;
+  const qty = deltaPacks * item.packQty;
+  if (reason === 'receive') addStockMovement(qty > 0 ? 'GRN' : 'GRN_UNDO', itemId, qty, 'manual');
+  else addStockMovement('COUNT_ADJUST', itemId, qty, 'manual');
 };
 
 /**
@@ -304,19 +306,20 @@ export const cancelOrder = (orderId: string): (() => void) => {
 export const receiveGoods = (
   order: PurchaseOrder, rows: InventoryRow[], lines: GrnLine[], approvedBy: Actor | null, grnCount: number,
 ): { grnNo: string; undo: () => void } => {
-  const undos = lines.flatMap((l) => {
-    const row = rows.find((r) => r.id === l.itemId);
-    return row && l.received > 0 ? [receiveStock(row, l.received, row.workingPriceCents)] : [];
-  });
   const grnNo = grnNumber(Math.max(grnCount, purchasesFromEvents(readAll()).grnCount) + 1);
   const e = appendEvent({
     type: 'stock.grn', at: Date.now(), orderNumber: 0, actor: currentCashier(),
     grnNo, orderId: order.id, supplierId: order.supplierId, lines, approvedBy,
   });
+  const moved = lines.flatMap((l) => {
+    const row = rows.find((r) => r.id === l.itemId);
+    const qty = row ? l.received * row.packQty : 0;
+    return row && qty > 0 && addStockMovement('GRN', row.id, qty, e.id) ? [{ id: row.id, qty }] : [];
+  });
   return {
     grnNo,
     undo: () => {
-      undos.forEach((u) => u());
+      moved.forEach((m) => addStockMovement('GRN_UNDO', m.id, -m.qty, e.id));
       appendEvent({ type: 'stock.grn_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), grnId: e.id });
     },
   };
@@ -329,11 +332,11 @@ export function useCountHistory(): CountRecord[] {
 }
 
 /** One item's story for its sheet (SCRUM-93): last count, delivery, price change, and what uses it. */
-export function useItemStory(itemId: string): ItemStory & { usedIn: string[]; history: HistoryEntry[] } {
+export function useItemStory(itemId: string, packQty = 0): ItemStory & { usedIn: string[]; history: HistoryEntry[] } {
   const events = useShopHistory();
   return useMemo(() => ({
-    ...itemStory(events, itemId), history: itemHistory(events, itemId), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId),
-  }), [events, itemId]);
+    ...itemStory(events, itemId, packQty), history: itemHistory(events, itemId, packQty), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId),
+  }), [events, itemId, packQty]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */

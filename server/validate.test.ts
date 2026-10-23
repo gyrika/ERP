@@ -185,3 +185,11 @@ test('a stock setting is checked on the server too', () => {
   assert.ok('events' in validatePush({ events: [ok] }, 'shop-1'));
   assert.match((validatePush({ events: [{ ...ok, value: 0 }] }, 'shop-1') as { reason: string }).reason, /invalid setting: Type a number from 1 to 90/);
 });
+
+test('stock movements: the kind decides the sign; nothing else passes', () => {
+  const mv = { ...base, type: 'stock.movement', itemId: 'inv-1', kind: 'GRN', qtyBase: 50000, docId: 'event-9' };
+  assert.ok('events' in validatePush({ events: [mv, { ...mv, id: 'e2', kind: 'GRN_UNDO', qtyBase: -50000 }, { ...mv, id: 'e3', kind: 'COUNT_ADJUST', qtyBase: -3 }] }, 'shop-1'));
+  for (const bad of [{ kind: 'GRN', qtyBase: -1 }, { kind: 'GRN_UNDO', qtyBase: 1 }, { kind: 'SALE', qtyBase: 1 }, { kind: 'GRN', qtyBase: 0 }, { kind: 'GRN', qtyBase: 'x' }]) {
+    assert.match((validatePush({ events: [{ ...mv, ...bad }] }, 'shop-1') as { reason: string }).reason, /invalid stock movement/);
+  }
+});

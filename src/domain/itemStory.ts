@@ -31,7 +31,7 @@ export type HistoryEntry =
  * Everything that happened to one item's stock, newest first. Undone counts are left
  * out, and a delivery or price change taken back with Undo cancels its pair.
  */
-export const itemHistory = (events: readonly SyncEvent[], itemId: string): HistoryEntry[] => {
+export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQty = 0): HistoryEntry[] => {
   const undone = new Set(events.flatMap((e) => (e.type === 'stock.count_undone' ? [e.countId] : [])));
   const reviews = new Map(gapCases(events).filter((c) => c.itemId === itemId).map((c) => [c.countId, c.review]));
   const out: HistoryEntry[] = [];
@@ -45,13 +45,15 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string): Histo
         valueCents: e.valueCents, reason: e.reason, photo: e.photo ?? null, first: !counted && e.reason === null, review: reviews.get(e.id) ?? null,
       });
       counted = true;
-    } else if (e.type === 'stock.adjusted' && e.reason === 'receive') {
+    } else if ((e.type === 'stock.adjusted' && e.reason === 'receive') || (e.type === 'stock.movement' && (e.kind === 'GRN' || e.kind === 'GRN_UNDO') && packQty > 0)) {
+      // Older deliveries are adjustments in packs; newer ones are GRN movements in base units.
+      const packs = e.type === 'stock.adjusted' ? e.deltaPacks : e.qtyBase / packQty;
       // An Undo of a delivery is the same packs taken back: it cancels that delivery.
-      if (e.deltaPacks > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs: e.deltaPacks });
+      if (packs > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs });
       else {
         for (let i = out.length - 1; i >= 0; i--) {
           const d = out[i];
-          if (d.kind === 'delivery' && d.packs === -e.deltaPacks) { out.splice(i, 1); break; }
+          if (d.kind === 'delivery' && Math.abs(d.packs + packs) < 1e-9) { out.splice(i, 1); break; }
         }
       }
     } else if (e.type === 'stock.price_set' && e.before !== e.after) {
@@ -66,8 +68,8 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string): Histo
   return out.reverse();
 };
 
-export const itemStory = (events: readonly SyncEvent[], itemId: string): ItemStory => {
-  const history = itemHistory(events, itemId);
+export const itemStory = (events: readonly SyncEvent[], itemId: string, packQty = 0): ItemStory => {
+  const history = itemHistory(events, itemId, packQty);
   const count = history.find((h) => h.kind === 'count');
   const delivery = history.find((h) => h.kind === 'delivery');
   const price = history.find((h) => h.kind === 'price');

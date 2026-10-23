@@ -301,7 +301,10 @@ test('Goods receiving offers only open orders and only what was ordered; as orde
   await user.keyboard('{Escape}');
 
   expect(screen.getByRole('status').textContent).toMatch(/^GRN-0001 from .* saved\./);
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.grn', grnNo: 'GRN-0001', approvedBy: null, lines: [{ itemId: 'inv-0001', ordered: 2, received: 2 }] });
+  const grn = readAll().find((e) => e.type === 'stock.grn')!;
+  expect(grn).toMatchObject({ type: 'stock.grn', grnNo: 'GRN-0001', approvedBy: null, lines: [{ itemId: 'inv-0001', ordered: 2, received: 2 }] });
+  // Its stock is one movement that points back at it.
+  expect(readAll().filter((e) => e.type === 'stock.movement')).toMatchObject([{ kind: 'GRN', itemId: 'inv-0001', qtyBase: 50000, docId: grn.id }]);
   expect(amount()).toContain('2 packs · 50 kg');
   await user.click(screen.getByRole('button', { name: 'GRN' }));
   expect(screen.getByText(/^Nothing on order/)).toBeTruthy(); // the order is closed
@@ -309,6 +312,7 @@ test('Goods receiving offers only open orders and only what was ordered; as orde
 
   await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
   expect(amount()).toContain('Empty');
+  expect(readAll().filter((e) => e.type === 'stock.movement').map((e) => (e as { kind: string }).kind)).toEqual(['GRN', 'GRN_UNDO']);
   await user.click(screen.getByRole('button', { name: 'GRN' }));
   expect(screen.getByRole('dialog', { name: /PO-0001$/ })).toBeTruthy(); // open again
 });
@@ -344,7 +348,7 @@ test('a short delivery shows as short and needs a manager PIN; a wrong PIN saves
   await user.click(screen.getByRole('button', { name: 'Manager approves' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
   await user.click(screen.getByRole('button', { name: 'Approve' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.grn', approvedBy: { name: 'Ravi', role: 'manager' }, lines: [{ ordered: 2, received: 1 }] });
+  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ approvedBy: { name: 'Ravi', role: 'manager' }, lines: [{ ordered: 2, received: 1 }] });
   const grn = screen.getByRole('dialog', { name: 'GRN' });
   expect(within(grn).getByText(/^Nothing on order/)).toBeTruthy();
   expect(within(grn).getByRole('status').textContent).toBe('GRN-0001 from Prima / David Stores (Wholesale) saved, approved by a manager.Undo');
@@ -391,7 +395,7 @@ test("the sheet tells the item's whole story: shelf, last delivery, price change
   expect(story.getByText(/^\d+ menu items: /)).toBeTruthy();
 
   await user.keyboard('{Escape}');
-  act(() => { inventoryStore.receiveStock(inventoryStore.readItems().find((i) => i.id === 'inv-0001')!, 2, 655000); });
+  act(() => { inventoryStore.adjustStock('inv-0001', 2, 'receive'); inventoryStore.setWorkingPrice('inv-0001', 655000); });
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   story = within(screen.getByRole('dialog', { name: 'Pizza Flour' }).querySelector('dl')!);
   expect(story.getByText('2 packs · 50 kg')).toBeTruthy();
@@ -430,7 +434,7 @@ test('the owner, with his PIN, makes flour received in kg; the sheet and the pri
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
   await user.click(screen.getByRole('button', { name: 'Approve' }));
   await user.keyboard('{Escape}');
-  expect(readAll().find((e) => e.type === 'stock.adjusted')).toMatchObject({ deltaPacks: 0.5, reason: 'receive' });
+  expect(readAll().find((e) => e.type === 'stock.movement')).toMatchObject({ kind: 'GRN', qtyBase: 12500 });
   expect(amount()).toContain('½ pack · 12.5 kg');
 });
 

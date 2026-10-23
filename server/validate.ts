@@ -8,7 +8,7 @@ import { isGapReason } from '../src/domain/counting.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import type { MenuItem } from '../src/domain/types.ts';
 import {
-  KITCHEN_EVENT_TYPES, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
+  KITCHEN_EVENT_TYPES, MOVEMENT_KINDS, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
 } from '../src/domain/sync.ts';
 
 const TYPES = new Set<string>([
@@ -74,6 +74,11 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       !shortString(e.itemId) || typeof e.deltaPacks !== 'number' || !Number.isFinite(e.deltaPacks) || e.deltaPacks === 0 ||
       (e.reason !== undefined && !['waste', 'audit', 'receive'].includes(String(e.reason)))
     )) return { reason: `event ${e.id} has an invalid stock change` };
+    if (e.type === 'stock.movement' && (
+      !shortString(e.itemId) || !shortString(e.docId, 80) || !MOVEMENT_KINDS.includes(e.kind as never) ||
+      typeof e.qtyBase !== 'number' || !Number.isFinite(e.qtyBase) || e.qtyBase === 0 || Math.abs(e.qtyBase) > 1e9 ||
+      (e.kind === 'GRN' && e.qtyBase < 0) || (e.kind === 'GRN_UNDO' && e.qtyBase > 0)
+    )) return { reason: `event ${e.id} has an invalid stock movement` };
     if (e.type === 'stock.price_set' && (
       !shortString(e.itemId) || !Number.isSafeInteger(e.before) || !Number.isSafeInteger(e.after) ||
       (e.before as number) < 0 || (e.after as number) < 0

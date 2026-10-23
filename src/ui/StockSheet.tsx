@@ -76,7 +76,7 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  const story = useItemStory(item.id);
+  const story = useItemStory(item.id, item.packQty);
   const photo = usePhotoUrl(story.lastCount?.photo);
   const sources = suppliers.filter((x) => item.supplierIds.includes(x.id));
   const now = Date.now();
