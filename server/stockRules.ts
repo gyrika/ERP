@@ -18,10 +18,12 @@ const RELEVANT = new Set<string>([
 
 interface Context { state: PurchaseState; settings: StockSettings; staff: readonly StaffMember[]; now: number }
 
-const orderPriceProblem = (lines: readonly { unitPriceCents?: number }[]): string | null =>
-  lines.some((l) => l.unitPriceCents !== undefined && (!Number.isSafeInteger(l.unitPriceCents) || l.unitPriceCents < 0))
+const orderPriceProblem = (lines: readonly { itemId: string; unitPriceCents?: number }[]): string | null => {
+  if (new Set(lines.map((l) => l.itemId)).size !== lines.length) return 'A purchase order lists an item twice. Place it again.';
+  return lines.some((l) => l.unitPriceCents !== undefined && (!Number.isSafeInteger(l.unitPriceCents) || l.unitPriceCents < 0))
     ? 'A purchase-order price must be a whole number of cents, zero or more.'
     : null;
+};
 
 /** The approver on a record must be a real, active manager or owner of this shop. */
 const approverProblem = (by: Actor | null | undefined, staff: readonly StaffMember[]): string | null => {

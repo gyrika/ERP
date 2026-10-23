@@ -71,6 +71,15 @@ test('the server requires a real manager for a delivered price that differs from
   assert.match(ask([], { ...order, lines: [{ itemId: 'flour', packs: 2, unitPriceCents: -1 }] }) ?? '', /purchase-order price must be a whole number of cents/);
 });
 
+test('a PO lists each item once; a GRN lists each item once and everything still owed', () => {
+  const twice: SyncEvent = { ...base, id: 'p2', at: 0, type: 'stock.ordered', supplierId: 'sup', lines: [{ itemId: 'flour', packs: 1 }, { itemId: 'flour', packs: 1 }] };
+  assert.match(ask([], twice) ?? '', /lists an item twice/);
+  assert.match(ask([po('p1')], { ...base, id: 'e', at: 1, type: 'stock.order_edited', orderId: 'p1', lines: [{ itemId: 'flour', packs: 1 }, { itemId: 'flour', packs: 2 }] }) ?? '', /lists an item twice/);
+  assert.match(ask([po('p1', 2)], grn('g1', 'p1', [line(1, 1), line(1, 1)])) ?? '', /lists an item twice/);
+  const two: SyncEvent = { ...base, id: 'p3', at: 0, type: 'stock.ordered', supplierId: 'sup', lines: [{ itemId: 'flour', packs: 2 }, { itemId: 'salt', packs: 1 }] };
+  assert.match(ask([two], grn('g1', 'p3', [line(2, 2)])) ?? '', /leaves out something still owed/, 'no short decision: it would close the order with salt owed');
+});
+
 test('a GRN needs an order that is waiting for goods, from that supplier, for exactly what is still owed', () => {
   assert.match(ask([po('p1')], grn('g1', 'nope', [line(2, 2)])) ?? '', /not here/);
   assert.match(ask([po('p1')], grn('g1', 'p1', [line(2, 2)], { supplierId: 'other' })) ?? '', /different supplier/);

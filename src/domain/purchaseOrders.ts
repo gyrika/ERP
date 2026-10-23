@@ -315,6 +315,8 @@ export const grnProblem = (
 ): string | null => {
   if (order.status !== 'open' && order.status !== 'partly') return `${order.poNo} is ${order.status}: nothing more can be received on it.`;
   if (lines.length === 0) return 'There is nothing on this GRN.';
+  // Each item once, and (below) everything still owed on it: a missing line would close the order with goods owed.
+  if (new Set(lines.map((l) => l.itemId)).size !== lines.length) return `This GRN lists an item twice. Open ${order.poNo} again.`;
   for (const l of lines) {
     const owed = order.lines.find((x) => x.itemId === l.itemId);
     if (!owed) return 'That item is not on this order.';
@@ -324,6 +326,7 @@ export const grnProblem = (
     if (owed.unitPriceCents !== undefined && l.unitPriceCents === undefined) return 'Enter the delivered price for each item.';
     if (round3(l.ordered) !== owed.remaining) return `${order.poNo} changed since this GRN was opened. Open it again.`;
   }
+  if (order.lines.some((o) => o.remaining > 0 && !lines.some((l) => l.itemId === o.itemId))) return `This GRN leaves out something still owed on ${order.poNo}. Open it again.`;
   const checked = compareDelivery(lines, order.lines);
   if (checked.needsApproval && !(approver && (approver.role === 'manager' || approver.role === 'owner'))) return 'A delivery that differs from the order needs a manager to approve it.';
   if (checked.hasShort && !decisions.short) return 'Choose: wait for the rest, or close the order.';
