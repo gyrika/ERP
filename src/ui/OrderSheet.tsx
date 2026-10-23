@@ -180,10 +180,10 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
     </span>
   );
   return (
-    <li className="flow__list">
-      <div className={`flow-card po-card${order.status === 'partly' ? ' flow-card--warn' : ''}`}>
+    <li className={`row row--stack${order.status === 'partly' ? ' row--warn' : ''}`}>
+      <div className="po-card">
         <span className="flow-card__text">
-          <span className="flow-card__name">{order.poNo} · {nameOf(suppliers, order.supplierId)} <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span></span>
+          <span className="row__name">{order.poNo} · {nameOf(suppliers, order.supplierId)} <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span></span>
           {!editing && <span className="flow-card__line">{order.lines.map((l) => `${l.packs} × ${nameFor(l.itemId)}${l.received > 0 ? ` (${l.received} received)` : ''}`).join(', ')}</span>}
           {!order.editable && <span className="flow-card__line">Goods came: finish it with GRN.</span>}
         </span>
@@ -213,7 +213,7 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
         </div>
       )}
       {why && !editing && (
-        <div role="group" aria-label={`Why cancel ${order.poNo}`} className="flow__grid">
+        <div role="group" aria-label={`Why cancel ${order.poNo}`} className="po-why">
           {CANCEL_REASONS.map((r) => (
             <ChoiceCard key={r} name={r} onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))} />
           ))}
@@ -230,10 +230,23 @@ function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]
   return (
     <section aria-label="On order" className="flow__list">
       <p className="flow-hint">On order</p>
-      <ul className="flow__list flow__plain">
+      <ul className="rows flow__plain">
         {orders.map((o) => <OnOrderRow key={o.id} order={o} items={items} suppliers={suppliers} onDone={onDone} />)}
       </ul>
     </section>
+  );
+}
+
+/** A supplier in a list: the + at the end starts an order with them; the row itself is only text. */
+function SupplierRow({ name, line, tone, label, onAdd }: { name: string; line?: string; tone?: 'warn'; label: string; onAdd: () => void }) {
+  return (
+    <li className={`row${tone ? ` row--${tone}` : ''}`}>
+      <span className="flow-card__text row__text">
+        <span className="row__name">{name}</span>
+        {line && <span className="flow-card__line">{line}</span>}
+      </span>
+      <button type="button" className="row__add" aria-label={label} onClick={onAdd}>+</button>
+    </li>
   );
 }
 
@@ -280,36 +293,32 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, onClos
   }
 
   return (
-    <FlowSheet title="Purchase orders" inline={inline} onClose={onClose} className={inline ? 'flow--wide' : undefined}
+    <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
       step={total > 1 ? { index: 1, of: 3, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: 3, label: 'Who?' }}
       >
       <RejectionNotices />
-      {/* What is already on order comes first (left on a wide screen): the person sees it before ordering more. */}
-      <div className={purchases.open.length > 0 ? 'order-split' : undefined}>
+      {/* What is already on order comes first: the person sees it before ordering more. */}
       <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
-      <div className="flow__list">
       {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
       {waiting.length > 0 && (
-        <>
-          <p className="flow-hint">Who do you want to order from?</p>
-          <div role="group" aria-label="Suppliers that need ordering" className="flow__list">
+        <section className="flow__list">
+          <p className="flow-hint">Needs ordering</p>
+          <ul role="group" aria-label="Suppliers that need ordering" className="rows flow__plain">
             {waiting.map((s) => {
               const n = Object.keys(suggested.get(s.id) ?? {}).length;
-              return <ChoiceCard key={s.id} name={s.name} tone="warn" line={`${n} to order`} badge={n} label={`Order from ${s.name}`} onClick={() => choose(s.id)} />;
+              return <SupplierRow key={s.id} name={s.name} line={`${n} to order`} tone="warn" label={`Order from ${s.name}`} onAdd={() => choose(s.id)} />;
             })}
-          </div>
-        </>
+          </ul>
+        </section>
       )}
       {others.length > 0 && (
-        <div role="group" aria-label="Order from another supplier" className="flow__list">
-          <p className="flow-hint">{waiting.length > 0 ? 'Or another supplier' : 'Order from'}: choose the items yourself</p>
-          <div className="flow__grid">
-            {others.map((s) => <ChoiceCard key={s.id} name={`+ ${s.name}`} label={`+ ${s.name}`} onClick={() => choose(s.id)} />)}
-          </div>
-        </div>
+        <section className="flow__list">
+          <p className="flow-hint">{waiting.length > 0 ? 'Other suppliers' : 'Suppliers'}: + to choose the items yourself</p>
+          <ul role="group" aria-label="Order from another supplier" className="rows flow__plain">
+            {others.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => choose(s.id)} />)}
+          </ul>
+        </section>
       )}
-      </div>
-      </div>
     </FlowSheet>
   );
 }

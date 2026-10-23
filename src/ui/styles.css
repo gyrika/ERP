@@ -1406,14 +1406,21 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 .grn-match { font-size: 14px; font-weight: 600; }
 .grn-match--ok { color: var(--ok-ink); }
 .grn-match--short, .grn-match--over { color: var(--warn); }
-/* Order page: open orders left, a new order right, on the counter screen; compact cards so it fits without scrolling. */
-.flow--inline.flow--wide { max-width: 1120px; }
-.order-split { display: grid; grid-template-columns: 1fr; gap: 24px; align-items: start; }
-@media (min-width: 1000px) { .order-split { grid-template-columns: 1fr 1fr; } }
-.flow__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
-.flow__grid .flow-card { min-height: 56px; padding: 10px 14px 10px 16px; }
-.flow__grid .flow-card__name { font-size: 16px; }
-.po-card { min-height: 0; padding: 12px 14px 12px 18px; }
-.po-card .flow-card__name { font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Order page: lists, not walls of cards. Open orders on top, then suppliers; only the + at the end starts an order. */
+.rows { display: flex; flex-direction: column; border-radius: 16px; background: var(--chip); overflow: hidden; }
+.row { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 2px 16px; border-left: 5px solid transparent; }
+.row + .row { border-top: 1px solid var(--line); }
+.row--warn { border-left-color: var(--warn); }
+.row--stack { flex-direction: column; align-items: stretch; gap: 8px; }
+.row__name { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row__text { flex: 1; }
+/* Just the +, no background, at the right edge so every + lines up; 48px to tap. */
+.row__add { flex: none; width: 48px; height: 48px; margin-right: -8px; border-radius: 12px; background: none; color: var(--primary); font-size: 30px; font-weight: 400; line-height: 1; display: inline-grid; place-items: center; cursor: pointer; transition: transform 80ms var(--ease), color 120ms; }
+.row__add:hover { color: var(--ink); }
+.row__add:active { transform: scale(0.88); }
+.row__add:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.po-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .po-card .flow-card__tag { margin-top: 0; }
 .po-card__actions { display: flex; gap: 12px; flex: none; }
+.po-why { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.po-why .flow-card { width: auto; min-height: 48px; padding: 8px 14px; border-left: 0; background: var(--surface); }
