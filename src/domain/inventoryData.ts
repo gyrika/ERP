@@ -655,4 +655,16 @@ export const SEED_INVENTORY: InventoryItem[] = [
     workingPriceCents: 164700,
     note: "Litro 5kg · 5kg cylinder",
   },
+  // Not on the March 2026 price list. The owner (2026-10-23): basil costs what oregano does until a
+  // delivery (GRN) brings its own price. Suppliers copied from oregano for now; the GRN corrects them.
+  {
+    id: "inv-0060",
+    name: "Basil",
+    category: "Seasoning",
+    baseUnit: "g",
+    packQty: 100,
+    supplierIds: ["sup_ajantha", "sup_bestbuy"],
+    workingPriceCents: 50000,
+    note: "Priced as Oregano until its first delivery",
+  },
 ];

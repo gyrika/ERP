@@ -74,6 +74,8 @@ export const INGREDIENT_SOURCES: Readonly<Record<string, { inventoryId: string; 
   Pepper: { inventoryId: 'inv-0033', per: 1 },
   'Chili Powder': { inventoryId: 'inv-0034', per: 1 },
   Oregano: { inventoryId: 'inv-0036', per: 1 },
+  // Not on his March price list; its own stock item since 2026-10-23 (inventoryData.ts).
+  Basil: { inventoryId: 'inv-0060', per: 1 },
   'Oregano for Breading': { inventoryId: 'inv-0036', per: 1 },
   'Garlic Powder': { inventoryId: 'inv-0037', per: 1 },
   'Ginger Powder': { inventoryId: 'inv-0038', per: 1 },
@@ -118,4 +120,16 @@ export const LEAVE_OUT_LINES: Readonly<Record<string, readonly string[]>> = {
   'no-tomato': ['Tomato', 'Tomato Slice'],
   'no-mushroom': ['Mushroom Packet'],
   'no-lettuce': ['Lettuce'],
+};
+
+/**
+ * How much one batch makes, as the owner confirmed it outside his sheet (2026-10-23, asked by
+ * Anton). His sheet left these open ("Confirm batch output qty"); his own answer in the app,
+ * if he later weighs again, wins over these.
+ * - Mozzarella Blend: 1,000 g A + 1,000 g B make 2,000 g.
+ * - Pizza Sauce Batch: what goes in is what comes out (the sum of its lines, all in g).
+ */
+export const CONFIRMED_BATCHES: Readonly<Record<string, { qty: number; unit: string } | 'sum'>> = {
+  'Mozzarella Blend': { qty: 2000, unit: 'g' },
+  'Pizza Sauce Batch': 'sum',
 };

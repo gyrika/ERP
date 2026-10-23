@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
-import { linesCost, recipeUnit, sourceOf, STOCK_LINE, stockLine, type CostContext } from '../domain/costing.ts';
+import { kitchenLine, linesCost, ownPrepOf, ownPreps, prepOf, recipeUnit, sourceOf, STOCK_LINE, stockLine, type CostContext } from '../domain/costing.ts';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { fmt } from '../domain/money.ts';
 import { PREPS, type BookLine } from '../domain/recipeBook.ts';
@@ -34,7 +34,7 @@ export const readRows = (rows: readonly Draft[]): BookLine[] | string => {
 const unitFor = (name: string, ctx: CostContext, fallback = 'g'): string =>
   name.startsWith(STOCK_LINE)
     ? ctx.items.find((i) => i.id === name.slice(STOCK_LINE.length))?.baseUnit ?? fallback
-    : recipeUnit(name) ?? fallback;
+    : recipeUnit(name) ?? prepOf(name, ctx.answers)?.makes?.unit ?? fallback;
 
 /** "Eastwest · Rs 58", "Made in your kitchen · Rs 112", "Not on your stock list". */
 export const lineSource = (line: Draft, ctx: CostContext, suppliers: readonly Supplier[]): string => {
@@ -42,7 +42,7 @@ export const lineSource = (line: Draft, ctx: CostContext, suppliers: readonly Su
   const qty = Number(line.qty);
   const cost = qty > 0 ? linesCost([{ name: line.name, qty, unit: line.unit }], ctx) : null;
   const price = cost?.complete ? `Rs ${fmt(cost.cents)}` : '';
-  if (PREPS[line.name]) return ['Made in your kitchen', price].filter(Boolean).join(' · ');
+  if (prepOf(line.name, ctx.answers)) return ['Made in your kitchen', price].filter(Boolean).join(' · ');
   const source = sourceOf(line.name, ctx.answers);
   const item = source && ctx.items.find((i) => i.id === source.inventoryId);
   if (!item) return 'Not on your stock list yet';
@@ -50,13 +50,18 @@ export const lineSource = (line: Draft, ctx: CostContext, suppliers: readonly Su
   return [from ? splitSupplierName(from).title : '', price || 'no price yet'].filter(Boolean).join(' · ');
 };
 
-export function LinesEditor({ rows, onChange, ctx, suppliers }: {
+export function LinesEditor({ rows, onChange, ctx, suppliers, ownPrepsToo = true }: {
   rows: Draft[]; onChange: (rows: Draft[]) => void; ctx: CostContext; suppliers: readonly Supplier[];
+  /** False inside a semi-processed item of his own: it takes his stock and his sheet's batches only. */
+  ownPrepsToo?: boolean;
 }) {
-  // What a line can be: his batches, then his stock. Names copied from his sheet stay choosable.
-  const preps = Object.keys(PREPS).sort();
+  // What a line can be: his batches and semi-processed items, then his stock. Names copied from his sheet stay choosable.
+  const preps = [
+    ...Object.keys(PREPS).map((p) => ({ value: p, label: p })),
+    ...(ownPrepsToo ? ownPreps(ctx.answers).map((p) => ({ value: kitchenLine(p.id), label: p.name })) : []),
+  ].sort((a, b) => a.label.localeCompare(b.label));
   const stock = [...ctx.items].sort((a, b) => a.name.localeCompare(b.name));
-  const known = new Set([...preps, ...stock.map((i) => stockLine(i.id))]);
+  const known = new Set([...preps.map((p) => p.value), ...stock.map((i) => stockLine(i.id))]);
   const set = (i: number, patch: Partial<Draft>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
   return (
@@ -69,9 +74,11 @@ export function LinesEditor({ rows, onChange, ctx, suppliers }: {
               onChange={(e) => set(i, { name: e.target.value, unit: unitFor(e.target.value, ctx, r.unit) })}
             >
               <option value="">Choose…</option>
-              {r.name && !known.has(r.name) && <option value={r.name}>{r.name} (your sheet)</option>}
+              {r.name && !known.has(r.name) && (
+                <option value={r.name}>{ownPrepOf(r.name, ctx.answers)?.name ?? `${r.name} (your sheet)`}</option>
+              )}
               <optgroup label="Made in your kitchen">
-                {preps.map((p) => <option key={p} value={p}>{p}</option>)}
+                {preps.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
               </optgroup>
               <optgroup label="Your stock">
                 {stock.map((s) => <option key={s.id} value={stockLine(s.id)}>{s.name}</option>)}

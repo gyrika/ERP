@@ -28,6 +28,7 @@
   --lift-shadow: 0 0 0 1px var(--gold), 0 24px 56px rgba(0, 0, 0, 0.16), 0 6px 16px rgba(0, 0, 0, 0.08);
   --lift-bg: var(--panel);
   --inv-card-border: #D8D6D3;
+  --side: #EAE8E4;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -52,6 +53,7 @@
     --lift-shadow: 0 0 0 1px var(--gold), 0 24px 56px rgba(0, 0, 0, 0.7);
     --lift-bg: #1C1C1E;
     --inv-card-border: #262626;
+    --side: #0E0E10;
     color-scheme: dark;
   }
 }
@@ -76,6 +78,7 @@
   --lift-shadow: 0 0 0 1px var(--gold), 0 24px 56px rgba(0, 0, 0, 0.7);
   --lift-bg: #1C1C1E;
   --inv-card-border: #262626;
+  --side: #0E0E10;
   color-scheme: dark;
 }
 
@@ -870,7 +873,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .vault {
   --ground: #000000; --surface: #1C1C1E; --panel: #121214; --chip: #2C2C2E; --ink: #F5F5F7;
   --ink-2: #98989D; --ink-3: #6B6B70; --line: #3A3A3C;
-  --primary: #F5F5F7; --on-primary: #000000; --card-shadow: none; --ok-ink: #30A46C; --gold: #D4B26A;
+  --primary: #F5F5F7; --on-primary: #000000; --card-shadow: none; --ok-ink: #30A46C; --gold: #D4B26A; --side: #0E0E10;
   color: var(--ink); color-scheme: dark;
 }
 .vault__lock { min-height: calc(100dvh - 60px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px 16px 96px; text-align: center; position: relative; isolation: isolate; overflow: hidden; }
@@ -989,6 +992,13 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .rcard__shared { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .rcard__shared .costq__ask { font-size: 18px; }
 .redit__cost { margin: 0; color: var(--ink-2); font-size: 15px; }
+.vault__tools { display: flex; gap: 20px; }
+.prep__top { display: flex; flex-wrap: wrap; gap: 12px; }
+.prep__field { display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); font-size: 14px; }
+.prep__name { flex: 1 1 240px; }
+.prep__makes { display: flex; gap: 8px; }
+.prep__field input, .prep__field select { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); color: var(--ink); font: inherit; font-size: 16px; min-width: 0; }
+.prep__makes input { width: 120px; text-align: right; }
 
 /* ----- Count day (SCRUM-89) ----- */
 .count-due { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 8px 40px 0; padding: 16px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); border-left: 4px solid var(--warn); }
@@ -1271,3 +1281,66 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .flow-card--wa .flow-card__line { color: inherit; opacity: 0.8; }
 .flow__add { min-height: 56px; padding: 0 16px; border: 1px dashed var(--line); border-radius: 14px; background: none; color: var(--ink-2); font: inherit; font-size: 16px; }
 .flow__row { display: flex; align-items: center; gap: 16px; }
+
+/* Owner screens: the parts of the shop on the left, like ChatGPT's list of chats (SCRUM-131).
+   The sidebar is fixed; whichever page holds it makes room. Sheets and dialogs open later in the
+   page, so they paint over it. On a narrow screen it folds into a drawer behind a menu button. */
+:is(.owner, .inv-page, .setup):has(> .side) { padding-left: 288px; padding-top: 16px; box-sizing: border-box; }
+:is(.owner, .inv-page, .setup):has(> .side) .toast { left: 328px; }
+.side { position: fixed; inset: 0 auto 0 0; width: 288px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; padding: 12px 12px 12px; background: var(--side); border-right: 1px solid var(--line); overflow-y: auto; color: var(--ink); }
+.side__head { display: flex; align-items: center; min-height: 48px; padding: 0 12px; }
+.side__ask { display: flex; align-items: center; gap: 10px; min-height: 48px; margin: 2px 0 6px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink-2); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.side__ask span { flex: 1; }
+.side__ask kbd { font: inherit; font-size: 12px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; }
+.side__group { margin: 14px 12px 4px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.side__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.side__part { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 12px; box-sizing: border-box; border-radius: 12px; color: var(--ink); text-decoration: none; transition: background-color 150ms var(--ease); }
+.side__part:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.side__part[aria-current='page'] { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.side__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.side__label { font-size: 15px; font-weight: 600; }
+.side__preview { font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side__preview.skeleton { height: 12px; width: 70%; margin-top: 4px; border-radius: 6px; }
+.side__badge { flex: none; min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 11px; background: var(--primary); color: var(--on-primary); font-size: 12px; font-weight: 600; display: grid; place-items: center; }
+.side__foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); }
+.side__register { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: var(--chip); color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; }
+.side-top, .side__scrim { display: none; }
+@media (max-width: 900px) {
+  :is(.owner, .inv-page, .setup):has(> .side) { padding-left: 0; padding-top: 0; }
+  :is(.owner, .inv-page, .setup):has(> .side) .toast { left: 16px; }
+  .side-top { display: flex; align-items: center; gap: 4px; min-height: 56px; padding: 4px 8px; }
+  .side-top__open { width: 48px; height: 48px; border: 0; border-radius: 12px; background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+  .side-top__title { font-size: 17px; font-weight: 600; }
+  .side { z-index: 61; width: min(320px, 86vw); transform: translateX(-100%); visibility: hidden; transition: transform 200ms var(--ease), visibility 0s linear 200ms; }
+  .side--open { transform: none; visibility: visible; box-shadow: var(--sheet-shadow); transition: transform 200ms var(--ease); }
+  .side__scrim { display: block; position: fixed; inset: 0; z-index: 60; background: var(--scrim); animation: fade 160ms linear; }
+}
+@media (prefers-reduced-motion: reduce) { .side, .side--open { transition: none; } }
+
+/* The owner screens in ChatGPT's look (SCRUM-131): white page, light grey sidebar with no edge,
+   neutral greys, hairlines instead of shadows; charcoal in the dark. Only the pages that hold the
+   sidebar take it; the counter, the kitchen and the recipes vault keep their own. */
+:is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
+  --ground: #FFFFFF; --surface: #FFFFFF; --panel: #FFFFFF; --chip: #F4F4F4; --side: #F9F9F9;
+  --ink: #0D0D0D; --ink-2: #5D5D5D; --ink-3: #8F8F8F; --line: #E5E5E5; --inv-card-border: #E5E5E5;
+  --primary: #0D0D0D; --on-primary: #FFFFFF; --scrim: rgba(0, 0, 0, 0.25);
+  --card-shadow: 0 0 0 1px var(--line);
+  background: var(--ground); color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) :is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
+    --ground: #212121; --surface: #2A2A2A; --panel: #212121; --chip: #303030; --side: #181818;
+    --ink: #ECECEC; --ink-2: #B4B4B4; --ink-3: #8F8F8F; --line: #383838; --inv-card-border: #383838;
+    --primary: #ECECEC; --on-primary: #0D0D0D; --scrim: rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme='dark'] :is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
+  --ground: #212121; --surface: #2A2A2A; --panel: #212121; --chip: #303030; --side: #181818;
+  --ink: #ECECEC; --ink-2: #B4B4B4; --ink-3: #8F8F8F; --line: #383838; --inv-card-border: #383838;
+  --primary: #ECECEC; --on-primary: #0D0D0D; --scrim: rgba(0, 0, 0, 0.5);
+}
+:is(.owner, .inv-page, .setup):not(.vault) > .side { border-right-color: transparent; }
+/* "Ask or find" reads as one of the rows, as ChatGPT's search does, not as a boxed field. */
+:is(.owner, .inv-page, .setup):not(.vault) > .side .side__ask { border-color: transparent; background: transparent; color: var(--ink); }
+:is(.owner, .inv-page, .setup):not(.vault) > .side .side__ask:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+:is(.owner, .inv-page, .setup):not(.vault) > .side .side__ask kbd { color: var(--ink-2); }

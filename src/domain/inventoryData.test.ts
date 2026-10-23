@@ -87,7 +87,7 @@ test('T12: supplier count matches expectation', () => {
 });
 
 test('T13: item count matches expectation', () => {
-  assert.equal(SEED_INVENTORY.length, 59);
+  assert.equal(SEED_INVENTORY.length, 60); // 59 from the March price list + Basil (owner, 2026-10-23)
 });
 
 test('T14: validateSeed returns no errors', () => {
@@ -300,9 +300,18 @@ test('T25: selling more than was recorded goes below zero exactly, shows as none
 });
 
 test('T26: a batch he has not confirmed takes nothing: no made-up amounts', () => {
-  // His Margherita uses the Mozzarella Blend, whose batch output he has not confirmed yet.
+  // His cheese blend is confirmed (2,000 g from 1,000 g of each mozzarella, 2026-10-23): a Margherita L
+  // takes 150 g of blend, so 75 g of Mozzarella A.
   assert.equal(inventoryFromEvents(SEED_INVENTORY, [stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'L')])])
-    .find((r) => r.id === MOZZ)!.onHandBaseUnits, 2000);
+    .find((r) => r.id === MOZZ)!.onHandBaseUnits, 1925);
+  // His penne boil batch is not: a pasta made with it takes no dry penne.
+  const PENNE = 'inv-0047';
+  const isPenne = { id: 'r1', shopId: 's', at, orderNumber: 0 as const, actor: { ...actor, role: 'owner' as const }, type: 'recipe.answer_set' as const,
+    question: 'recipe:italian-pasta:M', before: null, after: { kind: 'recipe' as const, product: 'Alfredo Penne Medium' } };
+  const pasta = { id: 'l2', itemId: 'italian-pasta', qty: 1, size: 'M' as const, adds: [], outs: [] };
+  const rows = inventoryFromEvents(SEED_INVENTORY, [stockIn(PENNE, 1), isPenne, sent('s2', 't2', [pasta as ReturnType<typeof pizza>])]);
+  const pack = SEED_INVENTORY.find((i) => i.id === PENNE)!.packQty;
+  assert.equal(rows.find((r) => r.id === PENNE)!.onHandBaseUnits, pack);
 });
 
 test('T27: packs are typed as plain numbers; a count records only the difference, exactly', () => {

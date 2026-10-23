@@ -14,8 +14,10 @@ const row = (name: string) => screen.getByText(name, { selector: 'b' }).closest(
 
 test('each item shows its cost so far; one with no recipe says its sales take no stock (SCRUM-129)', () => {
   render(<Root />);
-  // What it waits for, by name: the recipe itself is fine.
-  expect(row('Margherita').textContent).toMatch(/Cost so far M \d+ · L \d+ · waiting on Mozzarella Blend batch size, Pizza Sauce batch size, Basil price(?! and)/);
+  // His cheese, sauce and basil answers (2026-10-23) complete the Margherita.
+  expect(row('Margherita').textContent).toMatch(/Cost M \d+ \d+% · L \d+ \d+%/);
+  // What one still waits for, by name: the recipe itself is fine.
+  expect(row('Bacon & Onion').textContent).toMatch(/Cost so far M \d+ · L \d+ · waiting on Bacon price/);
   expect(row('Sausages').textContent).toContain("No recipe yet: its sales don't take stock.");
   expect(within(row('Sausages')).getByRole('button', { name: 'Write the recipe' })).toBeTruthy();
   expect(within(row('Margherita')).queryByRole('button', { name: 'Write the recipe' })).toBeNull();
