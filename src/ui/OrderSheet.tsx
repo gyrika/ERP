@@ -1,42 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
-import { stockStatus } from '../domain/inventory.ts';
 import type { Supplier } from '../domain/inventoryData.ts';
-import { orderMessage, suggestOrder, whatsAppLink } from '../domain/ordering.ts';
-import { DEFAULT_LEAD_DAYS, onOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import { draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
+import type { PurchaseOrder, PurchaseState } from '../domain/purchaseOrders.ts';
 import { formatQuantity } from './quantity.ts';
 import { cancelOrder, placeOrder, type InventoryRow } from '../services/inventoryStore.ts';
 
 /**
  * Purchase orders: the one way to order. Serves the manager deciding what to buy: the
  * drafts are already written, one per supplier, with what will run out before the next
- * delivery (suggestOrder: use, delivery time, what is already on order). They change a
+ * delivery (`suggestions` in ordering.ts: use, delivery time, what is already on order). They change a
  * number, Place order saves the PO, then WhatsApp opens with the message. The item
  * sheet's Order tab is the same card (SupplierDraft), started from that item.
  */
 type Packs = Record<string, number>;
 type Done = (message: string, undo: () => void) => void;
-
-/** The supplier an item is ordered from: the one it last came from, else its first. */
-const supplierOf = (row: InventoryRow, active: Set<string>, last: Map<string, string>): string | null => {
-  const prev = last.get(row.id);
-  if (prev && active.has(prev) && row.supplierIds.includes(prev)) return prev;
-  return row.supplierIds.find((id) => active.has(id)) ?? null;
-};
-
-/** Items that need ordering now, packs suggested, grouped by supplier. */
-export const draftsOf = (items: InventoryRow[], suppliers: Supplier[], purchases: PurchaseState): Map<string, Packs> => {
-  const active = new Set(suppliers.map((s) => s.id));
-  const coming = onOrder(purchases.open);
-  const drafts = new Map<string, Packs>();
-  for (const row of items) {
-    const sup = supplierOf(row, active, purchases.lastSupplier);
-    if (!sup) continue;
-    const status = stockStatus(row);
-    const n = suggestOrder({ ...row, low: status === 'low' || status === 'out' }, coming.get(row.id) ?? 0, purchases.leadDays.get(sup) ?? DEFAULT_LEAD_DAYS);
-    if (n > 0) drafts.set(sup, { ...drafts.get(sup), [row.id]: n });
-  }
-  return drafts;
-};
 
 const nameOf = (suppliers: Supplier[], id: string) => suppliers.find((s) => s.id === id)?.name ?? 'Supplier';
 
@@ -150,7 +127,7 @@ export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
   onClose: () => void;
   onDone: Done;
 }) {
-  const suggested = useMemo(() => draftsOf(items, suppliers, purchases), [items, suppliers, purchases]);
+  const suggested = useMemo(() => draftsOf(items), [items]);
   /** The cards shown: the suggested ones, then any supplier added by hand. */
   const [cards, setCards] = useState<[string, Packs][]>(() => [...suggested]);
   /** Placed here, so the message can be sent. */
@@ -208,8 +185,9 @@ export function ItemOrder({ item, items, suppliers, purchases, onDone }: {
   onDone: Done;
 }) {
   const sources = suppliers.filter((s) => item.supplierIds.includes(s.id));
-  const drafts = useMemo(() => draftsOf(items, suppliers, purchases), [items, suppliers, purchases]);
-  const first = supplierOf(item, new Set(sources.map((s) => s.id)), purchases.lastSupplier);
+  const drafts = useMemo(() => draftsOf(items), [items]);
+  const last = purchases.lastSupplier.get(item.id);
+  const first = item.suggestedSupplierId ?? (sources.some((s) => s.id === last) ? last : sources[0]?.id) ?? null;
   const [supplierId, setSupplierId] = useState(first);
   const [placed, setPlaced] = useState<PurchaseOrder | null>(null);
   const open = purchases.open.filter((o) => o.lines.some((l) => l.itemId === item.id));

@@ -1,5 +1,6 @@
 import type { Actor } from './auth.ts';
 import type { GrnLine, PoLine, SyncEvent } from './sync.ts';
+import { STOCK_DEFAULTS, type StockSettings } from './stockSettings.ts';
 
 /**
  * Purchase orders and goods received (GRN), folded from the event log. A PO is open
@@ -20,20 +21,18 @@ export interface PurchaseState {
   /** POs and GRNs ever written: the next numbers follow them. */
   poCount: number;
   grnCount: number;
-  /** Days a supplier takes from order to delivery, from its last GRNs. */
+  /** Days a supplier takes from order to first delivery, from its last orders. */
   leadDays: Map<string, number>;
   /** The supplier each item last came from. */
   lastSupplier: Map<string, string>;
 }
 
-export const DEFAULT_LEAD_DAYS = 1;
 const DAY = 86_400_000;
-const LEAD_SAMPLES = 5;
 
 export const poNumber = (n: number): string => `PO-${String(n).padStart(4, '0')}`;
 export const grnNumber = (n: number): string => `GRN-${String(n).padStart(4, '0')}`;
 
-export const purchasesFromEvents = (events: readonly SyncEvent[]): PurchaseState => {
+export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick<StockSettings, 'leadSamples'> = STOCK_DEFAULTS): PurchaseState => {
   const orders = new Map<string, PurchaseOrder>();
   const closed = new Set<string>();
   const grns = new Map<string, { orderId: string; supplierId: string; at: number; lines: GrnLine[] }>();
@@ -55,14 +54,19 @@ export const purchasesFromEvents = (events: readonly SyncEvent[]): PurchaseState
   const received = [...grns.entries()].filter(([id]) => !undone.has(id)).map(([, g]) => g).sort((a, b) => a.at - b.at);
   const leadSamples = new Map<string, number[]>();
   const lastSupplier = new Map<string, string>();
+  /** Delivery time is learned from the FIRST GRN of each order only. */
+  const firstOf = new Set<string>();
   for (const g of received) {
     closed.add(g.orderId);
     const po = orders.get(g.orderId);
-    if (po) leadSamples.set(g.supplierId, [...(leadSamples.get(g.supplierId) ?? []), (g.at - po.at) / DAY].slice(-LEAD_SAMPLES));
+    if (po && !firstOf.has(g.orderId)) {
+      firstOf.add(g.orderId);
+      leadSamples.set(g.supplierId, [...(leadSamples.get(g.supplierId) ?? []), (g.at - po.at) / DAY].slice(-settings.leadSamples));
+    }
     for (const l of g.lines) if (l.received > 0) lastSupplier.set(l.itemId, g.supplierId);
   }
-  const leadDays = new Map([...leadSamples].map(([id, days]) =>
-    [id, Math.max(DEFAULT_LEAD_DAYS, Math.ceil(days.reduce((a, b) => a + b, 0) / days.length))]));
+  /** Average days from order to first delivery, of the last few; a supplier with none is not in the map. */
+  const leadDays = new Map([...leadSamples].map(([id, days]) => [id, days.reduce((a, b) => a + b, 0) / days.length]));
 
   return {
     open: [...orders.values()].filter((o) => !closed.has(o.id)).sort((a, b) => a.at - b.at),

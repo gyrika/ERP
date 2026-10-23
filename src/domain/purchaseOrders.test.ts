@@ -34,11 +34,25 @@ test('an order is open until a GRN receives it or it is cancelled; undo and reop
   assert.equal(onOrder(s.open).get('flour'), 6);
 });
 
-test('delivery days are learned per supplier (rounded up, at least one); the last supplier per item', () => {
-  const s = purchasesFromEvents([po('a', 0), grn('g1', 'a', 2 * DAY), po('b', 10 * DAY), grn('g2', 'b', 13.5 * DAY), po('c', 0, 'sup_b'), grn('g3', 'c', DAY / 4, 'sup_b')]);
-  assert.equal(s.leadDays.get('sup_a'), 3); // (2 + 3.5) / 2 = 2.75
-  assert.equal(s.leadDays.get('sup_b'), 1);
+test('delivery time is the average of the last first deliveries; a second GRN of the same order does not count', () => {
+  const s = purchasesFromEvents([
+    po('a', 0), grn('g1', 'a', 2 * DAY), grn('g1b', 'a', 9 * DAY), // the later partial delivery must not change it
+    po('b', 10 * DAY), grn('g2', 'b', 13.5 * DAY),
+    po('c', 0, 'sup_b'), grn('g3', 'c', DAY / 4, 'sup_b'),
+  ]);
+  assert.equal(s.leadDays.get('sup_a'), 2.75); // (2 + 3.5) / 2
+  assert.equal(s.leadDays.get('sup_b'), 0.25);
+  assert.equal(s.leadDays.has('sup_c'), false, 'no history: the settings default applies');
   assert.equal(s.lastSupplier.get('flour'), 'sup_a');
+});
+
+test('only the last few deliveries count (the setting), and an undone GRN teaches nothing', () => {
+  const evs: SyncEvent[] = [];
+  for (let i = 0; i < 7; i++) evs.push(po(`p${i}`, i * 20 * DAY), grn(`g${i}`, `p${i}`, i * 20 * DAY + (i < 2 ? 10 : 1) * DAY));
+  assert.equal(purchasesFromEvents(evs).leadDays.get('sup_a'), 1, 'the last 5 were 1 day each');
+  assert.equal(purchasesFromEvents(evs, { leadSamples: 7 }).leadDays.get('sup_a'), (10 + 10 + 5) / 7);
+  const undone = purchasesFromEvents([po('a', 0), grn('g1', 'a', 5 * DAY), { ...base, id: 'u', at: 6 * DAY, type: 'stock.grn_undone', grnId: 'g1' }]);
+  assert.equal(undone.leadDays.size, 0);
 });
 
 test('compare: as ordered, short or over; any difference needs approval', () => {

@@ -200,7 +200,7 @@ test('T17: no made-up supplier phone numbers: a number is added by the manager, 
   assert.ok(SEED_SUPPLIERS.every((s) => s.phone === undefined));
 });
 
-test('T18: out = nothing left (even a part-pack is stock); low = one pack or less', () => {
+test('T18: out = nothing left (even a part-pack is stock); low = the reorder rule says to order it', () => {
   const row = (onHandBaseUnits: number) => {
     const [r] = inventoryFromEvents([SEED_INVENTORY[0]], []);
     return { ...r, onHandBaseUnits, onHandPacks: Math.max(0, onHandBaseUnits) / r.packQty };
@@ -209,8 +209,8 @@ test('T18: out = nothing left (even a part-pack is stock); low = one pack or les
   assert.equal(isOutOfStock(row(0)), true);
   assert.equal(isOutOfStock(row(-50)), true, 'sold more than was recorded');
   assert.equal(isOutOfStock(row(pack * 0.1)), false, 'a part-pack still cooks');
-  assert.equal(isLowStock(row(pack)), true);
-  assert.equal(isLowStock(row(pack * 2)), false);
+  assert.equal(isLowStock({ suggestedPacks: 2 }), true);
+  assert.equal(isLowStock({ suggestedPacks: 0 }), false);
   assert.equal(row(pack * 0.9).onHandPacks, 0.9, 'packs are not rounded down');
 });
 

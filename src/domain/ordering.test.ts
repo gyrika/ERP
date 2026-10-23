@@ -1,14 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { orderMessage, suggestOrder, suggestPacks, whatsAppLink, whatsAppNumber } from './ordering.ts';
+import { draftsOf, orderMessage, suggestions, whatsAppLink, whatsAppNumber, type SuggestRow } from './ordering.ts';
 
 // Ordering from a supplier (SCRUM-92).
-
-test('enough packs for a week at the last week\'s rate, at least one', () => {
-  assert.equal(suggestPacks({ usedPerDay: 1000, onHandBaseUnits: 500, packQty: 2000 }), 4); // 7 kg - 0.5 kg = 3.25 packs
-  assert.equal(suggestPacks({ usedPerDay: 0, onHandBaseUnits: 0, packQty: 2000 }), 1);
-  assert.equal(suggestPacks({ usedPerDay: 100, onHandBaseUnits: -300, packQty: 1000 }), 1, 'below zero counts as empty');
-});
 
 test('the message lists each item with its pack size, and leaves out zeros', () => {
   assert.equal(orderMessage([
@@ -24,19 +18,53 @@ test('WhatsApp gets the country code and the message', () => {
   assert.equal(whatsAppLink('0771234567', 'Hi & bye'), 'https://wa.me/94771234567?text=Hi%20%26%20bye');
 });
 
-// Purchase orders: when and how much.
+// The reorder rule (`suggestions`): when and how much.
 
-const shelf = (onHandBaseUnits: number, usedPerDay = 1000, low = false) => ({ counted: true, usedPerDay, onHandBaseUnits, packQty: 2000, low });
+const S = { defaultLeadDays: 3, spareDays: 2, orderDays: 7 };
+const row = (onHandBaseUnits: number, usedPerDay = 1000, extra: Partial<SuggestRow> = {}): SuggestRow =>
+  ({ id: 'flour', counted: true, archived: false, usedPerDay, onHandBaseUnits, packQty: 2000, supplierIds: ['a'], ...extra });
+const ask = (r: SuggestRow, onOrder = 0, lead?: number, last: [string, string][] = []) =>
+  suggestions([r], new Set(['a', 'b']), new Map(onOrder ? [['flour', onOrder]] : []), new Map(lead === undefined ? [] : [['a', lead]]), new Map(last), S);
 
-test('orders when what is in hand and on order lasts no longer than delivery plus safety days', () => {
-  assert.equal(suggestOrder(shelf(5000), 0, 1), 0, '5 days left, 3 needed: not yet');
-  assert.equal(suggestOrder(shelf(3000), 0, 1), 3, '3 kg: order 8 days of use less 3 kg = 2.5 packs');
-  assert.equal(suggestOrder(shelf(3000), 2, 1), 0, 'already on order');
-  assert.equal(suggestOrder(shelf(5000), 0, 3), 3, 'a slow supplier: order sooner');
+test('suggested when on hand + on order <= use × (delivery time + 2 spare days); the delivery time defaults to 3', () => {
+  assert.equal(ask(row(5000)).length, 1, '5 kg = the reorder point (1 kg × (3 + 2)): suggested');
+  assert.equal(ask(row(5001)).length, 0, 'one gram more: not yet');
+  assert.equal(ask(row(7000), 0, 5).length, 1, 'a slow supplier (5 days): order sooner');
+  assert.equal(ask(row(7000), 0, 1).length, 0, 'a fast one (1 day): later');
 });
 
-test('no rate of use: low or out orders one pack, unless on order; never counted: never', () => {
-  assert.equal(suggestOrder(shelf(0, 0, true), 0, 1), 1);
-  assert.equal(suggestOrder(shelf(0, 0, true), 1, 1), 0);
-  assert.equal(suggestOrder({ ...shelf(0, 1000, true), counted: false }, 0, 1), 0);
+test('how much: use × (delivery time + 7) less what is in hand and on order, rounded UP to whole packs', () => {
+  // 1 kg a day, 3 days, 7 days: 10 kg wanted; 3 kg in hand = 7 kg = 3.5 packs of 2 kg -> 4
+  assert.deepEqual(ask(row(3000)), [{ itemId: 'flour', supplierId: 'a', packs: 4, stockQty: 8000 }]);
+  assert.equal(ask(row(4000))[0].packs, 3, '6 kg = exactly 3 packs');
+  assert.equal(ask(row(0))[0].packs, 5, 'an empty shelf wants 10 kg');
+  assert.equal(ask(row(-300))[0].packs, 5, 'below zero counts as empty');
+});
+
+test('what is already on order counts, so the item leaves the list and never gets a double order', () => {
+  assert.equal(ask(row(3000), 4).length, 0, '4 packs coming = 8 kg more: plenty');
+  assert.equal(ask(row(0), 1)[0].packs, 4, '1 pack coming: 8 kg still wanted');
+});
+
+test('never 0 or negative packs; items with no use, never counted, archived or with no supplier are skipped', () => {
+  assert.ok(ask(row(0)).every((s) => s.packs >= 1));
+  assert.equal(ask(row(0, 0)).length, 0, 'no use: skipped, even empty');
+  assert.equal(ask(row(0, 1000, { counted: false })).length, 0);
+  assert.equal(ask(row(0, 1000, { archived: true })).length, 0);
+  assert.equal(ask(row(0, 1000, { supplierIds: ['gone'] })).length, 0);
+});
+
+test('the supplier is the one it last came from, else its first active one', () => {
+  const two = row(0, 1000, { supplierIds: ['gone', 'a', 'b'] });
+  assert.equal(ask(two)[0].supplierId, 'a');
+  assert.equal(ask(two, 0, undefined, [['flour', 'b']])[0].supplierId, 'b');
+  assert.equal(ask(two, 0, undefined, [['flour', 'gone']])[0].supplierId, 'a', 'a supplier that is gone is not used');
+});
+
+test('drafts group the suggestions by supplier', () => {
+  const drafts = draftsOf([
+    { id: 'x', suggestedPacks: 2, suggestedSupplierId: 'a' }, { id: 'y', suggestedPacks: 1, suggestedSupplierId: 'a' },
+    { id: 'z', suggestedPacks: 3, suggestedSupplierId: 'b' }, { id: 'w', suggestedPacks: 0, suggestedSupplierId: 'b' },
+  ]);
+  assert.deepEqual([...drafts], [['a', { x: 2, y: 1 }], ['b', { z: 3 }]]);
 });

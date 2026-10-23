@@ -29,7 +29,7 @@ import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '
  * Owner view. The ingredient and supplier lists are kept here for good, so the
  * checks below and the add dialogs work from this device's own copy.
  */
-export { isLowStock, isOutOfStock, LOW_STOCK_PACKS, stockStatus, type StockStatus, type InventoryRow } from '../domain/inventory.ts';
+export { isLowStock, isOutOfStock, stockStatus, type StockStatus, type InventoryRow } from '../domain/inventory.ts';
 
 const readAllItems = (): InventoryRow[] => inventoryFromEvents(SEED_INVENTORY, readAll());
 /** The ingredient list (amounts here cover two days only: use useInventory for stock). */

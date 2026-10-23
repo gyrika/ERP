@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as inventoryStore from '../services/inventoryStore.ts';
-import { readAll } from './eventLog.ts';
+import { appendEvent, readAll } from './eventLog.ts';
 import { SEED_INVENTORY } from '../domain/inventoryData.ts';
 import { InventoryView } from './InventoryView.tsx';
 import { SupplierView } from './SupplierView.tsx';
@@ -11,8 +11,20 @@ beforeEach(() => localStorage.clear());
 
 /** A stock row as the screens get it. */
 const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
-  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null, receiveUnit: null });
+  ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, suggestedPacks: 0, suggestedSupplierId: null, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null, receiveUnit: null });
 afterEach(cleanup);
+
+const DAY = 24 * 60 * 60 * 1000;
+/** Yesterday's sales: `qty` large margheritas, 222 g of flour each, so flour has a rate of use (7.9 kg a day for 500). */
+const sellPizzas = (qty: number) => appendEvent({
+  type: 'order.sent', at: Date.now() - DAY, orderNumber: 1001, actor: { id: 'n', name: 'Nimal', role: 'cashier' }, ticketId: 't-sales', addOn: false,
+  lines: [{ id: 'l-sales', itemId: 'margherita', qty, size: 'L', adds: [], outs: [], sent: true }],
+});
+/** Puts exactly this many packs of flour on the shelf, whatever the sales took off. */
+const shelfPacks = (packs: number) => {
+  const flour = inventoryStore.readItems().find((i) => i.id === 'inv-0001')!;
+  inventoryStore.adjustStock('inv-0001', packs - flour.onHandBaseUnits / flour.packQty);
+};
 
 test('every seeded ingredient is listed once, with all of its suppliers', () => {
   render(<InventoryView />);
@@ -37,18 +49,19 @@ test("the supplier's name hands the ingredient to the supplier board, and is pla
   expect(screen.queryByRole('button', { name: 'Ajantha (Wholesale)' })).toBeNull();
 });
 
-test('the stock status follows the low-stock threshold live as packs are counted', () => {
+test('the stock status follows the reorder rule live as packs are counted', () => {
+  sellPizzas(500); // flour: 7.9 kg a day, so it is Low until 5 days of it (39.7 kg) are in hand
   render(<InventoryView />);
   const flour = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
   const status = () => flour.querySelector('.inv-row__status')!.textContent;
 
   expect(status()).toBe('Not counted yet'); // unknown, never shown as out
-  act(() => inventoryStore.adjustStock('inv-0001', 1));
-  act(() => inventoryStore.adjustStock('inv-0001', -1));
+  act(() => shelfPacks(1));
+  act(() => shelfPacks(0));
   expect(status()).toBe('Out of stock');
-  act(() => inventoryStore.adjustStock('inv-0001', 1));
+  act(() => shelfPacks(1));
   expect(status()).toBe('Low stock');
-  act(() => inventoryStore.adjustStock('inv-0001', 1));
+  act(() => shelfPacks(2));
   expect(status()).toBe('In stock');
   expect(within(flour).getByLabelText('Available stock and pack size').textContent).toContain('2 packs · 50 kg');
 });
@@ -159,7 +172,7 @@ test('an item with sales it could not take says Check shelf, and sales with no r
 });
 
 test('a low item stays Low stock even with missed sales: the shelf can only be lower', () => {
-  const flour = { ...stocked(SEED_INVENTORY[0], 1), missedSales: 4 };
+  const flour = { ...stocked(SEED_INVENTORY[0], 1), missedSales: 4, suggestedPacks: 2 };
   const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({ items: [flour], suppliers: [], untrackedSold: 0 });
   render(<InventoryView />);
   const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
@@ -263,11 +276,12 @@ test('Purchase orders: a draft per supplier from what runs low; Place order save
   const user = userEvent.setup();
   render(<InventoryView />);
   expect(within(flourRow()).queryByRole('button', { name: /^Order/ })).toBeNull(); // no Order button on rows
-  act(() => inventoryStore.adjustStock('inv-0001', 1)); // 1 pack: low
+  sellPizzas(500);
+  act(() => shelfPacks(1)); // 25 kg against 7.9 kg a day: 5 days need 39.7 kg, so it is low
   await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
-  expect(card.getByLabelText('Packs of Pizza Flour').textContent).toBe('1');
-  await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  expect(card.getByLabelText('Packs of Pizza Flour').textContent).toBe('3'); // 10 days of use (79.5 kg) less 25 kg = 2.2 packs, rounded up
+  await user.click(card.getByRole('button', { name: 'One pack less of Pizza Flour' }));
   await user.click(card.getByRole('button', { name: 'Place order' }));
 
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.ordered', poNo: 'PO-0001', supplierId: expect.any(String), lines: [{ itemId: 'inv-0001', packs: 2 }] });

@@ -8,6 +8,7 @@ import {
   type StockStatus,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
+import { draftsOf } from '../domain/ordering.ts';
 import { AddIngredientModal } from './AddIngredientModal.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
@@ -15,7 +16,7 @@ import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import { StockSheet, type SheetTab } from './StockSheet.tsx';
 import { CountFlow } from './CountFlow.tsx';
 import { GoodsReceivingSheet } from './GoodsReceivingSheet.tsx';
-import { draftsOf, OrderSheet } from './OrderSheet.tsx';
+import { OrderSheet } from './OrderSheet.tsx';
 import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
 
@@ -30,7 +31,7 @@ const STATUS_LABELS: Record<StockStatus, string> = {
 /**
  * Inventory (SCRUM-92: fewer buttons). Tap a row to open its sheet (received, count,
  * remove); "Purchase orders" is the one place to order (drafts written by
- * suggestOrder); "Goods receiving" takes a delivery against its order (GRN). The supplier's name opens that supplier.
+ * `suggestions`); "Goods receiving" takes a delivery against its order (GRN). The supplier's name opens that supplier.
  */
 
 /** Why a row says "Check shelf": what it has not been able to take off. */
@@ -64,7 +65,7 @@ export function InventoryView({
     return { packs, po };
   }, [purchases]);
   /** Items that need ordering now: the badge, and a tap opens them on Order. */
-  const needed = useMemo(() => new Set([...draftsOf(items, suppliers, purchases).values()].flatMap((d) => Object.keys(d))), [items, suppliers, purchases]);
+  const needed = useMemo(() => new Set([...draftsOf(items).values()].flatMap((d) => Object.keys(d))), [items]);
   const toOrder = needed.size;
   const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'count'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);

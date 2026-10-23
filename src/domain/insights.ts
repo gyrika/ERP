@@ -251,8 +251,9 @@ const kitchenSlow = (events: readonly SyncEvent[], now: number): Insight | null 
 
 const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock'], now: number): Insight | null => {
   if (!stock) return null;
-  // Only items someone has counted: a never-counted item is unknown, not empty.
-  const low = inventoryFromEvents(stock.items, events, { now }).filter((r) => !r.archived && r.counted && isLowStock(r));
+  // Only items someone has counted: a never-counted item is unknown, not empty. Low is the
+  // reorder rule's call (it needs a rate of use), so an empty shelf is named too.
+  const low = inventoryFromEvents(stock.items, events, { now }).filter((r) => !r.archived && r.counted && (isLowStock(r) || isOutOfStock(r)));
   if (!low.length) return null;
   const names = low.slice(0, 3).map((r) => r.name).join(', ');
   return {

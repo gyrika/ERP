@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ingredientQuestion, yieldQuestion, type Answer, type RecipeEvent } from './costing.ts';
-import { inventoryFromEvents, stockFromEvents, stockStatus, USAGE_DAYS } from './inventory.ts';
+import { inventoryFromEvents, stockFromEvents, stockStatus } from './inventory.ts';
+import { STOCK_DEFAULTS } from './stockSettings.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
 import { bookGaps, bookUsage } from './stockUsage.ts';
 import type { SyncEvent } from './sync.ts';
@@ -87,21 +88,21 @@ test('each sale uses the answers in force when it was sold', () => {
     'the pizza sold before he answered still takes nothing');
 });
 
-test('lasts about N days: the last 7 days of sales against what is left', () => {
-  const sales = Array.from({ length: USAGE_DAYS }, (_, d) =>
+test('lasts about N days: the last 14 days of sales against what is left', () => {
+  const sales = Array.from({ length: STOCK_DEFAULTS.usageDays }, (_, d) =>
     sent(`d${d}`, [line('chicken-burger', { id: `b${d}`, qty: 2 })], NOW - d * DAY - 1));
   const old = sent('old', [line('chicken-burger', { id: 'old', qty: 50 })], NOW - 30 * DAY);
-  const bun = row([stockIn(BUN, 10), old, ...sales], BUN); // 60 - 50 - 14 = -4: none left
-  assert.equal(bun.usedPerDay, 2, 'only the last 7 days count');
+  const bun = row([stockIn(BUN, 10), old, ...sales], BUN); // 60 - 50 - 28 = -18: none left
+  assert.equal(bun.usedPerDay, 2, 'only the last 14 days count');
   assert.equal(bun.lastsDays, null, 'nothing left: no days to show');
 
-  const restocked = row([stockIn(BUN, 20), old, ...sales], BUN); // 120 - 64 = 56 buns
-  assert.equal(restocked.lastsDays, 28);
+  const restocked = row([stockIn(BUN, 20), old, ...sales], BUN); // 120 - 78 = 42 buns
+  assert.equal(restocked.lastsDays, 21);
 });
 
-test('a newer shop divides by the days it has sold, and an uncounted item has no estimate', () => {
+test('daily use is always the window\'s total over the window\'s days, and an uncounted item has no estimate', () => {
   const twoDays = [sent('a', [line('chicken-burger', { id: 'a', qty: 6 })], NOW - 2 * DAY)];
-  assert.equal(row([stockIn(BUN, 2), ...twoDays], BUN).usedPerDay, 3);
+  assert.equal(row([stockIn(BUN, 2), ...twoDays], BUN).usedPerDay, 6 / 14);
   assert.equal(row(twoDays, BUN).lastsDays, null);
 });
 
@@ -130,9 +131,10 @@ test('missed sales since the last count make an item Check shelf; a new count cl
   assert.equal(stockStatus(after), 'ok');
 });
 
-test('missed sales never hide low or out: the real shelf can only be lower', () => {
+test('missed sales never hide out: the real shelf can only be lower', () => {
   const pizzas = sent('p', [line('margherita', { id: 'p1', size: 'L' })], NOW - DAY);
-  assert.equal(stockStatus(row([stockIn(SUGO, 1), pizzas], SUGO)), 'low');
+  assert.equal(stockStatus(row([stockIn(SUGO, 1, NOW - 2 * DAY), stockIn(SUGO, -1, NOW - 2 * DAY + 1), pizzas], SUGO)), 'out');
+  assert.equal(stockStatus(row([stockIn(SUGO, 1, NOW - 2 * DAY), pizzas], SUGO)), 'unsure');
 });
 
 test('Undo after Send and a cancelled line take their missed sales back', () => {

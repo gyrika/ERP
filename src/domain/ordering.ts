@@ -1,19 +1,12 @@
 import type { BaseUnit } from './inventoryData.ts';
+import type { StockSettings } from './stockSettings.ts';
 import { formatQuantity } from './quantity.ts';
 
 /**
- * Ordering from a supplier (SCRUM-92): what the manager needs when an item runs low
- * is the message, ready to send. How many packs: enough for ORDER_DAYS at the last
- * week's rate, at least one. The manager can change every number before sending.
+ * Ordering from a supplier: what the manager needs when an item runs low is the
+ * message, ready to send. All the reorder maths is `suggestions` below, nowhere else;
+ * every number it uses is in stockSettings.ts.
  */
-export const ORDER_DAYS = 7;
-
-export const suggestPacks = (row: { usedPerDay: number; onHandBaseUnits: number; packQty: number }): number => {
-  if (row.packQty <= 0) return 1;
-  const need = row.usedPerDay * ORDER_DAYS - Math.max(0, row.onHandBaseUnits);
-  return Math.max(1, Math.ceil(need / row.packQty));
-};
-
 export interface OrderLine { name: string; packs: number; packQty: number; baseUnit: BaseUnit }
 
 /** "2 × Mozzarella (Prabhat), 2 kg packs", one line per item; lines with no packs are left out. */
@@ -33,23 +26,61 @@ export const whatsAppNumber = (phone: string): string => {
 export const whatsAppLink = (phone: string, text: string): string =>
   `https://wa.me/${whatsAppNumber(phone)}?text=${encodeURIComponent(text)}`;
 
-/** Days of use kept in hand beyond the supplier's delivery time. */
-export const SAFETY_DAYS = 2;
+export interface Suggestion { itemId: string; supplierId: string; packs: number; stockQty: number }
+
+/** The row facts a suggestion needs. */
+export interface SuggestRow {
+  id: string;
+  counted: boolean;
+  archived: boolean;
+  usedPerDay: number;
+  onHandBaseUnits: number;
+  packQty: number;
+  supplierIds: readonly string[];
+}
+
+/** The supplier an item is ordered from: the one it last came from, else its first active one. */
+const supplierOf = (row: SuggestRow, active: ReadonlySet<string>, last: ReadonlyMap<string, string>): string | null => {
+  const prev = last.get(row.id);
+  if (prev && active.has(prev) && row.supplierIds.includes(prev)) return prev;
+  return row.supplierIds.find((id) => active.has(id)) ?? null;
+};
 
 /**
- * Packs to order now, 0 when not yet (SCRUM purchase orders). With a known rate of use:
- * order when on hand + already on order covers no more than the delivery time plus
- * SAFETY_DAYS, and then enough for the delivery time plus ORDER_DAYS. Without one, the
- * old rule: low or out, one pack. Not counted: unknown, never suggested.
+ * What to order now (THE reorder rule). For each item with a known rate of use:
+ *   reorder point = daily use × (delivery time + spare days)
+ *   suggest when on hand + on order <= reorder point
+ *   packs = daily use × (delivery time + order days) − (on hand + on order), rounded up
+ * Items never counted, archived, with no use, or with no active supplier are skipped.
+ * Never 0 or negative packs. `onOrderPacks` is what open orders still owe, in packs.
  */
-export const suggestOrder = (
-  row: { counted: boolean; usedPerDay: number; onHandBaseUnits: number; packQty: number; low: boolean },
-  onOrderPacks: number,
-  leadDays: number,
-): number => {
-  if (!row.counted || row.packQty <= 0) return 0;
-  const have = Math.max(0, row.onHandBaseUnits) + onOrderPacks * row.packQty;
-  if (row.usedPerDay <= 0) return row.low && onOrderPacks === 0 ? 1 : 0;
-  if (have > row.usedPerDay * (leadDays + SAFETY_DAYS)) return 0;
-  return Math.max(1, Math.ceil((row.usedPerDay * (leadDays + ORDER_DAYS) - have) / row.packQty));
+export const suggestions = (
+  rows: readonly SuggestRow[],
+  active: ReadonlySet<string>,
+  onOrderPacks: ReadonlyMap<string, number>,
+  leadDays: ReadonlyMap<string, number>,
+  lastSupplier: ReadonlyMap<string, string>,
+  settings: Pick<StockSettings, 'defaultLeadDays' | 'spareDays' | 'orderDays'>,
+): Suggestion[] => {
+  const out: Suggestion[] = [];
+  for (const row of rows) {
+    if (row.archived || !row.counted || row.usedPerDay <= 0 || row.packQty <= 0) continue;
+    const supplierId = supplierOf(row, active, lastSupplier);
+    if (!supplierId) continue;
+    const lead = leadDays.get(supplierId) ?? settings.defaultLeadDays;
+    const have = Math.max(0, row.onHandBaseUnits) + (onOrderPacks.get(row.id) ?? 0) * row.packQty;
+    if (have > row.usedPerDay * (lead + settings.spareDays)) continue;
+    const packs = Math.max(1, Math.ceil((row.usedPerDay * (lead + settings.orderDays) - have) / row.packQty));
+    out.push({ itemId: row.id, supplierId, packs, stockQty: packs * row.packQty });
+  }
+  return out;
+};
+
+/** The suggestions as drafts: packs per item, grouped by supplier. */
+export const draftsOf = (rows: readonly { id: string; suggestedPacks: number; suggestedSupplierId: string | null }[]): Map<string, Record<string, number>> => {
+  const drafts = new Map<string, Record<string, number>>();
+  for (const r of rows) {
+    if (r.suggestedPacks > 0 && r.suggestedSupplierId) drafts.set(r.suggestedSupplierId, { ...drafts.get(r.suggestedSupplierId), [r.id]: r.suggestedPacks });
+  }
+  return drafts;
 };

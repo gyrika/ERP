@@ -81,11 +81,12 @@ test('running low counts only items someone has counted', () => {
   const ravi = { id: 'r', name: 'Ravi', role: 'manager' as const };
   const events: SyncEvent[] = [
     { type: 'stock.adjusted', id: 's1', shopId: 's', at: 1, orderNumber: 0, actor: ravi, itemId: 'inv-0001', deltaPacks: 1 },
+    { type: 'stock.adjusted', id: 's1b', shopId: 's', at: 1, orderNumber: 0, actor: ravi, itemId: 'inv-0001', deltaPacks: -1 },
     { type: 'stock.adjusted', id: 's2', shopId: 's', at: 2, orderNumber: 0, actor: ravi, itemId: 'inv-0006', deltaPacks: 9 },
   ];
   const low = rulesSuggestions.insights({ events, now: friday, stock });
   assert.deepEqual(low.map((i) => i.title), ['1 item running low', 'Food costs: 25 answers to go']);
-  assert.match(low[0].action.items[0].secondary ?? '', /1 pack left · Prima/);
+  assert.match(low[0].action.items[0].secondary ?? '', /may be out: check the shelf · Prima/);
 });
 
 test('food costs: a price rise this week that lowers a margin is named, with what went up', () => {
