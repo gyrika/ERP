@@ -1207,3 +1207,12 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .po-open__locked { color: var(--ink-3); }
 .grn__undone .delivery__name { color: var(--ink-3); text-decoration: line-through; }
 .grn__undone small { text-decoration: none; display: inline-block; }
+
+/* Stock rules */
+.rules__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rules__list li { border-top: 1px solid var(--line); }
+.rules__list li:first-child { border-top: 0; }
+.rules__list label { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; }
+.rules__value { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.rules__value .inv-modal__input { width: 110px; text-align: right; }
+.rules__value small { color: var(--ink-3); font-size: 12px; }

@@ -19,6 +19,7 @@ import { CountFlow } from './CountFlow.tsx';
 import { GoodsReceivingSheet } from './GoodsReceivingSheet.tsx';
 import { OrderSheet } from './OrderSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
+import { StockRulesSheet } from './StockRulesSheet.tsx';
 import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
 
@@ -56,6 +57,7 @@ export function InventoryView({
   const [sheetTab, setSheetTab] = useState<SheetTab>('order');
   const [delivery, setDelivery] = useState(false);
   const [ordering, setOrdering] = useState(false);
+  const [rules, setRules] = useState(false);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo?: () => void } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
@@ -122,6 +124,7 @@ export function InventoryView({
              Purchase orders{toOrder > 0 && <span className="po-badge" aria-label={`${toOrder} to order`}>{toOrder}</span>}
            </button>
            <button type="button" className="inv-page__secondary" onClick={() => setShowAdd(true)}>+ Add Ingredient</button>
+           <button type="button" className="inv-page__secondary" onClick={() => setRules(true)}>Stock rules</button>
          </div>
       </div>
 
@@ -242,6 +245,9 @@ export function InventoryView({
       )}
       {delivery && (
         <GoodsReceivingSheet items={items} suppliers={suppliers} purchases={purchases} settings={settings} onClose={() => setDelivery(false)} onDone={(message) => setDone({ message })} />
+      )}
+      {rules && (
+        <StockRulesSheet settings={settings} onClose={() => setRules(false)} onDone={(message, undo) => setDone({ message, undo })} />
       )}
       {ordering && (
         <OrderSheet items={items} suppliers={suppliers} purchases={purchases} onClose={() => setOrdering(false)} onDone={(message, undo) => setDone({ message, undo })} />
