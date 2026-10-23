@@ -12,7 +12,7 @@ export interface FlowPrimary {
   disabled?: boolean;
 }
 
-export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, error, keys = true, className, children }: {
+export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, error, keys = true, inline = false, className, children }: {
   /** The dialog's name: also what screen readers announce. */
   title: string;
   /** A quiet line after the title (a supplier, a PO). */
@@ -29,12 +29,17 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
   error?: string;
   /** Turn the keys off while something sits on top (the PIN sheet). */
   keys?: boolean;
+  /**
+   * In the page itself (the Receive and Order pages, in the panel beside the menu) instead of
+   * a sheet over it: no backdrop, no Close; closing starts the flow over.
+   */
+  inline?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   const titleId = useId();
   const latest = useRef({ onBack, onClose, primary });
-  const sheet = useRef<HTMLDivElement>(null);
+  const sheet = useRef<HTMLElement>(null);
   const stepKey = step ? `${step.index}-${step.label ?? ''}` : 'one';
   latest.current = { onBack, onClose, primary };
 
@@ -61,15 +66,17 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
     return () => window.removeEventListener('keydown', onKey);
   }, [keys]);
 
+  const Frame = inline ? 'section' : 'div';
   return (
     <>
-      <div className="scrim" onClick={keys ? onClose : undefined} />
-      <div ref={sheet} tabIndex={-1} className={`sheet flow${className ? ` ${className}` : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      {!inline && <div className="scrim" onClick={keys ? onClose : undefined} />}
+      <Frame ref={sheet as never} tabIndex={-1} className={`${inline ? 'flow flow--inline' : 'sheet flow'}${className ? ` ${className}` : ''}`}
+        role={inline ? 'region' : 'dialog'} aria-modal={inline ? undefined : true} aria-labelledby={titleId}>
         <div className="sheet__body flow__body">
           <div className="sheet__title">
             <h1 id={titleId}>{title}</h1>
             {sub && <span>{sub}</span>}
-            <button type="button" className="linkbtn" onClick={onClose}>Close</button>
+            {!inline && <button type="button" className="linkbtn" onClick={onClose}>Close</button>}
           </div>
           {step && (
             <div className="flow__where">
@@ -90,7 +97,7 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
             {primary && <button type="button" className="cta flow__cta" disabled={primary.disabled} onClick={primary.onClick}>{primary.label}</button>}
           </div>
         )}
-      </div>
+      </Frame>
     </>
   );
 }

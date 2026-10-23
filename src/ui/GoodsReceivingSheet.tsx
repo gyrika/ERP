@@ -19,7 +19,7 @@ import { RejectionNotices } from './Rejections.tsx';
  * GRN, goods received: a delivery came. Serves the person at the door with the supplier's
  * bill in hand, one step at a time (src/ui/flow):
  *   1 Which delivery?  big cards, newest first, with the day it is expected (one order: skipped)
- *   2 Check each item  one card per item, filled in with what is still owed; ✓ All came, or change the number
+ *   2 Check each item  a list of what is still owed, ticked one by one; change a number where it differs
  *   3 Review           what matched and what did not; Save GRN, or Manager approves when something differs
  *   4 Approve          (only if different) a manager's PIN, then what happens to the short lines (wait for
  *                      the rest, or close the order) and the extra (accept it, or return it), then Approve
@@ -36,11 +36,13 @@ const OVER_CHOICES = [['accept', 'Accept extra', 'Everything that came goes into
 
 type Step = 'pick' | 'check' | 'review' | 'decide' | 'done' | 'recent' | 'why';
 
-export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onClose, onDone }: {
+export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inline = false, onClose, onDone }: {
   items: InventoryRow[];
   suppliers: Supplier[];
   purchases: PurchaseState;
   settings: Pick<StockSettings, 'defaultLeadDays' | 'grnUndoHours'>;
+  /** In the Receive page itself, not a sheet over it. */
+  inline?: boolean;
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
@@ -48,7 +50,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
   const open = [...purchases.open].reverse();
   const [orderId, setOrderId] = useState<string | null>(open.length === 1 ? open[0].id : null);
   const [step, setStep] = useState<Step>(open.length === 1 ? 'check' : 'pick');
-  const [at, setAt] = useState(0);
+  /** The items ticked off the list (as the person checks them on the bill and in the boxes). */
+  const [ticked, setTicked] = useState<Set<string>>(() => new Set());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [asking, setAsking] = useState(false);
@@ -97,8 +100,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
   };
 
   /** Back to the list of deliveries, fresh. */
-  const toList = () => { setOrderId(null); setStep('pick'); setAt(0); setAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); };
-  const pick = (id: string) => { setOrderId(id); setStep('check'); setAt(0); setAmounts({}); setError(''); setSaved(null); };
+  const toList = () => { setOrderId(null); setStep('pick'); setTicked(new Set()); setAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); };
+  const pick = (id: string) => { setOrderId(id); setStep('check'); setTicked(new Set()); setAmounts({}); setError(''); setSaved(null); };
 
   const finish = (approvedBy: Actor | null) => {
     const got = received();
@@ -114,7 +117,6 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
   const notApproved = () => {
     setDeciding(null);
     setDecisions({ short: null, over: null });
-    setAt(Math.max(0, check.lines.findIndex((c) => c.match !== 'ok')));
     setStep('check');
     setError('Not approved: nothing was saved. Fix the amounts, or check the delivery with the supplier.');
   };
@@ -146,7 +148,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
 
   const recent = purchases.grns.slice(0, 5);
   const pinOpen = asking || (undoing !== null && undoing.manager === null);
-  const shared = { onClose, keys: !pinOpen, error };
+  const shared = { onClose, keys: !pinOpen, error, inline };
   const recentList = recent.length > 0 && (
     <section aria-label="Recent GRNs" className="flow__list">
       <p className="flow-hint">Recent GRNs</p>
@@ -252,31 +254,49 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
   const of = check.needsApproval ? 4 : 3;
   const toPick = open.length === 1 ? undefined : toList; // one order: the list was skipped
 
-  // ----- 2 Check each item -----
+  // ----- 2 Check each item: a list, ticked one by one -----
   if (step === 'check' && lines.length > 0) {
-    const i = Math.min(at, lines.length - 1);
-    const l = lines[i];
-    const c = check.lines[i];
-    const unitWord = l.unit.id === 'pack' ? word(l.expectedInUnit, 'pack', 'packs') : unitName(l.unit);
-    const last = i === lines.length - 1;
-    const here = c.match === 'ok' ? 'ok' : 'warn';
+    const tick = (id: string, on = true) => setTicked((t) => { const n = new Set(t); if (on) n.add(id); else n.delete(id); return n; });
+    const next = lines.find((l) => !ticked.has(l.row.id));
+    const done = lines.filter((l) => ticked.has(l.row.id)).length;
     return (
       <>
-        <FlowSheet title={title} {...shared} step={{ index: 2, of, label: 'Check each item' }}
-          onBack={i > 0 ? () => { setAt(i - 1); setError(''); } : toPick}
-          primary={{ label: c.match === 'ok' ? '✓ All came' : last ? 'Review' : 'Next item', onClick: () => { if (!received()) return; if (last) setStep('review'); else setAt(i + 1); setError(''); } }}
-          extra={<button type="button" className="linkbtn flow__back" onClick={() => { setAmounts({}); setError(''); setStep('review'); }}>Received everything</button>}>
+        <FlowSheet title={title} {...shared} step={{ index: 2, of, label: 'Check each item' }} onBack={toPick}
+          // The big button ticks the next item, so Enter works down the list; when all are ticked it reviews.
+          primary={next
+            ? { label: `✓ ${next.row.name} came`, onClick: () => { tick(next.row.id); setError(''); } }
+            : { label: 'Review', onClick: () => { if (!received()) return; setStep('review'); setError(''); } }}>
           <RejectionNotices />
-          <div className="flow__dots" aria-hidden>
-            {lines.map((x, k) => <span key={x.row.id} className={`flow__dot${k === i ? ' flow__dot--on' : ''}${check.lines[k].match !== 'ok' ? ' flow__dot--warn' : ''}`} />)}
-          </div>
-          <p className="flow-hint">Item {i + 1} of {lines.length}</p>
-          <InfoCard name={l.row.name} tone={here} line={`Expected ${l.expectedInUnit} ${unitWord}`}
-            aside={c.match === 'ok' ? '✓' : `${c.match} ${diff(c, l)}`} label={`${l.row.name}: ${c.match === 'ok' ? 'as ordered' : c.match}`} />
-          <BigStepper value={typed(l)} unit={l.unit.id === 'pack' ? 'packs' : unitName(l.unit)} tone={here}
-            label={l.unit.id === 'pack' ? `Packs of ${l.row.name}` : `${unitName(l.unit)} of ${l.row.name}`}
-            lessLabel={`One less of ${l.row.name}`} moreLabel={`One more of ${l.row.name}`}
-            onText={(text) => { setAmounts({ ...amounts, [l.row.id]: text }); setError(''); }} onBump={(by) => bump(l, by)} />
+          <p className="flow-hint num">{done} of {lines.length} checked</p>
+          <ul className="flow__list flow__plain" aria-label="Check what came">
+            {lines.map((l, k) => {
+              const c = check.lines[k];
+              const on = ticked.has(l.row.id);
+              const tone = !on ? undefined : c.match === 'ok' ? 'ok' : 'warn';
+              const unitWord = l.unit.id === 'pack' ? word(l.expectedInUnit, 'pack', 'packs') : unitName(l.unit);
+              return (
+                <li key={l.row.id} className={`flow-card flow-card--item grn-row${tone ? ` flow-card--${tone}` : ' grn-row--todo'}`}>
+                  <button type="button" role="checkbox" aria-checked={on} className={`tick${on ? ' tick--on' : ''}`} aria-label={`${l.row.name} came`}
+                    onClick={() => { tick(l.row.id, !on); setError(''); }}>✓</button>
+                  <span className="flow-card__text">
+                    <span className="flow-card__name">{l.row.name}</span>
+                    <span className="flow-card__line">Expected {l.expectedInUnit} {unitWord}</span>
+                    {on && (
+                      <span className={`grn-match grn-match--${c.match}`} aria-label={`${l.row.name}: ${c.match === 'ok' ? 'as ordered' : c.match}`}>
+                        {c.match === 'ok' ? '✓ as ordered' : `${c.match} ${diff(c, l)}`}
+                      </span>
+                    )}
+                  </span>
+                  {/* A different amount ticks the item too: it has been checked. */}
+                  <BigStepper compact value={typed(l)} unit={l.unit.id === 'pack' ? 'packs' : unitName(l.unit)} tone={tone}
+                    label={l.unit.id === 'pack' ? `Packs of ${l.row.name}` : `${unitName(l.unit)} of ${l.row.name}`}
+                    lessLabel={`One less of ${l.row.name}`} moreLabel={`One more of ${l.row.name}`}
+                    onText={(text) => { setAmounts({ ...amounts, [l.row.id]: text }); tick(l.row.id); setError(''); }}
+                    onBump={(by) => { bump(l, by); tick(l.row.id); }} />
+                </li>
+              );
+            })}
+          </ul>
         </FlowSheet>
         {pins}
       </>
@@ -322,7 +342,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
   return (
     <>
       <FlowSheet title={title} {...shared} step={{ index: 3, of, label: 'Review' }}
-        onBack={() => { setStep('check'); setAt(Math.max(0, lines.length - 1)); setError(''); }}
+        onBack={() => { setStep('check'); setError(''); }}
         primary={{ label: check.needsApproval ? 'Manager approves' : 'Save GRN', onClick: toApproval, disabled: lines.length === 0 }}>
         <RejectionNotices />
         <ul className="flow__list flow__plain" aria-label="What came">
