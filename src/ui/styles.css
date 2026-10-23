@@ -1457,3 +1457,11 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 .bill-add__item:hover, .bill-add__item:focus-visible { background: var(--chip); outline: none; }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (max-width: 520px) { .bill__qty { width: auto; } .bill th, .bill td { padding-left: 4px; padding-right: 4px; } }
+/* The price of one pack, typed over in place on a bill line. */
+.price { display: inline-flex; align-items: center; gap: 4px; }
+.price__rs { font-size: 14px; color: var(--ink-3); }
+.price__num { width: 84px; height: 44px; padding: 0 8px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 16px; text-align: right; }
+.price__num:hover { border-color: var(--line); }
+.price__num:focus { border-color: var(--line); background: var(--surface); outline: 2px solid var(--primary); outline-offset: 1px; }
+.bill__said { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 15px; color: var(--ink-2); }
+.bill__said .linkbtn { min-height: 40px; }

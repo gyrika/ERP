@@ -529,6 +529,19 @@ test('the order is a bill (add item, qty, price, totals) and the GRN steps have 
   expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 19,200');
   expect(card.getByLabelText('Order total').textContent).toBe('Rs 19,200');
   expect(card.getByText('1 item · 3 packs')).toBeTruthy();
+  // The price is typed over on the line: the total follows; Enter saves the supplier's new price, audited, with Undo.
+  const price = card.getByRole('textbox', { name: 'Price of one pack of Pizza Flour' });
+  expect(price).toHaveProperty('value', '6,400');
+  await user.clear(price);
+  await user.type(price, '6550');
+  expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 19,650');
+  await user.keyboard('{Enter}');
+  expect(lastEvent()).toMatchObject({ type: 'stock.price_set', itemId: 'inv-0001', before: 640000, after: 655000 });
+  expect(card.getByLabelText('Order total').textContent).toBe('Rs 19,650');
+  expect(card.getByRole('status').textContent).toContain('Pizza Flour: price now Rs 6,550 a pack.');
+  await user.click(within(card.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(lastEvent()).toMatchObject({ type: 'stock.price_set', before: 655000, after: 640000 });
+  expect(card.getByLabelText('Order total').textContent).toBe('Rs 19,200');
   await user.click(card.getByRole('button', { name: 'Remove Pizza Flour' }));
   expect(card.getByLabelText('Order total').textContent).toBe('Rs 0');
   await addItem(user, card, 'Pizza Flour', '2');

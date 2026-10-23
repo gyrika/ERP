@@ -3,7 +3,7 @@ import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
 import { parsePacks } from '../domain/inventory.ts';
 import { draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
-import { fmt } from '../domain/money.ts';
+import { fmt, parseLKR } from '../domain/money.ts';
 import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { PoLine } from '../domain/sync.ts';
 import { formatLasts, formatQuantity } from './quantity.ts';
@@ -11,7 +11,7 @@ import { BigStepper } from './flow/BigStepper.tsx';
 import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
-import { addToOrder, cancelOrder, editOrder, placeOrder, type InventoryRow } from '../services/inventoryStore.ts';
+import { addToOrder, cancelOrder, editOrder, placeOrder, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
 
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
@@ -84,6 +84,37 @@ type Draft = ReturnType<typeof useDraft>;
 const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
 
 /**
+ * The price of one pack on a bill line, typed over in place. Enter or leaving the box saves it as
+ * the supplier's new price (audited, the same as the item's Order tab); Esc puts it back.
+ */
+function PriceCell({ row, onTyped, onSaved }: { row: InventoryRow; onTyped: (cents: number | null) => void; onSaved: (message: string, undo: () => void) => void }) {
+  const shown = row.workingPriceCents > 0 ? fmt(row.workingPriceCents) : '';
+  const [text, setText] = useState<string | null>(null);
+  const reset = () => { setText(null); onTyped(null); };
+  const save = () => {
+    if (text === null) return;
+    const cents = parseLKR(text);
+    reset();
+    if (cents === null || cents <= 0 || cents === row.workingPriceCents) return;
+    const before = row.workingPriceCents;
+    setWorkingPrice(row.id, cents);
+    onSaved(`${row.name}: price now ${rs(cents)} a pack.`, () => setWorkingPrice(row.id, before));
+  };
+  return (
+    <span className="price">
+      <span className="price__rs" aria-hidden="true">Rs</span>
+      <input className="price__num num" inputMode="decimal" aria-label={`Price of one pack of ${row.name}`} placeholder="0" value={text ?? shown}
+        onChange={(e) => { setText(e.target.value); const c = parseLKR(e.target.value); onTyped(c !== null && c > 0 ? c : null); }}
+        onFocus={(e) => e.currentTarget.select()} onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+          if (e.key === 'Escape') { e.preventDefault(); reset(); }
+        }} />
+    </span>
+  );
+}
+
+/**
  * The draft as a bill: one line per item (name, quantity, price of one pack, line total) and the
  * total at the bottom. "+ Add item" opens the supplier's other items; a tap puts one on the bill
  * at 1 pack (change the qty on its line), and the list stays open for the next.
@@ -95,6 +126,10 @@ function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: strin
   const extra = items.filter((i) => i.supplierIds.includes(supplierId) && !(i.id in packs));
   /** The add-item list is open. It stays open, so several items go on one after another. */
   const [picking, setPicking] = useState(false);
+  /** A price being typed (the line total follows it), and the last price saved, with Undo. */
+  const [typing, setTyping] = useState<{ id: string; cents: number } | null>(null);
+  const [priced, setPriced] = useState<{ message: string; undo: () => void } | null>(null);
+  const priceOf = (row: InventoryRow) => (typing?.id === row.id ? typing.cents : row.workingPriceCents);
   const lines = Object.entries(packs).flatMap(([id, n]) => { const row = byId.get(id); return row ? [{ id, n, row }] : []; });
 
   return (
@@ -127,8 +162,10 @@ function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: strin
                     <button type="button" className="qty__btn" aria-label={`One pack more of ${row.name}`} onClick={() => draft.set(id, n + 1)}>+</button>
                   </span>
                 </td>
-                <td className="bill__num num">{row.workingPriceCents > 0 ? rs(row.workingPriceCents) : '—'}</td>
-                <td className="bill__num num" aria-label={`Total for ${row.name}`}>{row.workingPriceCents > 0 ? rs(n * row.workingPriceCents) : '—'}</td>
+                <td className="bill__num">
+                  <PriceCell row={row} onTyped={(cents) => setTyping(cents === null ? null : { id, cents })} onSaved={(message, undo) => setPriced({ message, undo })} />
+                </td>
+                <td className="bill__num num" aria-label={`Total for ${row.name}`}>{priceOf(row) > 0 ? rs(n * priceOf(row)) : '—'}</td>
                 <td className="bill__x"><button type="button" className="qty__btn qty__btn--x" aria-label={`Remove ${row.name}`} onClick={() => draft.remove(id)}>×</button></td>
               </tr>
             );
@@ -165,6 +202,12 @@ function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: strin
           </tr>
         </tfoot>
       </table>
+      {priced && (
+        <p className="bill__said" role="status">
+          {priced.message}
+          <button type="button" className="linkbtn" onClick={() => { priced.undo(); setPriced(null); }}>Undo</button>
+        </p>
+      )}
     </section>
   );
 }
