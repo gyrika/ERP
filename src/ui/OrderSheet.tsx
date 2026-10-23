@@ -85,24 +85,16 @@ const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
 
 /**
  * The draft as a bill: one line per item (name, quantity, price of one pack, line total) and the
- * total at the bottom. "+ Add item" drops down the supplier's other items; picking one asks how
- * many, with the price filled in and the line total worked out as it is typed.
+ * total at the bottom. "+ Add item" opens the supplier's other items; a tap puts one on the bill
+ * at 1 pack (change the qty on its line), and the list stays open for the next.
  */
 function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: string; draft: Draft; items: InventoryRow[]; suppliers: Supplier[] }) {
   const { packs, typed, plan, blocked, totals } = draft;
   const name = nameOf(suppliers, supplierId);
   const byId = new Map(items.map((i) => [i.id, i]));
   const extra = items.filter((i) => i.supplierIds.includes(supplierId) && !(i.id in packs));
-  /** The add-item dropdown is open; then the item picked and the quantity being typed. */
+  /** The add-item list is open. It stays open, so several items go on one after another. */
   const [picking, setPicking] = useState(false);
-  const [adding, setAdding] = useState<{ id: string; text: string } | null>(null);
-  const addingRow = adding ? byId.get(adding.id) : undefined;
-  const addingPacks = adding ? parsePacks(adding.text) ?? 0 : 0;
-  const confirmAdd = () => {
-    if (!adding || addingPacks <= 0) return;
-    draft.set(adding.id, addingPacks);
-    setAdding(null);
-  };
   const lines = Object.entries(packs).flatMap(([id, n]) => { const row = byId.get(id); return row ? [{ id, n, row }] : []; });
 
   return (
@@ -112,7 +104,7 @@ function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: strin
           <tr><th scope="col">Item</th><th scope="col" className="bill__qty">Qty</th><th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th><th scope="col"><span className="sr-only">Remove</span></th></tr>
         </thead>
         <tbody>
-          {lines.length === 0 && !adding && (
+          {lines.length === 0 && (
             <tr><td colSpan={5} className="bill__empty">Nothing on it yet. Add what you need from {name}.</td></tr>
           )}
           {lines.map(({ id, n, row }) => {
@@ -141,25 +133,8 @@ function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: strin
               </tr>
             );
           })}
-          {adding && addingRow && (
-            // The item just picked: how many? The price is its own; the total follows what is typed.
-            <tr className="bill__adding" aria-label={`Adding ${addingRow.name}`}>
-              <td><span className="bill__name">{addingRow.name}</span><span className="bill__sub">{formatQuantity(addingRow.packQty, addingRow.baseUnit)} a pack</span></td>
-              <td className="bill__qty">
-                <input className="qty__num qty__num--ask num" inputMode="decimal" autoFocus aria-label={`How many packs of ${addingRow.name}`} placeholder="Qty" value={adding.text}
-                  onChange={(e) => setAdding({ ...adding, text: e.target.value })} onFocus={(e) => e.currentTarget.select()}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); confirmAdd(); }
-                    if (e.key === 'Escape') { e.preventDefault(); setAdding(null); }
-                  }} />
-              </td>
-              <td className="bill__num num">{addingRow.workingPriceCents > 0 ? rs(addingRow.workingPriceCents) : '—'}</td>
-              <td className="bill__num num" aria-label={`Total for ${addingRow.name}`}>{addingRow.workingPriceCents > 0 ? rs(addingPacks * addingRow.workingPriceCents) : '—'}</td>
-              <td className="bill__x"><button type="button" className="bill__addline" aria-label={`Add ${addingRow.name}`} disabled={addingPacks <= 0} onClick={confirmAdd}>Add</button></td>
-            </tr>
-          )}
           {/* Add the next line right under the last one; the list opens in place, so nothing covers the total. */}
-          {!adding && (extra.length > 0 || lines.length > 0) && (
+          {(extra.length > 0 || lines.length > 0) && (
             <tr className="bill__addrow">
               <td colSpan={5}>
                 {extra.length === 0 ? <span className="bill__sub">Everything {name} sells is on it.</span> : (
@@ -169,7 +144,7 @@ function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: strin
                       <ul className="bill-add__menu" aria-label={`Items from ${name}`}>
                         {extra.map((i) => (
                           <li key={i.id}>
-                            <button type="button" className="bill-add__item" onClick={() => { setPicking(false); setAdding({ id: i.id, text: '1' }); }}>
+                            <button type="button" className="bill-add__item" onClick={() => draft.set(i.id, 1)}>
                               <span>{i.name}</span>
                               <span className="bill__sub num">{i.workingPriceCents > 0 ? `${rs(i.workingPriceCents)} a pack` : formatQuantity(i.packQty, i.baseUnit)}</span>
                             </button>

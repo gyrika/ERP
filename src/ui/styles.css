@@ -1445,11 +1445,8 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 .qty__btn:hover { background: var(--chip); }
 .qty__btn:disabled { opacity: 0.35; cursor: default; }
 .qty__btn--x { color: var(--ink-3); }
-.bill__addline { min-height: 48px; padding: 0 6px; background: none; color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.bill__addline:disabled { color: var(--ink-3); text-decoration: none; cursor: default; }
 .qty__num { width: 56px; height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 17px; font-weight: 600; text-align: center; }
 .qty__num:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
-.qty__num--ask { width: 80px; }
 .bill-add { display: flex; flex-direction: column; }
 .bill-add__btn { align-self: flex-start; }
 .bill__addrow td { padding-top: 4px; padding-bottom: 4px; }

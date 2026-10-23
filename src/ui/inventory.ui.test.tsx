@@ -517,15 +517,14 @@ test('the order is a bill (add item, qty, price, totals) and the GRN steps have 
   await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(screen.getByRole('button', { name: 'Place order' })).toHaveProperty('disabled', true); // nothing on it yet
-  // + Add item drops down the supplier's items; picking one asks how many, with the price and total worked out.
+  // + Add item opens the supplier's items; one tap puts it on the bill at 1 pack, nothing more to press.
   await user.click(card.getByRole('button', { name: /^Add an item from/ }));
   await user.click(within(card.getByRole('list', { name: /^Items from/ })).getByRole('button', { name: /^Pizza Flour/ }));
-  const qty = card.getByRole('textbox', { name: 'How many packs of Pizza Flour' });
-  await user.clear(qty);
-  await user.type(qty, '2');
-  expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 12,800'); // Rs 6,400 a pack
-  await user.keyboard('{Enter}'); // on the bill
+  expect(card.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '1');
+  expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 6,400'); // the price of one pack
   expect(screen.getByRole('button', { name: 'Place order' })).toHaveProperty('disabled', false);
+  await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 12,800');
   await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
   expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 19,200');
   expect(card.getByLabelText('Order total').textContent).toBe('Rs 19,200');
@@ -552,13 +551,14 @@ test('the order is a bill (add item, qty, price, totals) and the GRN steps have 
   expect(grn.getByRole('button', { name: 'Save GRN' })).toBeTruthy();
 });
 
-/** Adds an item to the purchase order's bill: + Add item, pick it, how many, Enter. */
+/** Adds an item to the purchase order's bill (one tap) and sets its packs on its line. */
 const addItem = async (user: ReturnType<typeof userEvent.setup>, card: ReturnType<typeof within>, name: string, packs: string) => {
-  await user.click(card.getByRole('button', { name: /^Add an item from/ }));
+  const open = card.getByRole('button', { name: /^Add an item from/ });
+  if (open.getAttribute('aria-expanded') !== 'true') await user.click(open); // the list stays open between items
   await user.click(within(card.getByRole('list', { name: /^Items from/ })).getByRole('button', { name: new RegExp(`^${name}`) }));
-  const qty = card.getByRole('textbox', { name: `How many packs of ${name}` });
+  const qty = card.getByRole('textbox', { name: `Packs of ${name}` });
   await user.clear(qty);
-  await user.type(qty, `${packs}{Enter}`);
+  await user.type(qty, packs);
 };
 
 /** Orders 2 packs of flour from its first supplier. */
