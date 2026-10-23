@@ -1,4 +1,4 @@
-import { answersFromEvents, marginOf, menuCost, openQuestions, questionText, sizesOf, type CostContext } from './costing.ts';
+import { answersFromEvents, marginOf, menuCost, openQuestions, questionText, recipeOf, sizesOf, type CostContext } from './costing.ts';
 import type { Insight, ShopData } from './insights.ts';
 import { stockFromEvents } from './inventory.ts';
 import type { InventoryItem } from './inventoryData.ts';
@@ -36,7 +36,7 @@ export const costsToAnswer = (events: readonly SyncEvent[], stock: ShopData['sto
     id: 'costs-to-answer',
     tone: 'info',
     title: `Food costs: ${questions.length} ${questions.length === 1 ? 'answer' : 'answers'} to go`,
-    detail: `${held} menu ${held === 1 ? 'item waits' : 'items wait'} for an answer before showing what ${held === 1 ? 'it earns' : 'they earn'}.${stockNote ? ` ${stockNote[0].toUpperCase()}${stockNote.slice(1)}.` : ''} Answer on the Menu screen.`,
+    detail: `${held} menu ${held === 1 ? 'item waits' : 'items wait'} for an answer before showing what ${held === 1 ? 'it earns' : 'they earn'}.${stockNote ? ` ${stockNote[0].toUpperCase()}${stockNote.slice(1)}.` : ''} Answer on the Recipes screen.`,
     action: {
       label: 'Questions',
       items: questions.slice(0, 10).map((q) => ({ primary: questionText(q.id, menu), secondary: `holds back ${q.blocks.length}` })),
@@ -99,5 +99,43 @@ export const marginsFell = (events: readonly SyncEvent[], stock: ShopData['stock
       : `${fell.length} menu items earn less after price rises`,
     detail: `This week: ${why}. Same menu price, dearer ingredients.`,
     action: { label: 'Items', items: fell.slice(0, 10).map((f) => ({ primary: f.name, secondary: `${f.was}% → ${f.is}%` })) },
+  };
+};
+
+/**
+ * "Test Pizza sold 6 times this week; its stock isn't counted" (SCRUM-129): dishes sold with no
+ * recipe at all, by name, so the owner sees which recipe to write first.
+ */
+export const soldWithoutRecipe = (events: readonly SyncEvent[], now: number): Insight | null => {
+  const menu = effectiveMenu(MENU, menuStateFromEvents(events), now);
+  const answers = answersFromEvents(events);
+  const sold = new Map<string, number>();
+  for (const e of events) {
+    if (e.type !== 'order.sent' || e.at < now - WEEK_MS || e.at > now) continue;
+    for (const l of e.lines) {
+      // A half-and-half pizza sold half of each.
+      for (const id of l.half ? [l.itemId, l.half] : [l.itemId]) {
+        if (recipeOf(id, l.size ?? '', answers)) continue;
+        sold.set(id, (sold.get(id) ?? 0) + (l.half ? l.qty / 2 : l.qty)); // one dish, whatever its size
+      }
+    }
+  }
+  const rows = [...sold]
+    .map(([id, qty]) => {
+      const item = menu.find((m) => m.id === id);
+      return item ? { name: item.name.en, qty } : null;
+    })
+    .filter((r): r is { name: string; qty: number } => r !== null)
+    .sort((a, b) => b.qty - a.qty);
+  if (!rows.length) return null;
+  const times = (n: number) => `${n} ${n === 1 ? 'time' : 'times'}`;
+  return {
+    id: 'sold-without-recipe',
+    tone: 'attention',
+    title: rows.length === 1
+      ? `${rows[0].name} sold ${times(rows[0].qty)} this week; its stock isn't counted`
+      : `${rows.length} dishes sold this week without a recipe`,
+    detail: 'Their sales take nothing from stock until you write what goes in them. Write the recipe on the Menu screen.',
+    action: { label: 'Which ones', items: rows.slice(0, 10).map((r) => ({ primary: r.name, secondary: `sold ${times(r.qty)}` })) },
   };
 };

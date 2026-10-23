@@ -10,55 +10,13 @@ import { answerQuestion } from '../services/inventoryStore.ts';
 
 /**
  * Serves the owner, who knows his kitchen: his recipes are in, and the app asks
- * only what his sheets left open, one question at a time, those that hold back
- * the most menu items first. Each answer is saved at once (audited, with Undo);
- * Skip moves on. Nothing is filled in for him.
+ * only what his sheets left open, one question at a time, on the Recipes screen.
+ * Each answer is saved at once (audited, with Undo). Nothing is filled in for him.
  */
 const amount = (raw: string): number | null => (/^\d+(\.\d{1,3})?$/.test(raw.trim()) ? Number(raw.trim()) : null);
 const words = (s: string) => s.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3);
 
-export function CostQuestions({ questions, ctx, onClose }: { questions: OpenQuestion[]; ctx: CostContext; onClose: () => void }) {
-  const [skipped, setSkipped] = useState<string[]>([]);
-  const [last, setLast] = useState<{ message: string; undo: () => void } | null>(null);
-  const open = questions.filter((q) => !skipped.includes(q.id));
-  const q = open[0] ?? null;
-
-  return (
-    <>
-      <div className="scrim" onClick={onClose} />
-      <section className="sheet costq" role="dialog" aria-modal="true" aria-label="Costs: answer the gaps">
-        <div className="sheet__body">
-          <div className="sheet__title">
-            <h1>Costs</h1>
-            <span>{q ? `${open.length} ${open.length === 1 ? 'question' : 'questions'} left` : 'Nothing left to answer'}</span>
-          </div>
-          {last && (
-            <p className="costq__saved" role="status">
-              {last.message}
-              <button type="button" className="linkbtn" onClick={() => { last.undo(); setLast(null); }}>Undo</button>
-            </p>
-          )}
-          {q ? (
-            <Question
-              key={q.id} q={q} ctx={ctx}
-              onAnswered={(message, undo) => setLast({ message, undo })}
-              onSkip={() => { setSkipped([...skipped, q.id]); setLast(null); }}
-            />
-          ) : (
-            <p className="costq__done">
-              {skipped.length ? `You skipped ${skipped.length}. They stay in the list for later.` : 'Every menu item now has its full cost.'}
-            </p>
-          )}
-        </div>
-        <div className="sheet__foot">
-          <button type="button" className="linkbtn" onClick={onClose}>Close</button>
-        </div>
-      </section>
-    </>
-  );
-}
-
-/** One question, asked in full. Also used inline on the Recipes screen (no Skip there; actor: the owner who opened it). */
+/** One question, asked in full, inline on the Recipes screen (actor: the owner who opened it). */
 export function Question({ q, ctx, actor, autoFocus = true, onAnswered, onSkip }: {
   q: Pick<OpenQuestion, 'id' | 'kind'> & { blocks?: string[] }; ctx: CostContext; actor?: Actor; autoFocus?: boolean;
   onAnswered: (message: string, undo: () => void) => void; onSkip?: () => void;

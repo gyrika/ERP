@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  answersFromEvents, checkAnswer, ingredientQuestion, marginOf, menuCost, openQuestions, recipeChoices,
-  recipeQuestion, yieldQuestion, type Answer, type RecipeEvent,
+  answersFromEvents, checkAnswer, gapName, ingredientQuestion, linesCost, marginOf, menuCost, openQuestions, recipeChoices,
+  recipeQuestion, stockLine, waitingOn, yieldQuestion, type Answer, type RecipeEvent,
 } from './costing.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
@@ -112,4 +112,20 @@ test('an answer must fit its question', () => {
 test('margin: the share of the price the item earns', () => {
   assert.equal(marginOf(250000, 75000), 0.7);
   assert.equal(marginOf(0, 100), null);
+});
+
+test('lines not yet on any item are costed the same way (adding a dish, SCRUM-129)', () => {
+  const ctx = { items: SEED_INVENTORY, answers: new Map() };
+  const cheese = { name: stockLine('inv-0006'), qty: 150, unit: 'g' };
+  const item = SEED_INVENTORY.find((i) => i.id === 'inv-0006')!;
+  assert.deepEqual(linesCost([cheese], ctx), { cents: Math.round((item.workingPriceCents / item.packQty) * 150), complete: true, missing: [] });
+  assert.equal(linesCost([{ name: 'Something new', qty: 10, unit: 'g' }], ctx).complete, false);
+});
+
+test('a gap is named in a few words, so the owner knows what to give (SCRUM-129)', () => {
+  assert.equal(gapName(yieldQuestion('Pizza Sauce Batch'), MENU), 'Pizza Sauce batch size');
+  assert.equal(gapName(ingredientQuestion('Basil'), MENU), 'Basil price');
+  assert.equal(gapName(recipeQuestion('sausages', 'M'), MENU), 'the recipe for Sausages M');
+  const five = ['a', 'b', 'c', 'd', 'e'].map((n) => ingredientQuestion(n));
+  assert.equal(waitingOn([...five, five[0]], MENU), 'waiting on a price, b price, c price and 2 more');
 });

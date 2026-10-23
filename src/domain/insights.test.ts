@@ -15,8 +15,8 @@ const paid = (orderNumber: number, at: number, total: number): SyncEvent =>
 
 test('the demo Friday: every kind of card, things needing a decision first, good news last', () => {
   const insights = rulesSuggestions.insights({ events: demoHistory(friday), now: friday, stock });
-  assert.deepEqual(insights.map((i) => i.id), ['sales-vs-usual', 'voids', 'kitchen-slow', 'running-low', 'costs-to-answer', 'not-selling', 'best-seller']);
-  const [sales, voids, kitchen, low, costs, idle] = insights;
+  assert.deepEqual(insights.map((i) => i.id), ['sales-vs-usual', 'voids', 'kitchen-slow', 'running-low', 'sold-without-recipe', 'costs-to-answer', 'not-selling', 'best-seller']);
+  const [sales, voids, kitchen, low, unrecipe, costs, idle] = insights;
   assert.match(sales.title, /^Sales \d+% below a usual Friday$/);
   assert.match(voids.title, /voids today, \d+ by Ravi$/);
   assert.ok(voids.action.items.every((i) => i.secondary?.startsWith('Ravi')), 'each void says who and why');
@@ -25,6 +25,9 @@ test('the demo Friday: every kind of card, things needing a decision first, good
   assert.deepEqual(low.action.items.map((i) => i.primary).sort(), ['Mozzarella (Prabhat)', 'Onion', 'Pizza Flour']);
   assert.equal(idle.title, "BBQ Pork hasn't sold in 2 weeks");
   assert.equal(costs.title, 'Food costs: 25 answers to go');
+  // The pasta has no recipe yet: its sales took no stock, and the owner is told which dishes (SCRUM-129).
+  assert.match(unrecipe.title, /without a recipe|stock isn't counted/);
+  assert.ok(unrecipe.action.items.length > 0 && unrecipe.action.items.every((i) => /^sold \d/.test(i.secondary ?? '')));
 });
 
 test('the summary counts today only, and a payment undone does not count', () => {
