@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import {
-  addonCost, addonOf, addonQuestion, batchMakes, checkAnswer, checkOwnLines, checkPrepName, kitchenLine, KITCHEN_LINE, linesCost, marginOf,
-  menuCost, newPrepId, ownPrepOf, ownPreps, prepQuestion, questionKind, recipeOf, recipeQuestion, recipeUnit, sizesOf, STOCK_LINE, undefinedNames,
+  addonCost, addonOf, addonQuestion, batchEdit, batchMakes, batchQuestion, checkAnswer, checkOwnLines, checkPrepName, kitchenLine, KITCHEN_LINE, linesCost, marginOf,
+  menuCost, newPrepId, ownPrepOf, ownPreps, prepOf, prepQuestion, questionKind, recipeOf, recipeQuestion, recipeUnit, sizesOf, STOCK_LINE, undefinedNames,
   UNITS, waitingOn, type Answer, type Cost, type CostContext, type OwnPrep, type Recipe,
 } from '../domain/costing.ts';
 import { menuItems } from '../domain/menu.ts';
@@ -242,8 +242,10 @@ const unitAmount = (qty: number, unit: string) => `${Number(qty.toFixed(3)).toLo
 
 /** What his kitchen makes for the dishes: the semi-processed items he added here, then his sheet's batches. */
 function Kitchen({ ctx, entries, editing, canEdit, onEdit, onSave, onDelete }: {
-  ctx: CostContext; entries: Entry[]; editing: string | null; canEdit: boolean; onEdit: (id: string | null) => void;
-  onSave: (id: string, answer: PrepAnswer) => void; onDelete: (p: OwnPrep) => void;
+  ctx: CostContext; entries: Entry[]; editing: string | null; canEdit: boolean; onEdit: (key: string | null) => void;
+  onSave: (question: string, answer: PrepAnswer | BatchAnswer, name: string) => void;
+  /** Takes away one of his own items, or his changes to a sheet batch. */
+  onDelete: (question: string, name: string, message: string) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const own = ownPreps(ctx.answers);
@@ -254,8 +256,8 @@ function Kitchen({ ctx, entries, editing, canEdit, onEdit, onSave, onDelete }: {
   // Used by a dish: by its id, or by the name his sheet uses for it.
   const usedIn = (row: { name: string; own: OwnPrep | null }) => entries.filter((e) => e.recipe?.lines.some((l) =>
     l.name === row.name || (row.own && l.name === kitchenLine(row.own.id)))).length;
-  const editor = (p: OwnPrep | null) => (
-    <PrepEditor key={p?.id ?? 'new'} item={p} ctx={ctx} onCancel={() => onEdit(null)} onSave={onSave} />
+  const editor = (p: OwnPrep | null, sheet?: string) => (
+    <PrepEditor key={p?.id ?? sheet ?? 'new'} item={p} sheet={sheet} ctx={ctx} onCancel={() => onEdit(null)} onSave={onSave} />
   );
 
   return (
@@ -263,8 +265,9 @@ function Kitchen({ ctx, entries, editing, canEdit, onEdit, onSave, onDelete }: {
       <ul className="vault__list">
         {editing === '' && <li>{editor(null)}</li>}
         {rows.map((row) => {
-          if (row.own && editing === row.own.id) return <li key={row.key}>{editor(row.own)}</li>;
-          const prep = row.own ?? PREPS[row.name];
+          if (editing === row.key) return <li key={row.key}>{editor(row.own, row.own ? undefined : row.name)}</li>;
+          const prep = row.own ?? prepOf(row.name, ctx.answers)!;
+          const edited = !row.own && batchEdit(row.name, ctx.answers) !== null;
           const cost = linesCost(prep.lines, ctx);
           const used = usedIn(row);
           const makes = row.own ? row.own.makes : batchMakes(row.name, recipeUnit(row.name) ?? prep.makes?.unit ?? 'g', ctx.answers);
@@ -288,10 +291,15 @@ function Kitchen({ ctx, entries, editing, canEdit, onEdit, onSave, onDelete }: {
                 {isOpen && (
                   <div className="rcard__more">
                     <div className="rcard__actions">
-                      {canEdit && row.own && <button type="button" className="chip" onClick={() => onEdit(row.own!.id)}>Edit</button>}
-                      {canEdit && row.own && used === 0 && <button type="button" className="linkbtn" onClick={() => onDelete(row.own!)}>Delete</button>}
+                      {canEdit && <button type="button" className="chip" onClick={() => onEdit(row.key)}>Edit</button>}
+                      {canEdit && row.own && used === 0 && (
+                        <button type="button" className="linkbtn" onClick={() => onDelete(prepQuestion(row.own!.id), row.name, `${row.name}: deleted.`)}>Delete</button>
+                      )}
+                      {canEdit && edited && (
+                        <button type="button" className="linkbtn" onClick={() => onDelete(batchQuestion(row.name), row.name, `${row.name}: back to your sheet.`)}>Use your sheet's batch</button>
+                      )}
                       <span className="rcard__from">
-                        {[row.own ? 'Added here' : 'From your sheet', used ? `in ${used} recipe${used === 1 ? '' : 's'}` : 'in no recipe yet'].join(' · ')}
+                        {[row.own ? 'Added here' : edited ? 'Changed here, from your sheet' : 'From your sheet', used ? `in ${used} recipe${used === 1 ? '' : 's'}` : 'in no recipe yet'].join(' · ')}
                       </span>
                     </div>
                   </div>
@@ -306,19 +314,24 @@ function Kitchen({ ctx, entries, editing, canEdit, onEdit, onSave, onDelete }: {
 }
 
 type PrepAnswer = Extract<Answer, { kind: 'prep' }>;
+type BatchAnswer = Extract<Answer, { kind: 'batch' }>;
 
 /**
  * Writing a semi-processed item: its name, one batch's output, what goes in. A new one first
  * offers the names his recipes already use but nothing defines (Fried Chicken Cubes), so
  * picking one completes every dish that names it; a new name only when none fits.
+ * One of his sheet's batches (`sheet`) keeps its name and unit: his dishes use it by them.
  */
-function PrepEditor({ item, ctx, onSave, onCancel }: {
-  item: OwnPrep | null; ctx: CostContext; onSave: (id: string, answer: PrepAnswer) => void; onCancel: () => void;
+function PrepEditor({ item, sheet, ctx, onSave, onCancel }: {
+  item: OwnPrep | null; sheet?: string; ctx: CostContext;
+  onSave: (question: string, answer: PrepAnswer | BatchAnswer, name: string) => void; onCancel: () => void;
 }) {
-  const [name, setName] = useState(item?.name ?? '');
-  const [qty, setQty] = useState(item ? String(item.makes.qty) : '');
-  const [unit, setUnit] = useState(item?.makes.unit ?? 'g');
-  const [rows, setRows] = useState<Draft[]>(() => (item ? toDraft(item.lines) : [EMPTY_ROW]));
+  const sheetUnit0 = sheet ? recipeUnit(sheet) ?? PREPS[sheet]?.makes?.unit ?? 'g' : null;
+  const sheetMakes = sheet ? batchMakes(sheet, sheetUnit0!, ctx.answers) : null;
+  const [name, setName] = useState(item?.name ?? sheet ?? '');
+  const [qty, setQty] = useState(item ? String(item.makes.qty) : sheetMakes ? String(sheetMakes.qty) : '');
+  const [unit, setUnit] = useState(item?.makes.unit ?? sheetUnit0 ?? 'g');
+  const [rows, setRows] = useState<Draft[]>(() => (item ? toDraft(item.lines) : sheet ? toDraft(prepOf(sheet, ctx.answers)?.lines ?? []) : [EMPTY_ROW]));
   const { suppliers } = useCatalog();
   const [error, setError] = useState('');
   const form = useRef<HTMLFormElement>(null);
@@ -338,7 +351,7 @@ function PrepEditor({ item, ctx, onSave, onCancel }: {
   const clean = name.trim().replace(/\s+/g, ' ');
   const sheetUnit = recipeUnit(clean);
   const typed = clean.toLowerCase();
-  const suggestions = item ? [] : undefinedNames(ctx.answers).filter((u) => u.name.toLowerCase().includes(typed) && u.name !== clean).slice(0, 5);
+  const suggestions = item || sheet ? [] : undefinedNames(ctx.answers).filter((u) => u.name.toLowerCase().includes(typed) && u.name !== clean).slice(0, 5);
   const draft = draftLines(rows);
   const preview = draft.length ? linesCost(draft, ctx) : null;
   const makes = Number(qty);
@@ -349,6 +362,14 @@ function PrepEditor({ item, ctx, onSave, onCancel }: {
 
   const save = (ev: FormEvent) => {
     ev.preventDefault();
+    if (sheet) {
+      if (!/^\d+(\.\d{1,4})?$/.test(qty.trim()) || !(makes > 0)) return setError('Type how much one batch makes, like 2000.');
+      const lines = readRows(rows);
+      if (typeof lines === 'string') return setError(lines);
+      const answer: BatchAnswer = { kind: 'batch', makes: { qty: makes, unit }, lines };
+      const wrong = checkAnswer(batchQuestion(sheet), answer);
+      return wrong ? setError(wrong) : onSave(batchQuestion(sheet), answer, sheet);
+    }
     const taken = ownPreps(ctx.answers).some((p) => p.id !== item?.id && p.name.toLowerCase() === clean.toLowerCase());
     if (taken) return setError('You already have one with that name.');
     const wrongName = checkPrepName(clean);
@@ -360,27 +381,31 @@ function PrepEditor({ item, ctx, onSave, onCancel }: {
     const answer: PrepAnswer = { kind: 'prep', name: clean, makes: { qty: makes, unit }, lines };
     const wrong = checkAnswer(prepQuestion(id), answer);
     if (wrong) return setError(wrong);
-    onSave(id, answer);
+    onSave(prepQuestion(id), answer, clean);
   };
 
   return (
-    <form ref={form} className="rcard rcard--open rcard--edit" onSubmit={save} aria-label={item ? `${item.name}: what goes in it` : 'New semi-processed item'}>
+    <form ref={form} className="rcard rcard--open rcard--edit" onSubmit={save} aria-label={item || sheet ? `${item?.name ?? sheet}: what goes in it` : 'New semi-processed item'}>
       <div className="rcard__head rcard__head--static">
-        <span className="rcard__name">{item ? item.name : 'New semi-processed item'}</span>
+        <span className="rcard__name">{item?.name ?? sheet ?? 'New semi-processed item'}</span>
         <span className="rcard__status">One batch</span>
       </div>
       <div className="prep__top">
-        <label className="prep__field prep__name">Name
-          <input value={name} maxLength={60} placeholder="Garlic sauce"
-            onChange={(e) => { setName(e.target.value); setError(''); }} />
-        </label>
+        {!sheet && (
+          <label className="prep__field prep__name">Name
+            <input value={name} maxLength={60} placeholder="Garlic sauce"
+              onChange={(e) => { setName(e.target.value); setError(''); }} />
+          </label>
+        )}
         <label className="prep__field">One batch makes
           <span className="prep__makes">
             <input className="num" inputMode="decimal" value={qty} aria-label="One batch makes"
               onChange={(e) => { setQty(e.target.value); setError(''); }} />
-            <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
-              {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
-            </select>
+            {sheet ? <span className="redit__unit">{unit}</span> : (
+              <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
+                {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            )}
           </span>
         </label>
       </div>
@@ -395,7 +420,7 @@ function PrepEditor({ item, ctx, onSave, onCancel }: {
           ))}
         </div>
       )}
-      {sheetUnit && <p className="rcard__from">Your recipes already use {clean}: saving it gives them its cost and stock.</p>}
+      {sheetUnit && !sheet && <p className="rcard__from">Your recipes already use {clean}: saving it gives them its cost and stock.</p>}
       <p className="rcard__from">What goes into one batch:</p>
       <LinesEditor rows={rows} onChange={(r) => { setRows(r); setError(''); }} ctx={ctx} suppliers={suppliers} ownPrepsToo={false} />
       {preview && (
@@ -566,14 +591,13 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
         )}
         <Kitchen
           ctx={ctx} entries={entries} editing={editing} canEdit={canEdit} onEdit={setEditing}
-          onSave={(id, answer) => {
-            const question = prepQuestion(id);
-            setLast({ message: `${answer.name}: saved. Your recipes can use it now.`, undo: answerQuestion(question, answer, ctx.answers.get(question) ?? null, owner ?? undefined) });
+          onSave={(question, answer, name) => {
+            const message = answer.kind === 'prep' ? `${name}: saved. Your recipes can use it now.` : `${name}: saved. Your recipes use it as changed.`;
+            setLast({ message, undo: answerQuestion(question, answer, ctx.answers.get(question) ?? null, owner ?? undefined) });
             setEditing(null);
           }}
-          onDelete={(p) => {
-            const question = prepQuestion(p.id);
-            setLast({ message: `${p.name}: deleted.`, undo: answerQuestion(question, null, ctx.answers.get(question) ?? null, owner ?? undefined) });
+          onDelete={(question, _name, message) => {
+            setLast({ message, undo: answerQuestion(question, null, ctx.answers.get(question) ?? null, owner ?? undefined) });
           }}
         />
       </main>

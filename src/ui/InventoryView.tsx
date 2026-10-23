@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   addInventoryItem,
+  addToDraft,
   archiveInventoryItem,
   restoreInventoryItem,
   useInventory,
@@ -8,7 +9,7 @@ import {
   type StockStatus,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
-import { draftsOf } from '../domain/ordering.ts';
+import { cartOf, cartsOf, draftsOf } from '../domain/ordering.ts';
 import { AddIngredientModal } from './AddIngredientModal.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
@@ -56,7 +57,7 @@ export function InventoryView({
   const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'order'>('all');
   const searchRef = useRef<HTMLInputElement>(null);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
-  const [done, setDone] = useState<{ message: string; undo?: () => void } | null>(null);
+  const [done, setDone] = useState<{ message: string; undo?: () => void; href?: string } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
   const purchases = usePurchases();
   const coming = useMemo(() => {
@@ -67,6 +68,16 @@ export function InventoryView({
   }, [purchases]);
   /** Items that need ordering now: the badge, and a tap opens them on Order. */
   const needed = useMemo(() => new Set([...draftsOf(items).values()].flatMap((d) => Object.keys(d))), [items]);
+  /** Each supplier's cart: what runs low is in it by itself; + Cart puts in what is not. */
+  const carts = useMemo(() => cartsOf(draftsOf(items), purchases.drafts), [items, purchases]);
+  const toCart = (item: (typeof items)[number]) => {
+    const last = purchases.lastSupplier.get(item.id);
+    const to = item.suggestedSupplierId ?? (last && item.supplierIds.includes(last) && supplierNames.has(last) ? last : item.supplierIds.find((id) => supplierNames.has(id)));
+    if (!to) return;
+    const { draft, undo } = addToDraft(to, item.id, Math.max(1, item.suggestedPacks), carts.get(to) ?? {});
+    const count = Object.keys(draft).length;
+    setDone({ message: `${item.name}: added to ${supplierNames.get(to)}'s cart · ${count} ${count === 1 ? 'item' : 'items'}.`, undo, href: `#order/${to}` });
+  };
   const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'details'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const FILTERS = [['all', 'All'], ['low', 'Low'], ['out', 'Out'], ['order', 'On order']] as const;
@@ -134,6 +145,7 @@ export function InventoryView({
         <div className="inv-notice" role="status">
           {done.message}
           {done.undo && <button type="button" onClick={() => { done.undo?.(); setDone(null); }}>Undo</button>}
+          {done.href && <a className="inv-notice__link" href={done.href}>Open cart</a>}
         </div>
       )}
 
@@ -165,6 +177,8 @@ export function InventoryView({
         {shown.length === 0 && <p className="inv-empty">{query.trim() ? `No ingredients match “${query.trim()}”.` : 'Nothing here. Everything is fine, or choose All.'}</p>}
         {shown.map((item) => {
            const status = stockStatus(item);
+           const cart = cartOf(carts, item.id);
+           const canCart = !cart && !coming.packs.has(item.id) && (status === 'low' || status === 'out') && item.supplierIds.some((id) => supplierNames.has(id));
 
            return (
              <article key={item.id} className="inv-row"
@@ -196,10 +210,7 @@ export function InventoryView({
                      it is due, the amount stays hidden until it is counted, and says so. */}
                  {item.counted && (dueIds.has(item.id)
                    ? <strong>Count due · hidden</strong>
-                   : <>
-                     <strong>{formatStock(item.onHandBaseUnits, item)}</strong>
-                     <Level days={item.lastsDays} status={status} />
-                   </>)}
+                   : <strong>{formatStock(item.onHandBaseUnits, item)}</strong>)}
                  {!item.counted && <span className="inv-row__lasts">{formatQuantity(item.packQty, item.baseUnit)} a pack</span>}
                  {status === 'unsure'
                    ? <span className="inv-row__lasts">{missedText(item.missedSales)}</span>
@@ -209,6 +220,8 @@ export function InventoryView({
                  {coming.packs.has(item.id) && (
                    <span className="inv-row__onorder">On order {coming.packs.get(item.id)} · {coming.po.get(item.id)}</span>
                  )}
+                 {cart && <a className="inv-row__cart" href={`#order/${cart}`}>In cart · {supplierNames.get(cart)}</a>}
+                 {canCart && <button type="button" className="inv-row__cart inv-row__cart--add" aria-label={`Add ${item.name} to its cart`} onClick={() => toCart(item)}>+ Cart</button>}
                </div>
              </article>
            );
@@ -233,17 +246,5 @@ export function InventoryView({
         <AddIngredientModal onClose={() => setShowAdd(false)} onSave={addInventoryItem} />
       )}
     </div>
-  );
-}
-
-/** How long what is left lasts, against a week: a full bar is a week or more. */
-const WEEK = 7;
-function Level({ days, status }: { days: number | null; status: StockStatus }) {
-  if (days === null && status !== 'out') return null;
-  const share = status === 'out' ? 0 : Math.min(1, (days ?? 0) / WEEK);
-  return (
-    <span className={`inv-level inv-level--${status}`} aria-hidden="true">
-      <span style={{ width: `${Math.max(share * 100, status === 'out' ? 0 : 6)}%` }} />
-    </span>
   );
 }

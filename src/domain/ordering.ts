@@ -84,3 +84,27 @@ export const draftsOf = (rows: readonly { id: string; suggestedPacks: number; su
   }
   return drafts;
 };
+
+/**
+ * What each supplier's cart holds (THE cart rule): a saved cart as it was saved; else what the
+ * reorder rule suggests for that supplier, less any item already in another supplier's saved
+ * cart, so an item moved to another cart never comes back to the first one.
+ */
+export const cartsOf = (
+  suggested: ReadonlyMap<string, Record<string, number>>,
+  saved: ReadonlyMap<string, Record<string, number>>,
+): Map<string, Record<string, number>> => {
+  const inCart = new Set([...saved.values()].flatMap((c) => Object.keys(c)));
+  const carts = new Map<string, Record<string, number>>();
+  for (const [supplierId, packs] of suggested) {
+    if (saved.has(supplierId)) continue;
+    const left = Object.fromEntries(Object.entries(packs).filter(([id]) => !inCart.has(id)));
+    if (Object.keys(left).length > 0) carts.set(supplierId, left);
+  }
+  for (const [supplierId, packs] of saved) carts.set(supplierId, packs);
+  return carts;
+};
+
+/** The supplier whose cart holds this item, if any. */
+export const cartOf = (carts: ReadonlyMap<string, Record<string, number>>, itemId: string): string | null =>
+  [...carts].find(([, c]) => itemId in c)?.[0] ?? null;

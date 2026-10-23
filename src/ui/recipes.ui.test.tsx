@@ -145,6 +145,34 @@ test('the owner adds a semi-processed item; it is offered in every recipe and ca
   expect(card('Syrup')).toBeTruthy();
 });
 
+test("the owner changes one of his sheet's batches; his dishes use it as changed, and his sheet comes back in one tap", async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#items/semi');
+  render(<Root />);
+  await user.click(within(card('Mozzarella Blend')).getByRole('button', { name: /Mozzarella Blend/ }));
+  expect(within(card('Mozzarella Blend')).getByText(/^From your sheet · in \d+ recipes$/)).toBeTruthy();
+  await user.click(within(card('Mozzarella Blend')).getByRole('button', { name: 'Edit' }));
+
+  const form = within(screen.getByRole('form', { name: 'Mozzarella Blend: what goes in it' }));
+  expect(form.queryByRole('textbox', { name: 'Name' })).toBeNull();
+  expect((form.getByRole('textbox', { name: 'One batch makes' }) as HTMLInputElement).value).toBe('2000');
+  expect((form.getByRole('textbox', { name: 'Line 1: how much' }) as HTMLInputElement).value).toBe('1000');
+  await user.clear(form.getByRole('textbox', { name: 'Line 1: how much' }));
+  await user.type(form.getByRole('textbox', { name: 'Line 1: how much' }), '1500');
+  await user.click(form.getByRole('button', { name: 'Save' }));
+  expect(readAll().at(-1)).toMatchObject({
+    type: 'recipe.answer_set', question: 'batch:Mozzarella Blend', before: null, actor: { role: 'owner' },
+    after: { kind: 'batch', makes: { qty: 2000, unit: 'g' }, lines: [{ name: 'Mozzarella A', qty: 1500, unit: 'g' }, { name: 'Mozzarella B', qty: 1000, unit: 'g' }] },
+  });
+  expect(within(card('Mozzarella Blend')).getByText('1,500 g')).toBeTruthy();
+  expect(within(card('Mozzarella Blend')).getByText(/^Changed here, from your sheet/)).toBeTruthy();
+  await user.click(within(card('Mozzarella Blend')).getByRole('button', { name: "Use your sheet's batch" }));
+  expect(readAll().at(-1)).toMatchObject({ question: 'batch:Mozzarella Blend', after: null });
+  expect(within(card('Mozzarella Blend')).getByText(/^From your sheet/)).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(within(card('Mozzarella Blend')).getByText(/^Changed here, from your sheet/)).toBeTruthy();
+});
+
 test('a name his recipes use but nothing makes is offered first; saving it completes those dishes', async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#items/semi');

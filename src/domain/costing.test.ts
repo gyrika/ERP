@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  answersFromEvents, batchMakes, checkAnswer, gapName, ingredientQuestion, linesCost, marginOf, menuCost, openQuestions, ownPreps, prepOf,
+  answersFromEvents, batchMakes, batchQuestion, checkAnswer, gapName, ingredientQuestion, linesCost, marginOf, menuCost, openQuestions, ownPreps, prepOf,
   kitchenLine, prepQuestion, recipeChoices, recipeQuestion, undefinedNames, stockLine, waitingOn, yieldQuestion, type Answer, type RecipeEvent,
 } from './costing.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
@@ -182,4 +182,31 @@ test('a semi-processed item needs a free name, its output, and lines from stock 
   assert.notEqual(checkAnswer(q, as({ lines: [{ name: kitchenLine(GARLIC_ID), qty: 5, unit: 'g' }] })), null);
   assert.equal(checkAnswer(q, as({ lines: [{ name: 'Pizza Sauce Batch', qty: 500, unit: 'g' }] })), null);
   assert.notEqual(checkAnswer(q, { kind: 'own', lines: [{ name: stockLine('inv-0003'), qty: 1, unit: 'g' }] }), null);
+});
+
+const SAUCE = 'Pizza Sauce Batch';
+const sauce = (patch: Partial<Extract<Answer, { kind: 'batch' }>> = {}): Answer => ({
+  kind: 'batch', makes: { qty: 3000, unit: 'g' },
+  lines: [{ name: 'Tomato Paste', qty: 2000, unit: 'g' }, { name: stockLine('inv-0009'), qty: 500, unit: 'g' }],
+  ...patch,
+});
+
+test('a sheet batch he changes in the app: checked like the server does', () => {
+  const q = batchQuestion(SAUCE);
+  assert.equal(checkAnswer(q, sauce()), null);
+  assert.equal(checkAnswer(batchQuestion('No Such Batch'), sauce()), 'That is not one of your batches.');
+  assert.equal(checkAnswer(q, sauce({ makes: { qty: 30, unit: 'pcs' } })), 'Your recipes use it in g: type the batch in g.');
+  assert.equal(checkAnswer(q, sauce({ makes: { qty: 0, unit: 'g' } })), 'Type how much one batch makes.');
+  assert.notEqual(checkAnswer(q, sauce({ lines: [{ name: SAUCE, qty: 5, unit: 'g' }] })), null, 'never inside itself');
+  assert.notEqual(checkAnswer(q, sauce({ lines: [{ name: 'Pizza Dough Batch', qty: 1, unit: 'pcs' }] })), null, 'no batch it did not take');
+  assert.notEqual(checkAnswer(q, sauce({ lines: [{ name: kitchenLine('kgarlic01'), qty: 5, unit: 'g' }] })), null);
+  assert.notEqual(checkAnswer(q, { kind: 'yield', qty: 3000 }), null);
+});
+
+test('his version of a sheet batch wins over his sheet in every cost; clearing it brings the sheet back', () => {
+  const edited = ctx([[batchQuestion(SAUCE), sauce()]]);
+  assert.equal(prepOf(SAUCE, edited.answers)?.makes?.qty, 3000);
+  assert.equal(batchMakes(SAUCE, 'g', edited.answers)?.qty, 3000);
+  assert.notEqual(menuCost('margherita', 'L', edited).cents, menuCost('margherita', 'L', ctx()).cents);
+  assert.equal(prepOf(SAUCE, new Map())?.lines.length, 7);
 });

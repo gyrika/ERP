@@ -32,7 +32,9 @@ const openOrders = async (_user: ReturnType<typeof userEvent.setup>) => {
 };
 
 /** The last thing the shop did: not the number the server gives it afterwards. */
-const lastEvent = () => readAll().filter((e) => e.type !== 'stock.numbered').at(-1);
+const lastEvent = () => readAll().filter((e) => e.type !== 'stock.numbered' && e.type !== 'stock.draft_set').at(-1);
+/** Each supplier's draft order as the events leave it. */
+const drafts = () => inventoryStore.readDrafts();
 const DAY = 24 * 60 * 60 * 1000;
 /** Yesterday's sales: `qty` large margheritas, 222 g of flour each, so flour has a rate of use (7.9 kg a day for 500). */
 const sellPizzas = (qty: number) => appendEvent({
@@ -227,30 +229,111 @@ test('supplier cards render fallback message when phone is missing', () => {
 const flourRow = () => within(screen.getByRole('main', { name: 'Inventory' })).getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
 const amount = () => within(flourRow()).getByLabelText('Available stock and pack size').textContent;
 
-test("the item's Order tab is the same purchase order: Place order makes a PO, then the item shows it is on order", async () => {
+test("the item's Order tab only puts it in a supplier's cart; the Order page edits and places the cart", async () => {
   const user = userEvent.setup();
-  render(<InventoryView />);
+  const items = render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   const sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
   await user.click(sheet.getByRole('tab', { name: 'Order' }));
   expect(sheet.queryByRole('textbox', { name: /Packs received/ })).toBeNull(); // stock comes in only by GRN
-  const card = within(sheet.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
-  expect(card.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '1');
-  await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
-  await user.click(sheet.getByRole('button', { name: 'Place order' }));
+  expect(sheet.queryByRole('button', { name: 'Place order' })).toBeNull(); // items only collect; the Order page places
+  expect(sheet.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '1');
+  await user.click(sheet.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  await user.click(sheet.getByRole('button', { name: 'Add to cart' }));
 
-  expect(lastEvent()).toMatchObject({ type: 'stock.ordered', lines: [{ itemId: 'inv-0001', packs: 2 }] });
-  expect(readAll().find((e) => e.type === 'stock.numbered')).toMatchObject({ docId: lastEvent()!.id, kind: 'PO', number: 'PO-0001' }); // no server here: this device numbers it
-  expect(sheet.getByLabelText('Message').textContent).toContain('2 × Pizza Flour (25 kg packs)');
-  expect(sheet.getByRole('status').textContent).toContain('PO-0001 placed with Prima / David Stores (Wholesale).');
+  expect(readAll().some((e) => e.type === 'stock.ordered')).toBe(false);
+  const prima = 'sup_prima';
+  expect(drafts().get(prima)).toEqual({ 'inv-0001': 2 });
+  expect(sheet.getByRole('status').textContent).toContain("Added to Prima / David Stores (Wholesale)'s cart · 1 item.");
+  expect(within(sheet.getByRole('status')).getByRole('link', { name: 'Open cart' }).getAttribute('href')).toBe(`#order/${prima}`);
+  await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(drafts().has(prima)).toBe(false);
+  await user.click(sheet.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  await user.click(sheet.getByRole('button', { name: 'Add to cart' }));
   await user.keyboard('{Escape}');
-  expect(within(flourRow()).getByText('On order 2 · PO-0001')).toBeTruthy();
 
-  // Opened again: the open PO, not a second order.
+  // Opened again: one line says which cart it is in; nothing to edit here.
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   await user.click(screen.getByRole('tab', { name: 'Order' }));
-  expect(screen.queryByRole('button', { name: 'Place order' })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Cancel PO-0001' })).toBeTruthy();
+  expect(screen.getByText(/In Prima \/ David Stores \(Wholesale\)'s cart · 2 packs/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Add to cart' })).toBeNull();
+  await user.keyboard('{Escape}');
+  expect(within(flourRow()).getByRole('link', { name: 'In cart · Prima / David Stores (Wholesale)' })).toBeTruthy();
+  items.unmount();
+
+  // The Order page: the cart is listed, its bill holds the item; a change is kept on leaving.
+  await openOrders(user);
+  expect(within(screen.getByRole('group', { name: 'Suppliers that need ordering' })).getByRole('listitem').textContent).toContain('Cart · 1 item');
+  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  const bill = () => within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  expect(bill().getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '2');
+  await user.click(bill().getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  expect(drafts().get(prima)).toEqual({ 'inv-0001': 3 });
+  await user.click(screen.getByRole('button', { name: 'Back' }));
+  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  expect(bill().getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
+
+  // Placing it makes the PO and empties the cart; Undo takes the PO back and the cart returns.
+  await user.click(screen.getByRole('button', { name: 'Place order' }));
+  expect(lastEvent()).toMatchObject({ type: 'stock.ordered', lines: [{ itemId: 'inv-0001', packs: 3 }] });
+  expect(drafts().has(prima)).toBe(false);
+  await user.click(within(screen.getAllByRole('status').at(-1)!).getByRole('button', { name: 'Undo' }));
+  expect(lastEvent()).toMatchObject({ type: 'stock.order_cancelled' });
+  expect(drafts().get(prima)).toEqual({ 'inv-0001': 3 });
+});
+
+test("a line moves to the item's other supplier's cart, never comes back to the first, and Undo puts both back", async () => {
+  const user = userEvent.setup();
+  sellPizzas(500);
+  render(<InventoryView />);
+  act(() => shelfPacks(1)); // flour runs low: it is in Prima's cart by itself
+  await openOrders(user);
+  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  const bill = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  expect(bill.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
+  await user.click(bill.getByRole('button', { name: "Move to Ajantha (Wholesale)'s cart" }));
+
+  expect(drafts().get('sup_ajantha')).toEqual({ 'inv-0001': 3 });
+  expect(drafts().has('sup_prima')).toBe(false);
+  expect(bill.queryByRole('textbox', { name: 'Packs of Pizza Flour' })).toBeNull();
+  expect(screen.getByText("Pizza Flour: moved to Ajantha (Wholesale)'s cart.")).toBeTruthy();
+  // It is in one cart only: Prima's suggestions no longer hold it.
+  await user.click(screen.getByRole('button', { name: "Open Ajantha (Wholesale)'s cart" }));
+  expect(within(screen.getByRole('region', { name: 'Order from Ajantha (Wholesale)' })).getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
+  await user.click(screen.getByRole('button', { name: 'Back' }));
+  const carts = within(screen.getByRole('group', { name: 'Suppliers that need ordering' }));
+  expect(carts.getAllByRole('listitem').map((li) => li.textContent)).toEqual([expect.stringContaining('Ajantha')]);
+
+  // Undo, from the bill it left: back in Prima's cart, out of Ajantha's.
+  await user.click(screen.getByRole('button', { name: 'Order from Ajantha (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: "Move to Prima / David Stores (Wholesale)'s cart" }));
+  await user.click(within(screen.getByText("Pizza Flour: moved to Prima / David Stores (Wholesale)'s cart.")).getByRole('button', { name: 'Undo' }));
+  expect(drafts().get('sup_ajantha')).toEqual({ 'inv-0001': 3 });
+  expect(within(screen.getByRole('region', { name: 'Order from Ajantha (Wholesale)' })).getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
+});
+
+test('+ Cart on a low row puts it in its supplier\'s cart, with Undo; #order/<supplier> opens that cart', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  act(() => {
+    // Counted, and empty, with no sales: Out, but the reorder rule has nothing to suggest, so in no cart yet.
+    shelfPacks(1);
+    const flour = inventoryStore.readItems().find((i) => i.id === 'inv-0001')!;
+    inventoryStore.addStockMovement('COUNT_ADJUST', flour.id, -flour.onHandBaseUnits, 'test');
+  });
+  await user.click(within(flourRow()).getByRole('button', { name: 'Add Pizza Flour to its cart' }));
+  expect(drafts().get('sup_prima')).toEqual({ 'inv-0001': 1 });
+  const notice = within(screen.getByText(/Pizza Flour: added to Prima \/ David Stores \(Wholesale\)'s cart · 1 item\./));
+  expect(notice.getByRole('link', { name: 'Open cart' }).getAttribute('href')).toBe('#order/sup_prima');
+  expect(within(flourRow()).getByRole('link', { name: 'In cart · Prima / David Stores (Wholesale)' })).toBeTruthy();
+  await user.click(notice.getByRole('button', { name: 'Undo' }));
+  expect(drafts().has('sup_prima')).toBe(false);
+  expect(within(flourRow()).getByRole('button', { name: 'Add Pizza Flour to its cart' })).toBeTruthy();
+
+  await user.click(within(flourRow()).getByRole('button', { name: 'Add Pizza Flour to its cart' }));
+  orderPage?.unmount();
+  orderPage = render(<OrderView supplierId="sup_prima" />);
+  expect(within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' })).getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '1');
 });
 
 test('the price the supplier charges is changed on the Order tab, audited, with Undo', async () => {
@@ -301,7 +384,7 @@ test('search finds by ingredient, category or supplier; Escape clears it', async
 
 // ----- fewer buttons (SCRUM-92) -----
 
-test('Purchase orders: a draft per supplier from what runs low; Place order saves the PO; Cancel has Undo', async () => {
+test('Purchase orders: a cart per supplier from what runs low; Place order saves the PO; Cancel has Undo', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
   expect(within(flourRow()).queryByRole('button', { name: /^Order/ })).toBeNull(); // no Order button on rows
@@ -310,7 +393,7 @@ test('Purchase orders: a draft per supplier from what runs low; Place order save
   await openOrders(user);
   // Step 1: who. The supplier that needs ordering is listed with how many; only its + starts the order.
   const needs = within(screen.getByRole('group', { name: 'Suppliers that need ordering' }));
-  expect(needs.getByRole('listitem').textContent).toContain('1 to order');
+  expect(needs.getByRole('listitem').textContent).toContain('1 low item');
   expect(needs.getAllByRole('button').map((b) => b.textContent)).toEqual(['+']);
   await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
   // Step 2: what. The suggested packs are in; the one main button is at the bottom.
@@ -550,7 +633,7 @@ test('the order is a bill (add item, qty, price, totals) and the GRN steps have 
 
   await openGrn(user);
   const grn = within(screen.getByRole('region', { name: /PO-0001$/ }));
-  expect(grn.getByRole('button', { name: 'One less of Pizza Flour' }).className).toContain('bigstep__btn');
+  expect(grn.getByRole('button', { name: 'One less of Pizza Flour' }).className).toContain('qty__btn');
   await user.click(grn.getByRole('button', { name: 'One less of Pizza Flour' }));
   expect(grn.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '1');
   expect(grn.getByLabelText('Pizza Flour: short').textContent).toContain('short −1');
@@ -559,8 +642,8 @@ test('the order is a bill (add item, qty, price, totals) and the GRN steps have 
   expect(grn.getByLabelText('Pizza Flour: over').textContent).toContain('over +1');
   await user.click(grn.getByRole('button', { name: 'One less of Pizza Flour' }));
   expect(grn.getByRole('checkbox', { name: 'Pizza Flour came' })).toHaveProperty('ariaChecked', 'true'); // changing it ticked it
-  await user.click(grn.getByRole('button', { name: 'Review' })); // all ticked: the one main button reviews
-  expect(grn.getByLabelText('Delivery total').textContent).toBe('Expected 2 packs · Received 2 packs');
+  // All ticked: the one main button saves, the totals right under the list.
+  expect(grn.getByLabelText('Final total price').textContent).toBe('Rs 12,800');
   expect(grn.getByRole('button', { name: 'Save GRN' })).toBeTruthy();
 });
 
@@ -580,7 +663,7 @@ const orderFlour = (packs = 2) => act(() => { inventoryStore.placeOrder('sup_pri
 /** Ticks the GRN's items one by one, then reviews (the step with Save GRN / Manager approves). */
 const toReview = async (user: ReturnType<typeof userEvent.setup>) => {
   for (let i = 0; i < 20 && !screen.queryByRole('button', { name: /^(Save GRN|Manager approves)$/ }); i++) {
-    await user.click(screen.getByRole('button', { name: /^(✓ .+ came|Review)$/ }));
+    await user.click(screen.getByRole('button', { name: /^✓ .+ came$/ }));
   }
 };
 /** Opens the GRN and sets the first item's amount. */
@@ -603,8 +686,8 @@ test('GRN: a list ticked one by one; only open orders and only what was ordered;
   await openGrn(user);
   const sheet = within(screen.getByRole('region', { name: /^Goods from .* · PO-0001$/ }));
   // Step 2: a list of what was ordered, ticked one by one.
-  expect(sheet.getByText('Step 2 of 3 · Check each item')).toBeTruthy();
-  expect(within(sheet.getByRole('list', { name: 'Check what came' })).getAllByRole('listitem')).toHaveLength(1);
+  expect(sheet.getByText('Step 2 of 2 · Check and save')).toBeTruthy();
+  expect(within(sheet.getByRole('table', { name: 'Delivery bill' })).getAllByRole('checkbox')).toHaveLength(1);
   expect(sheet.getByText('0 of 1 checked')).toBeTruthy();
   expect(sheet.queryByRole('button', { name: 'Received everything' })).toBeNull(); // every item is checked, no skipping
   expect(sheet.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '2');
@@ -612,11 +695,9 @@ test('GRN: a list ticked one by one; only open orders and only what was ordered;
   expect(sheet.getByRole('checkbox', { name: 'Pizza Flour came' })).toHaveProperty('ariaChecked', 'true');
   expect(sheet.getByText('1 of 1 checked')).toBeTruthy();
   expect(sheet.getByLabelText('Pizza Flour: as ordered')).toBeTruthy();
-  await user.click(sheet.getByRole('button', { name: 'Review' }));
-  // Step 3: the review, one main button.
-  expect(sheet.getByText('Step 3 of 3 · Review')).toBeTruthy();
-  expect(within(sheet.getByRole('list', { name: 'What came' })).getAllByRole('listitem')).toHaveLength(1);
-  expect(sheet.getByLabelText('Delivery total').textContent).toBe('Expected 2 packs · Received 2 packs');
+  // All checked: the bill under the list and Save GRN on the same step.
+  expect(sheet.getByRole('table', { name: 'Delivery bill' })).toBeTruthy();
+  expect(sheet.getByLabelText('Final total price').textContent).toBe('Rs 12,800');
   await user.click(sheet.getByRole('button', { name: 'Save GRN' }));
   // Done: a tick and what to do next.
   expect(within(screen.getByRole('region', { name: 'GRN' })).getByRole('status').textContent).toContain('GRN-0001 saved');
@@ -635,6 +716,7 @@ test('GRN: a list ticked one by one; only open orders and only what was ordered;
 
   // Undo: a manager's PIN (a cashier's is refused), then why. The GRN stays listed, marked undone.
   await openGrn(user);
+  await user.click(screen.getByRole('button', { name: 'Open GRN-0001' })); // GRN history: the document has the Undo
   await user.click(screen.getByRole('button', { name: 'Undo GRN-0001' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '1111');
   expect(screen.getByRole('alert').textContent).toContain('PIN not accepted');
@@ -648,6 +730,88 @@ test('GRN: a list ticked one by one; only open orders and only what was ordered;
   await user.keyboard('{Escape}'); // back to the list: the order is open again
   await user.click(screen.getByRole('button', { name: /PO-0001 · expected/ }));
   expect(screen.getByRole('region', { name: /PO-0001$/ })).toBeTruthy();
+});
+
+test('GRN step 2 has Back to the list of deliveries, even with one open order', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour();
+  await openGrn(user);
+  expect(screen.getByText('Step 2 of 2 · Check and save')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Back' }));
+  expect(screen.getByText('Which delivery came?')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: /PO-0001 · expected/ }));
+  expect(screen.getByText('Step 2 of 2 · Check and save')).toBeTruthy();
+});
+
+test('GRN shows the order and delivered prices; a changed price is reviewed and approved by a manager', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour();
+  expect(lastEvent()).toMatchObject({ type: 'stock.ordered', lines: [{ itemId: 'inv-0001', unitPriceCents: 640000 }] });
+
+  await openGrn(user);
+  expect(screen.getByText(/Ordered at/)).toBeTruthy();
+  const deliveredPrice = screen.getByRole('textbox', { name: 'Delivered price per pack of Pizza Flour' });
+  expect(deliveredPrice).toHaveProperty('value', '6,400');
+  await user.clear(deliveredPrice);
+  await user.type(deliveredPrice, '6500');
+  await toReview(user);
+  expect(screen.getByRole('button', { name: 'Manager approves' })).toBeTruthy();
+  expect(screen.getByLabelText('Final total price').textContent).toBe('Rs 13,000');
+  expect(screen.getByLabelText('Pizza Flour: price differs')).toBeTruthy();
+
+  await user.click(screen.getByRole('button', { name: 'Manager approves' }));
+  await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  expect(screen.getByRole('table', { name: 'Delivery bill' })).toBeTruthy();
+  expect(screen.getByRole('cell', { name: 'Rs 13,000' })).toBeTruthy();
+  const managerPrice = screen.getByRole('textbox', { name: 'Delivered price per pack of Pizza Flour' });
+  await user.clear(managerPrice);
+  await user.type(managerPrice, '6600');
+  await user.click(screen.getByRole('button', { name: 'Approve' }));
+  const grn = readAll().find((e) => e.type === 'stock.grn')!;
+  expect(grn).toMatchObject({ approvedBy: { role: 'manager' }, lines: [{ unitPriceCents: 660000 }] });
+  // What it came at is now its price: audited, marked with the GRN; food costs and the next order use it.
+  expect(readAll().filter((e) => e.type === 'stock.price_set')).toMatchObject([{ itemId: 'inv-0001', before: 640000, after: 660000, grnId: grn.id }]);
+  expect(inventoryStore.readItems().find((i) => i.id === 'inv-0001')!.workingPriceCents).toBe(660000);
+  expect(screen.getByText(/1 price updated to what it came at\./)).toBeTruthy();
+
+  // Undoing the GRN puts the old price back.
+  await user.keyboard('{Escape}');
+  await openGrn(user);
+  await user.click(screen.getByRole('button', { name: 'Open GRN-0001' }));
+  await user.click(screen.getByRole('button', { name: 'Undo GRN-0001' }));
+  await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  await user.click(within(screen.getByRole('group', { name: 'Reason' })).getByRole('button', { name: 'Entered by mistake' }));
+  expect(readAll().filter((e) => e.type === 'stock.price_set').at(-1)).toMatchObject({ before: 660000, after: 640000, grnId: grn.id });
+  expect(inventoryStore.readItems().find((i) => i.id === 'inv-0001')!.workingPriceCents).toBe(640000);
+});
+
+test('GRN history: every GRN opens as its document, and Export PDF prints only that document, named after it', async () => {
+  const user = userEvent.setup();
+  const print = vi.spyOn(window, 'print').mockImplementation(() => {
+    expect(document.body.classList.contains('print-grn')).toBe(true);
+    expect(document.title).toMatch(/^GRN-0001 /);
+  });
+  render(<InventoryView />);
+  orderFlour();
+  await openGrn(user);
+  await toReview(user);
+  await user.click(screen.getByRole('button', { name: 'Save GRN' }));
+  await user.click(screen.getByRole('button', { name: 'View GRN' })); // straight from Done
+  const doc = within(screen.getByRole('article', { name: 'GRN-0001 document' }));
+  expect(doc.getByText('PO-0001')).toBeTruthy();
+  expect(doc.getByRole('cell', { name: 'Pizza Flour' })).toBeTruthy();
+  expect(doc.getByLabelText('GRN-0001 final total').textContent).toBe('Rs 12,800');
+  const title = document.title;
+  await user.click(screen.getByRole('button', { name: 'Export PDF' }));
+  expect(print).toHaveBeenCalledOnce();
+  window.dispatchEvent(new Event('afterprint'));
+  expect(document.body.classList.contains('print-grn')).toBe(false);
+  expect(document.title).toBe(title);
+  await user.click(screen.getByRole('button', { name: 'Back' })); // to GRN history, with the value on each
+  expect(within(screen.getByRole('region', { name: 'GRN history' })).getByRole('button', { name: 'Open GRN-0001' }).textContent).toContain('Rs 12,800');
+  print.mockRestore();
 });
 
 test('a short delivery shows as short and needs a manager PIN; a wrong PIN saves nothing', async () => {
@@ -667,8 +831,8 @@ test('a short delivery shows as short and needs a manager PIN; a wrong PIN saves
   // The PIN alone saves nothing: the manager sees the difference and decides.
   expect(readAll().some((e) => e.type === 'stock.grn')).toBe(false);
   const decide = within(screen.getByRole('region', { name: 'Manager decision' }));
-  expect(decide.getByText('short −1')).toBeTruthy();
-  expect(screen.getByText('Step 4 of 4 · Manager decides')).toBeTruthy();
+  expect(decide.getByText(/short −1/)).toBeTruthy();
+  expect(screen.getByText('Step 3 of 3 · Manager decides')).toBeTruthy();
 
   // Don't approve: nothing saved, back to the amounts, with what to do next.
   await user.click(screen.getByRole('button', { name: "Don't approve" }));
@@ -693,20 +857,19 @@ test('a short delivery shows as short and needs a manager PIN; a wrong PIN saves
   expect(amount()).toContain('1 pack');
 });
 
-test('GRN by keyboard: Enter does the big button, Esc steps back one step', async () => {
+test('GRN by keyboard: Enter does the big button, Esc goes back to the deliveries', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
   orderFlour(2);
   await openGrn(user);
-  expect(screen.getByText('Step 2 of 3 · Check each item')).toBeTruthy();
+  expect(screen.getByText('Step 2 of 2 · Check and save')).toBeTruthy();
   await user.keyboard('{Enter}'); // ✓ Pizza Flour came
   expect(screen.getByText('1 of 1 checked')).toBeTruthy();
-  await user.keyboard('{Enter}'); // Review
-  expect(screen.getByText('Step 3 of 3 · Review')).toBeTruthy();
-  await user.keyboard('{Escape}'); // back to the list, still ticked
-  expect(screen.getByText('Step 2 of 3 · Check each item')).toBeTruthy();
-  expect(screen.getByText('1 of 1 checked')).toBeTruthy();
-  await user.keyboard('{Enter}{Enter}'); // Review, then Save GRN
+  await user.keyboard('{Escape}'); // back to the list of deliveries
+  expect(screen.getByText('Which delivery came?')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: /PO-0001 · expected/ })); // the delivery again, fresh
+  expect(screen.getByText('0 of 1 checked')).toBeTruthy();
+  await user.keyboard('{Enter}{Enter}'); // ✓ Pizza Flour came, then Save GRN
   expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ approvedBy: null, lines: [{ received: 2, accepted: 2 }] });
   await user.keyboard('{Enter}'); // Done: the page starts over, and nothing else waits
   expect(within(screen.getByRole('region', { name: 'GRN' })).getByText(/^Nothing on order/)).toBeTruthy();
@@ -738,7 +901,10 @@ test('short + wait: the rest stays on order; the next GRN expects only what is l
   // Two GRNs stand against PO-0001: only the latest has an Undo.
   await openGrn(user);
   expect(screen.getByText(/^Nothing on order/)).toBeTruthy(); // everything came: closed
+  await user.click(screen.getByRole('button', { name: 'Open GRN-0001' }));
   expect(screen.queryByRole('button', { name: 'Undo GRN-0001' })).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Back' }));
+  await user.click(screen.getByRole('button', { name: 'Open GRN-0002' }));
   expect(screen.getByRole('button', { name: 'Undo GRN-0002' })).toBeTruthy();
 });
 
@@ -786,8 +952,8 @@ test('a GRN older than the allowed hours has no Undo', async () => {
     });
   });
   await openGrn(user);
-  expect(screen.getByRole('region', { name: 'Recent GRNs' })).toBeTruthy(); // the order is closed, so the sheet opens on the list
-  expect(screen.getByText(/GRN \(pending\)|GRN-0001/)).toBeTruthy();
+  expect(screen.getByRole('region', { name: 'GRN history' })).toBeTruthy(); // the order is closed, so the sheet opens on the list
+  await user.click(screen.getByRole('button', { name: /^Open (GRN \(pending\)|GRN-0001)$/ }));
   expect(screen.queryByRole('button', { name: /^Undo GRN/ })).toBeNull();
 });
 
@@ -797,7 +963,7 @@ test('more than ordered shows as over, in orange like short', async () => {
   orderFlour();
   await receive(user, '4');
   expect(screen.getByLabelText('Pizza Flour: over').textContent).toContain('over +2');
-  expect(document.querySelector('.bigstep--warn')).toBeTruthy();
+  expect(document.querySelector('.grn-check--warn .qty__num')).toBeTruthy();
 });
 
 test('a tap anywhere on the row opens the item', async () => {

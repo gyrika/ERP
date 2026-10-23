@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepQuestion, recipeQuestion, yieldQuestion, type Answer, type RecipeEvent } from './costing.ts';
+import { batchQuestion, prepQuestion, recipeQuestion, yieldQuestion, type Answer, type RecipeEvent } from './costing.ts';
 import { inventoryFromEvents, stockFromEvents, stockStatus } from './inventory.ts';
 import { STOCK_DEFAULTS } from './stockSettings.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
@@ -52,6 +52,15 @@ test('a batch he has not confirmed takes nothing until he answers; then his answ
   assert.equal(usage(pasta, new Map([IS_PENNE]))[PENNE], undefined);
   assert.equal(usage(pasta, new Map([IS_PENNE, PENNE_MAKES]))[PENNE], 90, '180 g of a 3,200 g batch made from 1,600 g dry');
   // His cheese blend he confirmed (2026-10-23): 2,000 g from 1,000 g of each, so a Margherita L's 150 g is 75 g of A.
+  assert.equal(usage(line('margherita', { size: 'L' }))[MOZZ], 75);
+});
+
+test('his own version of a sheet batch is what a sale takes; without it, his sheet again', () => {
+  const blend: [string, Answer] = [batchQuestion('Mozzarella Blend'), {
+    kind: 'batch', makes: { qty: 2000, unit: 'g' },
+    lines: [{ name: 'Mozzarella A', qty: 1500, unit: 'g' }, { name: 'Mozzarella B', qty: 500, unit: 'g' }],
+  }];
+  assert.equal(usage(line('margherita', { size: 'L' }), new Map([blend]))[MOZZ], 112.5);
   assert.equal(usage(line('margherita', { size: 'L' }))[MOZZ], 75);
 });
 

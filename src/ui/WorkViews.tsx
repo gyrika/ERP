@@ -30,7 +30,7 @@ export function ReceiveView({ onRegister }: { onRegister?: () => void }) {
   );
 }
 
-export function OrderView({ onRegister }: { onRegister?: () => void }) {
+export function OrderView({ supplierId, onRegister }: { supplierId?: string; onRegister?: () => void }) {
   const { items, suppliers } = useInventory();
   const purchases = usePurchases();
   const [round, setRound] = useState(0);
@@ -45,7 +45,7 @@ export function OrderView({ onRegister }: { onRegister?: () => void }) {
             <button type="button" className="linkbtn" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
           </p>
         )}
-        <OrderSheet key={round} inline items={items} suppliers={suppliers} purchases={purchases}
+        <OrderSheet key={round} inline items={items} suppliers={suppliers} purchases={purchases} initialSupplier={round === 0 ? supplierId : undefined}
           onClose={() => setRound((r) => r + 1)} onDone={(message, undo) => setSaid({ message, undo })} />
       </main>
     </div>

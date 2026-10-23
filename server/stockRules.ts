@@ -18,6 +18,11 @@ const RELEVANT = new Set<string>([
 
 interface Context { state: PurchaseState; settings: StockSettings; staff: readonly StaffMember[]; now: number }
 
+const orderPriceProblem = (lines: readonly { unitPriceCents?: number }[]): string | null =>
+  lines.some((l) => l.unitPriceCents !== undefined && (!Number.isSafeInteger(l.unitPriceCents) || l.unitPriceCents < 0))
+    ? 'A purchase-order price must be a whole number of cents, zero or more.'
+    : null;
+
 /** The approver on a record must be a real, active manager or owner of this shop. */
 const approverProblem = (by: Actor | null | undefined, staff: readonly StaffMember[]): string | null => {
   if (!by) return 'A manager or the owner must approve this.';
@@ -31,10 +36,13 @@ const approverProblem = (by: Actor | null | undefined, staff: readonly StaffMemb
 /** Why this record is not allowed now, or null. */
 export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now }: Context): string | null => {
   switch (e.type) {
+    case 'stock.ordered':
+      return orderPriceProblem(e.lines);
     case 'stock.order_edited': {
       const o = state.orders.find((x) => x.id === e.orderId);
       if (!o) return 'That purchase order is not here. Refresh and try again.';
-      return o.editable ? null : `${o.poNo} is ${o.status === 'cancelled' ? 'cancelled' : 'already being received'}: it can no longer be changed.`;
+      if (!o.editable) return `${o.poNo} is ${o.status === 'cancelled' ? 'cancelled' : 'already being received'}: it can no longer be changed.`;
+      return orderPriceProblem(e.lines);
     }
     case 'stock.order_cancelled': {
       const o = state.orders.find((x) => x.id === e.orderId);

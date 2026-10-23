@@ -196,8 +196,7 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
 
         {tabState === 'order' && purchases && (
         <div role="tabpanel" id="panel-order" aria-labelledby="tab-order" className="sheet-panel">
-        <ItemOrder item={item} items={items} suppliers={suppliers} purchases={purchases}
-          onDone={(message, undo) => setDone({ message, undo, tab: 'order' })} />
+        <ItemOrder item={item} items={items} suppliers={suppliers} purchases={purchases} />
 
         <div className="receive-unit">
           {unitEdit === 'closed' && (

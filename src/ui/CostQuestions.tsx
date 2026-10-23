@@ -1,11 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import {
-  checkAnswer, questionSubject, recipeChoices, recipeUnit, type Answer, type CostContext, type OpenQuestion,
+  checkAnswer, prepOf, questionSubject, recipeChoices, recipeUnit, type Answer, type CostContext, type OpenQuestion,
 } from '../domain/costing.ts';
 import type { Actor } from '../domain/auth.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
-import { PREPS } from '../domain/recipeBook.ts';
 import { answerQuestion } from '../services/inventoryStore.ts';
 
 /**
@@ -82,7 +81,7 @@ export function Question({ q, ctx, actor, autoFocus = true, onAnswered, onSkip }
 
       {q.kind === 'yield' && (
         <>
-          <p className="costq__hint">Your recipe for one batch: {PREPS[subject]?.lines.map((l) => `${l.qty.toLocaleString('en-US')} ${l.unit} ${l.name}`).join(', ')}.</p>
+          <p className="costq__hint">Your recipe for one batch: {prepOf(subject, ctx.answers)?.lines.map((l) => `${l.qty.toLocaleString('en-US')} ${l.unit} ${l.name}`).join(', ')}.</p>
           <label className="costq__field">
             <span>One batch makes ({unit})</span>
             <input autoFocus={autoFocus} className="num" inputMode="decimal" value={qty} onChange={(e) => { setQty(e.target.value); setError(''); }} />

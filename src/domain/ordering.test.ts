@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { draftsOf, orderMessage, suggestions, whatsAppLink, whatsAppNumber, type SuggestRow } from './ordering.ts';
+import { cartOf, cartsOf, draftsOf, orderMessage, suggestions, whatsAppLink, whatsAppNumber, type SuggestRow } from './ordering.ts';
 
 // Ordering from a supplier (SCRUM-92).
 
@@ -67,4 +67,18 @@ test('drafts group the suggestions by supplier', () => {
     { id: 'z', suggestedPacks: 3, suggestedSupplierId: 'b' }, { id: 'w', suggestedPacks: 0, suggestedSupplierId: 'b' },
   ]);
   assert.deepEqual([...drafts], [['a', { x: 2, y: 1 }], ['b', { z: 3 }]]);
+});
+
+test("carts: a saved cart as saved; else the suggestions, less what sits in another supplier's cart", () => {
+  const suggested = new Map<string, Record<string, number>>([['a', { x: 2, y: 1 }], ['b', { z: 3 }]]);
+  // x was moved to b's cart: a's suggestions no longer hold it.
+  const carts = cartsOf(suggested, new Map([['b', { z: 3, x: 2 }]]));
+  assert.deepEqual([...carts], [['a', { y: 1 }], ['b', { z: 3, x: 2 }]]);
+  assert.equal(cartOf(carts, 'x'), 'b');
+  assert.equal(cartOf(carts, 'nothing'), null);
+  // Everything a supplier was suggested sits elsewhere: it has no cart.
+  assert.deepEqual([...cartsOf(new Map([['a', { x: 2 }]]), new Map([['b', { x: 2 }]]))], [['b', { x: 2 }]]);
+  // A saved cart wins over the suggestions; an emptied one (no saved cart) falls back to them.
+  assert.deepEqual(cartsOf(suggested, new Map([['a', { y: 4 }]])).get('a'), { y: 4 });
+  assert.deepEqual(cartsOf(suggested, new Map()).get('a'), { x: 2, y: 1 });
 });

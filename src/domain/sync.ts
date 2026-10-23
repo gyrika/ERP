@@ -51,7 +51,8 @@ interface StockItemBase extends StockBase {
 
 export type StockEvent =
   | (StockItemBase & { type: 'stock.adjusted'; deltaPacks: number; reason?: 'waste' | 'audit' | 'receive' })
-  | (StockItemBase & { type: 'stock.price_set'; before: Cents; after: Cents })
+  /** grnId: the price a GRN delivered at (and the GRN's Undo putting the old one back). */
+  | (StockItemBase & { type: 'stock.price_set'; before: Cents; after: Cents; grnId?: string })
   | (StockBase & { type: 'stock.item_added'; item: InventoryItem })
   | (StockBase & { type: 'stock.supplier_added'; supplier: Supplier; linkedItemIds: string[] })
   | (StockItemBase & { type: 'stock.item_archived' | 'stock.item_restored' })
@@ -81,17 +82,19 @@ export type StockEvent =
   | (StockItemBase & { type: 'stock.gap_reviewed'; countId: string; decision: 'ok' | 'ask'; note: string })
   /** The manager answers the owner's question about a gap. */
   | (StockItemBase & { type: 'stock.gap_answered'; countId: string; note: string })
-  /** A purchase order (purchaseOrders.ts): packs per item from one supplier. Its id is the event id. */
+  /** A purchase order (purchaseOrders.ts): packs and agreed price per pack from one supplier. Its id is the event id. */
   | (StockBase & { type: 'stock.ordered'; poNo?: string; supplierId: string; lines: PoLine[] })
   /** A purchase order cancelled, with why (only while nothing has been received); Undo reopens it. */
   | (StockBase & { type: 'stock.order_cancelled'; orderId: string; reason: string })
   | (StockBase & { type: 'stock.order_reopened'; orderId: string })
   /** A purchase order's lines replaced (edit, or "Add to PO"); only while nothing has been received. */
   | (StockBase & { type: 'stock.order_edited'; orderId: string; lines: PoLine[] })
+  /** One supplier's draft order, whole (Items add to it; the Order page places it); no lines clears it. */
+  | (StockBase & { type: 'stock.draft_set'; supplierId: string; lines: PoLine[] })
   /**
    * Goods received against a purchase order (GRN), in packs. Stock itself goes up by
    * 'receive' adjustments; this is the record, closing the order. approvedBy: the manager
-   * whose PIN let a short or over delivery in.
+   * whose PIN approved a quantity or price difference.
    */
   | (StockBase & { type: 'stock.grn'; grnNo?: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null; shortDecision?: 'wait' | 'close'; overDecision?: 'accept' | 'return' })
   /** A GRN taken back by a manager, with why: its stock comes off and its order goes back. The GRN stays, marked undone. */
@@ -118,14 +121,15 @@ export type StockEvent =
 export const MOVEMENT_KINDS = ['GRN', 'GRN_UNDO', 'COUNT_ADJUST'] as const;
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
-/** stockQty: the packs in base units (2 packs of 25 kg = 25000 g × 2); older orders have none. */
-export interface PoLine { itemId: string; packs: number; stockQty?: number }
+/** stockQty: base units; unitPriceCents: agreed one-pack price (missing on older orders). */
+export interface PoLine { itemId: string; packs: number; stockQty?: number; unitPriceCents?: Cents }
 /**
  * ordered: what was still owed when it came; received: what came; accepted: what went into
- * stock (the stock movement is worked out from this); returned: the extra sent back.
+ * stock (the stock movement is worked out from this); returned: the extra sent back;
+ * unitPriceCents: delivered price per pack.
  * Older notes have no accepted: their stock was written as separate movements.
  */
-export interface GrnLine { itemId: string; ordered: number; received: number; accepted?: number; returned?: number }
+export interface GrnLine { itemId: string; ordered: number; received: number; accepted?: number; returned?: number; unitPriceCents?: Cents }
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
 export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | RecipeEvent;
@@ -140,7 +144,7 @@ export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
   'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set',
-  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.numbered', 'stock.settings_set',
+  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.draft_set', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.numbered', 'stock.settings_set',
   'stock.wasted', 'stock.waste_undone',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [

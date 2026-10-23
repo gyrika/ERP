@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Actor } from './auth.ts';
 import type { SyncEvent } from './sync.ts';
-import { compareDelivery, grnNumber, grnProblem, grnTotals, mergeLines, orderTotals, onOrder, planOrder, poNumber, purchasesFromEvents, settleGrn, undoCheck, type PurchaseOrder } from './purchaseOrders.ts';
+import { compareDelivery, grnLineCents, grnNumber, grnProblem, grnTotals, grnValueCents, mergeLines, orderTotals, onOrder, planOrder, poNumber, purchasesFromEvents, settleGrn, undoCheck, type PurchaseOrder } from './purchaseOrders.ts';
 
 const actor: Actor = { id: 'm1', name: 'Ravi', role: 'manager' };
 const DAY = 86_400_000;
@@ -31,6 +31,17 @@ test('an order is open until a GRN receives it or it is cancelled; undo and reop
     { ...base, id: 'r', at: 3, type: 'stock.order_reopened', orderId: 'po-2' }]);
   assert.deepEqual(s.open.map((o) => o.id), ['po-1', 'po-2', 'po-3']);
   assert.equal(onOrder(s.open).get('flour'), 6);
+});
+
+test("a supplier's draft: the last one wins, none clears it, a repeat counts once, one per supplier", () => {
+  const draft = (id: string, supplierId: string, lines: { itemId: string; packs: number }[]): SyncEvent =>
+    ({ ...base, id, at: 0, type: 'stock.draft_set', supplierId, lines });
+  const first = draft('d1', 'sup_a', [{ itemId: 'flour', packs: 2 }]);
+  let s = purchasesFromEvents([first, draft('d2', 'sup_b', [{ itemId: 'cheese', packs: 1 }]), draft('d3', 'sup_a', [{ itemId: 'flour', packs: 3 }, { itemId: 'oil', packs: 1 }])]);
+  assert.deepEqual(Object.fromEntries(s.drafts), { sup_a: { flour: 3, oil: 1 }, sup_b: { cheese: 1 } });
+  s = purchasesFromEvents([first, draft('d2', 'sup_a', []), first]);
+  assert.equal(s.drafts.has('sup_a'), false);
+  assert.deepEqual(s.open, [], 'a draft is not an order');
 });
 
 test('delivery time is the average of the last first deliveries; a second GRN of the same order does not count', () => {
@@ -152,6 +163,20 @@ test('a full GRN needs no one; a short or over one needs a manager and a decisio
   assert.equal(grnProblem(owed(2), came(2, 3), { short: null, over: 'return' }, manager), null);
 });
 
+test('the PO price is captured and a different delivered price needs manager approval', () => {
+  const order = {
+    ...owed(2),
+    lines: [{ itemId: 'flour', packs: 2, stockQty: null, received: 0, remaining: 2, unitPriceCents: 640000 }],
+  };
+  const delivery = [{ itemId: 'flour', ordered: 2, received: 2, unitPriceCents: 650000 }];
+  assert.equal(compareDelivery(delivery, order.lines).needsApproval, true);
+  assert.match(grnProblem(order, delivery, noDecision, null) ?? '', /needs a manager/);
+  assert.match(grnProblem(order, came(2, 2), noDecision, manager) ?? '', /Enter the delivered price/);
+  assert.equal(grnProblem(order, delivery, noDecision, manager), null);
+  assert.deepEqual(settleGrn(delivery, null), [{ ...delivery[0], accepted: 2, returned: 0 }]);
+  assert.match(grnProblem(order, [{ itemId: 'flour', ordered: 2, received: 2, unitPriceCents: 640000.5 }], noDecision, manager) ?? '', /whole number of cents/);
+});
+
 test('a GRN is refused for a closed or cancelled order, an unknown item, a changed order, or a negative amount', () => {
   assert.match(grnProblem(owed(2, 'closed'), came(2, 2), noDecision, null) ?? '', /PO-0001 is closed/);
   assert.match(grnProblem(owed(2, 'cancelled'), came(2, 2), noDecision, null) ?? '', /cancelled/);
@@ -232,4 +257,16 @@ test('sync retry: the same records twice change nothing — stock, orders, statu
   assert.deepEqual(purchasesFromEvents(twice), purchasesFromEvents(once));
   assert.equal(purchasesFromEvents(twice).orders[0].lines[0].remaining, 3, 'the 1 pack received is counted once, not twice');
   assert.equal(purchasesFromEvents(twice).grns.length, 1);
+});
+
+test('a GRN is worth what went into stock at the delivered price, in whole cents; lines with no price add nothing', () => {
+  const lines = [
+    { itemId: 'flour', ordered: 2, received: 3, accepted: 2, returned: 1, unitPriceCents: 640000 },
+    { itemId: 'cheese', ordered: 1.5, received: 1.5, unitPriceCents: 333 },
+    { itemId: 'old', ordered: 1, received: 1 },
+  ];
+  assert.equal(grnLineCents(lines[0]), 1280000, 'the returned pack is not paid for');
+  assert.equal(grnLineCents(lines[1]), 500, '1.5 × 333 = 499.5, rounded once');
+  assert.equal(grnLineCents(lines[2]), null);
+  assert.equal(grnValueCents(lines), 1280500);
 });

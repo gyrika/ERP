@@ -303,7 +303,11 @@ const withStockQty = (lines: PoLine[]): PoLine[] => {
   const items = readItems();
   return lines.filter((l) => l.packs > 0).map((l) => {
     const item = items.find((i) => i.id === l.itemId);
-    return item ? { itemId: l.itemId, packs: l.packs, stockQty: l.packs * item.packQty } : { itemId: l.itemId, packs: l.packs };
+    return {
+      ...l,
+      ...(item ? { stockQty: l.packs * item.packQty } : {}),
+      ...(l.unitPriceCents === undefined && item ? { unitPriceCents: item.workingPriceCents } : {}),
+    };
   });
 };
 
@@ -322,7 +326,7 @@ const numberLocally = (docId: string, kind: DocKind): string | null => {
 };
 
 /**
- * Places a purchase order (lines with packs only). The shop server numbers it; until that
+ * Places a purchase order (lines with quantities and agreed pack prices). The shop server numbers it; until that
  * number arrives it is "PO (pending)". Returns the order and its Undo (cancels it).
  */
 export const placeOrder = (supplierId: string, lines: PoLine[]): { order: PurchaseOrder; undo: () => void } => {
@@ -332,7 +336,11 @@ export const placeOrder = (supplierId: string, lines: PoLine[]): { order: Purcha
   return {
     order: {
       id: e.id, poNo, supplierId, at: e.at, actor: e.actor, status: 'open', editable: true, cancelReason: null,
-      lines: kept.map((l) => ({ itemId: l.itemId, packs: l.packs, stockQty: l.stockQty ?? null, received: 0, remaining: l.packs })),
+      lines: kept.map((l) => ({
+        itemId: l.itemId, packs: l.packs, stockQty: l.stockQty ?? null,
+        ...(l.unitPriceCents === undefined ? {} : { unitPriceCents: l.unitPriceCents }),
+        received: 0, remaining: l.packs,
+      })),
     },
     undo: () => { cancelOrder(e.id, 'Undone right after placing'); },
   };
@@ -344,16 +352,72 @@ export const placeOrder = (supplierId: string, lines: PoLine[]): { order: Purcha
  */
 export const editOrder = (order: PurchaseOrder, lines: PoLine[]): (() => void) | string => {
   if (!order.editable) return `${order.poNo} has goods received against it: it can no longer be changed.`;
-  const next = withStockQty(mergeLines(lines));
+  const withOrderPrices = lines.map((l) => {
+    const existing = order.lines.find((old) => old.itemId === l.itemId);
+    return l.unitPriceCents === undefined && existing?.unitPriceCents !== undefined
+      ? { ...l, unitPriceCents: existing.unitPriceCents }
+      : l;
+  });
+  const next = withStockQty(mergeLines(withOrderPrices));
   if (next.length === 0) return 'An order needs at least one item. Cancel it instead.';
-  const before = withStockQty(order.lines.map((l) => ({ itemId: l.itemId, packs: l.packs })));
+  const before = withStockQty(order.lines.map((l) => ({
+    itemId: l.itemId, packs: l.packs,
+    ...(l.unitPriceCents === undefined ? {} : { unitPriceCents: l.unitPriceCents }),
+  })));
   appendEvent({ type: 'stock.order_edited', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId: order.id, lines: next });
   return () => { appendEvent({ type: 'stock.order_edited', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId: order.id, lines: before }); };
 };
 
 /** Adds lines to an open order: the same item's packs add up. */
 export const addToOrder = (order: PurchaseOrder, added: PoLine[]): (() => void) | string =>
-  editOrder(order, [...order.lines.map((l) => ({ itemId: l.itemId, packs: l.packs })), ...added]);
+  editOrder(order, [...order.lines.map((l) => ({
+    itemId: l.itemId, packs: l.packs,
+    ...(l.unitPriceCents === undefined ? {} : { unitPriceCents: l.unitPriceCents }),
+  })), ...added]);
+
+/** Each supplier's draft order as it stands now. */
+export const readDrafts = (): Map<string, Record<string, number>> => purchasesFromEvents(readLive()).drafts;
+
+const sameDraft = (a: Record<string, number>, b: Record<string, number>) =>
+  Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([id, n]) => b[id] === n);
+
+/**
+ * Saves one supplier's draft whole (packs per item; none clears it) and returns the Undo, which
+ * puts the draft back as it was. Nothing is written when nothing changed.
+ */
+export const setDraft = (supplierId: string, packs: Record<string, number>): (() => void) => {
+  const kept = Object.fromEntries(Object.entries(packs).filter(([, n]) => n > 0));
+  const before = readDrafts().get(supplierId) ?? {};
+  if (sameDraft(before, kept)) return () => {};
+  const write = (p: Record<string, number>) => appendEvent({
+    type: 'stock.draft_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), supplierId,
+    lines: Object.entries(p).map(([itemId, n]) => ({ itemId, packs: n })),
+  });
+  write(kept);
+  return () => { if (!sameDraft(readDrafts().get(supplierId) ?? {}, before)) write(before); };
+};
+
+/**
+ * Puts an item on its supplier's draft at so many packs. A supplier with no draft yet starts from
+ * `start` (what the reorder rule suggests), so those suggestions are not lost. Returns the draft and its Undo.
+ */
+export const addToDraft = (supplierId: string, itemId: string, packs: number, start: Record<string, number> = {}): { draft: Record<string, number>; undo: () => void } => {
+  const draft = { ...(readDrafts().get(supplierId) ?? start), [itemId]: packs };
+  return { draft, undo: setDraft(supplierId, draft) };
+};
+
+/**
+ * Moves an item from one supplier's cart (`fromCart`, as it stands) to another's, at the same packs.
+ * A supplier with no saved cart yet starts from `toStart` (its suggestions). One Undo puts both back.
+ */
+export const moveToCart = (itemId: string, from: string, to: string, fromCart: Record<string, number>, toStart: Record<string, number> = {}): {
+  cart: Record<string, number>; undo: () => void;
+} => {
+  const { [itemId]: packs = 1, ...rest } = fromCart;
+  const added = addToDraft(to, itemId, packs, toStart);
+  const removed = setDraft(from, rest);
+  return { cart: rest, undo: () => { added.undo(); removed(); } };
+};
 
 /** Cancels an order, saying why; returns the Undo (the same order, same number, open again). */
 export const cancelOrder = (orderId: string, reason: string): (() => void) => {
@@ -365,11 +429,13 @@ export const cancelOrder = (orderId: string, reason: string): (() => void) => {
  * Goods received against an order (GRN): ONE record that carries what was owed, what came,
  * what went into stock and what was returned, the manager's approval and decisions. The
  * stock movement is worked out from it, so a GRN either happens whole or not at all.
- * Returns the GRN, or why it is not allowed (`grnProblem`).
+ * What an item came at becomes its price (one audited stock.price_set each, marked with the
+ * GRN), so food costs and the next order use the latest delivery. Returns the GRN and how many
+ * prices it changed, or why it is not allowed (`grnProblem`).
  */
 export const receiveGoods = (
   order: PurchaseOrder, lines: GrnLine[], decisions: GrnDecisions, approvedBy: Actor | null,
-): { grnNo: string; id: string } | string => {
+): { grnNo: string; id: string; prices: number } | string => {
   const why = grnProblem(order, lines, decisions, approvedBy);
   if (why) return why;
   const settled = settleGrn(lines, decisions.over);
@@ -378,7 +444,16 @@ export const receiveGoods = (
     orderId: order.id, supplierId: order.supplierId, lines: settled, approvedBy,
     ...(decisions.short ? { shortDecision: decisions.short } : {}), ...(decisions.over ? { overDecision: decisions.over } : {}),
   });
-  return { grnNo: numberLocally(e.id, 'GRN') ?? pendingNumber('GRN'), id: e.id };
+  const items = readItems();
+  let prices = 0;
+  for (const l of settled) {
+    const row = items.find((i) => i.id === l.itemId);
+    const cents = l.unitPriceCents;
+    if (!row || cents === undefined || !(cents > 0) || !((l.accepted ?? l.received) > 0) || cents === row.workingPriceCents) continue;
+    appendEvent({ type: 'stock.price_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: l.itemId, before: row.workingPriceCents, after: cents, grnId: e.id });
+    prices++;
+  }
+  return { grnNo: numberLocally(e.id, 'GRN') ?? pendingNumber('GRN'), id: e.id, prices };
 };
 
 /**
@@ -391,6 +466,14 @@ export const undoGrn = (purchases: PurchaseState, grnId: string, reason: string,
   if (why) return why;
   if (!reason.trim()) return 'Say why it is being undone.';
   appendEvent({ type: 'stock.grn_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), grnId, reason: reason.trim(), approvedBy: manager });
+  // The prices it set go back, unless someone has changed the price since.
+  const items = readItems();
+  for (const p of readLive()) {
+    if (p.type !== 'stock.price_set' || p.grnId !== grnId || p.before === p.after) continue;
+    const row = items.find((i) => i.id === p.itemId);
+    if (!row || row.workingPriceCents !== p.after) continue;
+    appendEvent({ type: 'stock.price_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: p.itemId, before: p.after, after: p.before, grnId });
+  }
   return null;
 };
 
