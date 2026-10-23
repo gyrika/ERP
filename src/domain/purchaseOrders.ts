@@ -264,3 +264,18 @@ export const grnProblem = (
 };
 
 export const UNDO_REASONS = ['Entered by mistake', 'Wrong amounts', 'Goods sent back', 'Other'] as const;
+
+/** What an order draft comes to: items, packs, and about what it costs at today's pack prices. */
+export const orderTotals = (lines: readonly PoLine[], priceCents: ReadonlyMap<string, number>): { items: number; packs: number; cents: number } => {
+  let packs = 0;
+  let cents = 0;
+  const counted = lines.filter((l) => l.packs > 0);
+  for (const l of counted) { packs += l.packs; cents += Math.round(l.packs * (priceCents.get(l.itemId) ?? 0)); }
+  return { items: counted.length, packs: round3(packs), cents };
+};
+
+/** What a delivery comes to against what was owed, in packs. */
+export const grnTotals = (lines: readonly GrnLine[]): { expected: number; received: number } => ({
+  expected: round3(lines.reduce((n, l) => n + l.ordered, 0)),
+  received: round3(lines.reduce((n, l) => n + l.received, 0)),
+});

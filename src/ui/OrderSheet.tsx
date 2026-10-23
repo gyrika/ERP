@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
 import { draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
-import { CANCEL_REASONS, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import { fmt } from '../domain/money.ts';
+import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { PoLine } from '../domain/sync.ts';
 import { formatQuantity } from './quantity.ts';
 import { RejectionNotices } from './Rejections.tsx';
@@ -46,22 +47,30 @@ export function SupplierDraft({ supplierId, initial, items, suppliers, purchases
   const plan = planOrder(purchases.open, supplierId, lines);
   const blocked = new Map(plan.blocked.map((b) => [b.itemId, b.poNo]));
 
-  const without = (done: PoLine[]) => {
-    const gone = new Set(done.map((l) => l.itemId));
-    const rest = Object.fromEntries(Object.entries(packs).filter(([id]) => !gone.has(id)));
+  /** The one main button does everything the card shows: adds to the orders that already have the item, and places the rest. */
+  const act = () => {
+    const placed: { p: Placed; undo: () => void }[] = [];
+    const handled = new Set<string>();
+    for (const a of plan.add) {
+      const undo = addToOrder(a.order, a.lines);
+      if (typeof undo === 'string') { setError(undo); break; }
+      const order: PurchaseOrder = { ...a.order, lines: a.lines.map((l) => ({ itemId: l.itemId, packs: l.packs, stockQty: null, received: 0, remaining: l.packs })) };
+      placed.push({ p: { order, added: true }, undo });
+      a.lines.forEach((l) => handled.add(l.itemId));
+    }
+    if (plan.create.length > 0 && placed.length === plan.add.length) {
+      const { order, undo } = placeOrder(supplierId, plan.create);
+      placed.push({ p: { order, added: false }, undo });
+      plan.create.forEach((l) => handled.add(l.itemId));
+    }
+    const rest = Object.fromEntries(Object.entries(packs).filter(([id]) => !handled.has(id)));
     setPacks(rest);
-    return Object.keys(rest).length === 0;
+    placed.forEach(({ p, undo }, i) => onPlaced(p, undo, i === placed.length - 1 && Object.keys(rest).length === 0));
   };
-  const create = () => {
-    const { order, undo } = placeOrder(supplierId, plan.create);
-    onPlaced({ order, added: false }, undo, without(plan.create));
-  };
-  const addTo = (a: (typeof plan.add)[number]) => {
-    const undo = addToOrder(a.order, a.lines);
-    if (typeof undo === 'string') return setError(undo);
-    const order: PurchaseOrder = { ...a.order, lines: a.lines.map((l) => ({ itemId: l.itemId, packs: l.packs, stockQty: null, received: 0, remaining: l.packs })) };
-    onPlaced({ order, added: true }, undo, without(a.lines));
-  };
+  const mainLabel = plan.create.length > 0
+    ? (plan.add.length > 0 ? `Place order and add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order')
+    : plan.add.length > 0 ? `Add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order';
+  const totals = orderTotals(lines, new Map(items.map((i) => [i.id, i.workingPriceCents])));
 
   return (
     <section className="po-card" aria-label={`Order from ${name}`}>
@@ -79,9 +88,9 @@ export function SupplierDraft({ supplierId, initial, items, suppliers, purchases
                   <small>{n} × {formatQuantity(row.packQty, row.baseUnit)} = {formatQuantity(n * row.packQty, row.baseUnit)}</small>
                   {on && <small className="po-tag">On order · {on}{blocked.has(id) ? ': partly received, wait for it or close it first' : ''}</small>}
                 </span>
-                <button type="button" className="chip" aria-label={`One pack less of ${row.name}`} onClick={() => set(id, n - 1)}>−</button>
+                <button type="button" className="step" aria-label={`One pack less of ${row.name}`} onClick={() => set(id, n - 1)}>−</button>
                 <strong className="num order__packs" aria-label={`Packs of ${row.name}`}>{n}</strong>
-                <button type="button" className="chip" aria-label={`One pack more of ${row.name}`} onClick={() => set(id, n + 1)}>+</button>
+                <button type="button" className="step" aria-label={`One pack more of ${row.name}`} onClick={() => set(id, n + 1)}>+</button>
                 <button type="button" className="linkbtn" aria-label={`Remove ${row.name}`} onClick={() => remove(id)}>×</button>
               </li>
             );
@@ -89,21 +98,17 @@ export function SupplierDraft({ supplierId, initial, items, suppliers, purchases
         </ul>
       )}
       {error && <p className="inv-modal__error" role="alert">{error}</p>}
-      <div className="order__send">
-        {extra.length > 0 && (
-          <select className="inv-modal__input po-card__add" aria-label={`Add an item from ${name}`} value=""
-            onChange={(e) => { if (e.target.value) set(e.target.value, 1); }}>
-            <option value="">+ Add item</option>
-            {extra.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-          </select>
-        )}
-        {plan.add.map((a) => (
-          <button key={a.order.id} type="button" className="insight__action" onClick={() => addTo(a)}>Add to {a.order.poNo}</button>
-        ))}
-        {(plan.create.length > 0 || plan.add.length === 0) && (
-          <button type="button" className="insight__action" disabled={plan.create.length === 0} onClick={create}>Place order</button>
-        )}
-      </div>
+      {extra.length > 0 && (
+        <select className="inv-modal__input po-card__add" aria-label={`Add an item from ${name}`} value=""
+          onChange={(e) => { if (e.target.value) set(e.target.value, 1); }}>
+          <option value="">+ Add item</option>
+          {extra.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+        </select>
+      )}
+      <p className="po-card__total" aria-label="Order total">
+        {totals.items} {totals.items === 1 ? 'item' : 'items'} · {totals.packs} {totals.packs === 1 ? 'pack' : 'packs'}{totals.cents > 0 ? ` · about Rs ${fmt(totals.cents)}` : ''}
+      </p>
+      <button type="button" className="insight__action po-card__main" disabled={plan.add.length === 0 && plan.create.length === 0} onClick={act}>{mainLabel}</button>
     </section>
   );
 }
@@ -167,9 +172,9 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
           {Object.entries(editing).map(([id, n]) => (
             <li key={id}>
               <span className="delivery__name">{nameFor(id)}</span>
-              <button type="button" className="chip" aria-label={`One pack less of ${nameFor(id)} on ${order.poNo}`} onClick={() => setEditing({ ...editing, [id]: Math.max(1, n - 1) })}>−</button>
+              <button type="button" className="step" aria-label={`One pack less of ${nameFor(id)} on ${order.poNo}`} onClick={() => setEditing({ ...editing, [id]: Math.max(1, n - 1) })}>−</button>
               <strong className="num order__packs" aria-label={`Packs of ${nameFor(id)} on ${order.poNo}`}>{n}</strong>
-              <button type="button" className="chip" aria-label={`One pack more of ${nameFor(id)} on ${order.poNo}`} onClick={() => setEditing({ ...editing, [id]: n + 1 })}>+</button>
+              <button type="button" className="step" aria-label={`One pack more of ${nameFor(id)} on ${order.poNo}`} onClick={() => setEditing({ ...editing, [id]: n + 1 })}>+</button>
               <button type="button" className="linkbtn" aria-label={`Remove ${nameFor(id)} from ${order.poNo}`}
                 onClick={() => { const { [id]: _gone, ...rest } = editing; setEditing(rest); }}>×</button>
             </li>

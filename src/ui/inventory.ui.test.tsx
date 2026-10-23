@@ -461,6 +461,39 @@ test('an item opens on Details, or on Order when it needs ordering; the tabs are
   expect(sheet.getByRole('tab', { name: 'Order' }).getAttribute('aria-selected')).toBe('true');
 });
 
+test('the order card and the GRN screen have big − / + buttons, totals at the bottom and one main button', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
+  const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  expect(card.getByRole('button', { name: 'Place order' })).toHaveProperty('disabled', true); // nothing on it yet
+  await user.selectOptions(card.getByRole('combobox', { name: /^Add an item from/ }), 'inv-0001');
+  await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  expect(card.getByLabelText('Order total').textContent).toBe('1 item · 3 packs · about Rs 19,200');
+  expect(card.getByRole('button', { name: 'One pack less of Pizza Flour' }).className).toContain('step');
+  await user.click(card.getByRole('button', { name: 'Remove Pizza Flour' }));
+  expect(card.getByLabelText('Order total').textContent).toBe('0 items · 0 packs');
+  await user.selectOptions(card.getByRole('combobox', { name: /^Add an item from/ }), 'inv-0001');
+  await user.click(card.getByRole('button', { name: 'One pack more of Pizza Flour' }));
+  await user.click(card.getByRole('button', { name: 'Place order' }));
+  await user.keyboard('{Escape}');
+
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  const grn = within(screen.getByRole('dialog', { name: /PO-0001$/ }));
+  expect(grn.getByLabelText('Delivery total').textContent).toBe('Expected 2 packs · Received 2 packs');
+  await user.click(grn.getByRole('button', { name: 'One less of Pizza Flour' }));
+  expect(grn.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '1');
+  expect(grn.getByLabelText('Delivery total').textContent).toBe('Expected 2 packs · Received 1 pack');
+  expect(grn.getByLabelText('Pizza Flour: short').textContent).toBe('short −1');
+  await user.click(grn.getByRole('button', { name: 'One more of Pizza Flour' }));
+  await user.click(grn.getByRole('button', { name: 'One more of Pizza Flour' }));
+  expect(grn.getByLabelText('Delivery total').textContent).toBe('Expected 2 packs · Received 3 packs');
+  await user.click(grn.getByRole('button', { name: 'One less of Pizza Flour' }));
+  expect(grn.getByRole('button', { name: 'Save GRN' })).toBeTruthy(); // matches again: the one main button
+});
+
 /** Orders 2 packs of flour from its first supplier. */
 const orderFlour = (packs = 2) => act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs }]); });
 

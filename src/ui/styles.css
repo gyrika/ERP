@@ -1238,3 +1238,9 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .stock-home { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 16px; padding-right: 16px; }
   .inv-filters { padding-left: 16px; padding-right: 16px; }
 }
+
+/* Big − / + buttons and the one main button at the bottom of the order card and the GRN screen */
+.step { flex: none; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: var(--chip); color: var(--ink); font: inherit; font-size: 24px; font-weight: 500; line-height: 1; cursor: pointer; transition: transform 80ms var(--ease); }
+.step:active { transform: scale(0.94); }
+.po-card__total, .grn__total { margin: 4px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.po-card__main { align-self: stretch; min-height: 52px; }

@@ -4,7 +4,7 @@ import type { Supplier } from '../domain/inventoryData.ts';
 import { parsePacks } from '../domain/inventory.ts';
 import { receiveUnitOf, toPacks, unitName } from '../domain/counting.ts';
 import {
-  compareDelivery, expectedBy, undoCheck, UNDO_REASONS, type GrnDecisions, type PurchaseGrn, type PurchaseOrder, type PurchaseState,
+  compareDelivery, expectedBy, grnTotals, undoCheck, UNDO_REASONS, type GrnDecisions, type PurchaseGrn, type PurchaseOrder, type PurchaseState,
 } from '../domain/purchaseOrders.ts';
 import type { StockSettings } from '../domain/stockSettings.ts';
 import { receiveGoods, undoGrn, type InventoryRow } from '../services/inventoryStore.ts';
@@ -87,6 +87,14 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
     const n = parsePacks(typed(l) || '0');
     return { itemId: l.row.id, ordered: l.expected, received: n === null ? l.expected : round(toPacks(n, l.unit, l.row.packQty)) };
   }));
+
+  /** One more or one less, in the unit this item is received in. */
+  const bump = (l: (typeof lines)[number], by: number) => {
+    const now = parsePacks(typed(l) || '0') ?? 0;
+    setAmounts({ ...amounts, [l.row.id]: String(Math.max(0, round(now + by))) });
+    setError('');
+  };
+  const totals = grnTotals(check.lines);
 
   /** Back to the list of orders, fresh. */
   const toList = () => { setOrderId(null); setAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); };
@@ -242,17 +250,22 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
                     <span className={`grn__match grn__match--${c.match}`} aria-label={`${l.row.name}: ${c.match === 'ok' ? 'as ordered' : c.match}`}>
                       {c.match === 'ok' ? '✓' : `${c.match} ${c.diff > 0 ? '+' : '−'}${round(Math.abs(c.diff) * l.row.packQty / l.unit.base)}`}
                     </span>
+                    <button type="button" className="step" aria-label={`One less of ${l.row.name}`} onClick={() => bump(l, -1)}>−</button>
                     <input
                       className="inv-modal__input num delivery__packs" inputMode="decimal" placeholder="0"
                       aria-label={l.unit.id === 'pack' ? `Packs of ${l.row.name}` : `${name} of ${l.row.name}`}
                       value={typed(l)}
                       onChange={(e) => { setAmounts({ ...amounts, [l.row.id]: e.target.value }); setError(''); }}
                     />
+                    <button type="button" className="step" aria-label={`One more of ${l.row.name}`} onClick={() => bump(l, 1)}>+</button>
                   </li>
                 );
               })}
             </ul>
             <button type="button" className="linkbtn delivery__change" onClick={() => { setAmounts({}); setError(''); }}>Received everything</button>
+            <p className="grn__total" aria-label="Delivery total">
+              Expected {totals.expected} {totals.expected === 1 ? 'pack' : 'packs'} · Received {totals.received} {totals.received === 1 ? 'pack' : 'packs'}
+            </p>
             {error && <p className="inv-modal__error" role="alert">{error}</p>}
             <div className="inv-modal__actions">
               <button type="button" className="inv-modal__cancel" onClick={onClose}>Cancel</button>

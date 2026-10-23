@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Actor } from './auth.ts';
 import type { SyncEvent } from './sync.ts';
-import { compareDelivery, grnNumber, grnProblem, mergeLines, onOrder, planOrder, poNumber, purchasesFromEvents, settleGrn, undoCheck, type PurchaseOrder } from './purchaseOrders.ts';
+import { compareDelivery, grnNumber, grnProblem, grnTotals, mergeLines, orderTotals, onOrder, planOrder, poNumber, purchasesFromEvents, settleGrn, undoCheck, type PurchaseOrder } from './purchaseOrders.ts';
 
 const actor: Actor = { id: 'm1', name: 'Ravi', role: 'manager' };
 const DAY = 86_400_000;
@@ -214,4 +214,12 @@ test('a document shows its number from the server, or "pending" until it arrives
   assert.equal(s.grns[0].grnNo, 'GRN (pending)');
   assert.equal(s.grns[0].poNo, 'PO-0042');
   assert.equal(purchasesFromEvents([orderEvent, numbered, g, { ...base, id: 'n2', at: 3, type: 'stock.numbered', docId: 'g1', kind: 'GRN', number: 'GRN-0007' }]).grns[0].grnNo, 'GRN-0007');
+});
+
+test('totals: an order draft is items, packs and about what it costs; a delivery is packs expected and received', () => {
+  const price = new Map([['flour', 640000], ['eggs', 85050]]);
+  assert.deepEqual(orderTotals([{ itemId: 'flour', packs: 2 }, { itemId: 'eggs', packs: 1.5 }, { itemId: 'salt', packs: 0 }], price), { items: 2, packs: 3.5, cents: 1_407_575 });
+  assert.deepEqual(orderTotals([], price), { items: 0, packs: 0, cents: 0 });
+  assert.deepEqual(orderTotals([{ itemId: 'unknown', packs: 2 }], price), { items: 1, packs: 2, cents: 0 }, 'no price: nothing to add');
+  assert.deepEqual(grnTotals([{ itemId: 'a', ordered: 2, received: 1.5 }, { itemId: 'b', ordered: 0.5, received: 1 }]), { expected: 2.5, received: 2.5 });
 });
