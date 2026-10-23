@@ -1127,3 +1127,28 @@ test('Count happens inside the item sheet, then History shows it with the delive
   await user.click(sheet.getByRole('tab', { name: 'History' }));
   expect(within(sheet.getByRole('list', { name: 'History of Pizza Flour' })).getAllByRole('listitem')).toHaveLength(1);
 });
+
+test('Step 3 with no phone: Add phone opens the supplier\'s Edit here; the number is saved and WhatsApp appears, message kept', async () => {
+  const user = userEvent.setup();
+  sellPizzas(500);
+  shelfPacks(1);
+  await openOrders(user);
+  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: 'Place order' }));
+  const placed = within(screen.getByRole('region', { name: /^PO-0001 / }));
+  await user.type(placed.getByRole('textbox', { name: 'Message' }), '{Enter}Before 10.');
+  expect(placed.getByText(/No phone saved/)).toBeTruthy();
+
+  await user.click(placed.getByRole('button', { name: 'Add phone' }));
+  const dialog = within(screen.getByRole('dialog', { name: 'Edit Supplier' }));
+  const phone = dialog.getByRole('textbox', { name: /Phone/ });
+  expect(document.activeElement).toBe(phone);
+  await user.type(phone, '0771234567');
+  await user.click(dialog.getByRole('button', { name: 'Save Changes' }));
+
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(inventoryStore.readSuppliers().find((s) => s.name === 'Prima / David Stores (Wholesale)')?.phone).toBe('0771234567');
+  expect(readAll().some((e) => e.type === 'stock.supplier_edited' && e.after.phone === '0771234567')).toBe(true);
+  expect(placed.getByRole('link', { name: /Send on WhatsApp/ }).textContent).toContain('0771234567');
+  expect(placed.getByRole('textbox', { name: 'Message' })).toHaveProperty('value', expect.stringContaining('Before 10.'));
+}, 15_000);

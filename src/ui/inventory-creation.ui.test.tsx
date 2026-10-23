@@ -132,3 +132,27 @@ test('supplier can be archived from its row and restored with Undo', async () =>
   expect(readSuppliers().some((supplier) => supplier.id === 'sup_ajantha')).toBe(true);
   expect(readAll().some((event) => event.type === 'stock.supplier_restored' && event.supplierId === 'sup_ajantha')).toBe(true);
 }, 15_000);
+
+test('supplier can be edited from its row, before Remove, and the edit undone', async () => {
+  const user = userEvent.setup();
+  render(<SupplierView />);
+
+  const header = screen.getByRole('button', { name: 'Edit Ajantha (Wholesale)' }).parentElement!;
+  const buttons = within(header).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+  expect(buttons.indexOf('Edit Ajantha (Wholesale)')).toBeLessThan(buttons.indexOf('Remove Ajantha (Wholesale)'));
+
+  await user.click(screen.getByRole('button', { name: 'Edit Ajantha (Wholesale)' }));
+  const name = screen.getByRole('textbox', { name: 'Supplier name' });
+  expect((name as HTMLInputElement).value).toBe('Ajantha (Wholesale)');
+  await user.clear(name);
+  await user.type(name, 'Ajantha Stores');
+  await user.type(screen.getByRole('textbox', { name: /Phone/ }), '0771234567');
+  await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+  expect(readSuppliers().find((s) => s.id === 'sup_ajantha')).toEqual({ id: 'sup_ajantha', name: 'Ajantha Stores', phone: '0771234567' });
+  expect(readAll().some((e) => e.type === 'stock.supplier_edited' && e.before.name === 'Ajantha (Wholesale)')).toBe(true);
+  expect(screen.getByRole('status').textContent).toContain('Ajantha Stores updated.');
+
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(readSuppliers().find((s) => s.id === 'sup_ajantha')?.name).toBe('Ajantha (Wholesale)');
+}, 15_000);

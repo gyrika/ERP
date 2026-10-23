@@ -5,9 +5,11 @@ import { whatsAppNumber } from '../domain/ordering.ts';
 
 export function SupplierCard({
   summary,
+  onEdit,
   onArchive,
 }: {
   summary: SupplierSummary;
+  onEdit: (supplierId: string) => void;
   onArchive: (supplierId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -26,6 +28,17 @@ export function SupplierCard({
           <div className="sup-card__title-block">
             <h3 className="sup-card__title">{supplier.name}</h3>
           </div>
+        </button>
+        <button
+          type="button"
+          className="sup-card__edit"
+          aria-label={`Edit ${supplier.name}`}
+          title={`Edit ${supplier.name}`}
+          onClick={() => onEdit(supplier.id)}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" />
+          </svg>
         </button>
         <button
           type="button"

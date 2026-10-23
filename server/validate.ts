@@ -105,6 +105,13 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         new Set(e.linkedItemIds).size !== e.linkedItemIds.length
       ) return { reason: `event ${e.id} has an invalid supplier` };
     }
+    if (e.type === 'stock.supplier_edited') {
+      const details = (d: unknown) => isObj(d) && shortString(d.name, 120) && (d.phone === undefined || shortString(d.phone, 40));
+      const ids = (list: unknown) => Array.isArray(list) && list.every((id) => shortString(id)) && new Set(list).size === list.length;
+      if (!shortString(e.supplierId) || !details(e.before) || !details(e.after) || !ids(e.linked) || !ids(e.unlinked)) {
+        return { reason: `event ${e.id} has an invalid supplier edit` };
+      }
+    }
     if (
       (e.type === 'stock.item_archived' || e.type === 'stock.item_restored') &&
       !shortString(e.itemId)

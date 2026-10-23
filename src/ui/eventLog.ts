@@ -116,7 +116,8 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
     e.type === 'stock.item_archived' ||
     e.type === 'stock.item_restored' ||
     e.type === 'stock.supplier_archived' ||
-    e.type === 'stock.supplier_restored');
+    e.type === 'stock.supplier_restored' ||
+    e.type === 'stock.supplier_edited');
   if (kept.length !== all.length) write(KEY(), kept);
 };
 

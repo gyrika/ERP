@@ -249,3 +249,16 @@ test('a price change passes, marked with the GRN it came from or not; a bad GRN 
   assert.deepEqual(validatePush({ events: [fromGrn] }, 'shop-1'), { events: [fromGrn] });
   assert.ok('reason' in validatePush({ events: [{ ...price, grnId: 42 }] }, 'shop-1'));
 });
+
+test('a supplier edit passes sync validation; a broken one is refused', () => {
+  const events = [{
+    ...base, type: 'stock.supplier_edited', supplierId: 'sup-prima',
+    before: { name: 'Prima' }, after: { name: 'Prima Lanka', phone: '+94 77 123 4567' },
+    linked: ['inv-0001'], unlinked: [],
+  }];
+  assert.deepEqual(validatePush({ deviceId: 'device-1', events }, 'shop-1'), { events });
+
+  const invalid = validatePush({ deviceId: 'device-1', events: [{ ...events[0], after: { name: '' } }] }, 'shop-1');
+  assert.ok('reason' in invalid);
+  if ('reason' in invalid) assert.match(invalid.reason, /invalid supplier edit/);
+});
