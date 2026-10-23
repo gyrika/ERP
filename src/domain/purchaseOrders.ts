@@ -92,7 +92,11 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
   const live = new Map<string, Set<string>>();
   /** The number the shop server gave each document; until it arrives the document is "pending". */
   const numbers = new Map<string, string>();
+  /** A record that arrives twice (a sync retry, two routes) counts once. */
+  const seen = new Set<string>();
   for (const e of events) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
     if (e.type === 'stock.numbered') numbers.set(e.docId, e.number);
     else if (e.type === 'stock.ordered') {
       docs.set(e.id, { id: e.id, poNo: e.poNo, supplierId: e.supplierId, lines: e.lines, at: e.at, actor: e.actor, cancelled: null });

@@ -302,6 +302,20 @@ test('purchasing: the server re-checks the order against what it stored, and say
   await s.stop();
 });
 
+test('sync retry: pushing the same documents again stores them once and numbers them once', async () => {
+  const s = await staffed();
+  await s.login('2580');
+  const by = { id: s.manager.id, name: 'Ravi', role: 'manager' };
+  const events = [
+    { id: 'p1', shopId: SHOP, at: 5000, orderNumber: 0, actor: by, type: 'stock.ordered', supplierId: 'sup', lines: [{ itemId: 'inv-0001', packs: 2 }] },
+    { id: 'g1', shopId: SHOP, at: 5000, orderNumber: 0, actor: by, type: 'stock.grn', orderId: 'p1', supplierId: 'sup', lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2 }], approvedBy: null },
+  ];
+  for (let i = 0; i < 3; i++) assert.deepEqual(((await (await s.push(s.tokens.counter, events)).json()).rejected ?? []), []);
+  const all = ((await (await s.call('/api/v1/events?after=0', s.tokens.counter)).json()).events as { event: { id: string; type: string } }[]).map((e) => `${e.event.type}:${e.event.id}`);
+  assert.deepEqual(all.sort(), ['stock.grn:g1', 'stock.numbered:num-g1', 'stock.numbered:num-p1', 'stock.ordered:p1']);
+  await s.stop();
+});
+
 test('menu: only a logged-in owner changes prices and names; a manager may mark things sold out', async () => {
   const s = await staffed();
   const owner = await s.store.addStaff(SHOP, 'Nisal', 'owner', '1234');

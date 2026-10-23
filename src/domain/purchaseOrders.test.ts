@@ -223,3 +223,13 @@ test('totals: an order draft is items, packs and about what it costs; a delivery
   assert.deepEqual(orderTotals([{ itemId: 'unknown', packs: 2 }], price), { items: 1, packs: 2, cents: 0 }, 'no price: nothing to add');
   assert.deepEqual(grnTotals([{ itemId: 'a', ordered: 2, received: 1.5 }, { itemId: 'b', ordered: 0.5, received: 1 }]), { expected: 2.5, received: 2.5 });
 });
+
+test('sync retry: the same records twice change nothing — stock, orders, status and numbers count once', () => {
+  const g: SyncEvent = { ...base, id: 'g1', at: 1, type: 'stock.grn', orderId: 'po-1', supplierId: 'sup_a', lines: [{ itemId: 'flour', ordered: 4, received: 1, accepted: 1 }], approvedBy: base.actor, shortDecision: 'wait' };
+  const numbered: SyncEvent = { ...base, id: 'num-po-1', at: 1, type: 'stock.numbered', docId: 'po-1', kind: 'PO', number: 'PO-0001' };
+  const once = [po('po-1', 0, 'sup_a', 4), numbered, g];
+  const twice = [...once, ...once, po('po-1', 0, 'sup_a', 4), g];
+  assert.deepEqual(purchasesFromEvents(twice), purchasesFromEvents(once));
+  assert.equal(purchasesFromEvents(twice).orders[0].lines[0].remaining, 3, 'the 1 pack received is counted once, not twice');
+  assert.equal(purchasesFromEvents(twice).grns.length, 1);
+});

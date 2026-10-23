@@ -368,3 +368,14 @@ test('marking a count reviewed, or asking about it, never changes stock', () => 
   assert.equal(stock([{ ...base, actor: owner, id: 'r2', type: 'stock.gap_reviewed', countId: 'c1', decision: 'ask', note: 'Why?' } as never,
     { ...base, actor: manager, id: 'r3', type: 'stock.gap_answered', countId: 'c1', note: 'Dropped a bag' } as never]), before);
 });
+
+test('sync retry: a GRN, a count or a sale that arrives twice moves stock once', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const flour = SEED_INVENTORY[0].id;
+  const grn = { ...base, id: 'g1', type: 'stock.grn' as const, orderId: 'po', supplierId: 's', lines: [{ itemId: flour, ordered: 2, received: 2, accepted: 2 }], approvedBy: null };
+  const movement = { ...base, id: 'm1', type: 'stock.movement' as const, itemId: flour, kind: 'COUNT_ADJUST' as const, qtyBase: 100, docId: 'd' };
+  const row = (events: Parameters<typeof inventoryFromEvents>[1]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === flour)!;
+  assert.equal(row([grn, grn, movement, movement]).onHandBaseUnits, row([grn, movement]).onHandBaseUnits);
+  assert.equal(row([grn, grn]).onHandBaseUnits, 2 * SEED_INVENTORY[0].packQty);
+});

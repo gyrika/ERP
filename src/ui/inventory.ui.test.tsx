@@ -645,6 +645,40 @@ test('over + return: only what was owed goes into stock, the extra is recorded a
   expect(amount()).toContain('2 packs · 50 kg');
 });
 
+test('over + accept: everything that came goes into stock', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour(2);
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  const field = screen.getByRole('textbox', { name: 'Packs of Pizza Flour' });
+  await user.clear(field);
+  await user.type(field, '3');
+  await user.click(screen.getByRole('button', { name: 'Manager approves' }));
+  await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  await user.click(within(screen.getByRole('group', { name: 'Extra lines' })).getByRole('button', { name: 'Accept extra' }));
+  await user.click(screen.getByRole('button', { name: 'Approve' }));
+  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ overDecision: 'accept', lines: [{ ordered: 2, received: 3, accepted: 3, returned: 0 }] });
+  await user.keyboard('{Escape}');
+  expect(amount()).toContain('3 packs · 75 kg');
+});
+
+test('a GRN older than the allowed hours has no Undo', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour(2);
+  const po = readAll().find((e) => e.type === 'stock.ordered')!;
+  act(() => {
+    appendEvent({
+      type: 'stock.grn', at: Date.now() - 25 * 3_600_000, orderNumber: 0, actor: { id: 'm', name: 'Ravi', role: 'manager' }, orderId: po.id,
+      supplierId: 'sup_prima', lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2, returned: 0 }], approvedBy: null,
+    });
+  });
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  expect(screen.getByRole('region', { name: 'Recent GRNs' })).toBeTruthy(); // the order is closed, so the sheet opens on the list
+  expect(screen.getByText(/GRN \(pending\)|GRN-0001/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /^Undo GRN/ })).toBeNull();
+});
+
 test('more than ordered shows as over', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);

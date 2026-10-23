@@ -270,7 +270,11 @@ export const stockFromEvents = (
     if (usage) { take(usage, 1); taken.set(lineId, usage); } else taken.delete(lineId);
   };
 
+  /** A record that arrives twice (a sync retry, two routes) counts once. */
+  const seen = new Set<string>();
   for (const e of events) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
     switch (e.type) {
       case 'stock.item_added':
         if (!shelves.has(e.item.id)) {
