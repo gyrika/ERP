@@ -121,6 +121,12 @@ test('a count: the first one is opening stock; below zero is still checked; the 
   assert.match(ask(counted, short) ?? '', /Count again/, 'a 5% gap, but worth more than the allowance');
 });
 
+test('a count after a delivery but before any count is still the opening stock', () => {
+  const delivered = [po('p1', 5), grn('g1', 'p1', [line(5, 5)])];
+  assert.equal(ask(delivered, count(9000, 5000, 0, null)), null, 'the delivery is not a count: no reason asked');
+  assert.match(ask([...delivered, count(9000, 5000, 0, null, 'flour', 'c0')], count(4000, 9000, 0, null)) ?? '', /Count again/, 'once counted, a gap needs a reason');
+});
+
 test('stock is not changed by a bare movement: it is counted or received', () => {
   const adjusted: SyncEvent = { ...base, id: 'a1', at: 1, type: 'stock.adjusted', itemId: 'flour', deltaPacks: 5 };
   const moved: SyncEvent = { ...base, id: 'm1', at: 1, type: 'stock.movement', itemId: 'flour', kind: 'COUNT_ADJUST', qtyBase: 5000, docId: 'manual' };

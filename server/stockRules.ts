@@ -29,8 +29,8 @@ export const stockFacts = (log: readonly SyncEvent[]): Map<string, StockFacts> =
   for (const e of log) {
     if (e.type === 'stock.item_added' && !facts.has(e.item.id)) facts.set(e.item.id, { packQty: e.item.packQty, workingPriceCents: e.item.workingPriceCents, counted: false });
     else if (e.type === 'stock.price_set') of(e.itemId).workingPriceCents = e.after;
-    else if (e.type === 'stock.counted' || e.type === 'stock.adjusted' || e.type === 'stock.movement') of(e.itemId).counted = true;
-    else if (e.type === 'stock.grn') for (const l of e.lines) if (l.accepted !== undefined && l.accepted > 0) of(l.itemId).counted = true;
+    // A delivery is not a count: an item first counted after one still gives its opening stock.
+    else if (e.type === 'stock.counted' || e.type === 'stock.adjusted' || (e.type === 'stock.movement' && e.kind === 'COUNT_ADJUST')) of(e.itemId).counted = true;
   }
   return facts;
 };
