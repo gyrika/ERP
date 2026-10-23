@@ -84,6 +84,8 @@ export function demoHistory(now: number, shopId = FAKE_SHOP_ID): SyncEvent[] {
       // The kitchen: 7-12 minutes normally; 18-26 in tonight's last two hours.
       const slow = isToday && sentAt >= now - 2 * 60 * MIN;
       const cook = (slow ? 18 + rand() * 8 : 7 + rand() * 5) * MIN;
+      const startAt = sentAt + Math.min(cook / 3, 3 * MIN);
+      if (startAt <= now) events.push({ type: 'kitchen.started', id: id('start'), shopId, at: startAt, orderNumber: number, ticketId });
       if (sentAt + cook <= now) events.push({ type: 'kitchen.bumped', id: id('bump'), shopId, at: sentAt + cook, orderNumber: number, ticketId });
 
       let total = lines.reduce((s, l) => s + lineGross(l), 0);

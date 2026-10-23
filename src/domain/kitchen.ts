@@ -36,6 +36,8 @@ export interface KitchenTicket {
   /** Last arrival or change. The ticket flashes until `seenAt` catches up. */
   alertAt: number;
   seenAt?: number;
+  /** The cook tapped Start: from here to `doneAt` is the cooking time. */
+  startedAt?: number;
   doneAt?: number;
 }
 
@@ -120,6 +122,17 @@ export const ack = (tickets: KitchenTicket[], id: string, at: number): KitchenTi
 
 export const needsAttention = (t: KitchenTicket): boolean => t.seenAt === undefined || t.seenAt < t.alertAt;
 
+/** Start also counts as seen. Starting twice keeps the first time. */
+export const start = (tickets: KitchenTicket[], id: string, at: number): KitchenTicket[] =>
+  tickets.map((t) => (t.id === id && t.startedAt === undefined ? { ...t, startedAt: at, seenAt: Math.max(at, t.alertAt) } : t));
+
+export const unstart = (tickets: KitchenTicket[], id: string): KitchenTicket[] =>
+  tickets.map((t) => {
+    if (t.id !== id) return t;
+    const { startedAt: _started, ...waiting } = t;
+    return waiting;
+  });
+
 /** Done also counts as seen. */
 export const bump = (tickets: KitchenTicket[], id: string, at: number): KitchenTicket[] =>
   tickets.map((t) => (t.id === id && t.doneAt === undefined ? { ...t, doneAt: at, seenAt: Math.max(at, t.alertAt) } : t));
@@ -138,13 +151,16 @@ export const queue = (tickets: KitchenTicket[]): KitchenTicket[] =>
     .sort((a, b) => a.firedAt - b.firedAt || a.number - b.number);
 
 /**
- * Kitchen state of a sent order, for the register: cooking while any of its
- * tickets is still on the kitchen screen, done once all are bumped. (Done
- * tickets are pruned after an hour, so "no open ticket" also means done.)
+ * Kitchen state of a sent order, for the register: waiting until the cook taps
+ * Start, cooking once any of its open tickets is started, done once all are
+ * bumped. (Done tickets are pruned after an hour, so "no open ticket" also means done.)
  */
-export type CookState = 'cooking' | 'done';
-export const cookState = (tickets: KitchenTicket[], number: number): CookState =>
-  tickets.some((t) => t.number === number && t.doneAt === undefined) ? 'cooking' : 'done';
+export type CookState = 'waiting' | 'cooking' | 'done';
+export const cookState = (tickets: KitchenTicket[], number: number): CookState => {
+  const open = tickets.filter((t) => t.number === number && t.doneAt === undefined);
+  if (open.length === 0) return 'done';
+  return open.some((t) => t.startedAt !== undefined) ? 'cooking' : 'waiting';
+};
 
 export const prune = (tickets: KitchenTicket[], now: number): KitchenTicket[] =>
   tickets.filter((t) => t.doneAt === undefined || now - t.doneAt < KEEP_DONE_MS);
@@ -198,11 +214,14 @@ export const TICKET_HORIZON_MS = 24 * 60 * 60_000;
  * so nothing ever has to be merged. A manager Undo restores the line exactly
  * as the kitchen had it before the change it undoes.
  */
-export const ticketsFromEvents = (events: readonly SyncEvent[], now: number): KitchenTicket[] => {
+export const ticketsFromEvents = (events: readonly SyncEvent[], now: number): KitchenTicket[] =>
+  prune(foldTickets(events.filter((e) => now - e.at <= TICKET_HORIZON_MS)), now);
+
+/** Every ticket the events describe, done or not, however old. */
+const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
   let t: KitchenTicket[] = [];
   const before = new Map<string, KitchenLine>(); // change event id → the kitchen's line before it
   for (const e of events) {
-    if (now - e.at > TICKET_HORIZON_MS) continue;
     switch (e.type) {
       case 'order.sent':
         t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn, ...(e.online ? { online: e.online } : {}) });
@@ -222,10 +241,57 @@ export const ticketsFromEvents = (events: readonly SyncEvent[], now: number): Ki
         break;
       }
       case 'kitchen.seen': t = ack(t, e.ticketId, e.at); break;
+      case 'kitchen.started': t = start(t, e.ticketId, e.at); break;
+      case 'kitchen.unstarted': t = unstart(t, e.ticketId); break;
       case 'kitchen.bumped': t = bump(t, e.ticketId, e.at); break;
       case 'kitchen.unbumped': t = unbump(t, e.ticketId); break;
       default: break; // payments and price changes do not concern the kitchen
     }
   }
-  return prune(t, now);
+  return t;
 };
+
+/**
+ * One cooked ticket, for later analysis (cook times per item, per hour, per cook load).
+ * waitMs: sent → Start (queue time); cookMs: Start → Done; totalMs: sent → Done.
+ * A ticket marked Done without Start has no start or cook time.
+ */
+export interface CookRecord {
+  ticketId: string;
+  orderNumber: number;
+  sentAt: number;
+  startedAt: number | null;
+  doneAt: number;
+  waitMs: number | null;
+  cookMs: number | null;
+  totalMs: number;
+  /** What was cooked (cancelled lines left out), so times can be split by item and category. */
+  items: { itemId: string; category: Category; size?: string; qty: number }[];
+}
+
+/**
+ * Every finished ticket's cooking times, folded from the event log like the tickets
+ * themselves, so Undo (unstarted / unbumped) and recalled sends are already applied.
+ * Not limited to a day: pass the history to analyse.
+ */
+export const cookLog = (events: readonly SyncEvent[]): CookRecord[] =>
+  foldTickets(events)
+    .filter((t) => t.doneAt !== undefined)
+    .map((t): CookRecord => {
+      const doneAt = t.doneAt as number;
+      const startedAt = t.startedAt !== undefined && t.startedAt <= doneAt ? t.startedAt : null;
+      return {
+        ticketId: t.id,
+        orderNumber: t.number,
+        sentAt: t.firedAt,
+        startedAt,
+        doneAt,
+        waitMs: startedAt === null ? null : startedAt - t.firedAt,
+        cookMs: startedAt === null ? null : doneAt - startedAt,
+        totalMs: doneAt - t.firedAt,
+        items: t.lines.filter((l) => !l.cancelled).map((l) => ({
+          itemId: l.itemId, category: itemById(l.itemId).category, ...(l.size ? { size: l.size } : {}), qty: l.qty,
+        })),
+      };
+    })
+    .sort((a, b) => a.doneAt - b.doneAt);

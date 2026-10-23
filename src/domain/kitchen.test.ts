@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   COOK_MINUTES, KEEP_DONE_MS, cookTimeMs,
   TICKET_HORIZON_MS, ack, amendLine, bump, cookState, kitchenLine, restoreLine, elapsedLabel, fire, needsAttention, prune, queue, recall,
-  ticketLines, ticketsFromEvents, unbump, urgency,
+  ticketLines, ticketsFromEvents, unbump, urgency, start, unstart, cookLog,
 } from './kitchen.ts';
 import type { SyncEvent } from './sync.ts';
 import { addLine, bareLine, emptyOrder, markSent, unsentLines } from './order.ts';
@@ -158,16 +158,20 @@ test('changing twice compares with the latest version; other tickets are untouch
   assert.equal(t[1].changed, undefined);
 });
 
-test('cookState: cooking while any ticket of the order is open, done when all are bumped', () => {
+test('cookState: waiting until Start, cooking once an open ticket is started, done when all are bumped', () => {
   let t = fire([], { shopId: SHOP, id: 'a', number: 1042, lines: [M('x')], firedAt: 0 });
   t = fire(t, { shopId: SHOP, id: 'b', number: 1042, lines: [M('y')], firedAt: 5, addOn: true });
   t = fire(t, { shopId: SHOP, id: 'c', number: 1043, lines: [M('z')], firedAt: 5 });
+  assert.equal(cookState(t, 1042), 'waiting', 'sent, but the cook has not started');
+  t = start(t, 'a', 8);
   assert.equal(cookState(t, 1042), 'cooking');
   t = bump(t, 'a', 10);
-  assert.equal(cookState(t, 1042), 'cooking'); // the added round is still cooking
+  assert.equal(cookState(t, 1042), 'waiting'); // the added round is not started yet
+  t = start(t, 'b', 12);
+  assert.equal(cookState(t, 1042), 'cooking');
   t = bump(t, 'b', 20);
   assert.equal(cookState(t, 1042), 'done');
-  assert.equal(cookState(t, 1043), 'cooking');
+  assert.equal(cookState(t, 1043), 'waiting');
   assert.equal(cookState(amendLine(t, 'x', null, 30), 1042), 'cooking'); // a manager change reopens it
   assert.equal(cookState(prune(t, 10 ** 12), 1042), 'done'); // pruned hours later: still done
 });
@@ -237,4 +241,49 @@ test('an online order keeps its pickup time on the kitchen ticket', () => {
   const [a, b] = ticketsFromEvents(events, 2000);
   assert.deepEqual(a.online, { pickupBy: 9000 });
   assert.equal(b.online, undefined);
+});
+
+test('Start marks a ticket cooking (and seen); Undo takes it back', () => {
+  let t = fire([], ticket('a', 1001, 100));
+  t = start(t, 'a', 200);
+  assert.equal(t[0].startedAt, 200);
+  assert.equal(needsAttention(t[0]), false);
+  t = start(t, 'a', 300);
+  assert.equal(t[0].startedAt, 200, 'a second Start keeps the first time');
+  t = unstart(t, 'a');
+  assert.equal(t[0].startedAt, undefined);
+  assert.equal(queue(t).length, 1, 'starting does not take it off the screen');
+});
+
+test('cookLog times each finished ticket from the events, Undo applied', () => {
+  const actor = { id: 's1', name: 'Nimal', role: 'cashier' as const };
+  const base = { shopId: SHOP, orderNumber: 1001 };
+  const k = (id: string, at: number, type: 'kitchen.started' | 'kitchen.unstarted' | 'kitchen.bumped' | 'kitchen.unbumped', ticketId = 't1'): SyncEvent =>
+    ({ ...base, id, at, type, ticketId });
+  const sent = (id: string, ticketId: string, at: number): SyncEvent =>
+    ({ ...base, id, actor, at, type: 'order.sent', ticketId, lines: lines(), addOn: false });
+  const events: SyncEvent[] = [
+    sent('e1', 't1', 0),
+    k('e2', 60_000, 'kitchen.started'),
+    k('e3', 61_000, 'kitchen.unstarted'), // tapped by mistake
+    k('e4', 120_000, 'kitchen.started'),
+    k('e5', 600_000, 'kitchen.bumped'),
+    sent('e6', 't2', 0),
+    k('e7', 300_000, 'kitchen.bumped', 't2'), // Done without Start
+    sent('e8', 't3', 0),
+    k('e9', 10_000, 'kitchen.started', 't3'), // still cooking
+  ];
+  const log = cookLog(events);
+  assert.deepEqual(log.map((r) => r.ticketId), ['t2', 't1'], 'finished tickets only, in the order they were done');
+  const [t2, t1] = log;
+  assert.deepEqual(
+    { sentAt: t1.sentAt, startedAt: t1.startedAt, doneAt: t1.doneAt, waitMs: t1.waitMs, cookMs: t1.cookMs, totalMs: t1.totalMs },
+    { sentAt: 0, startedAt: 120_000, doneAt: 600_000, waitMs: 120_000, cookMs: 480_000, totalMs: 600_000 },
+  );
+  assert.deepEqual(t1.items, [{ itemId: 'devilled-chicken', category: 'pizza', size: 'L', qty: 2 }]);
+  assert.equal(t2.cookMs, null);
+  assert.equal(t2.totalMs, 300_000);
+
+  const reopened = cookLog([...events, k('e10', 700_000, 'kitchen.unbumped')]);
+  assert.deepEqual(reopened.map((r) => r.ticketId), ['t2'], 'a Done taken back is not cooked yet');
 });
