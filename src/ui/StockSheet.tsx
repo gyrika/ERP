@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { fmt, parseLKR } from '../domain/money.ts';
 import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import type { Supplier } from '../domain/inventoryData.ts';
-import { packPrice, reasonLabel, receiveUnitOf, unitName, unitPrice, unitsOf } from '../domain/counting.ts';
+import { formatInUnit, fromPacks, packPrice, reasonLabel, receiveUnitOf, roundForUnit, toPacks, unitName, unitPrice, unitsOf } from '../domain/counting.ts';
 import type { Actor } from '../domain/auth.ts';
 import type { PurchaseState } from '../domain/purchaseOrders.ts';
 import { setOrderBelow, setReceiveUnit, setWorkingPrice, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
@@ -16,7 +16,7 @@ import { NumberInput } from './NumberInput.tsx';
 import { OwnerPin } from './OwnerPin.tsx';
 import { isManagerPhone } from '../services/pairing.ts';
 import { usePhotoUrl } from '../services/photos.ts';
-import { formatLasts, formatPacks, formatQuantity } from './quantity.ts';
+import { formatLasts, formatQuantity } from './quantity.ts';
 
 /**
  * Serves the manager looking at one item: Details (its story, and counting it) · Order · History.
@@ -154,12 +154,12 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
             </div>
             <div>
               <dt>Last delivery</dt>
-              <dd>{story.lastDelivery ? `${daysAgo(story.lastDelivery.at, now)} · ${formatPacks(story.lastDelivery.packs)} · ${story.lastDelivery.by}` : 'None recorded yet'}</dd>
+              <dd>{story.lastDelivery ? `${daysAgo(story.lastDelivery.at, now)} · ${formatInUnit(story.lastDelivery.packs, unit, item.packQty)} · ${story.lastDelivery.by}` : 'None recorded yet'}</dd>
             </div>
             <div>
               <dt>Price</dt>
               <dd>
-                <span className="num">Rs {fmt(item.workingPriceCents)} a pack of {formatQuantity(item.packQty, item.baseUnit)}</span>
+                <span className="num">{isPack ? `Rs ${fmt(item.workingPriceCents)} a pack of ${formatQuantity(item.packQty, item.baseUnit)}` : `Rs ${shownPrice} a ${name}`}</span>
                 {story.lastPrice && (
                   <span className={`story__price story__price--${story.lastPrice.after > story.lastPrice.before ? 'up' : 'down'}`}>
                     {story.lastPrice.after > story.lastPrice.before ? '↑' : '↓'} Rs {fmt(Math.abs(story.lastPrice.after - story.lastPrice.before))} {daysAgo(story.lastPrice.at, now)}
@@ -243,8 +243,9 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
 
 /**
  * "Order when below" (SCRUM-135): Automatic (the reorder rule decides from how fast it
- * sells) or a number of packs for this item. Two buttons, never an empty box that
- * secretly means automatic (SCRUM-137). The owner's PIN, then Undo.
+ * sells) or an amount for this item, typed and shown in what it is bought in (packs, kg),
+ * kept in packs. Two buttons, never an empty box that secretly means automatic
+ * (SCRUM-137). The owner's PIN, then Undo.
  */
 function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: string, undo: () => void) => void }) {
   const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
@@ -252,10 +253,13 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
   const [typed, setTyped] = useState('');
   const [error, setError] = useState('');
   const current = item.orderBelowPacks;
+  const unit = receiveUnitOf(item);
+  const isPack = unit.id === 'pack';
+  const shown = (packs: number) => formatInUnit(packs, unit, item.packQty);
 
   const start = (owner: Actor) => {
     setMode(current === null ? 'auto' : 'number');
-    setTyped(current === null ? '' : String(current));
+    setTyped(current === null ? '' : String(roundForUnit(fromPacks(current, unit, item.packQty))));
     setError('');
     setEdit(owner);
   };
@@ -263,22 +267,22 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
     setEdit('closed');
     if (packs === current) return;
     setOrderBelow(item.id, packs, owner);
-    onDone(packs === null ? `${item.name}: ordered automatically again.` : `${item.name}: order when below ${formatPacks(packs)}.`,
+    onDone(packs === null ? `${item.name}: ordered automatically again.` : `${item.name}: order when below ${shown(packs)}.`,
       () => setOrderBelow(item.id, current, owner));
   };
   const submit = (event: FormEvent, owner: Actor) => {
     event.preventDefault();
     if (mode === 'auto') return save(owner, null);
-    const packs = parsePacks(typed);
-    if (packs === null || packs <= 0) return setError('Type how many packs, more than 0, or choose Automatic.');
-    save(owner, packs);
+    const n = parsePacks(typed);
+    if (n === null || n <= 0) return setError(`Type how many ${isPack ? 'packs' : unitName(unit)}, more than 0, or choose Automatic.`);
+    save(owner, isPack ? n : Math.round(toPacks(n, unit, item.packQty) * 1e6) / 1e6);
   };
 
   return (
     <div className="receive-unit">
       {edit === 'closed' && (
         <>
-          <span>Order when below <b>{current === null ? 'automatic' : formatPacks(current)}</b>{current === null && <small> · from how fast it sells</small>}</span>
+          <span>Order when below <b>{current === null ? 'automatic' : shown(current)}</b>{current === null && <small> · from how fast it sells</small>}</span>
           {!isManagerPhone() && <button type="button" className="linkbtn" aria-label="Change order when below" onClick={() => setEdit('pin')}>Change</button>}
         </>
       )}
@@ -294,7 +298,7 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
             : (
               <label className="inv-modal__field">
                 <span>Order when below</span>
-                <NumberInput className="inv-modal__input" unit="packs" autoFocus value={typed}
+                <NumberInput className="inv-modal__input" unit={isPack ? 'packs' : unitName(unit)} autoFocus value={typed}
                   onText={(text) => { setTyped(text); setError(''); }} />
               </label>
             )}
@@ -311,19 +315,22 @@ function History({ item, entries }: { item: InventoryRow; entries: HistoryEntry[
   const now = Date.now();
   if (!entries.length) return <p className="history__none">Nothing yet: no counts, deliveries, waste or price changes for {item.name}.</p>;
   const q = (n: number) => formatQuantity(Math.abs(n), item.baseUnit);
+  const unit = receiveUnitOf(item);
+  const per = unit.id === 'pack' ? 'a pack' : `a ${unitName(unit)}`;
+  const rs = (packCents: number) => fmt(unitPrice(packCents, unit, item.packQty));
   return (
     <ol className="history" aria-label={`History of ${item.name}`}>
       {entries.map((h, i) => (
         <li key={i} className={`history__item history__item--${h.kind}`}>
           <span className="history__when">{daysAgo(h.at, now)} · {h.by}</span>
           {h.kind === 'count' && <HistoryCount item={item} h={h} q={q} />}
-          {h.kind === 'delivery' && <span>Received {formatPacks(h.packs)} ({q(h.packs * item.packQty)})</span>}
+          {h.kind === 'delivery' && <span>Received {formatInUnit(h.packs, unit, item.packQty)}{unit.id === 'pack' && ` (${q(h.packs * item.packQty)})`}</span>}
           {h.kind === 'waste' && (
             <span>Wasted {q(h.qty)}{h.from !== item.name && <> · from {h.from}</>} · {h.note ? `${wasteReasonLabel(h.reason)}: ${h.note}` : wasteReasonLabel(h.reason)}</span>
           )}
           {h.kind === 'price' && (
-            <span>Price Rs {fmt(h.before)} → <b>Rs {fmt(h.after)}</b> a pack
-              <span className={`story__price story__price--${h.after > h.before ? 'up' : 'down'}`}> {h.after > h.before ? '↑' : '↓'} Rs {fmt(Math.abs(h.after - h.before))}</span>
+            <span>Price Rs {rs(h.before)} → <b>Rs {rs(h.after)}</b> {per}
+              <span className={`story__price story__price--${h.after > h.before ? 'up' : 'down'}`}> {h.after > h.before ? '↑' : '↓'} Rs {rs(Math.abs(h.after - h.before))}</span>
             </span>
           )}
         </li>

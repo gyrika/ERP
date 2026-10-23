@@ -1,6 +1,6 @@
 import type { Answer } from './costing.ts';
 import { sizesOf } from './costing.ts';
-import type { GapReason } from './counting.ts';
+import { receiveUnitOf, roundForUnit, unitName, type GapReason, type LearnedUnit } from './counting.ts';
 import type { BaseUnit } from './inventoryData.ts';
 import { formatQuantity } from './quantity.ts';
 import { bookUsage } from './stockUsage.ts';
@@ -112,13 +112,16 @@ export const usedIn = (menu: readonly MenuItem[], answers: ReadonlyMap<string, A
 const QUARTERS = ['', '¼', '½', '¾'];
 
 /**
- * What is on the shelf, packs first: "1½ packs · 3 kg", "1 pack · 25 kg", "Empty".
- * Rounded to the quarter pack, the way people see a shelf; a crumb is "under ¼ pack".
+ * What is on the shelf, in what it is bought in. Packs first: "1½ packs · 3 kg", "1 pack · 25 kg",
+ * rounded to the quarter pack, the way people see a shelf; a crumb is "under ¼ pack". An item
+ * bought by kg (or a Tray) is just that: "48.5 kg", "3 Tray". "Empty" either way.
  */
-export const formatStock = (baseUnits: number, item: { packQty: number; baseUnit: BaseUnit }): string => {
+export const formatStock = (baseUnits: number, item: { packQty: number; baseUnit: BaseUnit; units?: readonly LearnedUnit[]; receiveUnit?: string | null }): string => {
   const base = Math.max(0, baseUnits);
   if (base === 0) return 'Empty';
+  const unit = receiveUnitOf(item);
   const amount = formatQuantity(base, item.baseUnit);
+  if (unit.id !== 'pack') { const n = roundForUnit(base / unit.base); return n > 0 ? `${n} ${unitName(unit)}` : amount; }
   if (item.packQty <= 0) return amount;
   const quarters = Math.round((base / item.packQty) * 4);
   if (quarters === 0) return `under ¼ pack · ${amount}`;

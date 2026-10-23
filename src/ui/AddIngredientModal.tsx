@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { newLineId } from '../domain/order.ts';
 import { useCatalog } from '../services/inventoryStore.ts';
+import type { BaseUnit } from '../domain/inventoryData.ts';
+import type { Cents } from '../domain/types.ts';
 import { AutoSuggestPills } from './AutoSuggestPills.tsx';
+import { EMPTY_UNIT_PRICE, UnitPriceFields, unitPriceItem } from './UnitPriceFields.tsx';
 
 export function AddIngredientModal({
   onClose,
@@ -13,15 +16,17 @@ export function AddIngredientModal({
     name: string;
     supplierIds: string[];
     category: string;
-    baseUnit: 'pcs';
+    baseUnit: BaseUnit;
     packQty: number;
-    workingPriceCents: number;
+    workingPriceCents: Cents;
   }) => void;
 }) {
   const { suppliers } = useCatalog();
   const [name, setName] = useState('');
   const [supplierIds, setSupplierIds] = useState<string[]>([]);
+  const [unitPrice, setUnitPrice] = useState(EMPTY_UNIT_PRICE);
   const [error, setError] = useState('');
+  const priced = unitPriceItem(unitPrice);
   const toggleSupplier = (id: string) => setSupplierIds((previous) =>
     previous.includes(id) ? previous.filter((selected) => selected !== id) : [...previous, id]);
 
@@ -32,15 +37,14 @@ export function AddIngredientModal({
   }, [onClose]);
 
   const submit = () => {
+    if (!priced) return;
     try {
       onSave({
         id: `inv-${newLineId()}`,
         name: name.trim(),
         supplierIds,
         category: 'General',
-        baseUnit: 'pcs',
-        packQty: 1,
-        workingPriceCents: 0,
+        ...priced,
       });
       onClose();
     } catch (cause) {
@@ -57,6 +61,7 @@ export function AddIngredientModal({
           <span>Ingredient name</span>
           <input autoFocus maxLength={120} className="inv-modal__input" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Sea Salt" />
         </label>
+        <UnitPriceFields value={unitPrice} onChange={setUnitPrice} />
         <div className="inv-modal__field">
           <span>Suppliers <small>At least one · select any number</small></span>
           <AutoSuggestPills
@@ -68,10 +73,9 @@ export function AddIngredientModal({
           />
         </div>
         {error && <p className="inv-modal__error" role="alert">{error}</p>}
-        <p className="inv-modal__note">New ingredients start as general items measured in pieces. You can update their stock after saving.</p>
         <div className="inv-modal__actions">
           <button type="button" className="inv-modal__cancel" onClick={onClose}>Cancel</button>
-          <button type="button" className="insight__action" disabled={!name.trim() || supplierIds.length === 0} onClick={submit}>Save Ingredient</button>
+          <button type="button" className="insight__action" disabled={!name.trim() || !priced || supplierIds.length === 0} onClick={submit}>Save Ingredient</button>
         </div>
       </section>
     </div>

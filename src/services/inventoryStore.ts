@@ -57,10 +57,13 @@ export const readItems = (): InventoryRow[] => readAllItems().filter((item) => !
 export const readSuppliers = (includeArchived = false): Supplier[] =>
   suppliersFromEvents(SEED_SUPPLIERS, readLive(), includeArchived);
 
+/** An ingredient typed in Add Supplier: its name, what it is bought in and what one costs. */
+export type NewIngredient = Pick<InventoryItem, 'name' | 'baseUnit' | 'packQty' | 'workingPriceCents'>;
+
 export const addSupplier = (
   supplier: Supplier,
   linkedItemIds: string[],
-  newIngredientNames: string[] = [],
+  newIngredients: NewIngredient[] = [],
 ): void => {
   const suppliers = readSuppliers(true);
   const items = readItems();
@@ -74,34 +77,28 @@ export const addSupplier = (
   if (supplier.phone && supplier.phone.trim().length > 40) throw new Error('Phone number must be 40 characters or fewer.');
   if (new Set(linkedItemIds).size !== linkedItemIds.length) throw new Error('An ingredient is selected more than once.');
   if (linkedItemIds.some((id) => !items.some((item) => item.id === id))) throw new Error('A selected ingredient no longer exists.');
-  const normalizedNames = newIngredientNames.map((name) => name.trim().toLowerCase());
+  const normalizedNames = newIngredients.map(({ name }) => name.trim().toLowerCase());
   if (normalizedNames.some((name) => !name)) throw new Error('Ingredient names cannot be blank.');
   if (normalizedNames.some((name) => name.length > 120)) throw new Error('Ingredient names must be 120 characters or fewer.');
   if (new Set(normalizedNames).size !== normalizedNames.length) throw new Error('An ingredient is selected more than once.');
 
   const linked = new Set(linkedItemIds);
   const existingNames = new Map(items.map((item) => [item.name.trim().toLowerCase(), item.id]));
-  const namesToCreate: string[] = [];
-  for (const name of newIngredientNames) {
-    const existingId = existingNames.get(name.trim().toLowerCase());
+  const toCreate: InventoryItem[] = [];
+  for (const ingredient of newIngredients) {
+    const existingId = existingNames.get(ingredient.name.trim().toLowerCase());
     if (existingId) linked.add(existingId);
-    else namesToCreate.push(name.trim());
+    else toCreate.push({ ...ingredient, id: `inv-${newLineId()}`, name: ingredient.name.trim(), category: 'General', supplierIds: [supplier.id] });
   }
-  if (linked.size === 0 && namesToCreate.length === 0) {
+  if (linked.size === 0 && toCreate.length === 0) {
     throw new Error('Select or add at least one ingredient for this supplier.');
   }
 
+  const errors = validateSeed({ suppliers: [...readSuppliers(), supplier], items: toCreate });
+  if (errors.length) throw new Error(errors.join(' '));
+
   const actor = currentCashier();
-  for (const itemName of namesToCreate) {
-    const item: InventoryItem = {
-      id: `inv-${newLineId()}`,
-      name: itemName,
-      category: 'General',
-      baseUnit: 'pcs',
-      packQty: 1,
-      supplierIds: [supplier.id],
-      workingPriceCents: 0 as Cents,
-    };
+  for (const item of toCreate) {
     appendEvent({ type: 'stock.item_added', at: Date.now(), orderNumber: 0, actor, item });
     linked.add(item.id);
   }

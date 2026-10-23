@@ -29,9 +29,16 @@ test('new ingredient requires suppliers and saves as a stock event', async () =>
   await user.type(screen.getByRole('textbox', { name: 'Ingredient name' }), 'Sea Salt');
   await user.click(screen.getByRole('searchbox', { name: 'Suppliers' }));
   await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
+  expect(screen.getByRole('button', { name: 'Save Ingredient' }).hasAttribute('disabled')).toBe(true); // no unit or price yet
+  await user.click(within(screen.getByRole('group', { name: 'Unit' })).getByRole('button', { name: 'kg' }));
+  await user.type(screen.getByRole('textbox', { name: 'Price per kg' }), '0');
+  expect(screen.getByRole('button', { name: 'Save Ingredient' }).hasAttribute('disabled')).toBe(true); // a price above zero
+  await user.clear(screen.getByRole('textbox', { name: 'Price per kg' }));
+  await user.type(screen.getByRole('textbox', { name: 'Price per kg' }), '450');
   await user.click(screen.getByRole('button', { name: 'Save Ingredient' }));
 
   expect(await screen.findByRole('heading', { name: 'Sea Salt' })).toBeTruthy();
+  expect(readItems().find((item) => item.name === 'Sea Salt')).toMatchObject({ baseUnit: 'g', packQty: 1000, workingPriceCents: 45000 });
   expect(readAll().some((event) => event.type === 'stock.item_added' && event.item.name === 'Sea Salt')).toBe(true);
   expect(readItems().find((item) => item.name === 'Sea Salt')?.supplierIds).toEqual(['sup_prima']);
 }, 15_000);
@@ -63,6 +70,9 @@ test('adding a supplier requires at least one existing or new ingredient', async
   const ingredientSearch = screen.getByRole('searchbox', { name: 'Ingredients' });
   await user.type(ingredientSearch, 'Fresh Basil');
   await user.click(screen.getByRole('button', { name: '+ Add “Fresh Basil” as new ingredient' }));
+  expect(save.hasAttribute('disabled')).toBe(true); // its unit and price first
+  await user.click(within(screen.getByRole('group', { name: 'Fresh Basil unit' })).getByRole('button', { name: 'g' }));
+  await user.type(screen.getByRole('textbox', { name: 'Fresh Basil price per g' }), '2.50');
   expect(save.hasAttribute('disabled')).toBe(false);
 
   await user.click(screen.getByRole('button', { name: 'Remove new ingredient Fresh Basil' }));
@@ -82,6 +92,8 @@ test('new supplier links selected ingredients independently and persists the cre
   await user.type(screen.getByRole('searchbox', { name: 'Ingredients' }), 'Fresh Basil');
   await user.click(screen.getByRole('button', { name: '+ Add “Fresh Basil” as new ingredient' }));
   expect(screen.getByRole('button', { name: 'Remove new ingredient Fresh Basil' })).toBeTruthy();
+  await user.click(within(screen.getByRole('group', { name: 'Fresh Basil unit' })).getByRole('button', { name: 'pcs' }));
+  await user.type(screen.getByRole('textbox', { name: 'Fresh Basil price per pcs' }), '40');
   await user.click(screen.getByRole('button', { name: 'Save Supplier' }));
 
   const supplierToggle = await screen.findByRole('button', { name: 'Expand Fresh Farms' });
@@ -96,7 +108,7 @@ test('new supplier links selected ingredients independently and persists the cre
   expect(flour.supplierIds).toContain(supplierEvent?.type === 'stock.supplier_added' ? supplierEvent.supplier.id : '');
   expect(flour.supplierIds).toHaveLength(3);
   const freshBasil = readItems().find((item) => item.name === 'Fresh Basil');
-  expect(freshBasil?.category).toBe('General');
+  expect(freshBasil).toMatchObject({ category: 'General', baseUnit: 'pcs', packQty: 1, workingPriceCents: 4000 });
   expect(freshBasil?.supplierIds).toContain(supplierEvent?.type === 'stock.supplier_added' ? supplierEvent.supplier.id : '');
   expect(supplierEvent?.type === 'stock.supplier_added' && supplierEvent.linkedItemIds).toContain(freshBasil?.id);
 
