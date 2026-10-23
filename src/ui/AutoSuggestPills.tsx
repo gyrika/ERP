@@ -36,6 +36,7 @@ export function AutoSuggestPills({
       <input
         type="search"
         className="inv-modal__input"
+        name={`pick-${label.replace(/\s+/g, '-').toLowerCase()}`} autoComplete="off" spellCheck={false}
         placeholder={placeholder}
         aria-label={label}
         aria-expanded={open && (filtered.length > 0 || Boolean(onAddCustom && query.trim() && !exactMatch))}

@@ -1098,24 +1098,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-row__order { min-height: 48px; padding: 0 18px; border: 1px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .inv-row__order:hover { background: color-mix(in srgb, var(--warn) 22%, transparent); }
 .inv-modal__remove { align-self: flex-start; color: var(--bad); }
-.inv-modal.delivery, .inv-modal.order { position: relative; }
-.inv-modal.delivery h2, .inv-modal.order h2 { margin: 0; padding-right: 48px; }
-.delivery__hint { margin: 0; color: var(--ink-2); }
-.delivery__suppliers { display: flex; flex-wrap: wrap; gap: 8px; }
-.delivery__change { align-self: flex-start; margin-top: -8px; }
-.delivery__lines, .order__lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.delivery__lines li, .order__lines li { display: flex; align-items: center; gap: 8px; min-height: 56px; border-top: 1px solid var(--line); }
-.delivery__lines li:first-child, .order__lines li:first-child { border-top: 0; }
-.delivery__name { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 500; }
-.delivery__name small { color: var(--ink-3); font-size: 12px; font-weight: 400; }
-.delivery__packs { width: 72px; text-align: center; }
-.order__packs { min-width: 32px; text-align: center; font-size: 18px; }
 .order__message { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--chip); color: var(--ink-2); font: inherit; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-.order__send { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.order__call { background: var(--chip); color: var(--ink); border: 1px solid var(--line); }
-.order__off { pointer-events: none; opacity: 0.45; }
-.order__nophone { margin: 0; color: var(--ink-2); font-size: 14px; }
-.inv-modal.delivery .inv-modal__actions { position: sticky; bottom: -24px; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--surface); border-top: 1px solid var(--line); }
 
 /* An item's story (SCRUM-93): the row says enough at a glance; the sheet says everything. */
 .inv-level { display: block; width: 100%; max-width: 120px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
@@ -1177,6 +1160,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .sheet-tabs { align-self: flex-start; position: sticky; top: -24px; z-index: 2; }
 .sheet-tabs .pill[aria-selected='true'] { background: var(--pill-on); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); }
 .sheet-panel { display: flex; flex-direction: column; gap: 18px; }
+.sheet-panel__title { margin: 4px 0 0; font-size: 17px; font-weight: 700; }
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .history__item { display: flex; flex-direction: column; gap: 4px; padding: 12px 0 12px 16px; border-left: 2px solid var(--line); position: relative; font-size: 15px; }
 .history__item::before { content: ''; position: absolute; left: -6px; top: 17px; width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
@@ -1198,6 +1182,105 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .mgr__day-gap { color: var(--bad); text-align: right; }
 .mgr__day-ok { color: var(--ink-2); text-align: right; }
 .mgr__day-by { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; }
+
+/* Purchase orders and goods receiving (GRN) */
+.inv-row__onorder { font-size: 13px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.receive-price { display: flex; flex-direction: column; gap: 10px; }
+
+/* Stock rules */
+
+/* The four big buttons, the filters, and the status colours: green = fine, orange = low / short / over, red = out, grey = not counted, blue = on order */
+:root { --info: #3E7BFA; }
+.stock-home { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 4px 40px 12px; }
+.stock-tile { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 88px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); text-align: left; font: inherit; cursor: pointer; box-shadow: var(--card-shadow); transition: transform 80ms var(--ease); }
+.stock-tile:active:not(:disabled) { transform: scale(0.98); }
+.stock-tile:disabled { opacity: 0.55; cursor: default; }
+.stock-tile--current { border-color: var(--primary); }
+.stock-tile__label { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+.stock-tile__sub { font-size: 14px; color: var(--ink-2); }
+.stock-tile__badge { position: absolute; top: 12px; right: 14px; min-width: 28px; height: 28px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border-radius: 14px; color: #fff; font-size: 14px; font-weight: 700; }
+.stock-tile__badge--warn { background: var(--warn); color: #1C1C1E; }
+.stock-tile__badge--info { background: var(--info); }
+.inv-filters { padding: 8px 52px 0; }
+.inv-row__quantity .inv-row__status--ok { color: var(--ok); }
+.inv-row__quantity .inv-row__status--unknown { color: var(--ink-3); }
+.inv-row__onorder { color: var(--info); }
+@media (max-width: 760px) {
+  .stock-home { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 16px; padding-right: 16px; }
+  .inv-filters { padding-left: 16px; padding-right: 16px; }
+}
+
+/* Big − / + buttons and the one main button at the bottom of the order card and the GRN screen */
+
+/* ---------- guided flows: Purchase orders, GRN, Stock rules (src/ui/flow) ---------- */
+/* The app's own bottom sheet, narrowed and centred on a wide screen like the Owner's. */
+.flow { max-height: 92dvh; }
+.flow .sheet__body { padding: 28px 24px 8px; gap: 18px; max-width: 640px; width: 100%; margin: 0 auto; }
+.flow .sheet__title h1 { font-size: 24px; letter-spacing: -0.5px; }
+.flow .sheet__title span { font-size: 15px; }
+.flow .sheet__foot { max-width: 640px; width: 100%; margin: 0 auto; padding: 14px 24px 24px; }
+.flow__foot .cta { height: 60px; }
+.flow__back { align-self: center; min-height: 48px; }
+.flow__where { display: flex; flex-direction: column; gap: 8px; }
+.flow__progress { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+.flow__progress span { display: block; height: 100%; border-radius: 3px; background: var(--primary); transition: width 220ms var(--ease); }
+.flow__step { margin: 0; font-size: 13px; font-weight: 500; color: var(--ink-3); }
+.flow__content { display: flex; flex-direction: column; gap: 14px; animation: flow-in 220ms var(--ease) both; }
+@keyframes flow-in { from { opacity: 0; transform: translateX(22px); } to { opacity: 1; transform: none; } }
+.flow-hint { margin: 0; font-size: 17px; color: var(--ink-2); letter-spacing: -0.2px; }
+
+/* Cards: a quiet fill and a stripe for how it stands (green fine, orange needs a look, red wrong). */
+.flow-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; min-height: 72px; padding: 16px 18px 16px 22px; border: 0; border-left: 5px solid var(--line); border-radius: 16px; background: var(--chip); color: var(--ink); font: inherit; text-align: left; }
+.flow-card--tap { cursor: pointer; transition: transform 80ms var(--ease), background 120ms; }
+.flow-card--tap:active:not(:disabled) { transform: scale(0.985); }
+.flow-card--tap:disabled { opacity: 0.5; cursor: default; }
+.flow-card--tap[aria-pressed='true'] { background: var(--primary); color: var(--on-primary); border-left-color: var(--primary); }
+.flow-card--tap[aria-pressed='true'] .flow-card__line { color: inherit; opacity: 0.8; }
+.flow-card--ok { border-left-color: var(--ok); }
+.flow-card--warn { border-left-color: var(--warn); }
+.flow-card--bad { border-left-color: var(--bad); }
+.flow-card__text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.flow-card__name { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+.flow-card__line { font-size: 15px; color: var(--ink-2); }
+.flow-card__tag { align-self: flex-start; margin-top: 2px; padding: 2px 10px; border-radius: 980px; background: var(--surface); font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.flow-card__badge { flex: none; min-width: 32px; height: 32px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; border-radius: 16px; background: var(--primary); color: var(--on-primary); font-size: 15px; font-weight: 700; }
+
+/* The one number a step asks for. */
+.bigstep { display: flex; align-items: center; justify-content: center; gap: 22px; padding: 12px 0; }
+.bigstep__btn { flex: none; width: 64px; height: 64px; border-radius: 50%; background: var(--chip); color: var(--ink); font-size: 32px; line-height: 1; cursor: pointer; transition: transform 80ms var(--ease), background 120ms; }
+.bigstep__btn:active { transform: scale(0.92); }
+.bigstep__mid { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.bigstep__num { width: 150px; padding: 0; border: 0; border-bottom: 3px solid var(--line); background: none; color: var(--ink); text-align: center; font: inherit; font-size: 44px; font-weight: 500; letter-spacing: -1.5px; outline: none; transition: border-color 150ms; }
+.bigstep__num:focus { border-bottom-color: var(--ink-2); }
+.bigstep--ok .bigstep__num { border-bottom-color: var(--ok); }
+.bigstep--warn .bigstep__num { border-bottom-color: var(--warn); color: var(--warn); }
+.bigstep__unit { font-size: 15px; color: var(--ink-2); }
+
+/* The finish. */
+.flow-done { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 0 8px; text-align: center; }
+.flow-tick { width: 88px; height: 88px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--ok); color: #fff; animation: tick-pop 340ms var(--spring) both; }
+@keyframes tick-pop { from { transform: scale(0.4); opacity: 0; } to { transform: none; opacity: 1; } }
+.flow-done__title { font-size: 26px; font-weight: 500; letter-spacing: -0.8px; }
+.flow-done__line { margin: 0; font-size: 17px; color: var(--ink-2); }
+.flow-done__actions { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 8px; }
+@media (max-width: 520px) { .flow .sheet__body { padding: 20px 16px 8px; } .flow .sheet__foot { padding: 12px 16px 20px; } .bigstep { gap: 14px; } }
+.flow__list { display: flex; flex-direction: column; gap: 12px; }
+.flow__plain { list-style: none; margin: 0; padding: 0; }
+.flow__total { margin: 4px 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 16px; font-weight: 600; color: var(--ink-2); }
+.flow__dots { display: flex; gap: 8px; justify-content: center; }
+.flow__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); transition: background 150ms, transform 150ms var(--ease); }
+.flow__dot--on { background: var(--primary); transform: scale(1.35); }
+.flow__dot--warn { background: var(--warn); }
+.flow:focus { outline: none; }
+.bigstep--compact { gap: 10px; padding: 0; flex: none; }
+.bigstep--compact .bigstep__btn { width: 52px; height: 52px; font-size: 26px; }
+.bigstep--compact .bigstep__num { width: 64px; font-size: 28px; letter-spacing: -0.8px; border-bottom-width: 2px; }
+.bigstep--compact .bigstep__unit { font-size: 13px; }
+.flow-card--item { flex-wrap: wrap; row-gap: 8px; }
+.flow-card--wa { text-decoration: none; background: var(--primary); color: var(--on-primary); border-left-color: var(--primary); }
+.flow-card--wa .flow-card__line { color: inherit; opacity: 0.8; }
+.flow__add { min-height: 56px; padding: 0 16px; border: 1px dashed var(--line); border-radius: 14px; background: none; color: var(--ink-2); font: inherit; font-size: 16px; }
+.flow__row { display: flex; align-items: center; gap: 16px; }
 
 /* Owner screens: the parts of the shop on the left, like ChatGPT's list of chats (SCRUM-131).
    The sidebar is fixed; whichever page holds it makes room. Sheets and dialogs open later in the

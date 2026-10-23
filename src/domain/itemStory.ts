@@ -24,19 +24,30 @@ export interface ItemStory {
 export type HistoryEntry =
   | { kind: 'count'; at: number; by: string; counted: number; expected: number; delta: number; valueCents: Cents;
       reason: GapReason | null; photo: string | null; first: boolean; review: Review | null }
-  | { kind: 'delivery'; at: number; by: string; packs: number }
+  | { kind: 'delivery'; at: number; by: string; packs: number; grnId?: string }
   | { kind: 'price'; at: number; by: string; before: Cents; after: Cents };
 
 /**
  * Everything that happened to one item's stock, newest first. Undone counts are left
  * out, and a delivery or price change taken back with Undo cancels its pair.
  */
-export const itemHistory = (events: readonly SyncEvent[], itemId: string): HistoryEntry[] => {
+export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQty = 0): HistoryEntry[] => {
   const undone = new Set(events.flatMap((e) => (e.type === 'stock.count_undone' ? [e.countId] : [])));
   const reviews = new Map(gapCases(events).filter((c) => c.itemId === itemId).map((c) => [c.countId, c.review]));
   const out: HistoryEntry[] = [];
   let counted = false;
   for (const e of events) {
+    // A GRN is a delivery of every item it accepted; its undo takes that delivery off the list.
+    if (e.type === 'stock.grn') {
+      const accepted = e.lines.filter((l) => l.itemId === itemId).reduce((n, l) => n + (l.accepted ?? 0), 0);
+      if (accepted > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs: accepted, grnId: e.id });
+      continue;
+    }
+    if (e.type === 'stock.grn_undone') {
+      const i = out.findIndex((d) => d.kind === 'delivery' && d.grnId === e.grnId);
+      if (i >= 0) out.splice(i, 1);
+      continue;
+    }
     if (!('itemId' in e) || e.itemId !== itemId) continue;
     if (e.type === 'stock.counted' && !undone.has(e.id)) {
       out.push({
@@ -45,13 +56,15 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string): Histo
         valueCents: e.valueCents, reason: e.reason, photo: e.photo ?? null, first: !counted && e.reason === null, review: reviews.get(e.id) ?? null,
       });
       counted = true;
-    } else if (e.type === 'stock.adjusted' && e.reason === 'receive') {
+    } else if ((e.type === 'stock.adjusted' && e.reason === 'receive') || (e.type === 'stock.movement' && (e.kind === 'GRN' || e.kind === 'GRN_UNDO') && packQty > 0)) {
+      // Older deliveries are adjustments in packs; newer ones are GRN movements in base units.
+      const packs = e.type === 'stock.adjusted' ? e.deltaPacks : e.qtyBase / packQty;
       // An Undo of a delivery is the same packs taken back: it cancels that delivery.
-      if (e.deltaPacks > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs: e.deltaPacks });
+      if (packs > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs });
       else {
         for (let i = out.length - 1; i >= 0; i--) {
           const d = out[i];
-          if (d.kind === 'delivery' && d.packs === -e.deltaPacks) { out.splice(i, 1); break; }
+          if (d.kind === 'delivery' && Math.abs(d.packs + packs) < 1e-9) { out.splice(i, 1); break; }
         }
       }
     } else if (e.type === 'stock.price_set' && e.before !== e.after) {
@@ -66,8 +79,8 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string): Histo
   return out.reverse();
 };
 
-export const itemStory = (events: readonly SyncEvent[], itemId: string): ItemStory => {
-  const history = itemHistory(events, itemId);
+export const itemStory = (events: readonly SyncEvent[], itemId: string, packQty = 0): ItemStory => {
+  const history = itemHistory(events, itemId, packQty);
   const count = history.find((h) => h.kind === 'count');
   const delivery = history.find((h) => h.kind === 'delivery');
   const price = history.find((h) => h.kind === 'price');

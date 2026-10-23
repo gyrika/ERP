@@ -124,9 +124,26 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
  * The server refused these for good (not logged in, or not allowed). They leave
  * the outbox so the rest keeps flowing, and are listed apart for the owner.
  */
-export const markRejected = (ids: readonly string[]): void => {
-  const gone = new Set(ids);
+export const markRejected = (refused: readonly ({ id: string; reason?: string } | string)[]): void => {
+  const items = refused.map((r) => (typeof r === 'string' ? { id: r } : r));
+  const gone = new Set(items.map((r) => r.id));
   write(OUTBOX(), readOutbox().filter((id) => !gone.has(id)));
-  write(REJECTED(), [...read<string[]>(REJECTED(), []), ...ids]);
+  const types = new Map(readAll().map((e) => [e.id, e.type]));
+  const have = new Set(readRejections().map((r) => r.id));
+  write(REJECTED(), [...read<unknown[]>(REJECTED(), []), ...items.filter((r) => !have.has(r.id)).map((r) => (
+    { id: r.id, reason: r.reason ?? '', type: types.get(r.id) ?? '', at: Date.now(), dismissed: false } satisfies Rejection))]);
+  changed();
+};
+
+/** A record the server refused, with why (in plain words, to show the person), and whether they have seen it. */
+export interface Rejection { id: string; reason: string; type: string; at: number; dismissed: boolean }
+
+/** Every refusal on this device, oldest first. (Older versions kept only ids.) */
+export const readRejections = (): Rejection[] =>
+  read<(string | Rejection)[]>(REJECTED(), []).map((r) => (typeof r === 'string' ? { id: r, reason: '', type: '', at: 0, dismissed: true } : r));
+
+/** The person has read it; it stays refused (the record never counts), it just stops showing. */
+export const dismissRejection = (id: string): void => {
+  write(REJECTED(), readRejections().map((r) => (r.id === id ? { ...r, dismissed: true } : r)));
   changed();
 };

@@ -28,7 +28,7 @@ test('on the phone a big gap asks for a shelf photo after the reason; Save waits
   render(<Phone />);
   await user.type(screen.getByRole('textbox', { name: 'Full packs' }), '2');
   await user.click(screen.getByRole('button', { name: 'Next' }));
-  await user.click(screen.getByRole('button', { name: "Don't know" }));
+  await user.click(screen.getByRole('button', { name: 'Wrong entry' }));
 
   expect(screen.getByText('A photo of the shelf, so the owner sees what you saw.')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true);
@@ -40,7 +40,7 @@ test('on the phone a big gap asks for a shelf photo after the reason; Save waits
   await user.click(screen.getByRole('button', { name: 'Save' }));
 
   const saved = readAll().at(-1) as Extract<SyncEvent, { type: 'stock.counted' }>;
-  expect(saved).toMatchObject({ type: 'stock.counted', reason: 'unknown', counted: 4000 });
+  expect(saved).toMatchObject({ type: 'stock.counted', reason: 'wrong-entry', counted: 4000 });
   expect(saved.photo).toMatch(/^ph-/);
   expect(photos.waitingPhotos()).toBe(1); // kept on the phone until the shop PC has it
   expect(within(screen.getByRole('dialog')).getByText(/gap of Rs [\d,]+ saved/)).toBeTruthy();
@@ -57,8 +57,8 @@ test('the counter PC asks only for the reason (no camera there)', async () => {
   render(<Counter />);
   await user.type(screen.getByRole('textbox', { name: 'Full packs' }), '2');
   await user.click(screen.getByRole('button', { name: 'Next' }));
-  await user.click(screen.getByRole('button', { name: "Don't know" }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', reason: 'unknown' });
+  await user.click(screen.getByRole('button', { name: 'Wrong entry' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', reason: 'wrong-entry' });
   expect(screen.queryByLabelText('Shelf photo')).toBeNull();
 });
 

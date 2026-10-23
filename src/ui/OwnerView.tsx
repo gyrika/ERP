@@ -70,7 +70,7 @@ function GapItem({ view, canReview }: { view: CaseView; canReview: boolean }) {
       ) : (
         <div className="gap__actions">
           <button type="button" className="chip" onClick={() => setAsking(true)}>{review.kind === 'asked' ? 'Ask again' : 'Ask'}</button>
-          <button type="button" className="insight__action" aria-label={`OK ${name}`} onClick={() => reviewGap(gap, 'ok')}>OK</button>
+          <button type="button" className="insight__action" aria-label={`Reviewed ${name}`} onClick={() => reviewGap(gap, 'ok')}>Reviewed</button>
         </div>
       ))}
     </li>

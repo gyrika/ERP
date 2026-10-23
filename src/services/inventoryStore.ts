@@ -3,17 +3,21 @@ import { answersFromEvents, type Answer, type CostContext } from '../domain/cost
 import type { Actor } from '../domain/auth.ts';
 import { countHistory, gapOf, type CountEntry, type CountRecord, type GapReason, type Tier } from '../domain/counting.ts';
 import type { SyncEvent } from '../domain/sync.ts';
-import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
+import { addEvents, appendEvent, dismissRejection, readAll, readRejections, subscribeEvents, type Rejection } from '../ui/eventLog.ts';
+import { numberingOf, numbersFor, pendingNumber, type DocKind } from '../domain/docNumbers.ts';
 import { inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
 import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import type { Cents } from '../domain/types.ts';
-import { currentCashier } from './auth.ts';
+import { currentCashier, numbersLocally, shopId } from './auth.ts';
 import { newLineId } from '../domain/order.ts';
 import { useShopEvents } from './ownerData.ts';
 import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } from '../domain/itemStory.ts';
 import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
+import { grnProblem, mergeLines, purchasesFromEvents, settleGrn, undoCheck, type GrnDecisions, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
+import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -26,13 +30,31 @@ import { menuItems } from '../domain/menu.ts';
  * Owner view. The ingredient and supplier lists are kept here for good, so the
  * checks below and the add dialogs work from this device's own copy.
  */
-export { isLowStock, isOutOfStock, LOW_STOCK_PACKS, stockStatus, type StockStatus, type InventoryRow } from '../domain/inventory.ts';
+export { isLowStock, isOutOfStock, stockStatus, type StockStatus, type InventoryRow } from '../domain/inventory.ts';
 
-const readAllItems = (): InventoryRow[] => inventoryFromEvents(SEED_INVENTORY, readAll());
+/**
+ * This device's own records, without the ones the shop server refused (a GRN for an order
+ * another device had already received, say): they never happened, so they never count.
+ */
+const readLive = (): SyncEvent[] => {
+  const all = readAll();
+  const refused = new Set(readRejections().map((r) => r.id));
+  return refused.size ? all.filter((e) => !refused.has(e.id)) : all;
+};
+
+/** What the server refused and the person has not read yet, to tell them. */
+export function useRejections(): Rejection[] {
+  const [list, setList] = useState(() => readRejections().filter((r) => !r.dismissed));
+  useEffect(() => subscribeEvents(() => setList(readRejections().filter((r) => !r.dismissed))), []);
+  return list;
+}
+export { dismissRejection };
+
+const readAllItems = (): InventoryRow[] => inventoryFromEvents(SEED_INVENTORY, readLive());
 /** The ingredient list (amounts here cover two days only: use useInventory for stock). */
 export const readItems = (): InventoryRow[] => readAllItems().filter((item) => !item.archived);
 export const readSuppliers = (includeArchived = false): Supplier[] =>
-  suppliersFromEvents(SEED_SUPPLIERS, readAll(), includeArchived);
+  suppliersFromEvents(SEED_SUPPLIERS, readLive(), includeArchived);
 
 export const addSupplier = (
   supplier: Supplier,
@@ -129,27 +151,29 @@ export const restoreSupplier = (supplierId: string): void => {
   appendEvent({ type: 'stock.supplier_restored', at: Date.now(), orderNumber: 0, actor: currentCashier(), supplierId });
 };
 
-/** Packs in (+) or out (-), with why. The screen offers "out" only while there is stock. */
-export const adjustStock = (itemId: string, deltaPacks: number, reason?: 'waste' | 'audit' | 'receive'): void => {
-  if (deltaPacks === 0 || !Number.isFinite(deltaPacks) || !readItems().some((i) => i.id === itemId)) return;
-  appendEvent({
-    type: 'stock.adjusted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, deltaPacks,
-    ...(reason ? { reason } : {}),
-  });
+/**
+ * THE one way stock changes (besides sales, which come from paid orders): a movement in
+ * base units. GRN in, GRN_UNDO out, COUNT_ADJUST either way. Nothing edits a stock
+ * figure; the shelf is the sum of its movements. Returns false for an item that is
+ * not here or an amount that is not a real change.
+ */
+export const addStockMovement = (kind: MovementKind, itemId: string, qtyBase: number, docId: string): boolean => {
+  if (qtyBase === 0 || !Number.isFinite(qtyBase) || !readItems().some((i) => i.id === itemId)) return false;
+  if ((kind === 'GRN' && qtyBase < 0) || (kind === 'GRN_UNDO' && qtyBase > 0)) return false;
+  appendEvent({ type: 'stock.movement', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, kind, qtyBase, docId });
+  return true;
 };
 
 /**
- * A delivery: packs in, and the price paid per pack if it changed (both audited).
- * 0 packs with a new price just updates the price. Returns the Undo.
+ * Packs in (+) or out (-): a GRN movement when it is a delivery, else a count correction.
+ * The screens offer it for nothing else; kept for starting stock and for tests.
  */
-export const receiveStock = (row: InventoryRow, packs: number, priceCents: Cents): (() => void) => {
-  const before = row.workingPriceCents;
-  if (packs > 0) adjustStock(row.id, packs, 'receive');
-  if (priceCents !== before) setWorkingPrice(row.id, priceCents);
-  return () => {
-    if (packs > 0) adjustStock(row.id, -packs, 'receive');
-    if (priceCents !== before) setWorkingPrice(row.id, before);
-  };
+export const adjustStock = (itemId: string, deltaPacks: number, reason?: 'waste' | 'audit' | 'receive'): void => {
+  const item = readItems().find((i) => i.id === itemId);
+  if (!item) return;
+  const qty = deltaPacks * item.packQty;
+  if (reason === 'receive') addStockMovement(qty > 0 ? 'GRN' : 'GRN_UNDO', itemId, qty, 'manual');
+  else addStockMovement('COUNT_ADJUST', itemId, qty, 'manual');
 };
 
 /**
@@ -157,13 +181,13 @@ export const receiveStock = (row: InventoryRow, packs: number, priceCents: Cents
  * the reason for a big gap. Returns the Undo.
  */
 export const recordCount = (
-  row: InventoryRow, entries: CountEntry[], counted: number, reason: GapReason | null, tier: Tier, photo: string | null = null,
+  row: InventoryRow, entries: CountEntry[], counted: number, reason: GapReason | null, tier: Tier, photo: string | null = null, note: string | null = null,
 ): (() => void) => {
   const expected = row.onHandBaseUnits;
   const { valueCents } = gapOf(expected, counted, row);
   const e = appendEvent({
     type: 'stock.counted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: row.id,
-    counted, expected, entries, reason, valueCents, tier, ...(photo ? { photo } : {}),
+    counted, expected, entries, reason, valueCents, tier, ...(photo ? { photo } : {}), ...(note?.trim() ? { note: note.trim() } : {}),
   });
   return () => { appendEvent({ type: 'stock.count_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), countId: e.id }); };
 };
@@ -232,8 +256,8 @@ const withLocal = (history: readonly SyncEvent[], local: readonly SyncEvent[]): 
  */
 function useShopHistory(): SyncEvent[] {
   const shop = useShopEvents();
-  const [local, setLocal] = useState(readAll);
-  useEffect(() => subscribeEvents(() => setLocal(readAll())), []);
+  const [local, setLocal] = useState(readLive);
+  useEffect(() => subscribeEvents(() => setLocal(readLive())), []);
   const history = shop.state === 'loading' ? null : shop.events;
   return useMemo(() => withLocal(history ?? [], local), [history, local]);
 }
@@ -251,6 +275,124 @@ export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; 
   }, [events]);
 }
 
+/** The stock rules' numbers: the defaults with the owner's changes. */
+export function useStockSettings(): StockSettings {
+  const events = useShopHistory();
+  return useMemo(() => stockSettingsFromEvents(events), [events]);
+}
+
+/** The owner changes one number; returns what is wrong in plain words, or the Undo. */
+export const setStockSetting = <K extends keyof StockSettings>(
+  key: K, value: number, before: number, owner: Actor,
+): string | (() => void) => {
+  const why = checkStockSetting(key, value);
+  if (why) return why;
+  appendEvent({ type: 'stock.settings_set', at: Date.now(), orderNumber: 0, actor: owner, key, value });
+  return () => { appendEvent({ type: 'stock.settings_set', at: Date.now(), orderNumber: 0, actor: owner, key, value: before }); };
+};
+
+/** Open purchase orders, delivery times and the next numbers, from the whole history. */
+export function usePurchases(): PurchaseState {
+  const events = useShopHistory();
+  return useMemo(() => purchasesFromEvents(events), [events]);
+}
+
+/** The packs with their amount in base units (2 packs of 25 kg: 50000 g), as the order records them. */
+const withStockQty = (lines: PoLine[]): PoLine[] => {
+  const items = readItems();
+  return lines.filter((l) => l.packs > 0).map((l) => {
+    const item = items.find((i) => i.id === l.itemId);
+    return item ? { itemId: l.itemId, packs: l.packs, stockQty: l.packs * item.packQty } : { itemId: l.itemId, packs: l.packs };
+  });
+};
+
+/**
+ * A device with no server (the demo, development) numbers its own documents, with the same
+ * function the server uses. A paired device or a phone never does: it waits for the server's
+ * number, shown as "pending" until then. Returns the number, or null when it is pending.
+ */
+const numberLocally = (docId: string, kind: DocKind): string | null => {
+  if (!numbersLocally()) return null;
+  const events = readLive();
+  const made = numbersFor(shopId(), Date.now(), [{ id: docId, kind }], numberingOf(events.filter((e) => e.id !== docId)));
+  addEvents(made);
+  const e = made[0];
+  return e && e.type === 'stock.numbered' ? e.number : null;
+};
+
+/**
+ * Places a purchase order (lines with packs only). The shop server numbers it; until that
+ * number arrives it is "PO (pending)". Returns the order and its Undo (cancels it).
+ */
+export const placeOrder = (supplierId: string, lines: PoLine[]): { order: PurchaseOrder; undo: () => void } => {
+  const kept = withStockQty(lines);
+  const e = appendEvent({ type: 'stock.ordered', at: Date.now(), orderNumber: 0, actor: currentCashier(), supplierId, lines: kept });
+  const poNo = numberLocally(e.id, 'PO') ?? pendingNumber('PO');
+  return {
+    order: {
+      id: e.id, poNo, supplierId, at: e.at, actor: e.actor, status: 'open', editable: true, cancelReason: null,
+      lines: kept.map((l) => ({ itemId: l.itemId, packs: l.packs, stockQty: l.stockQty ?? null, received: 0, remaining: l.packs })),
+    },
+    undo: () => { cancelOrder(e.id, 'Undone right after placing'); },
+  };
+};
+
+/**
+ * Replaces an open order's lines (edit, remove a line, or add to it). Only while no GRN
+ * stands against it. Returns the Undo (the lines as they were), or why it cannot.
+ */
+export const editOrder = (order: PurchaseOrder, lines: PoLine[]): (() => void) | string => {
+  if (!order.editable) return `${order.poNo} has goods received against it: it can no longer be changed.`;
+  const next = withStockQty(mergeLines(lines));
+  if (next.length === 0) return 'An order needs at least one item. Cancel it instead.';
+  const before = withStockQty(order.lines.map((l) => ({ itemId: l.itemId, packs: l.packs })));
+  appendEvent({ type: 'stock.order_edited', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId: order.id, lines: next });
+  return () => { appendEvent({ type: 'stock.order_edited', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId: order.id, lines: before }); };
+};
+
+/** Adds lines to an open order: the same item's packs add up. */
+export const addToOrder = (order: PurchaseOrder, added: PoLine[]): (() => void) | string =>
+  editOrder(order, [...order.lines.map((l) => ({ itemId: l.itemId, packs: l.packs })), ...added]);
+
+/** Cancels an order, saying why; returns the Undo (the same order, same number, open again). */
+export const cancelOrder = (orderId: string, reason: string): (() => void) => {
+  appendEvent({ type: 'stock.order_cancelled', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId, reason });
+  return () => { appendEvent({ type: 'stock.order_reopened', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId }); };
+};
+
+/**
+ * Goods received against an order (GRN): ONE record that carries what was owed, what came,
+ * what went into stock and what was returned, the manager's approval and decisions. The
+ * stock movement is worked out from it, so a GRN either happens whole or not at all.
+ * Returns the GRN, or why it is not allowed (`grnProblem`).
+ */
+export const receiveGoods = (
+  order: PurchaseOrder, lines: GrnLine[], decisions: GrnDecisions, approvedBy: Actor | null,
+): { grnNo: string; id: string } | string => {
+  const why = grnProblem(order, lines, decisions, approvedBy);
+  if (why) return why;
+  const settled = settleGrn(lines, decisions.over);
+  const e = appendEvent({
+    type: 'stock.grn', at: Date.now(), orderNumber: 0, actor: currentCashier(),
+    orderId: order.id, supplierId: order.supplierId, lines: settled, approvedBy,
+    ...(decisions.short ? { shortDecision: decisions.short } : {}), ...(decisions.over ? { overDecision: decisions.over } : {}),
+  });
+  return { grnNo: numberLocally(e.id, 'GRN') ?? pendingNumber('GRN'), id: e.id };
+};
+
+/**
+ * Takes a GRN back: only the latest of its order, within the allowed hours, by a manager
+ * (their PIN, checked by the screen), with a reason. Its stock comes off exactly; the
+ * order goes back to what it was; the GRN stays on record, marked undone.
+ */
+export const undoGrn = (purchases: PurchaseState, grnId: string, reason: string, manager: Actor, hours: number): string | null => {
+  const why = undoCheck(purchases, grnId, Date.now(), hours);
+  if (why) return why;
+  if (!reason.trim()) return 'Say why it is being undone.';
+  appendEvent({ type: 'stock.grn_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), grnId, reason: reason.trim(), approvedBy: manager });
+  return null;
+};
+
 /** Every standing shelf count, oldest first (the Manager page's progress). */
 export function useCountHistory(): CountRecord[] {
   const events = useShopHistory();
@@ -258,11 +400,11 @@ export function useCountHistory(): CountRecord[] {
 }
 
 /** One item's story for its sheet (SCRUM-93): last count, delivery, price change, and what uses it. */
-export function useItemStory(itemId: string): ItemStory & { usedIn: string[]; history: HistoryEntry[] } {
+export function useItemStory(itemId: string, packQty = 0): ItemStory & { usedIn: string[]; history: HistoryEntry[] } {
   const events = useShopHistory();
   return useMemo(() => ({
-    ...itemStory(events, itemId), history: itemHistory(events, itemId), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId),
-  }), [events, itemId]);
+    ...itemStory(events, itemId, packQty), history: itemHistory(events, itemId, packQty), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId),
+  }), [events, itemId, packQty]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */

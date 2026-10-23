@@ -4,6 +4,9 @@ import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { answersFromEvents, type Answer, type RecipeEvent } from './costing.ts';
 import { bookGaps, bookUsage, type GapsOf, type RecipeLine, type UsageOf } from './stockUsage.ts';
 import type { LearnedUnit, Tier } from './counting.ts';
+import { suggestions } from './ordering.ts';
+import { onOrder, purchasesFromEvents } from './purchaseOrders.ts';
+import { stockSettingsFromEvents, type StockSettings } from './stockSettings.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -92,7 +95,7 @@ export type InventoryRow = InventoryItem & {
   archived: boolean;
   /** Someone has recorded stock for it. A never-counted item is unknown, not empty. */
   counted: boolean;
-  /** Base units sales took per day, over the last 7 days (fewer when the shop is newer). */
+  /** Base units sales took per day, over the last `usageDays` (stockSettings). */
   usedPerDay: number;
   /** Days what is left lasts at that rate; null when it is not counted, empty or not used. */
   lastsDays: number | null;
@@ -101,6 +104,9 @@ export type InventoryRow = InventoryItem & {
    * (a batch output the owner has not confirmed): the shelf holds less than shown.
    */
   missedSales: number;
+  /** Packs to order now (`suggestions`, the one reorder rule); 0: not needed. This is what Low means. */
+  suggestedPacks: number;
+  suggestedSupplierId: string | null;
   /** When it was last counted (a shelf count or an older audit), or null. */
   lastCountedAt: number | null;
   /** Units learned for it ("Tray" = 30 pcs), for counting. */
@@ -112,13 +118,9 @@ export type InventoryRow = InventoryItem & {
 };
 
 const DAY = 24 * 60 * 60 * 1000;
-/** How far back "lasts about N days" looks. */
-export const USAGE_DAYS = 7;
-
-export const LOW_STOCK_PACKS = 1;
-
-export const isOutOfStock = (row: InventoryRow): boolean => row.onHandBaseUnits <= 0;
-export const isLowStock = (row: InventoryRow): boolean => row.onHandPacks <= LOW_STOCK_PACKS;
+export const isOutOfStock = (row: Pick<InventoryRow, 'onHandBaseUnits'>): boolean => row.onHandBaseUnits <= 0;
+/** Low: the reorder rule says to order it. */
+export const isLowStock = (row: Pick<InventoryRow, 'suggestedPacks'>): boolean => row.suggestedPacks > 0;
 
 /** A typed number of packs ("2", "1.5", "0"), or null. Never negative. */
 export const parsePacks = (raw: string): number | null => {
@@ -222,11 +224,11 @@ export const inventoryFromEvents = (
   options: StockOptions = {},
 ): InventoryRow[] => stockFromEvents(items, events, options).rows;
 
-export interface StockOptions { usageOf?: UsageOf; gapsOf?: GapsOf; now?: number }
+export interface StockOptions { usageOf?: UsageOf; gapsOf?: GapsOf; now?: number; settings?: StockSettings }
 
 export interface Stock {
   rows: InventoryRow[];
-  /** Items sold in the last USAGE_DAYS whose menu item has no recipe yet: they took nothing. */
+  /** Items sold in the last usageDays whose menu item has no recipe yet: they took nothing. */
   untrackedSold: number;
 }
 
@@ -234,7 +236,7 @@ export interface Stock {
 export const stockFromEvents = (
   items: readonly InventoryItem[],
   events: readonly SyncEvent[],
-  { usageOf = bookUsage, gapsOf = bookGaps, now = Date.now() }: StockOptions = {},
+  { usageOf = bookUsage, gapsOf = bookGaps, now = Date.now(), settings = stockSettingsFromEvents(events) }: StockOptions = {},
 ): Stock => {
   const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
     item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null,
@@ -245,11 +247,12 @@ export const stockFromEvents = (
       if (shelf) shelf.onHandBaseUnits -= sign * qtyBaseUnits;
     }
   };
+  /** What each GRN put on the shelves, for its Undo. */
+  const grnMoved = new Map<string, { itemId: string; qty: number }[]>();
   /** What each sent line took from stock, by line id. */
   const taken = new Map<string, RecipeLine[]>();
   /** When each line was sent, for the daily rate. */
   const sentAt = new Map<string, number>();
-  let firstSale: number | null = null;
   let answers = new Map<string, Answer>();
   const recipeEvents: RecipeEvent[] = [];
   const ticketLines = new Map<string, string[]>();
@@ -267,7 +270,11 @@ export const stockFromEvents = (
     if (usage) { take(usage, 1); taken.set(lineId, usage); } else taken.delete(lineId);
   };
 
+  /** A record that arrives twice (a sync retry, two routes) counts once. */
+  const seen = new Set<string>();
   for (const e of events) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
     switch (e.type) {
       case 'stock.item_added':
         if (!shelves.has(e.item.id)) {
@@ -294,6 +301,37 @@ export const stockFromEvents = (
         shelf.counted = true;
         if (e.reason === 'audit') countedAt.set(e.itemId, e.at);
         shelf.onHandBaseUnits += e.deltaPacks * shelf.item.packQty;
+        break;
+      }
+      case 'stock.grn': {
+        // A GRN is its own stock movement: what it accepted goes in, in one record, so the
+        // note and its stock can never disagree. Older notes (no accepted) used separate movements.
+        const moved: { itemId: string; qty: number }[] = [];
+        for (const l of e.lines) {
+          const shelf = shelves.get(l.itemId);
+          if (!shelf || l.accepted === undefined || !(l.accepted > 0)) continue;
+          const qty = l.accepted * shelf.item.packQty;
+          shelf.counted = true;
+          shelf.onHandBaseUnits += qty;
+          moved.push({ itemId: l.itemId, qty });
+        }
+        grnMoved.set(e.id, moved);
+        break;
+      }
+      case 'stock.grn_undone': {
+        for (const m of grnMoved.get(e.grnId) ?? []) {
+          const shelf = shelves.get(m.itemId);
+          if (shelf) shelf.onHandBaseUnits -= m.qty; // GRN_UNDO: exactly what that GRN added
+        }
+        grnMoved.delete(e.grnId);
+        break;
+      }
+      case 'stock.movement': {
+        const shelf = shelves.get(e.itemId);
+        if (!shelf) break;
+        shelf.counted = true;
+        shelf.onHandBaseUnits += e.qtyBase;
+        if (e.kind === 'COUNT_ADJUST') countedAt.set(e.itemId, e.at);
         break;
       }
       case 'stock.counted': {
@@ -343,7 +381,6 @@ export const stockFromEvents = (
         break;
       case 'order.sent':
         ticketLines.set(e.ticketId, e.lines.map((l) => l.id));
-        firstSale = Math.min(firstSale ?? e.at, e.at);
         for (const line of e.lines) {
           setLine(line.id, usageOf(line, answers));
           gaps.set(line.id, { ...gapsOf(line, answers), qty: lineQty(line.qty) });
@@ -381,10 +418,11 @@ export const stockFromEvents = (
   const used = new Map<string, number>();
   for (const [lineId, usage] of taken) {
     const at = sentAt.get(lineId) ?? 0;
-    if (at < now - USAGE_DAYS * DAY || at > now) continue;
+    if (at < now - settings.usageDays * DAY || at > now) continue;
     for (const { inventoryId, qtyBaseUnits } of usage) used.set(inventoryId, (used.get(inventoryId) ?? 0) + qtyBaseUnits);
   }
-  const days = firstSale === null ? 1 : Math.min(USAGE_DAYS, Math.max(1, (now - firstSale) / DAY));
+  /** Daily use = what sales took over the window ÷ the window's days, as the owner set it. */
+  const days = settings.usageDays;
 
   // What the stock does not know: sales since each item's last count, and lines with no recipe this week.
   const missed = new Map<string, number>();
@@ -392,7 +430,7 @@ export const stockFromEvents = (
   for (const [lineId, gap] of gaps) {
     const at = sentAt.get(lineId) ?? 0;
     if (at > now) continue;
-    if (gap.untracked && at >= now - USAGE_DAYS * DAY) untrackedSold += gap.qty;
+    if (gap.untracked && at >= now - settings.usageDays * DAY) untrackedSold += gap.qty;
     for (const id of gap.items) {
       if (at > (countedAt.get(id) ?? -Infinity)) missed.set(id, (missed.get(id) ?? 0) + gap.qty);
     }
@@ -413,8 +451,18 @@ export const stockFromEvents = (
       units,
       tier,
       receiveUnit,
+      suggestedPacks: 0,
+      suggestedSupplierId: null as string | null,
     };
   });
+
+  // What to order now: one rule, so Low, the badge, the cards and the owner's feed all agree.
+  const purchases = purchasesFromEvents(events, settings);
+  const active = new Set(suppliersFromEvents(SEED_SUPPLIERS, events).map((x) => x.id));
+  for (const s of suggestions(rows, active, onOrder(purchases.open), purchases.leadDays, purchases.lastSupplier, settings)) {
+    const row = rows.find((r) => r.id === s.itemId);
+    if (row) { row.suggestedPacks = s.packs; row.suggestedSupplierId = s.supplierId; }
+  }
   return { rows, untrackedSold };
 };
 

@@ -130,15 +130,16 @@ test('one sidebar on every owner screen: the same parts, the current one marked,
 
 test('a part that needs a decision moves to Needs you with a badge; Ctrl K finds a part by what is going on there', async () => {
   const user = userEvent.setup();
-  // Onion counted at a quarter of a pack: running low.
-  appendEvent({ type: 'stock.adjusted', at: Date.now(), orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, itemId: 'inv-0024', deltaPacks: 0.25, reason: 'audit' });
+  // Onion counted and found empty: out. (Low means the reorder rule wants it ordered, which needs sales.)
+  appendEvent({ type: 'stock.adjusted', at: Date.now(), orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, itemId: 'inv-0024', deltaPacks: 1, reason: 'audit' });
+  appendEvent({ type: 'stock.adjusted', at: Date.now(), orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, itemId: 'inv-0024', deltaPacks: -1, reason: 'audit' });
   history.replaceState(null, '', '/#menu');
   render(<Root />);
   const nav = within(screen.getByRole('navigation', { name: 'Owner sections' }));
   const needs = await nav.findByRole('heading', { name: 'Needs you' });
   const stock = nav.getByRole('link', { name: 'Stock' });
   expect(needs.nextElementSibling?.contains(stock)).toBe(true);
-  expect(stock.textContent).toBe('StockOnion running low1');
+  expect(stock.textContent).toBe('StockOnion out1');
   expect(nav.getByRole('heading', { name: 'All quiet' })).toBeTruthy();
 
   await user.keyboard('{Control>}k{/Control}');

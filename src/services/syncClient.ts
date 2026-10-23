@@ -94,7 +94,7 @@ export function startSync(transport: SyncTransport, deviceId = 'browser'): () =>
         // Refused for good (SCRUM-41): retrying would never succeed, and must not block the rest.
         if (res.rejected?.length) {
           console.warn('The server refused these events:', res.rejected);
-          markRejected(res.rejected.map((r) => r.id));
+          markRejected(res.rejected);
         }
         pushAttempt = 0;
         setOnline(true);

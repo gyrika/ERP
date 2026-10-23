@@ -200,7 +200,7 @@ test('T17: no made-up supplier phone numbers: a number is added by the manager, 
   assert.ok(SEED_SUPPLIERS.every((s) => s.phone === undefined));
 });
 
-test('T18: out = nothing left (even a part-pack is stock); low = one pack or less', () => {
+test('T18: out = nothing left (even a part-pack is stock); low = the reorder rule says to order it', () => {
   const row = (onHandBaseUnits: number) => {
     const [r] = inventoryFromEvents([SEED_INVENTORY[0]], []);
     return { ...r, onHandBaseUnits, onHandPacks: Math.max(0, onHandBaseUnits) / r.packQty };
@@ -209,8 +209,8 @@ test('T18: out = nothing left (even a part-pack is stock); low = one pack or les
   assert.equal(isOutOfStock(row(0)), true);
   assert.equal(isOutOfStock(row(-50)), true, 'sold more than was recorded');
   assert.equal(isOutOfStock(row(pack * 0.1)), false, 'a part-pack still cooks');
-  assert.equal(isLowStock(row(pack)), true);
-  assert.equal(isLowStock(row(pack * 2)), false);
+  assert.equal(isLowStock({ suggestedPacks: 2 }), true);
+  assert.equal(isLowStock({ suggestedPacks: 0 }), false);
   assert.equal(row(pack * 0.9).onHandPacks, 0.9, 'packs are not rounded down');
 });
 
@@ -326,4 +326,65 @@ test('T27: packs are typed as plain numbers; a count records only the difference
   const counted = mozz([stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'L')]),
     { ...stockIn(MOZZ, countDifference({ onHandBaseUnits: 1850, packQty: 2000 }, 0.5)), id: 'count' }]);
   assert.equal(counted, 1000, 'after a count the stock is what was counted');
+});
+
+test('stock movements: GRN in, GRN_UNDO out, COUNT_ADJUST either way; the shelf is their sum; old adjustments still count', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const flour = SEED_INVENTORY[0].id;
+  const move = (id: string, kind: 'GRN' | 'GRN_UNDO' | 'COUNT_ADJUST', qtyBase: number) =>
+    ({ ...base, id, type: 'stock.movement' as const, itemId: flour, kind, qtyBase, docId: 'doc' });
+  const row = (events: Parameters<typeof inventoryFromEvents>[1]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === flour)!;
+
+  assert.equal(row([move('a', 'GRN', 50000), move('b', 'GRN_UNDO', -50000)]).onHandBaseUnits, 0, 'an undone GRN leaves exactly nothing');
+  const mixed = row([{ ...base, id: 'old', type: 'stock.adjusted', itemId: flour, deltaPacks: 1 }, move('a', 'GRN', 25000), move('c', 'COUNT_ADJUST', -5000)]);
+  assert.equal(mixed.onHandBaseUnits, 45000);
+  assert.equal(mixed.counted, true);
+  assert.equal(row([move('c', 'COUNT_ADJUST', 100)]).lastCountedAt, 1, 'a count adjustment is a count');
+  assert.equal(row([move('a', 'GRN', 100)]).lastCountedAt, null, 'a delivery is not');
+  assert.equal(inventoryFromEvents(SEED_INVENTORY, [{ ...move('z', 'GRN', 5), itemId: 'gone' }]).length, SEED_INVENTORY.length);
+});
+
+test('a GRN is its own stock movement: what it accepted goes in, its undo takes exactly that off; older notes add nothing here', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const flour = SEED_INVENTORY[0].id; // 25 kg packs
+  const grn = (id: string, lines: { itemId: string; ordered: number; received: number; accepted?: number }[]) =>
+    ({ ...base, id, type: 'stock.grn' as const, grnNo: id, orderId: 'po', supplierId: 's', lines, approvedBy: null });
+  const row = (events: Parameters<typeof inventoryFromEvents>[1]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === flour)!;
+
+  const got = row([grn('g1', [{ itemId: flour, ordered: 3, received: 3, accepted: 2 }])]);
+  assert.equal(got.onHandBaseUnits, 2 * SEED_INVENTORY[0].packQty, 'accepted, not received (1 pack was returned)');
+  assert.equal(got.counted, true, 'received counts as known');
+  const undone = row([grn('g1', [{ itemId: flour, ordered: 2, received: 2, accepted: 2 }]), { ...base, id: 'u', type: 'stock.grn_undone', grnId: 'g1', reason: 'Entered by mistake', approvedBy: actor }]);
+  assert.equal(undone.onHandBaseUnits, 0, 'exactly what that GRN added');
+  assert.equal(undone.counted, true);
+  assert.equal(row([grn('old', [{ itemId: flour, ordered: 2, received: 2 }])]).onHandBaseUnits, 0, 'a note from before has no accepted: its stock was separate movements');
+  assert.equal(row([{ ...base, id: 'u2', type: 'stock.grn_undone', grnId: 'nope', reason: 'x', approvedBy: actor }]).onHandBaseUnits, 0);
+});
+
+test('marking a count reviewed, or asking about it, never changes stock', () => {
+  const owner = { id: 'o', name: 'Owner', role: 'owner' as const };
+  const manager = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const flour = SEED_INVENTORY[0].id;
+  const base = { shopId: 's', orderNumber: 0 as const, at: 1, itemId: flour };
+  const count = { ...base, actor: manager, id: 'c1', type: 'stock.counted' as const, counted: 20000, expected: 50000, entries: [], reason: 'spilled' as const, valueCents: -1, tier: 'daily' as const };
+  const events = [{ ...base, actor: manager, id: 'a', type: 'stock.adjusted' as const, deltaPacks: 2 }, count];
+  const stock = (more: typeof events) => inventoryFromEvents(SEED_INVENTORY, [...events, ...more]).find((r) => r.id === flour)!.onHandBaseUnits;
+  const before = stock([]);
+  assert.equal(before, 20000, 'the count: 20 kg on the shelf');
+  assert.equal(stock([{ ...base, actor: owner, id: 'r1', type: 'stock.gap_reviewed', countId: 'c1', decision: 'ok', note: '' } as never]), before);
+  assert.equal(stock([{ ...base, actor: owner, id: 'r2', type: 'stock.gap_reviewed', countId: 'c1', decision: 'ask', note: 'Why?' } as never,
+    { ...base, actor: manager, id: 'r3', type: 'stock.gap_answered', countId: 'c1', note: 'Dropped a bag' } as never]), before);
+});
+
+test('sync retry: a GRN, a count or a sale that arrives twice moves stock once', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const flour = SEED_INVENTORY[0].id;
+  const grn = { ...base, id: 'g1', type: 'stock.grn' as const, orderId: 'po', supplierId: 's', lines: [{ itemId: flour, ordered: 2, received: 2, accepted: 2 }], approvedBy: null };
+  const movement = { ...base, id: 'm1', type: 'stock.movement' as const, itemId: flour, kind: 'COUNT_ADJUST' as const, qtyBase: 100, docId: 'd' };
+  const row = (events: Parameters<typeof inventoryFromEvents>[1]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === flour)!;
+  assert.equal(row([grn, grn, movement, movement]).onHandBaseUnits, row([grn, movement]).onHandBaseUnits);
+  assert.equal(row([grn, grn]).onHandBaseUnits, 2 * SEED_INVENTORY[0].packQty);
 });

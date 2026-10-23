@@ -2,12 +2,13 @@ import { isPhotoId } from '../src/domain/photos.ts';
 import { isNote } from '../src/domain/gapReview.ts';
 import { isUnitId } from '../src/domain/counting.ts';
 import { MENU } from '../src/domain/menu.ts';
+import { checkStockSetting } from '../src/domain/stockSettings.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
 import { isGapReason } from '../src/domain/counting.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import type { MenuItem } from '../src/domain/types.ts';
 import {
-  KITCHEN_EVENT_TYPES, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
+  KITCHEN_EVENT_TYPES, MOVEMENT_KINDS, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
 } from '../src/domain/sync.ts';
 
 const TYPES = new Set<string>([
@@ -73,6 +74,11 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       !shortString(e.itemId) || typeof e.deltaPacks !== 'number' || !Number.isFinite(e.deltaPacks) || e.deltaPacks === 0 ||
       (e.reason !== undefined && !['waste', 'audit', 'receive'].includes(String(e.reason)))
     )) return { reason: `event ${e.id} has an invalid stock change` };
+    if (e.type === 'stock.movement' && (
+      !shortString(e.itemId) || !shortString(e.docId, 80) || !MOVEMENT_KINDS.includes(e.kind as never) ||
+      typeof e.qtyBase !== 'number' || !Number.isFinite(e.qtyBase) || e.qtyBase === 0 || Math.abs(e.qtyBase) > 1e9 ||
+      (e.kind === 'GRN' && e.qtyBase < 0) || (e.kind === 'GRN_UNDO' && e.qtyBase > 0)
+    )) return { reason: `event ${e.id} has an invalid stock movement` };
     if (e.type === 'stock.price_set' && (
       !shortString(e.itemId) || !Number.isSafeInteger(e.before) || !Number.isSafeInteger(e.after) ||
       (e.before as number) < 0 || (e.after as number) < 0
@@ -115,7 +121,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !entries.every((x) => isObj(x) && shortString(x.unit, 40) && amount(x.qty) && (x.qty as number) >= 0) ||
         !(e.reason === null || isGapReason(e.reason)) || !Number.isSafeInteger(e.valueCents) ||
         !['daily', 'weekly', 'monthly'].includes(String(e.tier)) ||
-        !(e.photo === undefined || e.photo === null || isPhotoId(e.photo))
+        !(e.photo === undefined || e.photo === null || isPhotoId(e.photo)) ||
+        !(e.note === undefined || shortString(e.note, 200)) || (e.reason === 'other' && !(typeof e.note === 'string' && e.note.trim()))
       ) return { reason: `event ${e.id} has an invalid count` };
     }
     if (e.type === 'stock.count_undone' && !shortString(e.countId)) return { reason: `event ${e.id} has an invalid count id` };
@@ -124,6 +131,53 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     )) return { reason: `event ${e.id} has an invalid unit` };
     if (e.type === 'stock.tier_set' && (!shortString(e.itemId) || !(e.tier === null || ['daily', 'weekly', 'monthly'].includes(String(e.tier))))) {
       return { reason: `event ${e.id} has an invalid count tier` };
+    }
+    const packs = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1e6;
+    const poLines = (lines: unknown): boolean => Array.isArray(lines) && lines.length > 0 && lines.length <= 200 &&
+      lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.packs) && (l.packs as number) > 0 &&
+        (l.stockQty === undefined || (typeof l.stockQty === 'number' && Number.isFinite(l.stockQty) && l.stockQty > 0 && l.stockQty <= 1e9)));
+    if (e.type === 'stock.ordered' && ((e.poNo !== undefined && !shortString(e.poNo, 20)) || !shortString(e.supplierId) || !poLines(e.lines))) {
+      return { reason: `event ${e.id} has an invalid purchase order` };
+    }
+    if (e.type === 'stock.order_edited' && (!shortString(e.orderId) || !poLines(e.lines))) return { reason: `event ${e.id} has an invalid order change` };
+    if (e.type === 'stock.order_cancelled' && (!shortString(e.orderId) || !shortString(e.reason, 200))) {
+      return { reason: `event ${e.id} cancels an order without saying why` };
+    }
+    if (e.type === 'stock.order_reopened' && !shortString(e.orderId)) return { reason: `event ${e.id} has an invalid order id` };
+    if (e.type === 'stock.grn') {
+      const by = e.approvedBy;
+      const lines = e.lines;
+      if (
+        (e.grnNo !== undefined && !shortString(e.grnNo, 20)) || !shortString(e.orderId) || !shortString(e.supplierId) || !Array.isArray(lines) || lines.length > 200 ||
+        !lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received) && (l.accepted === undefined || packs(l.accepted)) && (l.returned === undefined || packs(l.returned))) ||
+        !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) ||
+        !(e.shortDecision === undefined || e.shortDecision === 'wait' || e.shortDecision === 'close') ||
+        !(e.overDecision === undefined || e.overDecision === 'accept' || e.overDecision === 'return')
+      ) return { reason: `event ${e.id} has an invalid goods received note` };
+      const rows = lines as { ordered: number; received: number; accepted?: number; returned?: number }[];
+      // A delivery that differs from its order needs a manager's approval and the decisions.
+      if (by === null && rows.some((l) => l.received !== l.ordered)) return { reason: `event ${e.id} differs from its order without a manager's approval` };
+      if (rows.some((l) => l.received < l.ordered) && e.shortDecision === undefined) return { reason: `event ${e.id} is short but does not say wait or close` };
+      if (rows.some((l) => l.received > l.ordered) && e.overDecision === undefined) return { reason: `event ${e.id} has extra but does not say accept or return` };
+      // The stock a GRN puts in is worked out from accepted: it must be exactly what the decisions allow.
+      for (const l of rows) {
+        if (l.accepted === undefined) continue;
+        const accepted = l.received > l.ordered && e.overDecision === 'return' ? l.ordered : l.received;
+        if (Math.abs(l.accepted - accepted) > 1e-6 || Math.abs((l.returned ?? 0) - (l.received - accepted)) > 1e-6) return { reason: `event ${e.id} puts the wrong amount into stock` };
+      }
+    }
+    if (e.type === 'stock.numbered' && (!shortString(e.docId, 80) || (e.kind !== 'PO' && e.kind !== 'GRN') || !shortString(e.number, 20))) {
+      return { reason: `event ${e.id} has an invalid document number` };
+    }
+    if (e.type === 'stock.settings_set') {
+      const why = checkStockSetting(e.key, e.value);
+      if (why) return { reason: `event ${e.id} has an invalid setting: ${why}` };
+    }
+    if (e.type === 'stock.grn_undone') {
+      const by = e.approvedBy;
+      if (!shortString(e.grnId) || !shortString(e.reason, 200) || !(isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) {
+        return { reason: `event ${e.id} undoes a GRN without a manager or a reason` };
+      }
     }
     if (e.type === 'stock.receive_unit_set' && (!shortString(e.itemId) || !isUnitId(e.unit))) {
       return { reason: `event ${e.id} has an invalid receiving unit` };

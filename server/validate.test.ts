@@ -166,3 +166,68 @@ test("the owner's own recipe and opening his recipes pass; a malformed recipe do
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.answer_set', question: 'recipe:sausages:M', before: null, after: bad }] }, 'shop-1'));
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.viewed', orderNumber: 4 }] }, 'shop-1'));
 });
+
+test('purchase orders and GRNs: a GRN that differs from its order needs a manager and the decisions', () => {
+  const ordered = { ...base, type: 'stock.ordered', poNo: 'PO-0001', supplierId: 'sup', lines: [{ itemId: 'inv-1', packs: 2 }] };
+  const line = (received: number, accepted = received) => [{ itemId: 'inv-1', ordered: 2, received, accepted, returned: received - accepted }];
+  const grn = { ...base, id: 'event-2', type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'event-1', supplierId: 'sup', lines: line(2), approvedBy: null };
+  const reason = (e: unknown) => (validatePush({ events: [e] }, 'shop-1') as { reason: string }).reason;
+  assert.ok('events' in validatePush({ events: [ordered, grn] }, 'shop-1'));
+
+  const short = { ...grn, lines: line(1) };
+  assert.match(reason(short), /without a manager's approval/);
+  assert.match(reason({ ...short, approvedBy: base.actor }), /short but does not say wait or close/);
+  assert.ok('events' in validatePush({ events: [{ ...short, approvedBy: base.actor, shortDecision: 'wait' }] }, 'shop-1'));
+  assert.match(reason({ ...short, approvedBy: { id: 'c', name: 'Nimal', role: 'cashier' }, shortDecision: 'close' }), /invalid goods received note/);
+
+  const over = { ...grn, lines: line(3), approvedBy: base.actor };
+  assert.match(reason(over), /extra but does not say accept or return/);
+  assert.ok('events' in validatePush({ events: [{ ...over, overDecision: 'accept' }] }, 'shop-1'));
+  assert.match(reason({ ...over, overDecision: 'return' }), /wrong amount into stock/, 'returning extra but taking it all into stock');
+  assert.ok('events' in validatePush({ events: [{ ...over, overDecision: 'return', lines: line(3, 2) }] }, 'shop-1'));
+  assert.match(reason({ ...over, overDecision: 'accept', lines: [{ itemId: 'inv-1', ordered: 2, received: 3, accepted: 5, returned: 0 }] }), /wrong amount into stock/, 'stock cannot be made up');
+  assert.match(reason({ ...over, overDecision: 'accept', lines: line(3, 5) }), /invalid goods received note/);
+  assert.match(reason({ ...ordered, lines: [] }), /invalid purchase order/);
+});
+
+test('an undone GRN names a manager and a reason', () => {
+  const undone = { ...base, type: 'stock.grn_undone', grnId: 'event-2', reason: 'Wrong amounts', approvedBy: base.actor };
+  assert.ok('events' in validatePush({ events: [undone] }, 'shop-1'));
+  const reason = (e: unknown) => (validatePush({ events: [e] }, 'shop-1') as { reason: string }).reason;
+  assert.match(reason({ ...undone, reason: '' }), /without a manager or a reason/);
+  assert.match(reason({ ...undone, approvedBy: undefined }), /without a manager or a reason/);
+  assert.match(reason({ ...undone, approvedBy: { id: 'c', name: 'Nimal', role: 'cashier' } }), /without a manager or a reason/);
+});
+
+test('stock movements: the kind decides the sign; nothing else passes', () => {
+  const mv = { ...base, type: 'stock.movement', itemId: 'inv-1', kind: 'GRN', qtyBase: 50000, docId: 'event-9' };
+  assert.ok('events' in validatePush({ events: [mv, { ...mv, id: 'e2', kind: 'GRN_UNDO', qtyBase: -50000 }, { ...mv, id: 'e3', kind: 'COUNT_ADJUST', qtyBase: -3 }] }, 'shop-1'));
+  for (const bad of [{ kind: 'GRN', qtyBase: -1 }, { kind: 'GRN_UNDO', qtyBase: 1 }, { kind: 'SALE', qtyBase: 1 }, { kind: 'GRN', qtyBase: 0 }, { kind: 'GRN', qtyBase: 'x' }]) {
+    assert.match((validatePush({ events: [{ ...mv, ...bad }] }, 'shop-1') as { reason: string }).reason, /invalid stock movement/);
+  }
+});
+
+test('order changes: edits need lines, a cancel needs a reason, a GRN decision is wait or close', () => {
+  const edited = { ...base, type: 'stock.order_edited', orderId: 'event-1', lines: [{ itemId: 'inv-1', packs: 2, stockQty: 50000 }] };
+  assert.ok('events' in validatePush({ events: [edited] }, 'shop-1'));
+  assert.match((validatePush({ events: [{ ...edited, lines: [] }] }, 'shop-1') as { reason: string }).reason, /invalid order change/);
+  assert.match((validatePush({ events: [{ ...edited, lines: [{ itemId: 'inv-1', packs: 2, stockQty: -1 }] }] }, 'shop-1') as { reason: string }).reason, /invalid order change/);
+  const cancelled = { ...base, type: 'stock.order_cancelled', orderId: 'event-1', reason: 'Ordered by mistake' };
+  assert.ok('events' in validatePush({ events: [cancelled] }, 'shop-1'));
+  assert.match((validatePush({ events: [{ ...cancelled, reason: '' }] }, 'shop-1') as { reason: string }).reason, /without saying why/);
+  const { reason: _r, ...noReason } = cancelled;
+  assert.match((validatePush({ events: [noReason] }, 'shop-1') as { reason: string }).reason, /without saying why/);
+  const grn = { ...base, type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'event-1', supplierId: 'sup', lines: [{ itemId: 'inv-1', ordered: 2, received: 2 }], approvedBy: null };
+  assert.ok('events' in validatePush({ events: [{ ...grn, shortDecision: 'wait' }] }, 'shop-1'));
+  assert.match((validatePush({ events: [{ ...grn, shortDecision: 'later' }] }, 'shop-1') as { reason: string }).reason, /invalid goods received note/);
+});
+
+test('a count: Other must say what happened; the note is short', () => {
+  const counted = { ...base, type: 'stock.counted', itemId: 'inv-0006', counted: 1000, expected: 2000, entries: [], reason: 'spoiled', valueCents: -260000, tier: 'daily' };
+  const reason = (e: unknown) => (validatePush({ events: [e] }, 'shop-1') as { reason: string }).reason;
+  assert.ok('events' in validatePush({ events: [counted, { ...counted, id: 'e2', reason: 'other', note: 'The fridge was off' }, { ...counted, id: 'e3', reason: 'wrong-entry' }] }, 'shop-1'));
+  assert.match(reason({ ...counted, reason: 'other' }), /invalid count/);
+  assert.match(reason({ ...counted, reason: 'other', note: '   ' }), /invalid count/);
+  assert.match(reason({ ...counted, note: 'x'.repeat(201) }), /invalid count/);
+  assert.ok('events' in validatePush({ events: [{ ...counted, reason: 'delivery-short' }] }, 'shop-1'), 'an older reason still reads');
+});

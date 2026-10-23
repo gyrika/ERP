@@ -60,3 +60,9 @@ test('only the owner checks a gap; any manager answers; notes are short', () => 
   assert.ok('reason' in validatePush({ events: [{ ...ok, decision: 'maybe' }] }, 'shop-1'));
   assert.ok('reason' in validatePush({ events: [{ ...ok, note: 'x'.repeat(201) }] }, 'shop-1'));
 });
+
+test('the note of an "Other" reason is carried on the case', () => {
+  const c = { ...count('c1', NOW, -300000, 'spoiled'), reason: 'other', note: 'The walk-in fridge was off' } as SyncEvent;
+  assert.equal(gapCases([c])[0].note, 'The walk-in fridge was off');
+  assert.equal(gapCases([count('c2', NOW, -300000)])[0].note, null);
+});

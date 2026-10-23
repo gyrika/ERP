@@ -55,7 +55,7 @@ export const flushOutbox = async (): Promise<void> => {
     if (!r.ok) throw new Error(`inbox ${r.status}`);
     const res = (await r.json()) as PushResponse;
     markSynced(res.accepted.map((a) => a.id));
-    if (res.rejected?.length) markRejected(res.rejected.map((x) => x.id));
+    if (res.rejected?.length) markRejected(res.rejected);
   } catch {
     timer = setTimeout(() => void flushOutbox(), RETRY_MS);
   } finally {

@@ -33,7 +33,8 @@ test("today's takings; stock low or out is a decision; a count shows under Count
   ], NOW);
   assert.equal(parts.owner.preview, 'Rs 3,440 · 2 orders');
   assert.equal(parts.inventory.preview, 'Mozzarella (Prabhat) out');
-  assert.equal(parts.inventory.badge, 2, 'mozzarella out and onion low');
+  // Low is the reorder rule's call: a quarter pack of onion with two pizzas sold lasts, so only mozzarella counts.
+  assert.equal(parts.inventory.badge, 1, 'mozzarella out; onion is not low by the reorder rule');
   assert.equal(parts.manager.preview, '2 items counted today');
 });
 

@@ -6,7 +6,7 @@ import {
 } from '../domain/counting.ts';
 import { answerGap, setCountTier, useCountHistory, useGapCases, useInventory } from '../services/inventoryStore.ts';
 import { asked, MAX_NOTE, type GapCase } from '../domain/gapReview.ts';
-import { reasonLabel } from '../domain/counting.ts';
+import { reasonLabel, reasonText } from '../domain/counting.ts';
 import { formatQuantity } from '../domain/quantity.ts';
 import { fmt } from '../domain/money.ts';
 import { useWaitingPhotos } from '../services/photos.ts';
@@ -106,7 +106,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
             {questions.map((q) => {
               const item = items.find((i) => i.id === q.itemId);
               return <Question key={q.countId} gap={q} name={item?.name ?? q.itemId}
-                gapText={`${item ? formatQuantity(Math.abs(q.delta), item.baseUnit) : Math.abs(q.delta)} ${q.delta < 0 ? 'short' : 'over'} · ${reasonLabel(q.reason)} · Rs ${fmt(Math.abs(q.valueCents))}`} />;
+                gapText={`${item ? formatQuantity(Math.abs(q.delta), item.baseUnit) : Math.abs(q.delta)} ${q.delta < 0 ? 'short' : 'over'} · ${reasonText(q.reason, q.note)} · Rs ${fmt(Math.abs(q.valueCents))}`} />;
             })}
           </section>
         )}

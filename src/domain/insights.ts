@@ -5,7 +5,7 @@ import type { InventoryItem, Supplier } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
 import { fmt } from './money.ts';
 import { formatQuantity } from './quantity.ts';
-import { reasonLabel } from './counting.ts';
+import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine } from './types.ts';
 import { lineItemName } from './halves.ts';
@@ -251,8 +251,9 @@ const kitchenSlow = (events: readonly SyncEvent[], now: number): Insight | null 
 
 const runningLow = (events: readonly SyncEvent[], stock: ShopData['stock'], now: number): Insight | null => {
   if (!stock) return null;
-  // Only items someone has counted: a never-counted item is unknown, not empty.
-  const low = inventoryFromEvents(stock.items, events, { now }).filter((r) => !r.archived && r.counted && isLowStock(r));
+  // Only items someone has counted: a never-counted item is unknown, not empty. Low is the
+  // reorder rule's call (it needs a rate of use), so an empty shelf is named too.
+  const low = inventoryFromEvents(stock.items, events, { now }).filter((r) => !r.archived && r.counted && (isLowStock(r) || isOutOfStock(r)));
   if (!low.length) return null;
   const names = low.slice(0, 3).map((r) => r.name).join(', ');
   return {
@@ -321,8 +322,8 @@ const countedShort = (events: readonly SyncEvent[], stock: ShopData['stock'], no
 };
 
 /**
- * Gaps beyond the allowance the owner has not OK'd (SCRUM-95): each with the manager's
- * reason and photo; the owner says OK, or asks. Answers come back on the same card.
+ * The owner's count review (SCRUM-95): gaps beyond the allowance not yet reviewed, each with the
+ * manager's reason and photo; the owner marks it Reviewed (which changes no stock), or asks. Answers come back on the same card.
  */
 const gapsToCheck = (events: readonly SyncEvent[], stock: ShopData['stock']): Insight | null => {
   const open = toCheck(gapCases(events));
@@ -331,17 +332,17 @@ const gapsToCheck = (events: readonly SyncEvent[], stock: ShopData['stock']): In
   const cases = open.map((gap) => {
     const item = items.find((i) => i.id === gap.itemId);
     const qty = item ? formatQuantity(Math.abs(gap.delta), item.baseUnit) : `${Math.abs(gap.delta)}`;
-    return { gap, name: item?.name ?? gap.itemId, gapText: `${qty} ${gap.delta < 0 ? 'short' : 'over'} · ${reasonLabel(gap.reason)}` };
+    return { gap, name: item?.name ?? gap.itemId, gapText: `${qty} ${gap.delta < 0 ? 'short' : 'over'} · ${reasonText(gap.reason, gap.note)}` };
   });
   const answered = open.filter((g) => g.review.kind === 'asked' && g.review.answer).length;
   const [first] = cases;
   return {
     id: 'gaps-to-check',
     tone: 'attention',
-    title: open.length === 1 ? `${first.name}: ${first.gapText}` : `${plural(open.length, 'gap')} in the counts to check`,
+    title: open.length === 1 ? `${first.name}: ${first.gapText}` : `${plural(open.length, 'gap')} in the count review`,
     detail: answered ? `${plural(answered, 'answer')} from the manager.`
-      : `With the manager's reason${open.some((g) => g.photo) ? ' and a photo of the shelf' : ''}. OK it, or ask.`,
-    action: { label: 'Check', items: [] },
+      : `With the manager's reason${open.some((g) => g.photo) ? ' and a photo of the shelf' : ''}. Mark it reviewed, or ask.`,
+    action: { label: 'Count review', items: [] },
     cases,
   };
 };

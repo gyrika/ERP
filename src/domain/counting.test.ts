@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ALLOW_CENTS, checkUnitName, countedBase, countedSince, countHistory, countsDue, dailyStreak, dayGrid, gapOf, reasonsFor, tiersOf,
+  checkUnitName, countedBase, countedSince, countHistory, countsDue, dailyStreak, dayGrid, gapOf, isBigGap, isGapReason, reasonLabel, reasonsFor, reasonText, tiersOf,
   unitsOf, type Tier,
 } from './counting.ts';
 import { inventoryFromEvents } from './inventory.ts';
@@ -27,15 +27,33 @@ test('count in packs, an opened pack by eye or weighed, kg or g, or a unit learn
   assert.ok(checkUnitName('3', MOZZ));
 });
 
-test('a gap within 2% or under Rs 100 matches; beyond both it needs a reason', () => {
+test('a gap needs a reason when it is over 10% of what was expected OR worth over Rs 2,000', () => {
   const item = { packQty: 2000, workingPriceCents: 520000 }; // Rs 2.60 a gram
-  assert.equal(gapOf(10000, 9850, item).big, false, '1.5% short: matches');
-  assert.equal(gapOf(1000, 970, item).big, false, '3% but only Rs 78: matches');
-  const g = gapOf(10000, 9400, item);
-  assert.deepEqual(g, { delta: -600, valueCents: -156000, big: true });
-  assert.ok(Math.abs(g.valueCents) >= ALLOW_CENTS);
-  assert.deepEqual(reasonsFor(-1).map((r) => r.id), ['spoiled', 'spilled', 'staff-meal', 'delivery-short', 'miscounted', 'unknown']);
-  assert.deepEqual(reasonsFor(1).map((r) => r.id), ['not-received', 'miscounted', 'unknown']);
+  assert.equal(gapOf(10000, 9500, item).big, false, '5% and Rs 1,300: matches');
+  assert.equal(gapOf(1000, 910, item).big, false, '9% and Rs 234: matches');
+  assert.deepEqual(gapOf(1000, 800, item), { delta: -200, valueCents: -52000, big: true }, '20% of a small amount: needs a reason');
+  assert.deepEqual(gapOf(100000, 99000, item), { delta: -1000, valueCents: -260000, big: true }, 'only 1% but Rs 2,600: needs a reason');
+  assert.equal(gapOf(100000, 99231, item).big, false, 'Rs 1,999 or so: matches');
+  assert.equal(isBigGap(-10, 100, -200_001), true, 'one cent over Rs 2,000');
+  assert.equal(isBigGap(-10, 100, -200_000), false, 'exactly Rs 2,000 and exactly 10%: still matches');
+  assert.equal(isBigGap(-11, 100, 0), true);
+  assert.equal(isBigGap(5, 0, 0), true, 'something where nothing was expected');
+  assert.equal(isBigGap(0, 0, 0), false);
+});
+
+test("the owner's numbers decide it", () => {
+  const item = { packQty: 2000, workingPriceCents: 520000 };
+  assert.equal(gapOf(10000, 9850, item, { countGapShare: 0.01, countGapCents: 200_000 }).big, true, '1.5% is over 1%');
+  assert.equal(gapOf(10000, 9400, item, { countGapShare: 0.1, countGapCents: 1_000_000 }).big, false, '6% and Rs 1,560, with Rs 10,000 allowed');
+});
+
+test('Spoiled, Spilled, Wrong entry or Other; older reasons still read but are not offered', () => {
+  assert.deepEqual(reasonsFor(-1).map((r) => r.id), ['spoiled', 'spilled', 'wrong-entry', 'other']);
+  assert.deepEqual(reasonsFor(1).map((r) => r.id), ['wrong-entry', 'other'], 'there is more than expected: it cannot have spoiled');
+  assert.equal(isGapReason('delivery-short'), true);
+  assert.equal(reasonLabel('delivery-short'), 'Delivery was short');
+  assert.equal(reasonText('other', ' the walk-in fridge was off '), 'Other: the walk-in fridge was off');
+  assert.equal(reasonText('spoiled', null), 'Spoiled or expired');
 });
 
 test('the items carrying most of the spend are counted daily, then weekly, the rest monthly', () => {
