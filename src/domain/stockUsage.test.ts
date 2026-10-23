@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ingredientQuestion, yieldQuestion, type Answer, type RecipeEvent } from './costing.ts';
+import { prepQuestion, recipeQuestion, yieldQuestion, type Answer, type RecipeEvent } from './costing.ts';
 import { inventoryFromEvents, stockFromEvents, stockStatus, USAGE_DAYS } from './inventory.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
 import { bookGaps, bookUsage } from './stockUsage.ts';
@@ -15,6 +15,11 @@ const LETTUCE = 'inv-0026';
 const FLOUR = 'inv-0001'; // 25 kg sack
 const ONION = 'inv-0024';
 const MOZZ = 'inv-0006'; // Prabhat, 2 kg block
+const PENNE = 'inv-0047'; // dry penne
+/** His Italian Pasta M made as his Alfredo Penne Medium: 180 g of his penne boil batch, whose output he has not confirmed. */
+const IS_PENNE: [string, Answer] = [recipeQuestion('italian-pasta', 'M'), { kind: 'recipe', product: 'Alfredo Penne Medium' }];
+/** A test answer (not his): one penne batch, 1,600 g dry, makes 3,200 g boiled. */
+const PENNE_MAKES: [string, Answer] = [yieldQuestion('Penne Boil Batch'), { kind: 'yield', qty: 3200 }];
 const DAY = 24 * 60 * 60 * 1000;
 
 const none = new Map<string, Answer>();
@@ -42,13 +47,11 @@ test('a pizza is traced through his dough batch to the flour sack, per size', ()
 });
 
 test('a batch he has not confirmed takes nothing until he answers; then his answer is used', () => {
-  const pizza = line('margherita', { size: 'L' }); // 150 g of Mozzarella Blend
-  assert.equal(usage(pizza)[MOZZ], undefined);
-  const answers = new Map<string, Answer>([
-    [yieldQuestion('Mozzarella Blend'), { kind: 'yield', qty: 2000 }],
-    [ingredientQuestion('Mozzarella A'), { kind: 'source', inventoryId: MOZZ, per: 1 }],
-  ]);
-  assert.equal(usage(pizza, answers)[MOZZ], 75, 'half of the blend is Mozzarella A');
+  const pasta = line('italian-pasta', { size: 'M' });
+  assert.equal(usage(pasta, new Map([IS_PENNE]))[PENNE], undefined);
+  assert.equal(usage(pasta, new Map([IS_PENNE, PENNE_MAKES]))[PENNE], 90, '180 g of a 3,200 g batch made from 1,600 g dry');
+  // His cheese blend he confirmed (2026-10-23): 2,000 g from 1,000 g of each, so a Margherita L's 150 g is 75 g of A.
+  assert.equal(usage(line('margherita', { size: 'L' }))[MOZZ], 75);
 });
 
 test('a menu item with no recipe of his takes nothing', () => {
@@ -77,14 +80,13 @@ test('selling takes stock by itself; Undo after Send gives it back', () => {
 });
 
 test('each sale uses the answers in force when it was sold', () => {
-  const blend = [
-    answer('a1', yieldQuestion('Mozzarella Blend'), { kind: 'yield', qty: 2000 }),
-    answer('a2', ingredientQuestion('Mozzarella A'), { kind: 'source', inventoryId: MOZZ, per: 1 }),
-  ];
-  const before = sent('s1', [line('margherita', { id: 'p1', size: 'L' })]);
-  const after = sent('s2', [line('margherita', { id: 'p2', size: 'L' })]);
-  assert.equal(row([stockIn(MOZZ, 1), before, ...blend, after], MOZZ).onHandBaseUnits, 2000 - 75,
-    'the pizza sold before he answered still takes nothing');
+  const isPenne = answer('a1', IS_PENNE[0], IS_PENNE[1], 0);
+  const makes = answer('a2', PENNE_MAKES[0], PENNE_MAKES[1]);
+  const before = sent('s1', [line('italian-pasta', { id: 'p1', size: 'M' })]);
+  const after = sent('s2', [line('italian-pasta', { id: 'p2', size: 'M' })]);
+  const pack = SEED_INVENTORY.find((i) => i.id === PENNE)!.packQty;
+  assert.equal(row([stockIn(PENNE, 1), isPenne, before, makes, after], PENNE).onHandBaseUnits, pack - 90,
+    'the pasta sold before he answered still takes nothing');
 });
 
 test('lasts about N days: the last 7 days of sales against what is left', () => {
@@ -107,25 +109,27 @@ test('a newer shop divides by the days it has sold, and an uncounted item has no
 
 // ----- what the stock cannot know (an unconfirmed batch, a menu item with no recipe) -----
 
-const SUGO = 'inv-0009'; // in his Pizza Sauce Batch, whose output he has not confirmed
+const SUGO = 'inv-0009'; // peeled tomato, in his Pizza Sauce Batch
 const count = (itemId: string, packs: number, at: number): SyncEvent =>
   ({ id: `c-${itemId}-${at}`, shopId: 's', at, orderNumber: 0, actor, type: 'stock.adjusted', itemId, deltaPacks: packs, reason: 'audit' });
 
 test('a sale names the items an unconfirmed batch held back, and a menu item with no recipe', () => {
-  assert.ok(bookGaps(line('margherita', { size: 'L' }), none).items.includes(SUGO));
+  const pasta = line('italian-pasta', { size: 'M' });
+  assert.ok(bookGaps(pasta, new Map([IS_PENNE])).items.includes(PENNE));
   assert.deepEqual(bookGaps(line('chicken-burger'), none), { untracked: false, items: [] });
   assert.deepEqual(bookGaps(line('no-such-item'), none), { untracked: true, items: [] });
-  const confirmed = new Map<string, Answer>([[yieldQuestion('Pizza Sauce Batch'), { kind: 'yield', qty: 3000 }]]);
-  assert.ok(!bookGaps(line('margherita', { size: 'L' }), confirmed).items.includes(SUGO), 'once he answers, it is taken');
+  assert.ok(!bookGaps(pasta, new Map([IS_PENNE, PENNE_MAKES])).items.includes(PENNE), 'once he answers, it is taken');
+  assert.ok(!bookGaps(line('margherita', { size: 'L' }), none).items.includes(SUGO), 'his sauce is confirmed (2026-10-23)');
 });
 
 test('missed sales since the last count make an item Check shelf; a new count clears them', () => {
-  const pizzas = sent('p', [line('margherita', { id: 'p1', size: 'L', qty: 3 })], NOW - DAY);
-  const before = row([stockIn(SUGO, 5), pizzas], SUGO);
+  const isPenne = answer('a1', IS_PENNE[0], IS_PENNE[1], 0);
+  const pastas = sent('p', [line('italian-pasta', { id: 'p1', size: 'M', qty: 3 })], NOW - DAY);
+  const before = row([stockIn(PENNE, 5), isPenne, pastas], PENNE);
   assert.equal(before.missedSales, 3);
   assert.equal(stockStatus(before), 'unsure');
 
-  const after = row([stockIn(SUGO, 5), pizzas, count(SUGO, -1, NOW - 1)], SUGO);
+  const after = row([stockIn(PENNE, 5), isPenne, pastas, count(PENNE, -1, NOW - 1)], PENNE);
   assert.equal(after.missedSales, 0, 'the count saw the real shelf');
   assert.equal(stockStatus(after), 'ok');
 });
@@ -152,4 +156,17 @@ test('items sold this week with no recipe are counted once, by quantity', () => 
     sent('old', [line('no-such-item', { id: 'n2', qty: 5 })], NOW - 30 * DAY),
   ];
   assert.equal(stockFromEvents(SEED_INVENTORY, events, { now: NOW }).untrackedSold, 2);
+});
+
+test('a semi-processed item he added takes its own lines from stock, by the batch', () => {
+  // A test item (not his): 2,000 g of onion and 20 g salt make 1,000 g onion jam; his Chicken Burger gets 40 g of it.
+  const jam: [string, Answer] = [prepQuestion('konionjam'), {
+    kind: 'prep', name: 'Onion Jam', makes: { qty: 1000, unit: 'g' },
+    lines: [{ name: `stock:${ONION}`, qty: 2000, unit: 'g' }, { name: 'stock:inv-0004', qty: 20, unit: 'g' }],
+  }];
+  const burger: [string, Answer] = [recipeQuestion('chicken-burger', ''), {
+    kind: 'own', lines: [{ name: 'stock:inv-0052', qty: 1, unit: 'pcs' }, { name: 'kitchen:konionjam', qty: 40, unit: 'g' }],
+  }];
+  assert.deepEqual(usage(line('chicken-burger', { qty: 2 }), new Map([jam, burger])), { [BUN]: 2, [ONION]: 160, 'inv-0004': 1.6 });
+  assert.deepEqual(bookGaps(line('chicken-burger'), new Map([jam, burger])).items, []);
 });

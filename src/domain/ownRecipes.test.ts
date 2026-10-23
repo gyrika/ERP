@@ -56,10 +56,13 @@ test('his own recipe wins over his sheet; clearing it brings the sheet back', ()
 });
 
 test('his own lines can use his batches and his sheet names, and their gaps still show', () => {
-  const own: Answer = { kind: 'own', lines: [...PRODUCTS['Margherita Pizza 10 inch'], { name: stockLine(SAUSAGE), qty: 2, unit: 'pcs' }] };
+  // His sauce and cheese batches are confirmed (2026-10-23); his penne boil batch is not.
+  const own: Answer = { kind: 'own', lines: [
+    ...PRODUCTS['Margherita Pizza 10 inch'], { name: stockLine(SAUSAGE), qty: 2, unit: 'pcs' }, { name: 'Penne Boil Batch', qty: 50, unit: 'g' },
+  ] };
   const cost = menuCost('sausages', 'M', ctx([[recipeQuestion('sausages', 'M'), own]]));
-  assert.equal(cost.complete, false, 'sauce and cheese batches are still unconfirmed');
-  assert.ok(cost.missing.includes('yield:Pizza Sauce Batch'));
+  assert.equal(cost.complete, false, 'the penne batch is still unconfirmed');
+  assert.deepEqual(cost.missing, ['yield:Penne Boil Batch']);
 });
 
 test('an extra with no add-on recipe takes nothing until he writes one', () => {

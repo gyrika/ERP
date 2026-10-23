@@ -11,13 +11,15 @@ export interface Command {
 interface Props {
   commands: Command[];
   onClose: () => void;
+  /** What the box says before anything is typed. */
+  placeholder?: string;
 }
 
 /**
  * Ctrl+K. Type to filter, arrows to move, Enter to run. Esc is handled by the
  * caller (it leaves manager mode from any state, the palette included).
  */
-export function CommandPalette({ commands, onClose }: Props) {
+export function CommandPalette({ commands, onClose, placeholder = 'Type a command' }: Props) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const shown = useMemo(() => {
@@ -45,8 +47,8 @@ export function CommandPalette({ commands, onClose }: Props) {
             if (e.key === 'ArrowUp') { e.preventDefault(); setActive((current - 1 + shown.length) % Math.max(1, shown.length)); }
             if (e.key === 'Enter') { e.preventDefault(); run(shown[current]); }
           }}
-          placeholder="Type a command"
-          aria-label="Type a command"
+          placeholder={placeholder}
+          aria-label={placeholder}
           aria-controls="palette-list"
           aria-activedescendant={shown[current] ? `cmd-${shown[current].id}` : undefined}
           autoFocus
