@@ -236,10 +236,12 @@ function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]
 
 type Step = 'who' | 'what' | 'send' | 'open';
 
-export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
+export function OrderSheet({ items, suppliers, purchases, inline = false, onClose, onDone }: {
   items: InventoryRow[];
   suppliers: Supplier[];
   purchases: PurchaseState;
+  /** In the Order page itself, not a sheet over it. */
+  inline?: boolean;
   onClose: () => void;
   onDone: Done;
 }) {
@@ -262,7 +264,7 @@ export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
 
   if (step === 'open') {
     return (
-      <FlowSheet title="Purchase orders" sub="On order" onClose={onClose} onBack={toWho}>
+      <FlowSheet title="Purchase orders" sub="On order" inline={inline} onClose={onClose} onBack={toWho}>
         <RejectionNotices />
         {purchases.open.length === 0
           ? <p className="flow-hint">Nothing is on order.</p>
@@ -273,7 +275,7 @@ export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
 
   if ((step === 'what' || step === 'send') && supplierId) {
     return (
-      <WhatStep key={supplierId} step={step} supplierId={supplierId} start={start} items={items} suppliers={suppliers} purchases={purchases}
+      <WhatStep key={supplierId} inline={inline} step={step} supplierId={supplierId} start={start} items={items} suppliers={suppliers} purchases={purchases}
         placed={placed} moreSuppliers={waiting.filter((s) => s.id !== supplierId).length} onClose={onClose} onBack={toWho}
         onPlaced={(p, undo, done) => {
           setPlaced((all) => [...all, p]);
@@ -286,7 +288,7 @@ export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
   }
 
   return (
-    <FlowSheet title="Purchase orders" onClose={onClose}
+    <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
       step={total > 1 ? { index: 1, of: 3, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: 3, label: 'Who?' }}
       extra={purchases.open.length > 0 ? <button type="button" className="linkbtn flow__back" onClick={() => setStep('open')}>On order ({purchases.open.length})</button> : undefined}>
       <RejectionNotices />
@@ -313,7 +315,8 @@ export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
 }
 
 /** Steps 2 and 3 for one supplier: what to order, then sending it. */
-function WhatStep({ step, supplierId, start, items, suppliers, purchases, placed, moreSuppliers, onClose, onBack, onPlaced, onNext }: {
+function WhatStep({ inline, step, supplierId, start, items, suppliers, purchases, placed, moreSuppliers, onClose, onBack, onPlaced, onNext }: {
+  inline: boolean;
   step: 'what' | 'send';
   supplierId: string;
   start: Packs;
@@ -332,7 +335,7 @@ function WhatStep({ step, supplierId, start, items, suppliers, purchases, placed
 
   if (step === 'send') {
     return (
-      <FlowSheet title="Purchase orders" sub={name} step={{ index: 3, of: 3, label: 'Send' }} onClose={onClose}
+      <FlowSheet title="Purchase orders" sub={name} inline={inline} step={{ index: 3, of: 3, label: 'Send' }} onClose={onClose}
         primary={{ label: moreSuppliers > 0 ? 'Next supplier' : 'Done', onClick: moreSuppliers > 0 ? onNext : onClose }}>
         <RejectionNotices />
         {placed.map((p, i) => <PlacedOrder key={`${p.order.id}-${i}`} placed={p} items={items} suppliers={suppliers} />)}
@@ -340,7 +343,7 @@ function WhatStep({ step, supplierId, start, items, suppliers, purchases, placed
     );
   }
   return (
-    <FlowSheet title="Purchase orders" sub={name} step={{ index: 2, of: 3, label: 'What to order' }} onClose={onClose} onBack={onBack} error={draft.error}
+    <FlowSheet title="Purchase orders" sub={name} inline={inline} step={{ index: 2, of: 3, label: 'What to order' }} onClose={onClose} onBack={onBack} error={draft.error}
       primary={{ label: draft.mainLabel, onClick: () => draft.act(onPlaced), disabled: !draft.canAct }}>
       <RejectionNotices />
       <DraftItems supplierId={supplierId} draft={draft} items={items} suppliers={suppliers} />
