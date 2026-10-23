@@ -81,7 +81,8 @@ test('amounts stay hidden until a recipe is opened', async () => {
   expect(within(margherita).getByRole('list', { hidden: true }).getAttribute('aria-hidden')).toBe('true');
   await user.click(within(margherita).getByRole('button', { name: /Margherita Medium/ }));
   expect(within(margherita).getByRole('list').getAttribute('aria-hidden')).toBe('false');
-  expect(within(margherita).getByText('3 of its gaps are asked at the top.')).toBeTruthy();
+  // His cheese, sauce and basil answers (2026-10-23) complete it.
+  expect(within(margherita).getByText(/^Complete · costs [\d,.]+ · earns \d+%$/)).toBeTruthy();
 });
 
 test('a gap shared by many recipes is asked once, at the top, and answering it moves them on', async () => {
@@ -89,17 +90,18 @@ test('a gap shared by many recipes is asked once, at the top, and answering it m
   render(<Root />);
   await open(user);
   const top = within(screen.getByRole('region', { name: 'First, these' }));
-  // One at a time: his cheese blend, his sauce and basil (every pizza), then ketchup, chicken cubes, mayonnaise, the sausage.
-  expect(top.getByRole('heading', { name: 'First, these · 7 to go' })).toBeTruthy();
+  // One at a time: ketchup, chicken cubes, mayonnaise, the sausage (his cheese, sauce and basil are answered).
+  expect(top.getByRole('heading', { name: 'First, these · 4 to go' })).toBeTruthy();
   expect(top.getAllByRole('form').length).toBe(1);
   await user.click(top.getByRole('button', { name: 'Skip' }));
   expect(top.getAllByRole('form').length).toBe(1);
-  while (!top.queryByRole('form', { name: 'Mozzarella Blend: how much does one batch make?' })) await user.click(top.getByRole('button', { name: 'Skip' }));
-  const cheese = within(top.getByRole('form', { name: 'Mozzarella Blend: how much does one batch make?' }));
-  await user.type(cheese.getByRole('textbox', { name: 'One batch makes (g)' }), '2000{Enter}');
-  expect(readAll().at(-1)).toMatchObject({ question: 'yield:Mozzarella Blend', after: { kind: 'yield', qty: 2000 }, actor: { role: 'owner' } });
-  expect(within(card('Margherita Medium')).getByText('Waiting on Pizza Sauce batch size, Basil price')).toBeTruthy();
-  expect(top.getByRole('heading', { name: 'First, these · 6 to go' })).toBeTruthy();
+  while (!top.queryByRole('form', { name: /^Ketchup:/ })) await user.click(top.getByRole('button', { name: 'Skip' }));
+  const ketchup = within(top.getByRole('form', { name: /^Ketchup:/ }));
+  await user.type(ketchup.getByRole('textbox', { name: 'Rs' }), '450');
+  await user.type(ketchup.getByRole('textbox', { name: 'for (g)' }), '400{Enter}');
+  expect(readAll().at(-1)).toMatchObject({ question: 'ingredient:Ketchup', after: { kind: 'price', cents: 45000, qty: 400 }, actor: { role: 'owner' } });
+  expect(within(card('Chicken Burger')).getByText('Waiting on Mayonnaise price')).toBeTruthy();
+  expect(top.getByRole('heading', { name: 'First, these · 3 to go' })).toBeTruthy();
 });
 
 test('a minute untouched locks the recipes again', async () => {

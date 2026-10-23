@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  answersFromEvents, checkAnswer, gapName, ingredientQuestion, linesCost, marginOf, menuCost, openQuestions, recipeChoices,
+  answersFromEvents, batchMakes, checkAnswer, gapName, ingredientQuestion, linesCost, marginOf, menuCost, openQuestions, recipeChoices,
   recipeQuestion, stockLine, waitingOn, yieldQuestion, type Answer, type RecipeEvent,
 } from './costing.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
@@ -15,22 +15,26 @@ const per = (id: string) => {
 };
 const ctx = (answers: [string, Answer][] = [], items = SEED_INVENTORY) => ({ items, answers: new Map(answers) });
 
-/** What the owner would answer to complete the pizzas (test values, not his). */
+/** Answers he might give in the app later (test values, not his): they win over what he confirmed outside it. */
 const PIZZA_ANSWERS: [string, Answer][] = [
   [yieldQuestion('Pizza Sauce Batch'), { kind: 'yield', qty: 3600 }],
-  [yieldQuestion('Mozzarella Blend'), { kind: 'yield', qty: 2000 }],
-  [ingredientQuestion('Basil'), { kind: 'price', cents: 20000, qty: 100 }],
+  [yieldQuestion('Mozzarella Blend'), { kind: 'yield', qty: 1900 }],
 ];
 
-test('a 12" Margherita, worked by hand from his recipes and his price list, once his gaps are answered', () => {
+const SAUCE_IN = 2550 + 550 + 500 + 3.12 + 3.12 + 13.82 + 9.75; // every line of his sauce batch, in g
+
+test('a 12" Margherita, worked by hand from his recipes, his price list and his answers of 2026-10-23', () => {
   const doughBatch = (122 + 2550) * per('inv-0001') + 3.93 * per('inv-0005') + 6.11 * per('inv-0003')
     + 31.095 * per('inv-0004') + 85 * per('inv-0022'); // water costs nothing
-  const sauceBatch = 2550 * per('inv-0009') + 550 * per('inv-0010') + 3.12 * per('inv-0036') + 3.12 * (20000 / 100)
+  // Basil is priced as oregano (inv-0060 = inv-0036's price) until its first delivery.
+  const sauceBatch = 2550 * per('inv-0009') + 550 * per('inv-0010') + 3.12 * per('inv-0036') + 3.12 * per('inv-0060')
     + 13.82 * per('inv-0004') + 9.75 * per('inv-0033');
   const blend = 1000 * per('inv-0006') + 1000 * per('inv-0007'); // his A (Prabhat) and B (Margarita)
-  const byHand = doughBatch * 0.0833 + (sauceBatch / 3600) * 90 + (blend / 2000) * 150 + 0.3333 * per('inv-0036');
+  // His answers: the blend makes 2,000 g; the sauce makes what goes in.
+  const byHand = doughBatch * 0.0833 + (sauceBatch / SAUCE_IN) * 90 + (blend / 2000) * 150 + 0.3333 * per('inv-0036');
 
-  const cost = menuCost('margherita', 'L', ctx(PIZZA_ANSWERS));
+  const cost = menuCost('margherita', 'L', ctx());
+  assert.equal(per('inv-0060'), per('inv-0036'));
   assert.equal(cost.complete, true);
   assert.deepEqual(cost.missing, []);
   assert.equal(cost.product, 'Margherita Pizza 12 inch');
@@ -38,22 +42,22 @@ test('a 12" Margherita, worked by hand from his recipes and his price list, once
   assert.ok(Number.isInteger(cost.cents));
 });
 
-test('before his answers: the cost so far, and exactly what is missing', () => {
-  const cost = menuCost('margherita', 'L', ctx());
-  assert.equal(cost.complete, false);
-  assert.deepEqual([...cost.missing].sort(), [
-    ingredientQuestion('Basil'), yieldQuestion('Mozzarella Blend'), yieldQuestion('Pizza Sauce Batch'),
-  ].sort());
-  const dough = ((122 + 2550) * per('inv-0001') + 3.93 * per('inv-0005') + 6.11 * per('inv-0003')
-    + 31.095 * per('inv-0004') + 85 * per('inv-0022')) * 0.0833;
-  assert.equal(cost.cents, Math.round(dough + 0.3333 * per('inv-0036')), 'dough and oregano are known');
+test('if he weighs again and answers in the app, his answer wins', () => {
+  assert.deepEqual(batchMakes('Mozzarella Blend', 'g', new Map()), { qty: 2000, unit: 'g' });
+  assert.deepEqual(batchMakes('Pizza Sauce Batch', 'g', new Map()), { qty: SAUCE_IN, unit: 'g' });
+  const answers = new Map(PIZZA_ANSWERS);
+  assert.deepEqual(batchMakes('Mozzarella Blend', 'g', answers), { qty: 1900, unit: 'g' });
+  assert.deepEqual(batchMakes('Pizza Sauce Batch', 'g', answers), { qty: 3600, unit: 'g' });
+  assert.ok(menuCost('margherita', 'L', ctx(PIZZA_ANSWERS)).cents > menuCost('margherita', 'L', ctx()).cents, 'less cheese per batch: dearer');
+  assert.equal(batchMakes('Spaghetti Boil Batch', 'g', new Map()), null, 'a batch he never confirmed stays unknown');
 });
 
 test('a new price from the manager changes the cost at once', () => {
   const dearerFlour = SEED_INVENTORY.map((i) => (i.id === 'inv-0001' ? { ...i, workingPriceCents: i.workingPriceCents + 25000 } : i));
-  const before = menuCost('margherita', 'L', ctx(PIZZA_ANSWERS)).cents;
-  const after = menuCost('margherita', 'L', ctx(PIZZA_ANSWERS, dearerFlour)).cents;
-  assert.equal(after - before, Math.round(2672 * 0.0833 * (25000 / 25000)), '+Rs 250 a 25 kg bag = +1 cent a gram of flour');
+  const before = menuCost('margherita', 'L', ctx()).cents;
+  const after = menuCost('margherita', 'L', ctx([], dearerFlour)).cents;
+  // +Rs 250 a 25 kg bag = +1 cent a gram of flour; each total rounds once, so within a cent.
+  assert.ok(Math.abs(after - before - 2672 * 0.0833) <= 1);
 });
 
 test('menu items with no clear recipe ask which of his recipes it is; the answer is all it takes', () => {
@@ -77,15 +81,13 @@ test('burgers: only ketchup and mayonnaise are missing (bought in ml, used in g)
     + 10 * (330000 / 3780) + 10 * (175000 / 4000) + per('inv-0018')));
 });
 
-test('open questions: the ones holding back the most items first; three pizza gaps hold back all 20 pizzas', () => {
+test('open questions: the ones holding back the most items first; his three answers completed the pizza basics', () => {
   const qs = openQuestions(MENU, ctx());
-  assert.deepEqual(qs.slice(0, 3).map((q) => q.id).sort(), [
-    ingredientQuestion('Basil'), yieldQuestion('Mozzarella Blend'), yieldQuestion('Pizza Sauce Batch'),
-  ].sort(), 'each holds back all 20 pizzas');
-  assert.ok(qs.slice(0, 3).every((q) => q.blocks.length === 20));
+  const gone = [ingredientQuestion('Basil'), yieldQuestion('Mozzarella Blend'), yieldQuestion('Pizza Sauce Batch')];
+  assert.ok(!qs.some((q) => gone.includes(q.id)), 'cheese blend, sauce and basil are answered (2026-10-23)');
   assert.ok(qs.every((q, i) => i === 0 || qs[i - 1].blocks.length >= q.blocks.length));
-  const after = openQuestions(MENU, ctx(PIZZA_ANSWERS));
-  assert.ok(!after.some((q) => q.blocks.some((b) => b.startsWith('Margherita'))), 'Margherita is complete');
+  assert.ok(!qs.some((q) => q.blocks.some((b) => b.startsWith('Margherita'))), 'Margherita is complete');
+  assert.ok(qs.every((q) => q.blocks.length < 20), 'no gap holds back every pizza any more');
 });
 
 test('answers are events: newest wins, null clears; only the owner may answer', () => {

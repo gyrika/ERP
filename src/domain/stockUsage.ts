@@ -1,4 +1,4 @@
-import { addonOf, recipeOf, sourceOf, STOCK_LINE, yieldQuestion, type Answer } from './costing.ts';
+import { addonOf, batchMakes, recipeOf, sourceOf, STOCK_LINE, type Answer } from './costing.ts';
 import { PREPS, PRODUCTS, type BookLine } from './recipeBook.ts';
 import { FREE_INGREDIENTS, LEAVE_OUT_LINES } from './recipeMap.ts';
 import type { OrderLine } from './types.ts';
@@ -30,8 +30,7 @@ const trace = (line: BookLine, times: number, answers: ReadonlyMap<string, Answe
 
   const prep = PREPS[line.name];
   if (prep) {
-    const answer = answers.get(yieldQuestion(line.name));
-    const makes = prep.makes ?? (answer?.kind === 'yield' ? { qty: answer.qty, unit: line.unit } : null);
+    const makes = batchMakes(line.name, line.unit, answers);
     if (!makes || makes.unit !== line.unit) return; // output not confirmed yet
     for (const l of prep.lines) trace(l, qty / makes.qty, answers, total, depth + 1);
     return;
@@ -101,8 +100,7 @@ const held = (line: BookLine, answers: ReadonlyMap<string, Answer>, ids: Set<str
   if (depth > MAX_DEPTH) throw new Error(`recipe nesting too deep at ${line.name}`);
   const prep = PREPS[line.name];
   if (prep) {
-    const answer = answers.get(yieldQuestion(line.name));
-    const makes = prep.makes ?? (answer?.kind === 'yield' ? { qty: answer.qty, unit: line.unit } : null);
+    const makes = batchMakes(line.name, line.unit, answers);
     if (!makes || makes.unit !== line.unit) { reach(line, answers, ids, depth); return; }
     for (const l of prep.lines) held(l, answers, ids, depth + 1);
     return;

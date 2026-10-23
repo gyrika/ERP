@@ -24,7 +24,7 @@ test('the demo Friday: every kind of card, things needing a decision first, good
   assert.equal(low.title, '3 items running low'); // onion: taken by the day's pizzas (SCRUM-78)
   assert.deepEqual(low.action.items.map((i) => i.primary).sort(), ['Mozzarella (Prabhat)', 'Onion', 'Pizza Flour']);
   assert.equal(idle.title, "BBQ Pork hasn't sold in 2 weeks");
-  assert.equal(costs.title, 'Food costs: 25 answers to go');
+  assert.equal(costs.title, 'Food costs: 22 answers to go');
   // The pasta has no recipe yet: its sales took no stock, and the owner is told which dishes (SCRUM-129).
   assert.match(unrecipe.title, /without a recipe|stock isn't counted/);
   assert.ok(unrecipe.action.items.length > 0 && unrecipe.action.items.every((i) => /^sold \d/.test(i.secondary ?? '')));
@@ -84,7 +84,7 @@ test('running low counts only items someone has counted', () => {
     { type: 'stock.adjusted', id: 's2', shopId: 's', at: 2, orderNumber: 0, actor: ravi, itemId: 'inv-0006', deltaPacks: 9 },
   ];
   const low = rulesSuggestions.insights({ events, now: friday, stock });
-  assert.deepEqual(low.map((i) => i.title), ['1 item running low', 'Food costs: 25 answers to go']);
+  assert.deepEqual(low.map((i) => i.title), ['1 item running low', 'Food costs: 22 answers to go']);
   assert.match(low[0].action.items[0].secondary ?? '', /1 pack left · Prima/);
 });
 

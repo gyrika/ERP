@@ -1,7 +1,7 @@
 import type { Actor } from './auth.ts';
 import type { InventoryItem } from './inventoryData.ts';
 import { PREPS, PRODUCTS, type BookLine } from './recipeBook.ts';
-import { ADD_RECIPES, FREE_INGREDIENTS, INGREDIENT_SOURCES, MENU_RECIPES } from './recipeMap.ts';
+import { ADD_RECIPES, CONFIRMED_BATCHES, FREE_INGREDIENTS, INGREDIENT_SOURCES, MENU_RECIPES } from './recipeMap.ts';
 import type { Cents, MenuItem } from './types.ts';
 
 /**
@@ -144,6 +144,24 @@ export const sourceOf = (name: string, answers: ReadonlyMap<string, Answer>) => 
   return INGREDIENT_SOURCES[name] ?? (answer?.kind === 'source' ? answer : null);
 };
 
+/**
+ * How much one batch of his makes, in the unit `unit` it is used in: his sheet, then his answer
+ * in the app, then what he confirmed outside it (recipeMap.ts). Null: not known yet.
+ */
+export const batchMakes = (name: string, unit: string, answers: ReadonlyMap<string, Answer>): { qty: number; unit: string } | null => {
+  const prep = PREPS[name];
+  if (!prep) return null;
+  if (prep.makes) return prep.makes;
+  const answer = answers.get(yieldQuestion(name));
+  if (answer?.kind === 'yield') return { qty: answer.qty, unit };
+  const confirmed = CONFIRMED_BATCHES[name];
+  if (confirmed === 'sum') {
+    // Only when every line is in the same unit as its use (grams of sauce from grams of tomato).
+    return prep.lines.every((l) => l.unit === unit) ? { qty: prep.lines.reduce((n, l) => n + l.qty, 0), unit } : null;
+  }
+  return confirmed ?? null;
+};
+
 /** Unrounded cost of some recipe lines; adds every gap met on the way to `missing`. */
 const sumLines = (lines: readonly BookLine[], ctx: CostContext, missing: Set<string>, depth: number): number =>
   lines.reduce((sum, line) => sum + lineCost(line, ctx, missing, depth), 0);
@@ -154,8 +172,7 @@ const lineCost = (line: BookLine, ctx: CostContext, missing: Set<string>, depth:
 
   const prep = PREPS[line.name];
   if (prep) {
-    const answer = ctx.answers.get(yieldQuestion(line.name));
-    const makes = prep.makes ?? (answer?.kind === 'yield' ? { qty: answer.qty, unit: line.unit } : null);
+    const makes = batchMakes(line.name, line.unit, ctx.answers);
     const batch = sumLines(prep.lines, ctx, missing, depth + 1); // collect its gaps too, all at once
     if (!makes || makes.unit !== line.unit) { missing.add(yieldQuestion(line.name)); return 0; }
     return (batch / makes.qty) * line.qty;
