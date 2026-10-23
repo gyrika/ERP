@@ -8,6 +8,7 @@ import {
 import { summariseSuppliers } from '../domain/inventory.ts';
 import { SupplierCard } from './SupplierCard.tsx';
 import { AddSupplierModal } from './AddSupplierModal.tsx';
+import { ItemsTabs } from './ItemsTabs.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
 type ArchivedSupplier = { id: string; name: string };
@@ -64,7 +65,8 @@ export function SupplierView({
 
   return (
     <div className="inv-page">
-      <OwnerNav current="suppliers" onRegister={onRegister} />
+      <OwnerNav current="items" onRegister={onRegister} />
+      <ItemsTabs current="raw" />
       <div className="inv-page__head">
          <h1 className="supplier-heading">
            {filterIngredientId ? 'Targeted Suppliers' : 'All Suppliers'}

@@ -1,19 +1,22 @@
-import { costsToAnswer, soldWithoutRecipe } from './costInsights.ts';
+import { soldWithoutRecipe } from './costInsights.ts';
 import { answersFromEvents, menuCost, sizesOf } from './costing.ts';
 import { rulesSuggestions } from './insights.ts';
-import { inventoryFromEvents, isLowStock, isOutOfStock, suppliersFromEvents } from './inventory.ts';
+import { inventoryFromEvents, isOutOfStock, suppliersFromEvents } from './inventory.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { MENU } from './menu.ts';
 import { effectiveMenu, menuStateFromEvents } from './menuEdits.ts';
 import { fmt } from './money.ts';
+import { expectedBy, purchasesFromEvents } from './purchaseOrders.ts';
+import { stockSettingsFromEvents } from './stockSettings.ts';
 import type { SyncEvent } from './sync.ts';
 
 /**
- * The owner's sidebar (SCRUM-131): one line per part of the shop saying what is going on
- * there, and a badge only when something there needs a decision. Pure, like insights.ts:
- * events in, lines out. Nothing is a count for its own sake ("Onion out", not "60 items").
+ * The owner's sidebar (SCRUM-131), arranged by the shop's day: the work (Sell, Receive, Order,
+ * Count, Today), then Items, then Settings. One line per part saying what is going on there,
+ * and a badge only when something there needs a decision. Pure, like insights.ts: events in,
+ * lines out. Nothing is a count for its own sake ("Onion out", not "60 items").
  */
-export type PartId = 'owner' | 'manager' | 'menu' | 'recipes' | 'inventory' | 'suppliers' | 'setup';
+export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'items' | 'setup';
 
 export interface PartLine {
   preview: string;
@@ -32,11 +35,16 @@ export const ownerParts = (events: readonly SyncEvent[], now: number): Record<Pa
   const shop = { events, now, stock: { items, suppliers } };
   const summary = rulesSuggestions.summary(shop);
   const insights = rulesSuggestions.insights(shop);
+  const settings = stockSettingsFromEvents(events);
+  const purchases = purchasesFromEvents(events, settings);
 
   const counted = items.filter((r) => r.counted);
   const out = counted.filter(isOutOfStock);
-  const low = counted.filter((r) => !isOutOfStock(r) && isLowStock(r));
+  // Low is the reorder rule's call (ordering.ts): what it says to order now.
+  const toOrder = items.filter((r) => r.suggestedPacks > 0);
   const countedToday = items.filter((r) => r.lastCountedAt !== null && r.lastCountedAt >= startOfDay(now)).length;
+  // A delivery past the day it was expected: worth a call to the supplier.
+  const late = purchases.open.filter((o) => expectedBy(o, purchases.leadDays, settings.defaultLeadDays) < startOfDay(now));
 
   const menu = effectiveMenu(MENU, menuStateFromEvents(events), now).filter((m) => !m.removed && !m.hidden);
   const ctx = { items, answers: answersFromEvents(events) };
@@ -44,35 +52,33 @@ export const ownerParts = (events: readonly SyncEvent[], now: number): Record<Pa
   const noRecipe = menu.filter((m) => sizes.every((s) => s.m !== m || !s.cost.origin));
   const soldOut = menu.filter((m) => m.soldOut);
   const unrecipedSales = soldWithoutRecipe(events, now)?.action.items.length ?? 0;
-  const gaps = costsToAnswer(events, shop.stock, now);
-  const complete = sizes.filter((s) => s.cost.complete).length;
 
   return {
+    sell: { preview: 'The register', badge: 0 },
+    receive: {
+      preview: late.length ? `${plural(late.length, 'delivery', 'deliveries')} late`
+        : purchases.open.length ? `${plural(purchases.open.length, 'delivery', 'deliveries')} expected` : 'No deliveries expected',
+      badge: late.length,
+    },
+    order: {
+      preview: toOrder.length ? `${names(toOrder.map((r) => r.name))} to order` : 'Nothing to order',
+      badge: toOrder.length,
+    },
+    count: {
+      preview: countedToday ? `${plural(countedToday, 'item')} counted today` : 'Nothing counted today',
+      badge: 0,
+    },
     owner: {
       preview: summary.orders ? `Rs ${fmt(summary.salesCents)} · ${plural(summary.orders, 'order')}` : 'No sales yet today',
       badge: insights.filter((i) => i.tone === 'attention').length,
     },
-    inventory: {
+    items: {
       preview: out.length ? `${names(out.map((r) => r.name))} out`
-        : low.length ? `${names(low.map((r) => r.name))} running low`
-          : counted.length < items.length ? `${counted.length} of ${items.length} counted` : 'All counted',
-      badge: out.length + low.length,
+        : soldOut.length ? `${names(soldOut.map((m) => m.name.en))} sold out today`
+          : noRecipe.length ? `${plural(noRecipe.length, 'dish', 'dishes')} without a recipe`
+            : counted.length < items.length ? `${counted.length} of ${items.length} counted` : 'All counted',
+      badge: out.length + unrecipedSales,
     },
-    menu: {
-      preview: soldOut.length ? `${names(soldOut.map((m) => m.name.en))} sold out today`
-        : noRecipe.length ? `${plural(noRecipe.length, 'dish', 'dishes')} without a recipe`
-          : plural(menu.length, 'dish', 'dishes'),
-      badge: unrecipedSales,
-    },
-    recipes: {
-      preview: gaps ? `${complete} of ${sizes.length} fully costed` : 'Every recipe complete',
-      badge: 0,
-    },
-    manager: {
-      preview: countedToday ? `${plural(countedToday, 'item')} counted today` : 'Nothing counted today',
-      badge: 0,
-    },
-    suppliers: { preview: plural(suppliers.length, 'supplier'), badge: 0 },
-    setup: { preview: 'Printer, staff and devices', badge: 0 },
+    setup: { preview: 'Shop, staff, printer, stock rules', badge: 0 },
   };
 };

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
 import { checkStockSetting, STOCK_DEFAULTS, type StockSettings } from '../domain/stockSettings.ts';
-import { setStockSetting } from '../services/inventoryStore.ts';
+import { setStockSetting, useStockSettings } from '../services/inventoryStore.ts';
 import { BigStepper } from './flow/BigStepper.tsx';
 import { DoneStep } from './flow/DoneStep.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
@@ -115,5 +115,32 @@ export function StockRulesSheet({ settings, onClose, onDone }: {
         </section>
       ))}
     </FlowSheet>
+  );
+}
+
+/**
+ * Settings › Stock rules: the owner's numbers behind counts, orders and deliveries
+ * (stockSettings.ts). It checks the owner's PIN itself, so it opens even while the rest of
+ * Settings waits for the shop server.
+ */
+export function StockRulesEntry() {
+  const settings = useStockSettings();
+  const [open, setOpen] = useState(false);
+  const [said, setSaid] = useState<{ message: string; undo: () => void } | null>(null);
+  return (
+    <section className="setup__rules" aria-label="Stock rules">
+      <div>
+        <h2>Stock rules</h2>
+        <p>When a count needs a reason, how far back daily use looks, how much an order covers.</p>
+      </div>
+      <button type="button" className="chip chip--solid" onClick={() => setOpen(true)}>Stock rules</button>
+      {said && (
+        <p className="setup__rules-said" role="status">
+          {said.message}
+          <button type="button" className="linkbtn" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
+        </p>
+      )}
+      {open && <StockRulesSheet settings={settings} onClose={() => setOpen(false)} onDone={(message, undo) => setSaid({ message, undo })} />}
+    </section>
   );
 }

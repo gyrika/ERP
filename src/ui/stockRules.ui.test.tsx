@@ -2,13 +2,13 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readAll } from './eventLog.ts';
-import { InventoryView } from './InventoryView.tsx';
+import { StockRulesEntry } from './StockRulesSheet.tsx';
 
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
 
 const open = async (user: ReturnType<typeof userEvent.setup>) => {
-  render(<InventoryView />);
+  render(<StockRulesEntry />); // Settings › Stock rules
   await user.click(screen.getByRole('button', { name: 'Stock rules' }));
   return within(screen.getByRole('dialog', { name: 'Stock rules' }));
 };

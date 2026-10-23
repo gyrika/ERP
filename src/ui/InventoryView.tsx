@@ -5,7 +5,6 @@ import {
   restoreInventoryItem,
   useInventory,
   usePurchases,
-  useStockSettings,
   type StockStatus,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
@@ -15,13 +14,10 @@ import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
 import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import { StockSheet, type SheetTab } from './StockSheet.tsx';
-import { CountFlow } from './CountFlow.tsx';
-import { GoodsReceivingSheet } from './GoodsReceivingSheet.tsx';
-import { OrderSheet } from './OrderSheet.tsx';
+import { ItemsTabs } from './ItemsTabs.tsx';
 import { RejectionNotices } from './Rejections.tsx';
-import { StockRulesSheet } from './StockRulesSheet.tsx';
 import { onOrder } from '../domain/purchaseOrders.ts';
-import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
+import { countsDue, tiersOf } from '../domain/counting.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
@@ -32,9 +28,10 @@ const STATUS_LABELS: Record<StockStatus, string> = {
 };
 
 /**
- * Inventory (SCRUM-92: fewer buttons). Tap a row to open its sheet (received, count,
- * remove); "Purchase orders" is the one place to order (drafts written by
- * `suggestions`); "Goods receiving" takes a delivery against its order (GRN). The supplier's name opens that supplier.
+ * Items › Raw materials: what the shop buys, with what is on the shelf (SCRUM-92: fewer buttons).
+ * Tap a row to open its sheet (details and counting it, ordering it, its history). Receiving,
+ * ordering and counting are the menu's own places now (Receive, Order, Count), so this page
+ * is the list itself. The supplier's name opens that supplier; Suppliers lists them all.
  */
 
 /** Why a row says "Check shelf": what it has not been able to take off. */
@@ -55,9 +52,6 @@ export function InventoryView({
   /** The item whose sheet is open, and on which tab. */
   const [updating, setUpdating] = useState<string | null>(null);
   const [sheetTab, setSheetTab] = useState<SheetTab>('details');
-  const [delivery, setDelivery] = useState(false);
-  const [ordering, setOrdering] = useState(false);
-  const [rules, setRules] = useState(false);
   /** What the list shows: everything, or only what needs a look. */
   const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'order'>('all');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -65,7 +59,6 @@ export function InventoryView({
   const [done, setDone] = useState<{ message: string; undo?: () => void } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
   const purchases = usePurchases();
-  const settings = useStockSettings();
   const coming = useMemo(() => {
     const packs = onOrder(purchases.open);
     const po = new Map<string, string>();
@@ -74,7 +67,6 @@ export function InventoryView({
   }, [purchases]);
   /** Items that need ordering now: the badge, and a tap opens them on Order. */
   const needed = useMemo(() => new Set([...draftsOf(items).values()].flatMap((d) => Object.keys(d))), [items]);
-  const toOrder = needed.size;
   const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'details'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const FILTERS = [['all', 'All'], ['low', 'Low'], ['out', 'Out'], ['order', 'On order']] as const;
@@ -92,7 +84,6 @@ export function InventoryView({
   const tiers = useMemo(() => tiersOf(items), [items]);
   const due = useMemo(() => countsDue(items, tiers, Date.now()), [items, tiers]);
   const dueIds = useMemo(() => new Set(due.filter((d) => d.state !== 'never').map((d) => d.id)), [due]);
-  const [counting, setCounting] = useState<DueCount[] | null>(null);
   const now = Date.now();
 
   const removeItem = (id: string, name: string) => {
@@ -121,24 +112,16 @@ export function InventoryView({
 
   return (
     <div className="inv-page">
-      <OwnerNav current="inventory" onRegister={onRegister} />
+      <OwnerNav current="items" onRegister={onRegister} />
       <div className="inv-page__head">
-         <h1 className="supplier-heading">Inventory</h1>
+         <h1 className="supplier-heading">Items</h1>
          <div className="inv-page__actions">
            <button type="button" className="inv-page__secondary" onClick={() => setShowAdd(true)}>+ Add Ingredient</button>
-           <button type="button" className="inv-page__secondary" onClick={() => setRules(true)}>Stock rules</button>
+           <a className="inv-page__secondary" href="#suppliers">Suppliers</a>
          </div>
       </div>
 
-      <nav className="stock-home" aria-label="Stock">
-        <Tile label="Inventory" sub={`${items.length} items`} current onClick={() => searchRef.current?.focus()} />
-        <Tile label="Purchase orders" name={`Purchase orders${toOrder > 0 ? ` (${toOrder})` : ''}`} badge={toOrder} tone="warn"
-          sub={toOrder > 0 ? `${toOrder} to order` : 'Nothing to order'} onClick={() => { setOrdering(true); setArchived(null); setError(''); }} />
-        <Tile label="GRN" badge={purchases.open.length} tone="info" sub={purchases.open.length > 0 ? `${purchases.open.length} waiting` : 'None waiting'}
-          onClick={() => { setDelivery(true); setArchived(null); setError(''); }} />
-        <Tile label="Count" name={`Count${due.length > 0 ? ` (${due.length} due)` : ''}`} badge={due.length} tone="warn" disabled={due.length === 0}
-          sub={due.length > 0 ? `${due.length} due today` : 'All counted'} onClick={() => { setCounting(due); setDone(null); }} />
-      </nav>
+      <ItemsTabs current="raw" />
 
       <RejectionNotices />
       {(archived || error) && (
@@ -246,16 +229,6 @@ export function InventoryView({
           onClose={() => setUpdating(null)}
         />
       )}
-      {delivery && (
-        <GoodsReceivingSheet items={items} suppliers={suppliers} purchases={purchases} settings={settings} onClose={() => setDelivery(false)} onDone={(message) => setDone({ message })} />
-      )}
-      {rules && (
-        <StockRulesSheet settings={settings} onClose={() => setRules(false)} onDone={(message, undo) => setDone({ message, undo })} />
-      )}
-      {ordering && (
-        <OrderSheet items={items} suppliers={suppliers} purchases={purchases} onClose={() => setOrdering(false)} onDone={(message, undo) => setDone({ message, undo })} />
-      )}
-      {counting && <CountFlow due={counting} rows={items} onClose={() => setCounting(null)} />}
       {showAdd && (
         <AddIngredientModal onClose={() => setShowAdd(false)} onSave={addInventoryItem} />
       )}
@@ -272,19 +245,5 @@ function Level({ days, status }: { days: number | null; status: StockStatus }) {
     <span className={`inv-level inv-level--${status}`} aria-hidden="true">
       <span style={{ width: `${Math.max(share * 100, status === 'out' ? 0 : 6)}%` }} />
     </span>
-  );
-}
-
-/** One of the four big buttons at the top of the stock area. */
-function Tile({ label, name, sub, badge = 0, tone, current = false, disabled = false, onClick }: {
-  label: string; name?: string; sub: string; badge?: number; tone?: 'warn' | 'info'; current?: boolean; disabled?: boolean; onClick: () => void;
-}) {
-  return (
-    <button type="button" className={`stock-tile${current ? ' stock-tile--current' : ''}`} aria-label={name ?? label}
-      aria-current={current ? 'page' : undefined} disabled={disabled} onClick={onClick}>
-      <span className="stock-tile__label" aria-hidden>{label}</span>
-      <span className="stock-tile__sub" aria-hidden>{sub}</span>
-      {badge > 0 && <span className={`stock-tile__badge stock-tile__badge--${tone ?? 'warn'}`} aria-hidden>{badge}</span>}
-    </button>
   );
 }

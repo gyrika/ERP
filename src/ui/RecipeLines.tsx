@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
-import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
+import { useSyncExternalStore } from 'react';
+import type { Actor } from '../domain/auth.ts';
 import { kitchenLine, linesCost, ownPrepOf, ownPreps, prepOf, recipeUnit, sourceOf, STOCK_LINE, stockLine, type CostContext } from '../domain/costing.ts';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { fmt } from '../domain/money.ts';
 import { PREPS, type BookLine } from '../domain/recipeBook.ts';
-import { requireOwner } from '../services/auth.ts';
-import { recipesViewed } from '../services/inventoryStore.ts';
+import { currentOwner } from '../services/auth.ts';
+import { subscribeAuth } from '../services/serverAuth.ts';
 import { splitSupplierName } from './supplierName.ts';
 
 /**
@@ -100,52 +100,7 @@ export function LinesEditor({ rows, onChange, ctx, suppliers, ownPrepsToo = true
   );
 }
 
-/** Recipes close after this long untouched (the Recipes screen and adding a dish). */
-export const RECIPES_IDLE_MS = 60_000;
-
-/** The owner, while he is active; null after a minute untouched, so the recipes close again. */
-export function useOwnerSession(): [Actor | null, (owner: Actor | null) => void] {
-  const [owner, setOwner] = useState<Actor | null>(null);
-  useEffect(() => {
-    if (!owner) return;
-    let t = setTimeout(() => setOwner(null), RECIPES_IDLE_MS);
-    const awake = () => { clearTimeout(t); t = setTimeout(() => setOwner(null), RECIPES_IDLE_MS); };
-    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
-    for (const e of events) window.addEventListener(e, awake, { passive: true });
-    return () => { clearTimeout(t); for (const e of events) window.removeEventListener(e, awake); };
-  }, [owner]);
-  return [owner, setOwner];
-}
-
-/** The owner's PIN, asked every time the recipes open; each opening is audited (recipe.viewed). */
-export function OwnerPin({ onOpen }: { onOpen: (owner: Actor) => void }) {
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState(false);
-  const [checking, setChecking] = useState(false);
-
-  const onChange = async (raw: string) => {
-    const value = raw.replace(/\D/g, '').slice(0, PIN_LENGTH);
-    setPin(value);
-    setError(false);
-    if (value.length !== PIN_LENGTH) return;
-    setChecking(true);
-    const owner = await requireOwner(value);
-    setChecking(false);
-    if (owner) { recipesViewed(owner); onOpen(owner); return; }
-    setError(true);
-    setPin('');
-  };
-
-  return (
-    <div className="dish__pin">
-      <input
-        className={`pin${error ? ' pin--error' : ''}`} type="password" inputMode="numeric" autoComplete="off"
-        value={pin} readOnly={checking} autoFocus aria-label="Owner PIN" aria-invalid={error} aria-describedby="dish-pin-msg"
-        onChange={(e) => void onChange(e.target.value)}
-      />
-      <p id="dish-pin-msg" className="dish__hint" role={error ? 'alert' : undefined}>
-        {error ? 'Only the owner can open the recipes.' : 'Your recipes are the shop\'s secret: owner PIN to open them.'}
-      </p>
-    </div>
-  );
+/** The owner as signed in: the recipes are open to him, with no PIN; null for anyone else. */
+export function useOwner(): Actor | null {
+  return useSyncExternalStore(subscribeAuth, currentOwner);
 }

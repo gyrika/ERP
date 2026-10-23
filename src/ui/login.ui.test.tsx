@@ -239,19 +239,21 @@ test('F3 flips a manager between the Register and the Owner view; a cashier stay
 
   await user.click(screen.getByRole('button', { name: 'Owner view F3' }));
   expect(owner()).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Register' }));
+  await user.click(screen.getByRole('link', { name: 'Sell' })); // the register is the first part of the menu
   expect(panel()).toBeTruthy();
 });
 
-test("a manager has no Recipes link, and typing the address gives the Register: the recipes are the owner's", async () => {
+test("a manager sees no recipes (no Recipe on a dish), and typing the address gives the Register: the recipes are the owner's", async () => {
   pair();
   history.replaceState(null, '', '/#inventory');
   const user = userEvent.setup();
   render(<Root />);
   await user.keyboard('2580');
   const nav = within(await screen.findByRole('navigation', { name: 'Owner sections' }));
-  expect(nav.queryByRole('link', { name: 'Recipes' })).toBeNull();
-  expect(nav.getByRole('link', { name: 'Menu' })).toBeTruthy();
+  expect(nav.getByRole('link', { name: 'Items' })).toBeTruthy();
+  const tabs = within(screen.getByRole('navigation', { name: 'Items' }));
+  // Semi-processed items are items, not recipes: managers see them too; the finished dishes' recipes stay the owner's.
+  expect(tabs.getAllByRole('link').map((a) => a.textContent)).toEqual(['Raw materials', 'Semi-processed', 'Finished']);
 
   act(() => { location.hash = '#recipes'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
   expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();

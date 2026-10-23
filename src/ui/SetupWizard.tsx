@@ -7,6 +7,7 @@ import { QrCode } from './QrCode.tsx';
 import { samplePaid } from './ReceiptPreview.tsx';
 import { restartApp } from './restart.ts';
 import { OwnerNav } from './OwnerNav.tsx';
+import { StockRulesEntry } from './StockRulesSheet.tsx';
 
 /**
  * Setting up the shop, on the shop PC itself. Serves whoever sets it up,
@@ -478,7 +479,11 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
           <span className="brand">CheesyBeez</span>
         </header>
       )}
-      <main className="setup__main" aria-label="Shop setup">{body}</main>
+      <main className="setup__main" aria-label="Shop setup">
+        {mode === 'manage' && <StockRulesEntry />}
+        {body}
+      </main>
     </div>
   );
 }
+
