@@ -15,12 +15,12 @@ import { addToOrder, cancelOrder, editOrder, placeOrder, type InventoryRow } fro
 
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
+ *   0 On order, at the top: the open orders, to edit or cancel with a reason until goods come
  *   1 Who?   a big card per supplier with how many items need ordering ("Prima · 3 to order")
  *   2 What?  that supplier's items as cards with a stepper, the suggested packs already in,
  *            totals at the bottom, and one main button: Place order (or Add to PO-0003, which
  *            `planOrder` chooses so an item is never on two orders)
  *   3 Send   the message, WhatsApp as the big thing to do; then the next supplier, or Done
- * "On order" lists the open orders: edit them, or cancel them with a reason, until goods come.
  * The item sheet's Order tab is the same step 2 (ItemOrder), started from that item.
  */
 type Packs = Record<string, number>;
@@ -234,7 +234,7 @@ function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]
   );
 }
 
-type Step = 'who' | 'what' | 'send' | 'open';
+type Step = 'who' | 'what' | 'send';
 
 export function OrderSheet({ items, suppliers, purchases, inline = false, onClose, onDone }: {
   items: InventoryRow[];
@@ -262,17 +262,6 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, onClos
 
   const total = waiting.length + finished.filter((id) => suggested.has(id)).length;
 
-  if (step === 'open') {
-    return (
-      <FlowSheet title="Purchase orders" sub="On order" inline={inline} onClose={onClose} onBack={toWho}>
-        <RejectionNotices />
-        {purchases.open.length === 0
-          ? <p className="flow-hint">Nothing is on order.</p>
-          : <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />}
-      </FlowSheet>
-    );
-  }
-
   if ((step === 'what' || step === 'send') && supplierId) {
     return (
       <WhatStep key={supplierId} inline={inline} step={step} supplierId={supplierId} start={start} items={items} suppliers={suppliers} purchases={purchases}
@@ -290,8 +279,10 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, onClos
   return (
     <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
       step={total > 1 ? { index: 1, of: 3, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: 3, label: 'Who?' }}
-      extra={purchases.open.length > 0 ? <button type="button" className="linkbtn flow__back" onClick={() => setStep('open')}>On order ({purchases.open.length})</button> : undefined}>
+      >
       <RejectionNotices />
+      {/* What is already on order comes first: the person sees it before ordering more. */}
+      <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
       {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
       {waiting.length > 0 && (
         <>

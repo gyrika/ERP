@@ -326,7 +326,8 @@ test('Purchase orders: a draft per supplier from what runs low; Place order save
   await user.click(screen.getByRole('button', { name: 'Done' }));
   // On order: cancel it, with a reason.
   await openOrders(user);
-  await user.click(screen.getByRole('button', { name: 'On order (1)' }));
+  // Open orders are first on the Order page, above the suppliers to order from.
+  expect(screen.getByRole('region', { name: 'On order' }).compareDocumentPosition(screen.getByRole('group', { name: 'Order from another supplier' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Cancel PO-0001' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.ordered' }); // a reason first: nothing cancelled yet
   await user.click(within(screen.getByRole('group', { name: 'Why cancel PO-0001' })).getByRole('button', { name: 'Ordered by mistake' }));
@@ -391,7 +392,6 @@ test('an open order can be changed in its list until goods come; then it is lock
   render(<InventoryView />);
   orderFlour(2);
   await openOrders(user);
-  await user.click(screen.getByRole('button', { name: 'On order (1)' }));
   await user.click(screen.getByRole('button', { name: 'Edit PO-0001' }));
   await user.click(screen.getByRole('button', { name: 'One pack more of Pizza Flour on PO-0001' }));
   await user.click(screen.getByRole('button', { name: 'Save PO-0001' }));
@@ -421,7 +421,6 @@ test('a paired device shows "PO (pending)" until the shop server numbers it, the
   render(<InventoryView />);
   act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs: 2 }]); });
   await openOrders(user);
-  await user.click(screen.getByRole('button', { name: 'On order (1)' }));
   const onOrder = within(screen.getByRole('region', { name: 'On order' }));
   expect(onOrder.getByText(/^PO \(pending\) · Prima/)).toBeTruthy();
   expect(readAll().some((e) => e.type === 'stock.numbered')).toBe(false);
