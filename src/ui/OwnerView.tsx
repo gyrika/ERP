@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { setBadge } from './shellBadges.ts';
 import { rulesSuggestions, type CaseView, type Insight } from '../domain/insights.ts';
 import { daysAgo } from '../domain/itemStory.ts';
 import { MAX_NOTE } from '../domain/gapReview.ts';
@@ -14,7 +15,6 @@ import { usePhotoUrl } from '../services/photos.ts';
 import { signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { readAll, subscribeEvents } from './eventLog.ts';
 import { useShopEvents } from '../services/ownerData.ts';
-import { OwnerNav } from './OwnerNav.tsx';
 
 /**
  * The Owner view. Serves the owner: they know the shop, not the screens, and
@@ -159,6 +159,9 @@ export function OwnerView({ phone = false, onBack, shop }: {
     return { summary: rulesSuggestions.summary(shop), insights: rulesSuggestions.insights(shop) };
   }, [events, at]);
   const opened = insights.find((i) => i.id === open) ?? null;
+  // The owner menu shows how many cards want a look (only for this shop's own view).
+  const attention = insights.filter((i) => i.tone === 'attention').length;
+  useEffect(() => { if (!phone && !shop) setBadge('owner', attention); }, [attention, phone, shop]);
 
   return (
     <div className="owner">
@@ -173,7 +176,7 @@ export function OwnerView({ phone = false, onBack, shop }: {
           <span className="brand">CheesyBeez</span>
           {data.state !== 'loading' && <span className="owner__updated">Updated {timeOf(at)}</span>}
         </header>
-      ) : <OwnerNav current="owner" onRegister={onBack} />}
+      ) : null /* the owner area's menu is OwnerShell's */}
 
       <main className="owner__main" aria-label="Owner">
         <section className="owner__today" aria-label="Today">

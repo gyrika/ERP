@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { usesLogin } from '../services/auth.ts';
@@ -13,6 +13,8 @@ import { LockScreen } from './LockScreen.tsx';
 import { ManagerView } from './ManagerView.tsx';
 import { MenuView } from './MenuView.tsx';
 import { useMenu } from './menuStore.ts';
+import type { Section } from './OwnerNav.tsx';
+import { OwnerShell } from './OwnerShell.tsx';
 import { OwnerView } from './OwnerView.tsx';
 import { OwnerWelcome } from './OwnerWelcome.tsx';
 import { ShopsView } from './ShopsView.tsx';
@@ -147,6 +149,11 @@ export function Root() {
     return () => window.removeEventListener('keydown', onKey);
   }, [hash, inKitchen, show, go, seesOwner, kitchenOnly, needsLogin, staff]);
 
+  /** The owner area: the menu on the left, this tab on the right. */
+  const shell = (current: Section, page: ReactNode, back: () => void = () => go('')) => (
+    <OwnerShell current={current} onRegister={back} onSwitch={needsLogin && staff ? lock : undefined}>{page}</OwnerShell>
+  );
+
   // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
   // A manager's phone app (SCRUM-94): the counts and the stock, nothing else.
   if (isManagerPhone()) return <ManagerPhone inventory={hash === '#inventory'} />;
@@ -157,7 +164,7 @@ export function Root() {
   if (setup === 'done' && !syncToken()) return <SetupWizard mode="connect" />;
   // Staff, printer and devices later: the owner, with their PIN (the server checks it too).
   if (hash === '#setup' && (!needsLogin || staff?.role === 'owner' || staff?.role === 'manager')) {
-    return <SetupWizard mode="manage" onClose={() => show(false)} />;
+    return shell('setup', <SetupWizard mode="manage" />, () => show(false));
   }
   if (hash === '#receipt') return <ReceiptPreview />; // setup page, not a cashier screen
   if (kitchenOnly) return <Kitchen onSwitch={staff ? lock : undefined} />;
@@ -166,22 +173,20 @@ export function Root() {
   // Managers and owners only (SCRUM-41); anyone else typing the address gets the Register.
   // The server refuses a cashier's stock events anyway.
   const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
-  if (hash === OWNER && seesOwner) return <OwnerView onBack={() => go('')} />;
+  if (hash === OWNER && seesOwner) return shell('owner', <OwnerView onBack={() => go('')} />);
   // The developer's Shops screen (only answers on the developer's laptop: server/fleet.ts).
   if (hash === '#shops' && seesOwner) return <ShopsView onBack={() => go('')} />;
   if (fleetShop() && seesOwner) return <OwnerView key={hash} shop={fleetShop()!} onBack={() => go('#shops')} />;
-  if (hash === '#manager' && mayManageStock) return <ManagerView onRegister={() => go('')} />;
-  if (hash === '#inventory' && mayManageStock) {
-    return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;
-  }
+  if (hash === '#manager' && mayManageStock) return shell('manager', <ManagerView />);
+  if (hash === '#inventory' && mayManageStock) return shell('inventory', <InventoryView onFindSupplier={findSupplier} />);
   // The owner changes the menu; managers can mark items sold out during service.
   if (hash === '#menu' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
-    return <MenuView owner={!needsLogin || staff?.role === 'owner'} onBack={() => go('')} />;
+    return shell('menu', <MenuView owner={!needsLogin || staff?.role === 'owner'} onBack={() => go('')} />);
   }
   // His recipes: the owner's alone, opened with his PIN on the screen itself.
-  if (hash === '#recipes' && (!needsLogin || staff?.role === 'owner')) return <RecipesView onRegister={() => go('')} />;
+  if (hash === '#recipes' && (!needsLogin || staff?.role === 'owner')) return shell('recipes', <RecipesView />);
   if (hash === '#suppliers' && mayManageStock) {
-    return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;
+    return shell('suppliers', <SupplierView filterIngredientId={filterIngredientId} />);
   }
   return (
     <App onKitchen={() => show(true)} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}
@@ -195,5 +200,6 @@ function ManagerPhone({ inventory }: { inventory: boolean }) {
   useEffect(() => { loadMe().then(() => setMe('ready'), (e: unknown) => setMe(e instanceof Error ? e.message : String(e))); }, []);
   if (me === 'loading') return <div className="setup" aria-busy="true" />;
   if (me !== 'ready') return <main className="setup"><p className="setup__error" role="alert">{me}</p></main>;
-  return inventory ? <InventoryView /> : <ManagerView />;
+  // The same menu as on the counter, with only the phone's two tabs.
+  return <OwnerShell current={inventory ? 'inventory' : 'manager'}>{inventory ? <InventoryView /> : <ManagerView />}</OwnerShell>;
 }

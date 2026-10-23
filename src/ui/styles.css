@@ -361,11 +361,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 /* ---------- inventory + suppliers (owner back-office) ---------- */
 .inv-page { display: flex; height: 100dvh; min-height: 0; flex-direction: column; overflow: hidden; background: var(--ground); }
 .inv-page__head { min-height: 60px; flex: 0 0 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; gap: 16px; }
-.inv-page__nav { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.inv-page__link { min-height: 48px; padding: 0 14px; border-radius: 12px; font-size: 14px; font-weight: 500; color: var(--ink-2); display: inline-flex; align-items: center; text-decoration: none; }
-.inv-page__nav button { border: 0; background: transparent; font: inherit; font-size: 14px; font-weight: 500; color: var(--ink-2); cursor: pointer; }
-.inv-page__link:hover { background: var(--chip); color: var(--ink); }
-.inv-page__link--on { background: var(--chip); color: var(--ink); }
 .inv-modal-backdrop { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgb(0 0 0 / 55%); }
 .inv-modal { display: flex; width: min(100%, 520px); max-height: min(90dvh, 760px); flex-direction: column; gap: 18px; overflow-y: auto; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); color: var(--ink); box-shadow: var(--card-shadow); }
 .inv-modal h2 { margin: 0; font-size: 22px; letter-spacing: -0.4px; }
@@ -483,14 +478,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-price-trigger { display: inline-flex; min-height: 48px; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: var(--ink); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .inv-price-trigger:hover, .inv-price-trigger--active { border-color: var(--gold); }
 .inv-empty { grid-column: 1 / -1; padding: 48px 16px; color: var(--ink-3); font-size: 16px; text-align: center; }
-.inv-drawer-layer { position: fixed; z-index: 50; inset: 60px 0 0; display: flex; justify-content: flex-end; }
-.inv-drawer-scrim { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--scrim); cursor: default; }
-.inv-drawer { position: relative; display: flex; width: min(400px, 100%); height: 100%; flex-direction: column; justify-content: space-between; padding: 24px; border-left: 1px solid color-mix(in srgb, var(--gold) 45%, var(--line)); background: var(--panel); box-shadow: var(--panel-shadow); animation: inv-drawer-in 180ms var(--ease) both; }
-.inv-drawer__content { display: flex; flex-direction: column; gap: 24px; }
-.inv-drawer__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
-.inv-drawer__title { margin: 6px 0 0; color: var(--ink); font-size: 22px; font-weight: 600; }
-.inv-drawer__sub { margin: 0; color: var(--ink-2); font-size: 13px; }
-.inv-drawer__close { width: 48px; height: 48px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: var(--ink-2); font-size: 22px; }
 .inv-price-field { display: flex; flex-direction: column; gap: 8px; }
 .inv-price-field__label { color: var(--ink-2); font-size: 13px; font-weight: 500; }
 .inv-input-box { display: flex; min-height: 64px; align-items: center; gap: 10px; padding: 0 16px; border: 1px solid var(--gold); border-radius: 12px; background: var(--surface); color: var(--ink-2); font-size: 14px; }
@@ -498,17 +485,14 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-price-input { width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 24px; font-weight: 600; text-align: right; }
 .inv-price-input[aria-invalid='true'] { color: var(--bad); }
 .inv-price-error { color: var(--bad); font-size: 13px; }
-.inv-drawer__presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .inv-btn-preset { min-height: 48px; padding: 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--chip); color: var(--ink); font-size: 12px; }
 .inv-btn-preset:hover { border-color: var(--gold); }
-.inv-drawer__footer { display: flex; flex-direction: column; gap: 8px; padding-top: 20px; border-top: 1px solid var(--line); }
 .inv-btn-save { min-height: 52px; border-radius: 12px; background: var(--primary); color: var(--on-primary); font-weight: 700; }
 .inv-btn-save:hover { opacity: .9; }
 .inv-btn-cancel { min-height: 48px; color: var(--ink-2); font-size: 13px; }
 .inv-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; }
 .inv-dot--emerald { background: var(--ok); }
 .inv-dot--amber { background: var(--warn); }
-@keyframes inv-drawer-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 
 /* Audit toggle button */
 .inv-audit-toggle { min-height: 44px; flex: 0 0 auto; padding: 0 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--chip); color: var(--ink-2); font-size: 13px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; transition: border-color 150ms var(--ease), color 150ms var(--ease); white-space: nowrap; }
@@ -583,8 +567,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .inv-metrics { justify-content: flex-start; }
   .inv-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 16px; }
   .restock-feed { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 16px; }
-  .inv-drawer-layer { inset: 0; }
-  .inv-drawer { border-left: 0; }
   .sup-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -661,10 +643,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 /* Owner view: phone first, one feed, one tap per card. */
 .owner { min-height: 100dvh; background: var(--ground); }
 .owner__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; height: 60px; flex: none; width: 100%; max-width: 760px; margin: 0 auto; }
-.owner__nav { display: flex; gap: 2px; }
-.owner__nav a { white-space: nowrap; min-height: 48px; padding: 0 9px; display: inline-flex; align-items: center; border-radius: 12px; font-size: 14px; font-weight: 500; color: var(--ink-2); text-decoration: none; }
-.owner__nav a:hover { background: var(--chip); color: var(--ink); }
-.owner__nav a[aria-current='page'] { background: var(--chip); color: var(--ink); }
 /* #menu: the owner's menu. One calm list; the editor is a sheet. */
 .menuv { max-width: 960px; }
 .menuv__title { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -1px; }
@@ -695,7 +673,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .update__bar span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width 900ms var(--ease); }
 .update__note { margin: 0; color: var(--ink-2); font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { .update__bar span { transition: none; } }
-.owner__back { min-height: 48px; padding: 0 12px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 12px; background: var(--chip); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 /* F2 / F3: one screen gives way to the next in a quick cross-fade with a hint of depth. */
 ::view-transition-old(root) { animation: 200ms ease both vt-out; }
 ::view-transition-new(root) { animation: 200ms ease both vt-in; }
@@ -730,8 +707,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 @media (max-width: 520px) {
   .owner__head, .owner__main { padding-left: 16px; padding-right: 16px; }
   .owner__head { gap: 8px; }
-  .owner__nav { max-width: calc(100vw - 120px); overflow-x: auto; }
-  .owner__nav a { padding: 0 8px; }
   .owner__big { font-size: 38px; }
   .insight { flex-direction: column; align-items: stretch; }
 }
@@ -1119,7 +1094,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .story__photo img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
 @media (max-width: 520px) {
   .inv-modal.count { width: 100vw; max-height: 100dvh; border-radius: 0; }
-  .owner__nav { gap: 4px; }
 }
 
 /* The owner checks the gaps; the manager answers (SCRUM-95). */
@@ -1271,3 +1245,44 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .flow-card--wa .flow-card__line { color: inherit; opacity: 0.8; }
 .flow__add { min-height: 56px; padding: 0 16px; border: 1px dashed var(--line); border-radius: 14px; background: none; color: var(--ink-2); font: inherit; font-size: 16px; }
 .flow__row { display: flex; align-items: center; gap: 16px; }
+
+
+/* ---------- the owner area: menu on the left, the tab on the right (OwnerShell) ---------- */
+.oshell { display: flex; height: 100dvh; background: var(--ground); color: var(--ink); }
+.oshell__menu { flex: 0 0 248px; display: flex; flex-direction: column; gap: 6px; padding: 20px 12px 16px; background: var(--surface); border-right: 1px solid var(--line); overflow-y: auto; view-transition-name: owner-menu; }
+.oshell__brand { padding: 4px 14px 18px; }
+.oshell__nav { display: flex; flex-direction: column; gap: 2px; }
+.oshell__nav a { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border-radius: 12px; color: var(--ink-2); font-size: 16px; font-weight: 500; letter-spacing: -0.2px; text-decoration: none; transition: background 120ms, color 120ms; }
+.oshell__nav a:hover { background: var(--chip); color: var(--ink); }
+.oshell__nav a:focus-visible { outline: 2px solid var(--ink-2); outline-offset: -2px; }
+.oshell__nav a[aria-current='page'] { background: var(--chip); color: var(--ink); font-weight: 600; }
+.oshell__icon { flex: none; }
+.oshell__label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oshell__badge { flex: none; min-width: 24px; height: 24px; padding: 0 7px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; background: var(--warn); color: #1C1C1E; font-size: 13px; font-weight: 700; }
+.oshell__foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.oshell__register { min-height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-radius: 12px; background: var(--primary); color: var(--on-primary); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; }
+.oshell__register kbd { font-size: 12px; opacity: 0.7; border: 1px solid currentColor; border-radius: 6px; padding: 1px 6px; font-family: inherit; }
+.oshell__who { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px 0 14px; }
+.oshell__who span { display: flex; flex-direction: column; min-width: 0; }
+.oshell__who b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oshell__who small { font-size: 13px; color: var(--ink-3); }
+.oshell__who .linkbtn { align-self: center; font-size: 14px; }
+.oshell__scrim { display: none; }
+/* The right side: each tab's own screen, with its own scroll; full-screen sizes become the panel's. */
+.oshell__panel { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.oshell__bar { display: none; }
+.oshell__panel > .owner, .oshell__panel > .setup { min-height: 0; flex: 1 0 auto; }
+.oshell__panel > .inv-page { height: auto; flex: 1; min-height: 0; }
+.oshell__panel .vault__lock { min-height: 100%; }
+.oshell__panel .owner__main { padding-top: 28px; }
+/* Narrow screens: the menu becomes a drawer from the left. */
+@media (max-width: 899px) {
+  .oshell__menu { position: fixed; z-index: 260; inset: 0 auto 0 0; width: min(300px, 86vw); border-right: 0; box-shadow: var(--panel-shadow); transform: translateX(-102%); visibility: hidden; transition: transform 220ms var(--ease), visibility 0s linear 220ms; }
+  .oshell[data-open='true'] .oshell__menu { transform: none; visibility: visible; transition: transform 220ms var(--ease); }
+  .oshell[data-open='true'] .oshell__scrim { display: block; position: fixed; z-index: 250; inset: 0; background: var(--scrim); animation: fade 160ms linear; }
+  .oshell__bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 12px; background: var(--ground); flex: none; }
+  .oshell__toggle { width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; color: var(--ink); }
+  .oshell__toggle:hover { background: var(--chip); }
+  .oshell__where { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+  .oshell__panel .owner__main { padding-top: 8px; }
+}

@@ -12,7 +12,6 @@ import { currentCashier } from '../services/auth.ts';
 import { answerQuestion, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { appendEvent } from './eventLog.ts';
 import { useMenu } from './menuStore.ts';
-import { OwnerNav } from './OwnerNav.tsx';
 import { draftLines, EMPTY_ROW, LinesEditor, OwnerPin, readRows, toDraft, useOwnerSession, type Draft } from './RecipeLines.tsx';
 
 /**
@@ -553,7 +552,6 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
 
   return (
     <div className="owner">
-      <OwnerNav current="menu" onRegister={onBack} />
       <main className="owner__main menuv" aria-label="Menu">
         <h1 className="menuv__title">Menu</h1>
         <p className="menuv__lead">

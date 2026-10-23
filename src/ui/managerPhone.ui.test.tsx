@@ -6,6 +6,7 @@ import * as photos from '../services/photos.ts';
 import { CountFlow } from './CountFlow.tsx';
 import { addEvents, readAll } from './eventLog.ts';
 import { ManagerView } from './ManagerView.tsx';
+import { OwnerShell } from './OwnerShell.tsx';
 
 // The manager's phone app (SCRUM-94): a big gap needs a shelf photo; the phone shows counts and stock only.
 
@@ -65,10 +66,11 @@ test('the counter PC asks only for the reason (no camera there)', async () => {
 test('the manager phone app shows Manager and Inventory only, no Register and no Edit lists', () => {
   vi.stubEnv('VITE_SITE', 'cloud');
   localStorage.setItem('cb.manager.token', 'k'.repeat(43));
-  render(<ManagerView />);
+  render(<OwnerShell current="manager"><ManagerView /></OwnerShell>);
   const nav = within(screen.getByRole('navigation', { name: 'Owner sections' }));
-  expect(nav.getAllByRole('link').map((a) => a.textContent)).toEqual(['Manager', 'Inventory']);
-  expect(nav.queryByText('Register')).toBeNull();
+  expect(nav.getAllByRole('link').map((a) => a.getAttribute('aria-label'))).toEqual(['Manager', 'Inventory']);
+  expect(screen.queryByText('Register')).toBeNull();
+  expect(screen.queryByText('Switch user')).toBeNull(); // the phone belongs to one manager
   expect(screen.queryByRole('button', { name: 'Edit lists' })).toBeNull();
   vi.unstubAllEnvs();
 });

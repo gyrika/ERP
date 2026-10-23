@@ -6,7 +6,6 @@ import { setupClient, type SetupState, type StaffRow } from '../services/setupCl
 import { QrCode } from './QrCode.tsx';
 import { samplePaid } from './ReceiptPreview.tsx';
 import { restartApp } from './restart.ts';
-import { OwnerNav } from './OwnerNav.tsx';
 
 /**
  * Setting up the shop, on the shop PC itself. Serves whoever sets it up,
@@ -401,7 +400,7 @@ function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPi
   );
 }
 
-export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => void }) {
+export function SetupWizard({ mode }: { mode: Mode }) {
   const [state, setState] = useState<SetupState | null>(null);
   const [step, setStep] = useState<Step>('shop');
   const [ownerPin, setOwnerPin] = useState<string | undefined>(undefined);
@@ -473,7 +472,7 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
 
   return (
     <div className="setup">
-      {mode === 'manage' ? <OwnerNav current="setup" onRegister={onClose} /> : (
+      {mode === 'manage' ? null : (
         <header className="setup__head">
           <span className="brand">CheesyBeez</span>
         </header>

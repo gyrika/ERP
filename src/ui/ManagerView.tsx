@@ -13,7 +13,6 @@ import { useWaitingPhotos } from '../services/photos.ts';
 import { useInstall } from '../services/ownerApp.ts';
 import { isManagerPhone } from '../services/pairing.ts';
 import { CountFlow } from './CountFlow.tsx';
-import { OwnerNav } from './OwnerNav.tsx';
 
 /**
  * The manager's page (SCRUM-90). Serves the manager at the start of a shift: they
@@ -35,7 +34,7 @@ const DAY_NAMES = ['Mon', '', 'Wed', '', 'Fri', '', ''];
 const dayLabel = (t: number) => new Date(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 const monthLabel = (t: number) => new Date(t).toLocaleDateString('en-GB', { month: 'short' });
 
-export function ManagerView({ onRegister }: { onRegister?: () => void }) {
+export function ManagerView() {
   const { items } = useInventory();
   const history = useCountHistory();
   const [counting, setCounting] = useState<DueCount[] | null>(null);
@@ -76,7 +75,6 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
 
   return (
     <div className="owner">
-      <OwnerNav current="manager" onRegister={onRegister} />
       <main className="owner__main mgr" aria-label="Manager">
         <div className="mgr__title-row">
           <h1 className="mgr__title">Counts</h1>

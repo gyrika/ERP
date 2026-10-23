@@ -13,7 +13,6 @@ import { requireOwner } from '../services/auth.ts';
 import { answerQuestion, recipesViewed, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { Question } from './CostQuestions.tsx';
 import { useMenu } from './menuStore.ts';
-import { OwnerNav } from './OwnerNav.tsx';
 import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwnerSession, type Draft } from './RecipeLines.tsx';
 
 /**
@@ -111,7 +110,7 @@ const statusText = (e: Entry) => {
   return `Complete · costs ${fmt(e.cost.cents)}${margin === null ? '' : ` · earns ${Math.round(margin * 100)}%`}`;
 };
 
-export function RecipesView({ onRegister }: { onRegister?: () => void }) {
+export function RecipesView() {
   const [owner, setOwner] = useOwnerSession();
   const [doors, setDoors] = useState(false);
 
@@ -123,7 +122,6 @@ export function RecipesView({ onRegister }: { onRegister?: () => void }) {
 
   return (
     <div className="owner vault">
-      <OwnerNav current="recipes" onRegister={onRegister} />
       {owner
         ? <div className={doors ? 'vault__focus' : undefined}><Book owner={owner} onLock={() => setOwner(null)} /></div>
         : <Lock onOpen={(actor) => { recipesViewed(actor); setOwner(actor); setDoors(true); }} />}

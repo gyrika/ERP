@@ -104,20 +104,23 @@ test('adding a supplier with a new ingredient updates Inventory and Find Supplie
   expect(within(supplierToggle.closest('article') as HTMLElement).getByText('End-to-end Flour')).toBeTruthy();
 });
 
-test('one nav bar on every owner screen: same links, the current one marked, Register goes back', async () => {
+test('one menu on every owner screen: same links, the current one marked, only the right side changes, Register goes back', async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#inventory');
   render(<Root />);
   const nav = () => within(screen.getByRole('navigation', { name: 'Owner sections' }));
-  const current = () => nav().getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent);
+  const name = (a: HTMLElement) => a.getAttribute('aria-label');
+  const current = () => nav().getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map(name);
+  const menu = screen.getByRole('complementary', { name: 'Owner menu' });
   const links = ['Owner', 'Manager', 'Menu', 'Recipes', 'Inventory', 'Suppliers', 'Shop setup'];
 
   for (const [link, main] of [['Suppliers', 'Suppliers'], ['Owner', 'Owner'], ['Menu', 'Menu'], ['Recipes', 'Recipes, locked'], ['Manager', 'Manager'], ['Shop setup', 'Shop setup'], ['Inventory', 'Inventory']]) {
     await user.click(nav().getByRole('link', { name: link }));
     expect(await screen.findByRole('main', { name: main })).toBeTruthy();
-    expect(nav().getAllByRole('link').map((a) => a.textContent)).toEqual(links);
+    expect(nav().getAllByRole('link').map(name)).toEqual(links);
     expect(current()).toEqual([link]);
+    expect(screen.getByRole('complementary', { name: 'Owner menu' })).toBe(menu); // the menu stays; only the right side changed
   }
-  await user.click(nav().getByRole('button', { name: 'Register' }));
+  await user.click(within(menu).getByRole('button', { name: 'Register' }));
   expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();
 });

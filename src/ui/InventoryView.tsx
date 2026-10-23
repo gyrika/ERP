@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   addInventoryItem,
   archiveInventoryItem,
@@ -11,7 +11,6 @@ import {
 import { stockStatus } from '../domain/inventory.ts';
 import { draftsOf } from '../domain/ordering.ts';
 import { AddIngredientModal } from './AddIngredientModal.tsx';
-import { OwnerNav } from './OwnerNav.tsx';
 import { formatLasts, formatQuantity } from './quantity.ts';
 import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import { StockSheet, type SheetTab } from './StockSheet.tsx';
@@ -19,6 +18,7 @@ import { CountFlow } from './CountFlow.tsx';
 import { GoodsReceivingSheet } from './GoodsReceivingSheet.tsx';
 import { OrderSheet } from './OrderSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
+import { setBadge } from './shellBadges.ts';
 import { StockRulesSheet } from './StockRulesSheet.tsx';
 import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
@@ -43,10 +43,8 @@ const missedText = (n: number) => `${n} sold since the last count not taken off`
 
 export function InventoryView({
   onFindSupplier,
-  onRegister,
 }: {
   onFindSupplier?: (id: string) => void;
-  onRegister?: () => void;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);
   const [archived, setArchived] = useState<{ id: string; name: string } | null>(null);
@@ -75,6 +73,8 @@ export function InventoryView({
   /** Items that need ordering now: the badge, and a tap opens them on Order. */
   const needed = useMemo(() => new Set([...draftsOf(items).values()].flatMap((d) => Object.keys(d))), [items]);
   const toOrder = needed.size;
+  // The owner menu shows it too, without loading the history again.
+  useEffect(() => setBadge('inventory', toOrder), [toOrder]);
   const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'details'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const FILTERS = [['all', 'All'], ['low', 'Low'], ['out', 'Out'], ['order', 'On order']] as const;
@@ -121,7 +121,6 @@ export function InventoryView({
 
   return (
     <div className="inv-page">
-      <OwnerNav current="inventory" onRegister={onRegister} />
       <div className="inv-page__head">
          <h1 className="supplier-heading">Inventory</h1>
          <div className="inv-page__actions">

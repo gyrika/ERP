@@ -8,16 +8,13 @@ import {
 import { summariseSuppliers } from '../domain/inventory.ts';
 import { SupplierCard } from './SupplierCard.tsx';
 import { AddSupplierModal } from './AddSupplierModal.tsx';
-import { OwnerNav } from './OwnerNav.tsx';
 
 type ArchivedSupplier = { id: string; name: string };
 
 export function SupplierView({
   filterIngredientId = null,
-  onRegister,
 }: {
   filterIngredientId?: string | null;
-  onRegister?: () => void;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);
   const [archived, setArchived] = useState<ArchivedSupplier | null>(null);
@@ -64,7 +61,6 @@ export function SupplierView({
 
   return (
     <div className="inv-page">
-      <OwnerNav current="suppliers" onRegister={onRegister} />
       <div className="inv-page__head">
          <h1 className="supplier-heading">
            {filterIngredientId ? 'Targeted Suppliers' : 'All Suppliers'}
