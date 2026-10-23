@@ -62,13 +62,14 @@ test('the counter PC asks only for the reason (no camera there)', async () => {
   expect(screen.queryByLabelText('Shelf photo')).toBeNull();
 });
 
-test('the manager phone app shows Stock and Counts only, no Register and no Edit lists', () => {
+test('the manager phone app shows Receive, Count and Items only, no Sell and no Edit lists', () => {
   vi.stubEnv('VITE_SITE', 'cloud');
   localStorage.setItem('cb.manager.token', 'k'.repeat(43));
   render(<ManagerView />);
   const nav = within(screen.getByRole('navigation', { name: 'Owner sections' }));
-  expect(nav.getAllByRole('link').map((a) => a.getAttribute('aria-label'))).toEqual(['Stock', 'Counts']);
-  expect(nav.queryByText('Register')).toBeNull();
+  expect(nav.getAllByRole('link').map((a) => a.getAttribute('aria-label'))).toEqual(['Receive', 'Count', 'Items']);
+  expect(nav.queryByText('Sell')).toBeNull();
+  expect(nav.queryByText('Settings')).toBeNull();
   expect(nav.queryByText('Ask or find…')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Edit lists' })).toBeNull();
   vi.unstubAllEnvs();

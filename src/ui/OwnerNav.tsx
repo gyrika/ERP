@@ -1,13 +1,13 @@
 /**
- * The owner's and manager's screens share one sidebar (SCRUM-131), laid out like ChatGPT's list
- * of chats: the parts of the shop on the left, each with one line saying what is going on there
- * and a badge only when something there needs a decision; the part picked fills the right.
- * Serves the owner: they know the shop, not the screens, and want to see what needs them
- * without opening every screen. Parts needing him come first ("Needs you"), the rest after.
- * Ctrl K (or "Ask or find") jumps to any part. On a narrow screen the list folds into a drawer.
- * Recipes are the owner's alone (Root still checks); a manager's phone shows Counts and Stock only.
+ * The owner's and manager's screens share one sidebar (SCRUM-131), arranged by the shop's day
+ * (the "Shop Day Navigation" plan): the work first, in the order the day uses it (Sell, Receive,
+ * Order, Count, Today), then Items (raw, semi-processed and finished, in one place), then
+ * Settings at the bottom. Every part keeps its place: a badge marks where a decision waits, it
+ * never moves the part, because hands find buttons by where they are. Each part has one line
+ * saying what is going on there. Ctrl K (or "Ask or find") jumps to any part. On a narrow screen
+ * the list folds into a drawer. A manager's phone shows Count, Receive and Items.
  */
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { ownerParts, type PartId, type PartLine } from '../domain/ownerParts.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { usesLogin } from '../services/auth.ts';
@@ -18,23 +18,38 @@ import { CommandPalette } from './CommandPalette.tsx';
 
 export type Section = PartId;
 
-/** ownerOnly: the owner's recipes are the shop's secret; managers do not see the part. */
-const PARTS: { id: Section; label: string; ownerOnly?: boolean }[] = [
+/** The work, in the order the day uses it; then the things the shop holds; Settings apart, at the bottom. */
+const WORK: { id: Section; label: string }[] = [
+  { id: 'sell', label: 'Sell' },
+  { id: 'receive', label: 'Receive' },
+  { id: 'order', label: 'Order' },
+  { id: 'count', label: 'Count' },
   { id: 'owner', label: 'Today' },
-  { id: 'inventory', label: 'Stock' },
-  { id: 'menu', label: 'Menu' },
-  { id: 'recipes', label: 'Recipes', ownerOnly: true },
-  { id: 'manager', label: 'Counts' },
-  { id: 'suppliers', label: 'Suppliers' },
-  { id: 'setup', label: 'Shop setup' },
 ];
-const PHONE = new Set<Section>(['manager', 'inventory']);
+const THINGS: { id: Section; label: string }[] = [{ id: 'items', label: 'Items' }];
+const SETTINGS: { id: Section; label: string } = { id: 'setup', label: 'Settings' };
+/** The manager's phone: what they do away from the counter. */
+const PHONE = new Set<Section>(['count', 'receive', 'items']);
 
 /** Every screen beside the sidebar reads the same history, so its lines are worked out once. */
 let last: { events: readonly SyncEvent[]; lines: Record<Section, PartLine> } | null = null;
 const linesFor = (events: readonly SyncEvent[], at: number) => {
   if (last?.events !== events) last = { events, lines: ownerParts(events, at) };
   return last.lines;
+};
+
+const icon = (d: ReactNode) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+);
+/** Simple line icons, so a part is recognised before its name is read. */
+const ICONS: Record<Section, ReactNode> = {
+  sell: icon(<><rect x="3" y="5" width="18" height="12" rx="2" /><path d="M7 21h10M12 17v4M7 10h4" /></>),
+  receive: icon(<><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 17v3h16v-3" /></>),
+  order: icon(<><path d="M5 4h2l2 11h9l2-8H8" /><circle cx="10" cy="19" r="1.5" /><circle cx="17" cy="19" r="1.5" /></>),
+  count: icon(<><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4V3h6v1M9 10l2 2 4-4M9 16h6" /></>),
+  owner: icon(<><path d="M4 19V10M10 19V5M16 19v-7M22 19H2" /></>),
+  items: icon(<><path d="M3 8l9-5 9 5v8l-9 5-9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>),
+  setup: icon(<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
 };
 
 export function OwnerNav({ current, onRegister }: {
@@ -53,10 +68,12 @@ export function OwnerNav({ current, onRegister }: {
   const [drawer, setDrawer] = useState(false);
   const [asking, setAsking] = useState(false);
 
-  const parts = PARTS.filter((p) => (phone ? PHONE.has(p.id) : isOwner || !p.ownerOnly));
-  const needsYou = parts.filter((p) => (lines?.[p.id].badge ?? 0) > 0);
-  const quiet = parts.filter((p) => !needsYou.includes(p));
+  const shown = (list: { id: Section; label: string }[]) => list.filter((p) => !phone || PHONE.has(p.id));
+  const work = shown(WORK);
+  const things = shown(THINGS);
+  const parts = [...work, ...things, ...(phone ? [] : [SETTINGS])];
   const here = parts.find((p) => p.id === current);
+  void isOwner; // every part is open to owners and managers; inside Items the recipes are the owner's
 
   useEffect(() => {
     if (phone) return;
@@ -68,15 +85,19 @@ export function OwnerNav({ current, onRegister }: {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [phone, asking, drawer]);
 
-  const go = (id: Section) => { location.hash = `#${id}`; };
-  const row = (p: (typeof PARTS)[number]) => {
+  /** Sell is the register itself; the rest are this area's screens. */
+  const go = (id: Section) => { if (id === 'sell') sell(); else location.hash = `#${id}`; };
+  const sell = () => (onRegister ? onRegister() : void (location.hash = ''));
+  const row = (p: { id: Section; label: string }) => {
     const line = lines?.[p.id];
     return (
       <li key={p.id}>
         <a
-          href={`#${p.id}`} className="side__part" aria-current={p.id === current ? 'page' : undefined}
-          aria-label={p.label} aria-describedby={`side-${p.id}`} onClick={() => setDrawer(false)}
+          href={p.id === 'sell' ? '#' : `#${p.id}`} className={`side__part side__part--${p.id}`} aria-current={p.id === current ? 'page' : undefined}
+          aria-label={p.label} aria-describedby={`side-${p.id}`}
+          onClick={(e) => { setDrawer(false); if (p.id === 'sell') { e.preventDefault(); sell(); } }}
         >
+          <span className="side__icon" aria-hidden="true">{ICONS[p.id]}</span>
           <span className="side__text">
             <span className="side__label">{p.label}</span>
             {line ? <span className="side__preview" id={`side-${p.id}`}>{line.preview}</span>
@@ -112,21 +133,11 @@ export function OwnerNav({ current, onRegister }: {
             <kbd>Ctrl K</kbd>
           </button>
         )}
-        {needsYou.length > 0 && (
-          <>
-            <h2 className="side__group">Needs you</h2>
-            <ul className="side__list">{needsYou.map(row)}</ul>
-          </>
-        )}
-        {lines && <h2 className="side__group">{needsYou.length ? 'All quiet' : 'Nothing needs you'}</h2>}
-        <ul className="side__list">{quiet.map(row)}</ul>
-        {!phone && (
-          <div className="side__foot">
-            {onRegister
-              ? <button type="button" className="side__register" onClick={onRegister}>Register</button>
-              : <a className="side__register" href="#">Register</a>}
-          </div>
-        )}
+        <h2 className="side__group">Work</h2>
+        <ul className="side__list">{work.map(row)}</ul>
+        <h2 className="side__group">Things</h2>
+        <ul className="side__list">{things.map(row)}</ul>
+        {!phone && <ul className="side__list side__foot">{row(SETTINGS)}</ul>}
       </nav>
       {asking && (
         <CommandPalette
@@ -134,7 +145,6 @@ export function OwnerNav({ current, onRegister }: {
           commands={[
             // Its line too, so "onion" finds Stock when onion is what is going on there.
             ...parts.map((p) => ({ id: p.id, label: lines ? `${p.label} · ${lines[p.id].preview}` : p.label, run: () => go(p.id) })),
-            { id: 'register', label: 'Register', run: () => (onRegister ? onRegister() : void (location.hash = '')) },
           ]}
           onClose={() => setAsking(false)}
         />

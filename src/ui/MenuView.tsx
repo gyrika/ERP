@@ -12,8 +12,9 @@ import { currentCashier } from '../services/auth.ts';
 import { answerQuestion, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { appendEvent } from './eventLog.ts';
 import { useMenu } from './menuStore.ts';
+import { ItemsTabs } from './ItemsTabs.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
-import { draftLines, EMPTY_ROW, LinesEditor, OwnerPin, readRows, toDraft, useOwnerSession, type Draft } from './RecipeLines.tsx';
+import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwner, type Draft } from './RecipeLines.tsx';
 
 /**
  * The owner's menu (#menu). Serves the owner: they know their menu and want one change made
@@ -113,17 +114,17 @@ const words = (s: string) => s.toLowerCase().split(/[^a-z]+/).filter((w) => w.le
 interface DishSize { id: string; label: string; price: Cents }
 
 /**
- * What goes in a dish, size by size, behind the owner's PIN. It starts from the dish most like
+ * What goes in a dish, size by size (the owner's, as signed in). It starts from the dish most like
  * this one (shared words in the name first), so he changes what differs instead of starting
  * from nothing. Used when adding a dish and by "Write the recipe" on a dish without one.
  */
-function DishRecipe({ category, name, sizes, rows, onRows, owner, onOwner, ctx }: {
+function DishRecipe({ category, name, sizes, rows, onRows, owner, ctx }: {
   category: Category; name: string; sizes: DishSize[]; rows: Record<string, Draft[]>; onRows: (rows: Record<string, Draft[]>) => void;
-  owner: Actor | null; onOwner: (owner: Actor) => void; ctx: CostContext;
+  owner: Actor | null; ctx: CostContext;
 }) {
   const { suppliers } = useCatalog();
   const [size, setSize] = useState(sizes[0].id);
-  if (!owner) return <OwnerPin onOpen={onOwner} />;
+  if (!owner) return <p className="dish__hint">Only the owner writes recipes.</p>;
 
   const mine = words(name);
   const likes = menuItems()
@@ -220,7 +221,7 @@ function AddDish({ section, ctx, onSaved, onClose }: {
   const [desc, setDesc] = useState('');
   const [price, setPrice] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<Record<string, Draft[]>>({});
-  const [owner, setOwner] = useOwnerSession();
+  const owner = useOwner();
   /** The recipes as written, and the owner who wrote them; null: "Later". */
   const recipe = useRef<{ lines: Record<string, BookLine[]>; by: Actor } | null>(null);
   const [error, setError] = useState('');
@@ -238,7 +239,7 @@ function AddDish({ section, ctx, onSaved, onClose }: {
       return bad ? setError(bad) : go(1);
     }
     if (step === 1) {
-      if (!owner) return setError('Type your PIN, or choose Later.');
+      if (!owner) return setError('Only the owner writes recipes. Choose Later.');
       const lines = readDish(sizes, rows);
       if (typeof lines === 'string') return setError(lines);
       recipe.current = { lines, by: owner };
@@ -299,7 +300,7 @@ function AddDish({ section, ctx, onSaved, onClose }: {
               <p className="dish__hint">One {section.one}: what goes in, and how much. Each sale then takes it from your stock.</p>
               <DishRecipe
                 category={section.id} name={en.trim()} sizes={sizes} rows={rows} onRows={(r) => { setRows(r); setError(''); }}
-                owner={owner} onOwner={setOwner} ctx={ctx}
+                owner={owner} ctx={ctx}
               />
             </section>
           )}
@@ -346,7 +347,7 @@ function AddDish({ section, ctx, onSaved, onClose }: {
   );
 }
 
-/** "Write the recipe" for a dish already on the menu that has none (behind the owner's PIN). */
+/** "Write the recipe" for a dish already on the menu that has none (the owner's). */
 function WriteRecipe({ item, ctx, onSaved, onClose }: {
   item: MenuItem; ctx: CostContext; onSaved: (message: string, undo: () => void) => void; onClose: () => void;
 }) {
@@ -355,13 +356,13 @@ function WriteRecipe({ item, ctx, onSaved, onClose }: {
     return { id: size, label: v?.label ?? 'Price', price: v?.price ?? item.price ?? 0 };
   });
   const [rows, setRows] = useState<Record<string, Draft[]>>({});
-  const [owner, setOwner] = useOwnerSession();
+  const owner = useOwner();
   const [error, setError] = useState('');
   useEscape(onClose);
 
   const save = (e: FormEvent) => {
     e.preventDefault();
-    if (!owner) return setError('Type your PIN first.');
+    if (!owner) return setError('Only the owner writes recipes.');
     const lines = readDish(sizes, rows);
     if (typeof lines === 'string') return setError(lines);
     onSaved(`${item.name.en}: recipe saved · ${earnings(sizes, lines, ctx)}`, saveRecipes(item.id, lines, owner, ctx));
@@ -377,7 +378,7 @@ function WriteRecipe({ item, ctx, onSaved, onClose }: {
             <p className="dish__hint">What goes in one, and how much. Each sale then takes it from your stock.</p>
             <DishRecipe
               category={item.category} name={item.name.en} sizes={sizes} rows={rows} onRows={(r) => { setRows(r); setError(''); }}
-              owner={owner} onOwner={setOwner} ctx={ctx}
+              owner={owner} ctx={ctx}
             />
           </section>
           {error && <p className="reason-msg" role="alert">{error}</p>}
@@ -553,8 +554,9 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
 
   return (
     <div className="owner">
-      <OwnerNav current="menu" onRegister={onBack} />
+      <OwnerNav current="items" onRegister={onBack} />
       <main className="owner__main menuv" aria-label="Menu">
+        <ItemsTabs current="finished" />
         <h1 className="menuv__title">Menu</h1>
         <p className="menuv__lead">
           {owner ? 'Change a price, a name or what is on offer, or add something new. It reaches the counter, the kitchen and cheesybeez.com at once.'
@@ -567,7 +569,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
         </nav>
         <ul className="menuv__list">
           {items.map((m) => (
-            <li key={m.id} className={`menuv__row${m.hidden ? ' menuv__row--hidden' : ''}`}>
+            <li key={m.id} className={`menuv__row${m.hidden ? ' menuv__row--hidden' : ''}${m.soldOut ? ' menuv__row--out' : ''}`}>
               <div className="menuv__name">
                 <b>{m.name.en}</b>
                 {(m.name.si || m.name.ta) && <span>{[m.name.si, m.name.ta].filter(Boolean).join(' · ')}</span>}
@@ -578,18 +580,25 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
                 {m.added && <span className="status status--paid">Added</span>}
                 {m.edited && <span className="status status--paid">Changed</span>}
                 {m.hidden && <span className="status status--unpaid">Hidden</span>}
+                {m.soldOut && !m.hidden && <span className="menuv__out">Sold out</span>}
               </div>
               {!m.hidden && (
+                // One switch, on = can be sold. Its colour and its word say which, so nobody has to
+                // work out whether a button shows the state or the action.
                 <button
-                  type="button" className="chip menuv__sold" aria-pressed={Boolean(m.soldOut)}
+                  type="button" role="switch" className={`avail${m.soldOut ? ' avail--out' : ''}`} aria-checked={!m.soldOut}
+                  aria-label={`Available today: ${m.name.en}`}
                   onClick={() => {
                     setSoldOut(m.id, !m.soldOut);
                     said(m.soldOut ? `${m.name.en} is back` : `${m.name.en}: sold out until morning`, () => setSoldOut(m.id, Boolean(m.soldOut)));
                   }}
                 >
-                  {m.soldOut ? 'Sold out today' : 'Available'}
+                  <span className="avail__track" aria-hidden="true"><span className="avail__knob" /></span>
+                  <span className="avail__text">{m.soldOut ? 'Sold out today' : 'Available'}</span>
                 </button>
               )}
+              {/* The recipe lives with the dish (owner's PIN), not on a page of its own. */}
+              {owner && !m.hidden && <a className="chip menuv__recipe" href={`#items/recipe/${m.id}`} aria-label={`Recipe of ${m.name.en}`}>Recipe</a>}
               {owner && <button type="button" className="chip chip--solid" onClick={() => setEditing(m)} aria-label={`Change ${m.name.en}`}>Change</button>}
             </li>
           ))}

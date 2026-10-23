@@ -17,9 +17,10 @@ import { OwnerView } from './OwnerView.tsx';
 import { OwnerWelcome } from './OwnerWelcome.tsx';
 import { ShopsView } from './ShopsView.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
-import { RecipesView } from './RecipesView.tsx';
+import { RecipesView, SemiView } from './RecipesView.tsx';
 import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
+import { OrderView, ReceiveView } from './WorkViews.tsx';
 
 const KITCHEN = '#kitchen';
 const OWNER = '#owner';
@@ -149,7 +150,7 @@ export function Root() {
 
   // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
   // A manager's phone app (SCRUM-94): the counts and the stock, nothing else.
-  if (isManagerPhone()) return <ManagerPhone inventory={hash === '#inventory'} />;
+  if (isManagerPhone()) return <ManagerPhone hash={hash} />;
   if (isCloudSite()) return ownerToken() || isDemo() || adminShop() ? <OwnerView phone /> : <OwnerWelcome />;
   if (setup === 'checking') return <div className="setup" aria-busy="true" />;
   if (setup === 'new') return <SetupWizard mode="first" />;
@@ -170,17 +171,29 @@ export function Root() {
   // The developer's Shops screen (only answers on the developer's laptop: server/fleet.ts).
   if (hash === '#shops' && seesOwner) return <ShopsView onBack={() => go('')} />;
   if (fleetShop() && seesOwner) return <OwnerView key={hash} shop={fleetShop()!} onBack={() => go('#shops')} />;
-  if (hash === '#manager' && mayManageStock) return <ManagerView onRegister={() => go('')} />;
-  if (hash === '#inventory' && mayManageStock) {
+  // The shop's day (Shop Day Navigation): Receive, Order and Count are places of their own;
+  // Items holds raw materials, semi-processed and finished items. The older addresses
+  // (#inventory, #manager, #menu, #recipes) still open the same places.
+  const isOwnerHere = !needsLogin || staff?.role === 'owner';
+  if (hash === '#receive' && mayManageStock) return <ReceiveView onRegister={() => go('')} />;
+  if (hash === '#order' && mayManageStock) return <OrderView onRegister={() => go('')} />;
+  if ((hash === '#count' || hash === '#manager') && mayManageStock) return <ManagerView onRegister={() => go('')} />;
+  if ((hash === '#items' || hash === '#items/raw' || hash === '#inventory') && mayManageStock) {
     return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;
   }
   // The owner changes the menu; managers can mark items sold out during service.
-  if (hash === '#menu' && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
-    return <MenuView owner={!needsLogin || staff?.role === 'owner'} onBack={() => go('')} />;
+  if ((hash === '#items/finished' || hash === '#menu') && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
+    return <MenuView owner={isOwnerHere} onBack={() => go('')} />;
   }
-  // His recipes: the owner's alone, opened with his PIN on the screen itself.
-  if (hash === '#recipes' && (!needsLogin || staff?.role === 'owner')) return <RecipesView onRegister={() => go('')} />;
-  if (hash === '#suppliers' && mayManageStock) {
+  // Recipes are the owner's alone, opened with his PIN on the screen itself: a dish's recipe from
+  // the dish (#items/recipe/<id>), all of them (#items/recipe, or the old #recipes), and what the kitchen makes.
+  // Semi-processed items are items, not recipes: no PIN; the owner changes them.
+  if (hash === '#items/semi' && mayManageStock) return <SemiView onRegister={() => go('')} />;
+  if ((hash === '#items/recipe' || hash === '#recipes') && isOwnerHere) return <RecipesView onRegister={() => go('')} />;
+  if (hash.startsWith('#items/recipe/') && isOwnerHere) {
+    return <RecipesView key={hash} focus={decodeURIComponent(hash.slice('#items/recipe/'.length))} onRegister={() => go('')} />;
+  }
+  if ((hash === '#suppliers' || hash === '#items/suppliers') && mayManageStock) {
     return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;
   }
   return (
@@ -190,10 +203,12 @@ export function Root() {
 }
 
 /** The manager's phone app: who it belongs to comes from the cloud once, then the counts. */
-function ManagerPhone({ inventory }: { inventory: boolean }) {
+function ManagerPhone({ hash }: { hash: string }) {
   const [me, setMe] = useState<'loading' | 'ready' | string>('loading');
   useEffect(() => { loadMe().then(() => setMe('ready'), (e: unknown) => setMe(e instanceof Error ? e.message : String(e))); }, []);
   if (me === 'loading') return <div className="setup" aria-busy="true" />;
   if (me !== 'ready') return <main className="setup"><p className="setup__error" role="alert">{me}</p></main>;
-  return inventory ? <InventoryView /> : <ManagerView />;
+  // Count, Receive and the stock (Items): what a manager does away from the counter.
+  if (hash === '#receive') return <ReceiveView />;
+  return hash === '#items' || hash === '#inventory' ? <InventoryView /> : <ManagerView />;
 }

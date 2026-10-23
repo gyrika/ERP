@@ -3,7 +3,6 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setMenuState } from '../domain/menu.ts';
 import { EMPTY_MENU_STATE } from '../domain/menuEdits.ts';
-import { FAKE_STAFF } from '../fake/data.ts';
 import { readAll } from './eventLog.ts';
 import { Root } from './Root.tsx';
 
@@ -44,8 +43,12 @@ test('sold out for today: greyed on the counter, cannot be added; Undo brings it
   history.replaceState(null, '', '/#menu');
   render(<Root />);
   const row = within((await screen.findByRole('button', { name: 'Change BBQ Chicken' })).closest('li')!);
-  await user.click(row.getByRole('button', { name: 'Available' }));
-  expect(row.getByRole('button', { name: 'Sold out today' })).toBeTruthy();
+  // One switch: on (green, "Available") means it can be sold.
+  const sw = row.getByRole('switch', { name: 'Available today: BBQ Chicken' });
+  expect([sw.getAttribute('aria-checked'), sw.textContent]).toEqual(['true', 'Available']);
+  await user.click(sw);
+  expect([sw.getAttribute('aria-checked'), sw.textContent]).toEqual(['false', 'Sold out today']);
+  expect(row.getByText('Sold out')).toBeTruthy(); // the dish's own tag, readable from across the room
   await user.keyboard('{Escape}');
   const card = screen.getByText('BBQ Chicken').closest('.card')!;
   expect(within(card as HTMLElement).getByText('Sold out')).toBeTruthy();
@@ -66,7 +69,6 @@ test('hidden items leave the counter; back to the printed menu in one tap', asyn
   expect(screen.queryByText('Changed')).toBeNull();
 });
 
-const ownerPin = FAKE_STAFF.find((s) => s.actor.role === 'owner')!.pin;
 const rowOf = (name: string) => screen.getByText(name, { selector: 'b' }).closest('li')!;
 
 test('the owner adds a pasta and writes its recipe later: names stay unique, every size needs a price, the counter offers it at once', async () => {
@@ -83,8 +85,8 @@ test('the owner adds a pasta and writes its recipe later: names stay unique, eve
 
   await user.clear(sheet.getByLabelText('English'));
   await user.type(sheet.getByLabelText('English'), 'Chicken Alfredo{Enter}');
-  // The recipe waits behind his PIN; Later skips it.
-  expect(sheet.getByLabelText('Owner PIN')).toBeTruthy();
+  // The recipe opens for him with no PIN; Later skips it.
+  expect(sheet.queryByLabelText('Owner PIN')).toBeNull();
   await user.click(sheet.getByRole('button', { name: 'Later' }));
   expect(sheet.getByText(/No recipe yet: until you write it, its sales don't take stock/)).toBeTruthy();
   await user.type(sheet.getByLabelText('Single price'), '1100');
@@ -109,7 +111,7 @@ test('the owner adds a pasta and writes its recipe later: names stay unique, eve
   expect(card.getByRole('button', { name: 'from 1100' })).toBeTruthy();
 });
 
-test('a dish in one flow: name, what goes in it (from a similar dish, behind the PIN), then the price with its margin; one Undo takes it all back', async () => {
+test('a dish in one flow: name, what goes in it (from a similar dish, no PIN), then the price with its margin; one Undo takes it all back', async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#menu');
   render(<Root />);
@@ -118,10 +120,7 @@ test('a dish in one flow: name, what goes in it (from a similar dish, behind the
   await user.type(sheet.getByLabelText('English'), 'BBQ Prawn{Enter}');
   expect(sheet.getByRole('heading', { name: 'BBQ Prawn' })).toBeTruthy();
 
-  await user.click(sheet.getByRole('button', { name: 'Next' }));
-  expect(sheet.getByRole('alert').textContent).toContain('Type your PIN, or choose Later.');
-  await user.type(sheet.getByLabelText('Owner PIN'), ownerPin);
-  expect(readAll().at(-1)).toMatchObject({ type: 'recipe.viewed', actor: { role: 'owner' } });
+  expect(sheet.queryByLabelText('Owner PIN')).toBeNull(); // the recipe is open to him as he is signed in
 
   // The dishes most like it come first ("BBQ" in the name); one tap fills both sizes.
   const starts = within(sheet.getByRole('group', { name: 'Start from' }));
@@ -156,14 +155,14 @@ test('a dish in one flow: name, what goes in it (from a similar dish, behind the
   expect(readAll().filter((x) => x.type === 'recipe.answer_set' && x.after === null).length).toBe(2);
 });
 
-test('a dish with no recipe: Write the recipe from its row, behind the PIN', async () => {
+test('a dish with no recipe: Write the recipe from its row, no PIN', async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#menu');
   render(<Root />);
   await screen.findByRole('heading', { name: 'Menu' });
   await user.click(within(rowOf('Sausages')).getByRole('button', { name: 'Write the recipe' }));
   const sheet = within(screen.getByRole('dialog', { name: 'Sausages: recipe' }));
-  await user.type(sheet.getByLabelText('Owner PIN'), ownerPin);
+  expect(sheet.queryByLabelText('Owner PIN')).toBeNull();
   await user.click(within(sheet.getByRole('group', { name: 'Start from' })).getByRole('button', { name: 'BBQ Sausages' }));
   await user.click(sheet.getByRole('button', { name: 'Save recipe' }));
   expect(screen.getByRole('status').textContent).toMatch(/^Sausages: recipe saved · M /);

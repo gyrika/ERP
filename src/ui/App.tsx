@@ -237,21 +237,24 @@ export function App({
     }
     reg.open.forEach((o) => list.push({ id: `open-${o.number}`, label: `Open order ${o.number}`, run: () => reg.openOrder(o.number) }));
     list.push(
-      { id: 'owner', label: 'Owner view: what needs attention today', run: () => { location.hash = '#owner'; } },
+      { id: 'owner', label: 'Today: what needs attention', run: () => { location.hash = '#owner'; } },
       // The developer's laptop only (its server holds the admin password).
       ...(fleet ? [{ id: 'shops', label: "Shops: every shop's sales (developer)", run: () => { location.hash = '#shops'; } }] : []),
-      { id: 'menu', label: 'Menu: prices, names, sold out', run: () => { location.hash = '#menu'; } },
+      { id: 'menu', label: 'Menu (finished items): prices, names, sold out', run: () => { location.hash = '#items/finished'; } },
       // This screen's look; the current choice says "On".
       ...(['light', 'dark', 'auto'] as ThemeChoice[]).map((t) => ({
         id: `theme-${t}`, label: THEME_LABEL[t], hint: themeChoice() === t ? 'On' : undefined, run: () => setTheme(t),
       })),
-      { id: 'setup', label: "Shop setup: staff, printer, devices (owner's PIN)", run: () => { location.hash = '#setup'; } },
+      { id: 'setup', label: "Settings: staff, printer, devices, stock rules (owner's PIN)", run: () => { location.hash = '#setup'; } },
       { id: 'undo', label: 'Undo last change', hint: 'Ctrl+Z', run: () => reg.undoManager(manager) },
       { id: 'sound', label: sound ? 'Turn sound off' : 'Turn sound on', run: () => { setSoundOn(!sound); setSound(!sound); } },
       { id: 'leave', label: 'Leave manager mode', hint: 'Esc', run: mode.exit },
     );
     if (canManageStock) {
-      list.push({ id: 'inventory', label: 'Inventory and stock', run: () => { location.hash = '#inventory'; } });
+      list.push({ id: 'receive', label: 'Receive: a delivery came', run: () => { location.hash = '#receive'; } });
+      list.push({ id: 'order', label: 'Order: what to buy', run: () => { location.hash = '#order'; } });
+      list.push({ id: 'count', label: 'Count the shelves', run: () => { location.hash = '#count'; } });
+      list.push({ id: 'inventory', label: 'Items: raw materials and stock', run: () => { location.hash = '#items'; } });
       list.push({ id: 'suppliers', label: 'Suppliers', run: () => { location.hash = '#suppliers'; } });
     }
     return list;

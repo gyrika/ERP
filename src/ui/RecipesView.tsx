@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
+import type { Actor } from '../domain/auth.ts';
 import {
   addonCost, addonOf, addonQuestion, batchMakes, checkAnswer, checkOwnLines, checkPrepName, kitchenLine, KITCHEN_LINE, linesCost, marginOf,
   menuCost, newPrepId, ownPrepOf, ownPreps, prepQuestion, questionKind, recipeOf, recipeQuestion, recipeUnit, sizesOf, STOCK_LINE, undefinedNames,
@@ -10,37 +10,26 @@ import { fmt } from '../domain/money.ts';
 import { PREPS, type BookLine } from '../domain/recipeBook.ts';
 import { MENU_RECIPES } from '../domain/recipeMap.ts';
 import type { MenuItem, Option } from '../domain/types.ts';
-import { requireOwner } from '../services/auth.ts';
 import { answerQuestion, recipesViewed, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { Question } from './CostQuestions.tsx';
 import { useMenu } from './menuStore.ts';
+import { ItemsTabs } from './ItemsTabs.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
-import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwnerSession, type Draft } from './RecipeLines.tsx';
+import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwner, type Draft } from './RecipeLines.tsx';
 
 /**
- * The owner's recipes (SCRUM-75): the shop's secret, so it is kept like one.
- * Serves the owner, who knows his kitchen; what he needs next is the recipes
- * that are not complete yet, so they come first. Complete means every line
- * reaches his price list with a known amount, so each sale takes the right
- * stock and the item has its full food cost.
+ * The recipes of the finished items (SCRUM-75), under Items › Finished. Serves the owner, who
+ * knows his kitchen; what he needs next is the recipes that are not complete yet, so they come
+ * first. Complete means every line reaches his price list with a known amount, so each sale takes
+ * the right stock and the item has its full food cost. They are the owner's alone (managers do not
+ * see them; the server takes recipe changes from the owner only) and open for him as he is signed
+ * in, with no PIN; each opening is in the audit trail (recipe.viewed). Each save is one audited
+ * recipe.answer_set with an Undo; nothing is filled in for him.
  *
- * Opens with his PIN every time (even when he is signed in), locks after a minute
- * untouched or when he leaves, and every opening is in the audit trail
- * (recipe.viewed). Amounts stay blurred until a recipe is opened.
- * Each save is one audited recipe.answer_set with an Undo; nothing is filled in for him.
- *
- * The lock is staged like a safe (SCRUM-91): an open recipe book lies blurred under
- * one warm lamp behind the PIN; the right PIN springs the gold lock, two dark doors
- * slide apart and the recipes come into focus. The recipes are there at once (the
- * doors only cover them for under half a second), so nothing ever waits on it.
- *
- * Below the dishes: what his kitchen makes for them (dough, sauces, the cheese blend), from
- * his sheet, and the semi-processed items he adds here himself. Once added, one is offered
- * in every recipe like his sheet's batches, priced, and taken from stock through what goes in it.
+ * Semi-processed items (dough, sauces, the cheese blend) are items, not recipes: SemiView below
+ * shows them to everyone; once added, one is offered in every recipe like his sheet's batches,
+ * priced, and taken from stock through what goes in it.
  */
-export { RECIPES_IDLE_MS } from './RecipeLines.tsx';
-/** How long the doors stay over the recipes after the right PIN (the CSS takes less). */
-export const DOORS_MS = 600;
 /** A gap in this many recipes or more is asked once, above them all. */
 const SHARED_GAP = 3;
 
@@ -49,6 +38,8 @@ const CATEGORY_ORDER = ['pizza', 'burger', 'pasta'];
 
 interface Entry {
   key: string;
+  /** The dish it belongs to (none for an extra). */
+  itemId?: string;
   question: string;
   title: string;
   group: string;
@@ -69,6 +60,7 @@ function entriesOf(menu: readonly MenuItem[], ctx: CostContext): Entry[] {
     for (const size of sizesOf(item)) {
       const label = sizeName(item, size);
       out.push({
+        itemId: item.id,
         key: recipeQuestion(item.id, size),
         question: recipeQuestion(item.id, size),
         title: `${item.name.en}${label ? ` ${label}` : ''}`,
@@ -119,131 +111,46 @@ const statusText = (e: Entry) => {
   return `Complete · costs ${fmt(e.cost.cents)}${margin === null ? '' : ` · earns ${Math.round(margin * 100)}%`}`;
 };
 
-export function RecipesView({ onRegister }: { onRegister?: () => void }) {
-  const [owner, setOwner] = useOwnerSession();
-  const [doors, setDoors] = useState(false);
-
-  useEffect(() => {
-    if (!doors) return;
-    const t = setTimeout(() => setDoors(false), DOORS_MS);
-    return () => clearTimeout(t);
-  }, [doors]);
-
+/**
+ * The recipes of the finished items (Items › Finished), or one dish's with `focus`, opened from
+ * that dish on the menu. There is no Recipes page of its own: a recipe is part of the dish it makes.
+ * Semi-processed items are items, not recipes: they have their own page (SemiView), with no PIN.
+ */
+export function RecipesView({ onRegister, focus }: { onRegister?: () => void; focus?: string }) {
+  const owner = useOwner();
+  // Each opening is in the audit trail, as it was behind the PIN.
+  useEffect(() => { if (owner) recipesViewed(owner); }, [owner]);
   return (
     <div className="owner vault">
-      <OwnerNav current="recipes" onRegister={onRegister} />
+      <OwnerNav current="items" onRegister={onRegister} />
+      <div className="vault__tabs"><ItemsTabs current="finished" /></div>
       {owner
-        ? <div className={doors ? 'vault__focus' : undefined}><Book owner={owner} onLock={() => setOwner(null)} /></div>
-        : <Lock onOpen={(actor) => { recipesViewed(actor); setOwner(actor); setDoors(true); }} />}
-      {owner && doors && <Doors />}
+        ? <Book owner={owner} focus={focus} />
+        : <main className="owner__main" aria-label="Recipes"><p className="vault__lead">Only the owner sees the recipes.</p></main>}
     </div>
   );
 }
 
-function Lock({ onOpen }: { onOpen: (owner: Actor) => void }) {
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState(false);
-  const [checking, setChecking] = useState(false);
-
-  const onChange = async (raw: string) => {
-    const value = raw.replace(/\D/g, '').slice(0, PIN_LENGTH);
-    setPin(value);
-    setError(false);
-    if (value.length !== PIN_LENGTH) return;
-    setChecking(true);
-    const owner = await requireOwner(value);
-    setChecking(false);
-    if (owner) return onOpen(owner);
-    setError(true);
-    setPin('');
-  };
-
-  return (
-    <main className="vault__lock" aria-label="Recipes, locked">
-      <Scene />
-      <LockIcon className={`vault__icon${error ? ' vault__icon--error' : ''}`} />
-      <h1 className="vault__name">CheesyBeez recipes</h1>
-      <input
-        className={`pin${error ? ' pin--error' : ''}`} type="password" inputMode="numeric" autoComplete="off"
-        value={pin} readOnly={checking} autoFocus aria-label="Owner PIN" aria-invalid={error} aria-describedby="vault-msg"
-        onChange={(e) => void onChange(e.target.value)}
-      />
-      <p id="vault-msg" className="vault__msg" role={error ? 'alert' : undefined}>
-        {error ? 'Only the owner can open the recipes.' : 'Owner PIN'}
-      </p>
-    </main>
-  );
-}
-
-/** The gold padlock; its shackle is its own group so it can spring open. */
-function LockIcon({ className }: { className: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
-      <path className="vault__shackle" d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <rect x="5" y="11" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-// Handwriting on the pages: line widths (of 100) per page, fixed so it never jumps.
-const LEFT_LINES = [62, 88, 74, 0, 80, 54, 92, 68, 0, 84, 46, 76];
-const RIGHT_LINES = [0, 0, 0, 0, 0, 0, 0, 70, 90, 58, 82, 64];
-
-/** An open recipe book under one lamp, too blurred to read: the background of the lock. */
-function Scene() {
-  const lines = (xs: number[], x0: number) => xs.map((w, i) => (w
-    ? <rect key={i} x={x0} y={46 + i * 15} width={w * 1.3} height="3.2" rx="1.6" />
-    : null));
-  return (
-    <div className="vault__scene" aria-hidden="true">
-      <div className="vault__lamp" />
-      <svg className="vault__tome" viewBox="0 0 320 240" preserveAspectRatio="xMidYMid meet">
-        <path className="vault__page" d="M160 22 C 120 12 52 12 14 22 L 14 226 C 52 216 120 216 160 228 Z" />
-        <path className="vault__page" d="M160 22 C 200 12 268 12 306 22 L 306 226 C 268 216 200 216 160 228 Z" />
-        <path className="vault__spine" d="M160 22 L 160 228" />
-        <g className="vault__ink">
-          <rect x="34" y="30" width="78" height="6" rx="3" />
-          {lines(LEFT_LINES, 34)}
-          <circle cx="234" cy="80" r="40" className="vault__sketch" />
-          <circle cx="234" cy="80" r="31" className="vault__sketch" />
-          <circle cx="220" cy="68" r="5" /><circle cx="248" cy="74" r="5" /><circle cx="230" cy="96" r="5" /><circle cx="252" cy="94" r="4" />
-          {lines(RIGHT_LINES, 182)}
-        </g>
-      </svg>
-    </div>
-  );
-}
-
-/** Right after the PIN: the lock springs and two dark doors slide apart over the recipes. */
-function Doors() {
-  return (
-    <div className="vault__doors" aria-hidden="true">
-      <div className="vault__door vault__door--left" />
-      <div className="vault__door vault__door--right" />
-      <LockIcon className="vault__icon vault__icon--open" />
-    </div>
-  );
-}
-
-function Book({ owner, onLock }: { owner: Actor; onLock: () => void }) {
+function Book({ owner, focus }: { owner: Actor; focus?: string }) {
   useMenu();
   const ctx = useCostContext();
-  const entries = useMemo(() => entriesOf(menuItems(), ctx), [ctx]);
+  const all = useMemo(() => entriesOf(menuItems(), ctx), [ctx]);
+  // One dish's recipe, when it was opened from that dish on the menu.
+  const entries = useMemo(() => (focus ? all.filter((e) => e.itemId === focus) : all), [all, focus]);
+  const dish = focus ? menuItems().find((m) => m.id === focus) : undefined;
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [last, setLast] = useState<{ message: string; undo: () => void } | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
-  /** The semi-processed item being written: its id, or '' for a new one. */
-  const [prepEditing, setPrepEditing] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || editing || prepEditing !== null) return;
-      if (open) setOpen(null); else onLock();
+      if (e.key !== 'Escape' || editing) return;
+      if (open) setOpen(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, editing, prepEditing, onLock]);
+  }, [open, editing]);
 
   const complete = entries.filter((e) => e.cost.complete).length;
   // Not complete first, then by the menu's order; groups in a fixed order.
@@ -259,23 +166,22 @@ function Book({ owner, onLock }: { owner: Actor; onLock: () => void }) {
   }, new Map<string, number>())].filter(([, count]) => count >= SHARED_GAP).sort((a, b) => b[1] - a[1]);
   const askedAbove = new Set(shared.map(([q]) => q));
   // One at a time; Skip sends it to the back of the line.
-  const asking = [...shared.filter(([q]) => !skipped.includes(q)), ...skipped.flatMap((q) => shared.filter(([s]) => s === q))];
+  const asking = !focus ? [...shared.filter(([q]) => !skipped.includes(q)), ...skipped.flatMap((q) => shared.filter(([s]) => s === q))] : [];
   const first = asking[0] ?? null;
   let n = 0;
 
   return (
     <main className="owner__main vault__book" aria-label="Recipes">
       <div className="vault__top">
-        <h1 className="vault__title">Your recipes</h1>
+        <h1 className="vault__title">{dish ? `Recipe · ${dish.name.en}` : 'Recipes of the finished items'}</h1>
         <div className="vault__tools">
-          <button type="button" className="linkbtn" onClick={() => setPrepEditing('')}>New semi-processed item</button>
-          <button type="button" className="linkbtn" onClick={onLock}>Lock</button>
+          {dish && <a className="linkbtn" href="#items/recipe">All recipes</a>}
         </div>
       </div>
       <p className="vault__lead num">
         {complete === entries.length
-          ? 'Every recipe is complete: each sale takes the right stock.'
-          : `${complete} of ${entries.length} complete. Until a recipe is complete, its sales take too little from stock.`}
+            ? `${dish ? 'This recipe is' : 'Every recipe is'} complete: each sale takes the right stock.`
+            : `${complete} of ${entries.length} complete. Until a recipe is complete, its sales take too little from stock.`}
       </p>
       {last && (
         <p className="costq__saved vault__saved" role="status">
@@ -328,18 +234,6 @@ function Book({ owner, onLock }: { owner: Actor; onLock: () => void }) {
           </ul>
         </section>
       ))}
-      <Kitchen
-        ctx={ctx} entries={entries} editing={prepEditing} onEdit={setPrepEditing}
-        onSave={(id, answer) => {
-          const question = prepQuestion(id);
-          saved(`${answer.name}: saved. Your recipes can use it now.`, answerQuestion(question, answer, ctx.answers.get(question) ?? null, owner));
-          setPrepEditing(null);
-        }}
-        onDelete={(p) => {
-          const question = prepQuestion(p.id);
-          saved(`${p.name}: deleted.`, answerQuestion(question, null, ctx.answers.get(question) ?? null, owner));
-        }}
-      />
     </main>
   );
 }
@@ -347,8 +241,8 @@ function Book({ owner, onLock }: { owner: Actor; onLock: () => void }) {
 const unitAmount = (qty: number, unit: string) => `${Number(qty.toFixed(3)).toLocaleString('en-US')} ${unit}`;
 
 /** What his kitchen makes for the dishes: the semi-processed items he added here, then his sheet's batches. */
-function Kitchen({ ctx, entries, editing, onEdit, onSave, onDelete }: {
-  ctx: CostContext; entries: Entry[]; editing: string | null; onEdit: (id: string | null) => void;
+function Kitchen({ ctx, entries, editing, canEdit, onEdit, onSave, onDelete }: {
+  ctx: CostContext; entries: Entry[]; editing: string | null; canEdit: boolean; onEdit: (id: string | null) => void;
   onSave: (id: string, answer: PrepAnswer) => void; onDelete: (p: OwnPrep) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -366,7 +260,6 @@ function Kitchen({ ctx, entries, editing, onEdit, onSave, onDelete }: {
 
   return (
     <section className="vault__group" aria-label="Made in your kitchen">
-      <h2 className="vault__group-name">Made in your kitchen · semi-processed</h2>
       <ul className="vault__list">
         {editing === '' && <li>{editor(null)}</li>}
         {rows.map((row) => {
@@ -395,8 +288,8 @@ function Kitchen({ ctx, entries, editing, onEdit, onSave, onDelete }: {
                 {isOpen && (
                   <div className="rcard__more">
                     <div className="rcard__actions">
-                      {row.own && <button type="button" className="chip" onClick={() => onEdit(row.own!.id)}>Edit</button>}
-                      {row.own && used === 0 && <button type="button" className="linkbtn" onClick={() => onDelete(row.own!)}>Delete</button>}
+                      {canEdit && row.own && <button type="button" className="chip" onClick={() => onEdit(row.own!.id)}>Edit</button>}
+                      {canEdit && row.own && used === 0 && <button type="button" className="linkbtn" onClick={() => onDelete(row.own!)}>Delete</button>}
                       <span className="rcard__from">
                         {[row.own ? 'Added here' : 'From your sheet', used ? `in ${used} recipe${used === 1 ? '' : 's'}` : 'in no recipe yet'].join(' · ')}
                       </span>
@@ -638,5 +531,52 @@ function Editor({ entry, entries, ctx, onSave, onCancel }: {
         <button type="submit" className="cta">Save recipe</button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Items › Semi-processed: what the kitchen makes for the dishes (dough, sauces, the cheese blend).
+ * Items, not recipes: everyone who sees Items sees them, with no PIN; what one batch makes, what it
+ * costs, which dishes use it. The owner adds and changes them (the server checks it is the owner).
+ * Once added, one is offered in every dish's recipe and taken from stock through what goes in it.
+ */
+export function SemiView({ onRegister }: { onRegister?: () => void }) {
+  useMenu();
+  const ctx = useCostContext();
+  const entries = useMemo(() => entriesOf(menuItems(), ctx), [ctx]);
+  const owner = useOwner();
+  const canEdit = owner !== null;
+  const [editing, setEditing] = useState<string | null>(null);
+  const [last, setLast] = useState<{ message: string; undo: () => void } | null>(null);
+  return (
+    <div className="owner">
+      <OwnerNav current="items" onRegister={onRegister} />
+      <main className="owner__main semi" aria-label="Semi-processed">
+        <ItemsTabs current="semi" />
+        <div className="semi__top">
+          <h1 className="menuv__title">Semi-processed</h1>
+          {canEdit && <button type="button" className="chip chip--solid" onClick={() => setEditing('')}>New semi-processed item</button>}
+        </div>
+        <p className="menuv__lead">What your kitchen makes for the dishes: dough, sauces, blends. Each is taken from stock through what goes in it.</p>
+        {last && (
+          <p className="costq__saved" role="status">
+            {last.message}
+            <button type="button" className="linkbtn" onClick={() => { last.undo(); setLast(null); }}>Undo</button>
+          </p>
+        )}
+        <Kitchen
+          ctx={ctx} entries={entries} editing={editing} canEdit={canEdit} onEdit={setEditing}
+          onSave={(id, answer) => {
+            const question = prepQuestion(id);
+            setLast({ message: `${answer.name}: saved. Your recipes can use it now.`, undo: answerQuestion(question, answer, ctx.answers.get(question) ?? null, owner ?? undefined) });
+            setEditing(null);
+          }}
+          onDelete={(p) => {
+            const question = prepQuestion(p.id);
+            setLast({ message: `${p.name}: deleted.`, undo: answerQuestion(question, null, ctx.answers.get(question) ?? null, owner ?? undefined) });
+          }}
+        />
+      </main>
+    </div>
   );
 }

@@ -76,7 +76,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
 
   return (
     <div className="owner">
-      <OwnerNav current="manager" onRegister={onRegister} />
+      <OwnerNav current="count" onRegister={onRegister} />
       <main className="owner__main mgr" aria-label="Manager">
         <div className="mgr__title-row">
           <h1 className="mgr__title">Counts</h1>

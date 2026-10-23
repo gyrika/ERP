@@ -7,6 +7,7 @@ import * as authService from '../services/auth.ts';
 import { SEED_INVENTORY } from '../domain/inventoryData.ts';
 import { InventoryView } from './InventoryView.tsx';
 import { SupplierView } from './SupplierView.tsx';
+import { OrderView, ReceiveView } from './WorkViews.tsx';
 
 beforeEach(() => localStorage.clear());
 
@@ -14,6 +15,19 @@ beforeEach(() => localStorage.clear());
 const stocked = (item: (typeof SEED_INVENTORY)[number], packs: number): inventoryStore.InventoryRow =>
   ({ ...item, onHandPacks: packs, onHandBaseUnits: packs * item.packQty, archived: false, counted: true, usedPerDay: 0, suggestedPacks: 0, suggestedSupplierId: null, lastsDays: null, missedSales: 0, lastCountedAt: null, units: [], tier: null, receiveUnit: null });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+/**
+ * Receive and Order are places of their own in the menu now (Shop Day Navigation). These open them
+ * beside the stock list: the page opens its flow at once; once closed, its main button opens it again.
+ */
+const openGrn = async (user: ReturnType<typeof userEvent.setup>) => {
+  if (screen.queryByRole('main', { name: 'Receive' })) await user.click(screen.getByRole('button', { name: 'A delivery came' }));
+  else render(<ReceiveView />);
+};
+const openOrders = async (user: ReturnType<typeof userEvent.setup>) => {
+  if (screen.queryByRole('main', { name: 'Order' })) await user.click(screen.getByRole('button', { name: /^(Order \d+ items?|Make an order)$/ }));
+  else render(<OrderView />);
+};
 
 /** The last thing the shop did: not the number the server gives it afterwards. */
 const lastEvent = () => readAll().filter((e) => e.type !== 'stock.numbered').at(-1);
@@ -291,7 +305,7 @@ test('Purchase orders: a draft per supplier from what runs low; Place order save
   expect(within(flourRow()).queryByRole('button', { name: /^Order/ })).toBeNull(); // no Order button on rows
   sellPizzas(500);
   act(() => shelfPacks(1)); // 25 kg against 7.9 kg a day: 5 days need 39.7 kg, so it is low
-  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  await openOrders(user);
   // Step 1: who. The supplier that needs ordering has a card saying how many.
   expect(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }).textContent).toContain('1 to order');
   await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
@@ -309,7 +323,7 @@ test('Purchase orders: a draft per supplier from what runs low; Place order save
   expect(placed.getByLabelText('Message').textContent).toBe('Hi, this is CheesyBeez. Please send:\n2 × Pizza Flour (25 kg packs)\nThank you.');
   await user.click(screen.getByRole('button', { name: 'Done' }));
   // On order: cancel it, with a reason.
-  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  await openOrders(user);
   await user.click(screen.getByRole('button', { name: 'On order (1)' }));
   await user.click(screen.getByRole('button', { name: 'Cancel PO-0001' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.ordered' }); // a reason first: nothing cancelled yet
@@ -330,7 +344,7 @@ test('several suppliers to order from: one at a time, with how far along you are
     const oil = inventoryStore.readItems().find((i) => i.id === 'inv-0022')!;
     inventoryStore.addStockMovement('COUNT_ADJUST', oil.id, -oil.onHandBaseUnits, 'test'); // counted, and empty
   });
-  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  await openOrders(user);
   expect(screen.getByText('Step 1 of 3 · 0 of 2 suppliers done')).toBeTruthy();
   const cards = within(screen.getByRole('group', { name: 'Suppliers that need ordering' })).getAllByRole('button');
   expect(cards).toHaveLength(2);
@@ -352,7 +366,7 @@ test('an item already on an open order is added to it, not ordered twice; the ca
   const user = userEvent.setup();
   render(<InventoryView />);
   orderFlour(2);
-  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  await openOrders(user);
   await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   await user.selectOptions(card.getByRole('combobox', { name: /^Add an item from/ }), 'inv-0001');
@@ -372,7 +386,7 @@ test('an open order can be changed in its list until goods come; then it is lock
   const user = userEvent.setup();
   render(<InventoryView />);
   orderFlour(2);
-  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  await openOrders(user);
   await user.click(screen.getByRole('button', { name: 'On order (1)' }));
   await user.click(screen.getByRole('button', { name: 'Edit PO-0001' }));
   await user.click(screen.getByRole('button', { name: 'One pack more of Pizza Flour on PO-0001' }));
@@ -402,7 +416,7 @@ test('a paired device shows "PO (pending)" until the shop server numbers it, the
   const user = userEvent.setup();
   render(<InventoryView />);
   act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs: 2 }]); });
-  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  await openOrders(user);
   await user.click(screen.getByRole('button', { name: 'On order (1)' }));
   const onOrder = within(screen.getByRole('region', { name: 'On order' }));
   expect(onOrder.getByText(/^PO \(pending\) · Prima/)).toBeTruthy();
@@ -421,7 +435,7 @@ test('the shop server refused a GRN: it stops counting, the order is waiting aga
   const user = userEvent.setup();
   render(<InventoryView />);
   orderFlour(2);
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   await toReview(user);
   await user.click(screen.getByRole('button', { name: 'Save GRN' }));
   await user.keyboard('{Escape}');
@@ -432,34 +446,12 @@ test('the shop server refused a GRN: it stops counting, the order is waiting aga
   act(() => markRejected([{ id: grn.id, reason: 'PO-0001 is closed: nothing more can be received on it.' }]));
   expect(screen.getByRole('alert').textContent).toBe('The GRN was not saved: PO-0001 is closed: nothing more can be received on it.OK');
   expect(amount()).toContain('Not counted yet'); // its stock never happened
-  expect(screen.getByRole('button', { name: /^Purchase orders/ })).toBeTruthy();
 
   await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'OK' }));
   expect(screen.queryByRole('alert')).toBeNull();
   expect(amount()).toContain('Not counted yet'); // reading it does not bring it back
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   expect(screen.getByRole('dialog', { name: /PO-0001$/ })).toBeTruthy(); // the order is waiting again
-});
-
-test('the stock area opens on four big buttons: Inventory, Purchase orders, GRN, Count — each says what waits', async () => {
-  const user = userEvent.setup();
-  sellPizzas(500);
-  render(<InventoryView />);
-  const tiles = within(screen.getByRole('navigation', { name: 'Stock' }));
-  expect(tiles.getAllByRole('button').map((b) => b.getAttribute('aria-label')?.replace(/\(\d+/, '(n'))).toEqual(['Inventory', 'Purchase orders', 'GRN', 'Count (n due)']);
-  expect(tiles.getByRole('button', { name: 'Inventory' }).getAttribute('aria-current')).toBe('page');
-  expect(tiles.getByRole('button', { name: 'GRN' }).textContent).toContain('None waiting');
-  expect(tiles.getByRole('button', { name: 'Purchase orders' }).textContent).toContain('Nothing to order');
-
-  act(() => shelfPacks(1)); // low: flour needs ordering
-  expect(tiles.getByRole('button', { name: 'Purchase orders (1)' }).textContent).toContain('1 to order');
-  await user.click(tiles.getByRole('button', { name: 'Purchase orders (1)' }));
-  expect(screen.getByRole('dialog', { name: 'Purchase orders' })).toBeTruthy();
-  await user.keyboard('{Escape}');
-  orderFlour(3);
-  expect(tiles.getByRole('button', { name: 'GRN' }).textContent).toContain('1 waiting');
-  await user.click(tiles.getByRole('button', { name: /^Count/ }));
-  expect(screen.getByRole('dialog')).toBeTruthy(); // the count flow, for what is due
 });
 
 test('filter chips: All, Low, Out, On order show only what needs a look', async () => {
@@ -514,7 +506,7 @@ test('an item opens on Details, or on Order when it needs ordering; the tabs are
 test('the order card and the GRN steps have big − / + buttons, totals and one main button', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
-  await user.click(screen.getByRole('button', { name: /^Purchase orders/ }));
+  await openOrders(user);
   await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(screen.getByRole('button', { name: 'Place order' })).toHaveProperty('disabled', true); // nothing on it yet
@@ -530,7 +522,7 @@ test('the order card and the GRN steps have big − / + buttons, totals and one 
   await user.click(screen.getByRole('button', { name: 'Place order' }));
   await user.click(screen.getByRole('button', { name: 'Done' }));
 
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   const grn = within(screen.getByRole('dialog', { name: /PO-0001$/ }));
   expect(grn.getByRole('button', { name: 'One less of Pizza Flour' }).className).toContain('bigstep__btn');
   await user.click(grn.getByRole('button', { name: 'One less of Pizza Flour' }));
@@ -556,7 +548,7 @@ const toReview = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 /** Opens the GRN and sets the first item's amount. */
 const receive = async (user: ReturnType<typeof userEvent.setup>, amountText: string, name = 'Packs of Pizza Flour') => {
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   const field = screen.getByRole('textbox', { name });
   await user.clear(field);
   await user.type(field, amountText);
@@ -566,12 +558,12 @@ const receive = async (user: ReturnType<typeof userEvent.setup>, amountText: str
 test('GRN: one step at a time; only open orders and only what was ordered; as ordered saves without a PIN', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   expect(screen.getByText(/^Nothing on order/)).toBeTruthy();
   await user.keyboard('{Escape}');
 
   orderFlour();
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   const sheet = within(screen.getByRole('dialog', { name: /^Goods from .* · PO-0001$/ }));
   // Step 2: one item card at a time, filled in with what was ordered.
   expect(sheet.getByText('Step 2 of 3 · Check each item')).toBeTruthy();
@@ -594,12 +586,12 @@ test('GRN: one step at a time; only open orders and only what was ordered; as or
   expect(readAll().some((e) => e.type === 'stock.movement')).toBe(false);
   expect(readAll().find((e) => e.type === 'stock.numbered' && e.kind === 'GRN')).toMatchObject({ docId: grn.id, number: 'GRN-0001' });
   expect(amount()).toContain('2 packs · 50 kg');
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   expect(screen.getByText(/^Nothing on order/)).toBeTruthy(); // the order is closed
   await user.keyboard('{Escape}');
 
   // Undo: a manager's PIN (a cashier's is refused), then why. The GRN stays listed, marked undone.
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   await user.click(screen.getByRole('button', { name: 'Undo GRN-0001' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '1111');
   expect(screen.getByRole('alert').textContent).toContain('PIN not accepted');
@@ -662,7 +654,7 @@ test('GRN by keyboard: Enter does the big button, Esc steps back one step', asyn
   const user = userEvent.setup();
   render(<InventoryView />);
   orderFlour(2);
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   expect(screen.getByText('Step 2 of 3 · Check each item')).toBeTruthy();
   await user.keyboard('{Enter}'); // ✓ All came
   expect(screen.getByText('Step 3 of 3 · Review')).toBeTruthy();
@@ -709,7 +701,7 @@ test('short + wait: the rest stays on order; the next GRN expects only what is l
   await user.keyboard('{Escape}');
 
   // Two GRNs stand against PO-0001: only the latest has an Undo.
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   expect(screen.getByText(/^Nothing on order/)).toBeTruthy(); // everything came: closed
   expect(screen.queryByRole('button', { name: 'Undo GRN-0001' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Undo GRN-0002' })).toBeTruthy();
@@ -758,7 +750,7 @@ test('a GRN older than the allowed hours has no Undo', async () => {
       supplierId: 'sup_prima', lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2, returned: 0 }], approvedBy: null,
     });
   });
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   expect(screen.getByRole('region', { name: 'Recent GRNs' })).toBeTruthy(); // the order is closed, so the sheet opens on the list
   expect(screen.getByText(/GRN \(pending\)|GRN-0001/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: /^Undo GRN/ })).toBeNull();
@@ -830,7 +822,7 @@ test('the owner, with his PIN, makes flour received in kg; the sheet and the pri
 
   // The GRN takes flour in kg: 2 packs ordered is 50 kg; 12.5 kg came, short, approved.
   orderFlour();
-  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await openGrn(user);
   expect(screen.getByRole('textbox', { name: 'kg of Pizza Flour' })).toHaveProperty('value', '50');
   await receive(user, '12.5', 'kg of Pizza Flour');
   await toReview(user);

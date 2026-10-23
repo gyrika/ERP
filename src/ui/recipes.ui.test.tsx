@@ -3,34 +3,28 @@ import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setMenuState } from '../domain/menu.ts';
 import { EMPTY_MENU_STATE } from '../domain/menuEdits.ts';
-import { FAKE_STAFF } from '../fake/data.ts';
 import { readAll } from './eventLog.ts';
-import { DOORS_MS, RECIPES_IDLE_MS } from './RecipesView.tsx';
 import { Root } from './Root.tsx';
-
-const pinFor = (role: string) => FAKE_STAFF.find((s) => s.actor.role === role)!.pin;
 
 beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/#recipes'); setMenuState(EMPTY_MENU_STATE); });
 afterEach(() => { cleanup(); vi.useRealTimers(); setMenuState(EMPTY_MENU_STATE); });
 
 const card = (name: string) => screen.getByText(name, { selector: '.rcard__name' }).closest('.rcard') as HTMLElement;
 
-const open = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.type(screen.getByLabelText('Owner PIN'), pinFor('owner'));
-  await screen.findByRole('heading', { name: 'Your recipes' });
+/** The recipes open for the owner as signed in: no PIN. */
+const open = async (_user?: ReturnType<typeof userEvent.setup>) => {
+  await screen.findByRole('heading', { name: /^(Recipes of the finished items|Semi-processed)$/ });
+};
+/** Items › another tab (the recipes are part of the items they make). */
+const toTab = async (_user: ReturnType<typeof userEvent.setup>, hash: string) => {
+  act(() => { location.hash = hash; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+  await open();
 };
 
-test('the recipes open only with the owner PIN, and the opening is recorded', async () => {
-  const user = userEvent.setup();
+test('the recipes open for the owner as signed in, with no PIN, and each opening is recorded', async () => {
   render(<Root />);
-  expect(screen.getByRole('heading', { name: 'CheesyBeez recipes' })).toBeTruthy();
-  expect(screen.queryByText('Margherita Medium')).toBeNull();
-
-  await user.type(screen.getByLabelText('Owner PIN'), pinFor('manager'));
-  expect((await screen.findByRole('alert')).textContent).toBe('Only the owner can open the recipes.');
-  expect(screen.queryByRole('heading', { name: 'Your recipes' })).toBeNull();
-
-  await open(user);
+  await open();
+  expect(screen.queryByLabelText('Owner PIN')).toBeNull();
   expect(readAll().at(-1)).toMatchObject({ type: 'recipe.viewed', actor: { role: 'owner' } });
   expect(screen.getByText(/of \d+ complete\. Until a recipe is complete/)).toBeTruthy();
 });
@@ -104,32 +98,12 @@ test('a gap shared by many recipes is asked once, at the top, and answering it m
   expect(top.getByRole('heading', { name: 'First, these · 3 to go' })).toBeTruthy();
 });
 
-test('a minute untouched locks the recipes again', async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-  render(<Root />);
-  await open(user);
-  act(() => { vi.advanceTimersByTime(RECIPES_IDLE_MS + 10); });
-  expect(screen.getByRole('heading', { name: 'CheesyBeez recipes' })).toBeTruthy();
-  expect(screen.queryByText('Margherita Medium')).toBeNull();
-});
-
-test('the right PIN opens the doors over the recipes, and they are gone in a moment', async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-  const { container } = render(<Root />);
-  expect(container.querySelector('.vault__scene')).toBeTruthy();
-  await open(user);
-  expect(container.querySelector('.vault__doors')).toBeTruthy();
-  expect(screen.getByText('Margherita Medium')).toBeTruthy();
-  act(() => { vi.advanceTimersByTime(DOORS_MS + 10); });
-  expect(container.querySelector('.vault__doors')).toBeNull();
-});
-
 test('the owner adds a semi-processed item; it is offered in every recipe and can be deleted while unused', async () => {
   const user = userEvent.setup();
+  history.replaceState(null, '', '/#items/semi');
   render(<Root />);
-  await open(user);
+  // Semi-processed items are items, not recipes: no PIN to see them.
+  expect(screen.queryByLabelText('Owner PIN')).toBeNull();
   expect(within(screen.getByRole('region', { name: 'Made in your kitchen' })).getByText('Pizza Sauce Batch')).toBeTruthy();
 
   await user.click(screen.getByRole('button', { name: 'New semi-processed item' }));
@@ -154,6 +128,7 @@ test('the owner adds a semi-processed item; it is offered in every recipe and ca
   expect(within(card('Syrup')).getByText(/^Makes 1,000 g · costs [\d,.]+ a batch$/)).toBeTruthy();
 
   // Offered in a dish's recipe, under what his kitchen makes, by its id.
+  await toTab(user, '#items/recipe');
   await user.click(within(card('Sausages Medium')).getByRole('button', { name: 'Write it' }));
   const dish = within(screen.getByRole('form', { name: 'Sausages Medium: recipe' }));
   await user.selectOptions(dish.getByRole('combobox', { name: 'Line 1: what goes in' }), 'Syrup');
@@ -161,6 +136,7 @@ test('the owner adds a semi-processed item; it is offered in every recipe and ca
   expect(dish.getByText('g', { selector: '.redit__unit' })).toBeTruthy();
   await user.click(dish.getByRole('button', { name: 'Cancel' }));
 
+  await toTab(user, '#items/semi');
   await user.click(within(card('Syrup')).getByRole('button', { name: /Syrup/ }));
   await user.click(within(card('Syrup')).getByRole('button', { name: 'Delete' }));
   expect(readAll().at(-1)).toMatchObject({ question: saved.question, after: null });
@@ -171,8 +147,8 @@ test('the owner adds a semi-processed item; it is offered in every recipe and ca
 
 test('a name his recipes use but nothing makes is offered first; saving it completes those dishes', async () => {
   const user = userEvent.setup();
+  history.replaceState(null, '', '/#items/semi');
   render(<Root />);
-  await open(user);
   await user.click(screen.getByRole('button', { name: 'New semi-processed item' }));
   const form = within(screen.getByRole('form', { name: 'New semi-processed item' }));
   await user.click(form.getByRole('button', { name: 'Fried Chicken Cubes · 6 dishes' }));
@@ -186,5 +162,6 @@ test('a name his recipes use but nothing makes is offered first; saving it compl
   await user.click(within(card('Fried Chicken Cubes')).getByRole('button', { name: /Fried Chicken Cubes/ }));
   expect(within(card('Fried Chicken Cubes')).getByText('Added here · in 6 recipes')).toBeTruthy();
   expect(within(card('Fried Chicken Cubes')).queryByRole('button', { name: 'Delete' })).toBeNull();
+  await toTab(user, '#items/recipe');
   expect(card('BBQ Chicken Medium').querySelector('.rcard__status')!.textContent).not.toMatch(/Fried Chicken Cubes/);
 });

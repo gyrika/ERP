@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { addEvents, readAll } from './eventLog.ts';
 import { InventoryView } from './InventoryView.tsx';
+import { ManagerView } from './ManagerView.tsx';
 import type { SyncEvent } from '../domain/sync.ts';
 
 // Count day (SCRUM-89): blind count, units, reasons for a gap.
@@ -22,10 +23,8 @@ const openCount = async (user: ReturnType<typeof userEvent.setup>, name: string)
 
 test("today's count lists what is due; a first count sets the starting amount", async () => {
   const user = userEvent.setup();
-  render(<InventoryView />);
-  const count = screen.getByRole('button', { name: /^Count \(\d+ due\)$/ });
-  expect(count.textContent).toMatch(/\d+ due today/);
-  await user.click(count);
+  render(<ManagerView />); // Count, in the menu
+  await user.click(screen.getByRole('button', { name: /^Count all \d+ due$/ }));
 
   const form = within(screen.getByRole('form', { name: /^Count / }));
   expect(form.getByText(/1 of \d+ · \w+ · first count/)).toBeTruthy();
