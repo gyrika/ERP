@@ -247,6 +247,8 @@ export const stockFromEvents = (
       if (shelf) shelf.onHandBaseUnits -= sign * qtyBaseUnits;
     }
   };
+  /** What each GRN put on the shelves, for its Undo. */
+  const grnMoved = new Map<string, { itemId: string; qty: number }[]>();
   /** What each sent line took from stock, by line id. */
   const taken = new Map<string, RecipeLine[]>();
   /** When each line was sent, for the daily rate. */
@@ -295,6 +297,29 @@ export const stockFromEvents = (
         shelf.counted = true;
         if (e.reason === 'audit') countedAt.set(e.itemId, e.at);
         shelf.onHandBaseUnits += e.deltaPacks * shelf.item.packQty;
+        break;
+      }
+      case 'stock.grn': {
+        // A GRN is its own stock movement: what it accepted goes in, in one record, so the
+        // note and its stock can never disagree. Older notes (no accepted) used separate movements.
+        const moved: { itemId: string; qty: number }[] = [];
+        for (const l of e.lines) {
+          const shelf = shelves.get(l.itemId);
+          if (!shelf || l.accepted === undefined || !(l.accepted > 0)) continue;
+          const qty = l.accepted * shelf.item.packQty;
+          shelf.counted = true;
+          shelf.onHandBaseUnits += qty;
+          moved.push({ itemId: l.itemId, qty });
+        }
+        grnMoved.set(e.id, moved);
+        break;
+      }
+      case 'stock.grn_undone': {
+        for (const m of grnMoved.get(e.grnId) ?? []) {
+          const shelf = shelves.get(m.itemId);
+          if (shelf) shelf.onHandBaseUnits -= m.qty; // GRN_UNDO: exactly what that GRN added
+        }
+        grnMoved.delete(e.grnId);
         break;
       }
       case 'stock.movement': {

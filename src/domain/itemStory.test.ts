@@ -61,3 +61,13 @@ test('a GRN shows as a delivery in packs, and its GRN_UNDO cancels it', () => {
   assert.deepEqual(itemHistory(events, 'inv-0006', 25000).map((h) => h.kind === 'delivery' && h.packs), [2]);
   assert.deepEqual(itemHistory(events, 'inv-0006'), [], 'without the pack size it cannot say packs');
 });
+
+test('a GRN shows as a delivery of what it accepted; its undo takes it off the list; other items are not touched', () => {
+  const grn: SyncEvent = { ...base, id: 'g1', at: 1, type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'po', supplierId: 's', lines: [
+    { itemId: 'inv-0006', ordered: 3, received: 3, accepted: 2, returned: 1 }, { itemId: 'inv-0001', ordered: 1, received: 1, accepted: 1 }], approvedBy: null };
+  const undo: SyncEvent = { ...base, id: 'u', at: 2, type: 'stock.grn_undone', grnId: 'g1', reason: 'Wrong amounts', approvedBy: actor };
+  assert.deepEqual(itemHistory([grn], 'inv-0006').map((h) => h.kind === 'delivery' && h.packs), [2]);
+  assert.deepEqual(itemHistory([grn], 'inv-0001').map((h) => h.kind === 'delivery' && h.packs), [1]);
+  assert.deepEqual(itemHistory([grn, undo], 'inv-0006'), []);
+  assert.equal(itemStory([grn], 'inv-0006').lastDelivery?.packs, 2);
+});

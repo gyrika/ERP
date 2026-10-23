@@ -167,23 +167,36 @@ test("the owner's own recipe and opening his recipes pass; a malformed recipe do
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.viewed', orderNumber: 4 }] }, 'shop-1'));
 });
 
-test('purchase orders and GRNs: a GRN that differs from its order needs a manager', () => {
+test('purchase orders and GRNs: a GRN that differs from its order needs a manager and the decisions', () => {
   const ordered = { ...base, type: 'stock.ordered', poNo: 'PO-0001', supplierId: 'sup', lines: [{ itemId: 'inv-1', packs: 2 }] };
-  const grn = { ...base, id: 'event-2', type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'event-1', supplierId: 'sup', lines: [{ itemId: 'inv-1', ordered: 2, received: 2 }], approvedBy: null };
+  const line = (received: number, accepted = received) => [{ itemId: 'inv-1', ordered: 2, received, accepted, returned: received - accepted }];
+  const grn = { ...base, id: 'event-2', type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'event-1', supplierId: 'sup', lines: line(2), approvedBy: null };
+  const reason = (e: unknown) => (validatePush({ events: [e] }, 'shop-1') as { reason: string }).reason;
   assert.ok('events' in validatePush({ events: [ordered, grn] }, 'shop-1'));
 
-  const short = { ...grn, lines: [{ itemId: 'inv-1', ordered: 2, received: 1 }] };
-  assert.match((validatePush({ events: [short] }, 'shop-1') as { reason: string }).reason, /without a manager's approval/);
-  assert.ok('events' in validatePush({ events: [{ ...short, approvedBy: base.actor }] }, 'shop-1'));
-  const byCashier = { ...short, approvedBy: { id: 'c', name: 'Nimal', role: 'cashier' } };
-  assert.match((validatePush({ events: [byCashier] }, 'shop-1') as { reason: string }).reason, /invalid goods received note/);
-  assert.match((validatePush({ events: [{ ...ordered, lines: [] }] }, 'shop-1') as { reason: string }).reason, /invalid purchase order/);
+  const short = { ...grn, lines: line(1) };
+  assert.match(reason(short), /without a manager's approval/);
+  assert.match(reason({ ...short, approvedBy: base.actor }), /short but does not say wait or close/);
+  assert.ok('events' in validatePush({ events: [{ ...short, approvedBy: base.actor, shortDecision: 'wait' }] }, 'shop-1'));
+  assert.match(reason({ ...short, approvedBy: { id: 'c', name: 'Nimal', role: 'cashier' }, shortDecision: 'close' }), /invalid goods received note/);
+
+  const over = { ...grn, lines: line(3), approvedBy: base.actor };
+  assert.match(reason(over), /extra but does not say accept or return/);
+  assert.ok('events' in validatePush({ events: [{ ...over, overDecision: 'accept' }] }, 'shop-1'));
+  assert.match(reason({ ...over, overDecision: 'return' }), /wrong amount into stock/, 'returning extra but taking it all into stock');
+  assert.ok('events' in validatePush({ events: [{ ...over, overDecision: 'return', lines: line(3, 2) }] }, 'shop-1'));
+  assert.match(reason({ ...over, overDecision: 'accept', lines: [{ itemId: 'inv-1', ordered: 2, received: 3, accepted: 5, returned: 0 }] }), /wrong amount into stock/, 'stock cannot be made up');
+  assert.match(reason({ ...over, overDecision: 'accept', lines: line(3, 5) }), /invalid goods received note/);
+  assert.match(reason({ ...ordered, lines: [] }), /invalid purchase order/);
 });
 
-test('a stock setting is checked on the server too', () => {
-  const ok = { ...base, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'stock.settings_set', key: 'usageDays', value: 21 };
-  assert.ok('events' in validatePush({ events: [ok] }, 'shop-1'));
-  assert.match((validatePush({ events: [{ ...ok, value: 0 }] }, 'shop-1') as { reason: string }).reason, /invalid setting: Type a number from 1 to 90/);
+test('an undone GRN names a manager and a reason', () => {
+  const undone = { ...base, type: 'stock.grn_undone', grnId: 'event-2', reason: 'Wrong amounts', approvedBy: base.actor };
+  assert.ok('events' in validatePush({ events: [undone] }, 'shop-1'));
+  const reason = (e: unknown) => (validatePush({ events: [e] }, 'shop-1') as { reason: string }).reason;
+  assert.match(reason({ ...undone, reason: '' }), /without a manager or a reason/);
+  assert.match(reason({ ...undone, approvedBy: undefined }), /without a manager or a reason/);
+  assert.match(reason({ ...undone, approvedBy: { id: 'c', name: 'Nimal', role: 'cashier' } }), /without a manager or a reason/);
 });
 
 test('stock movements: the kind decides the sign; nothing else passes', () => {

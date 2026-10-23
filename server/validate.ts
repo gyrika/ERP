@@ -145,22 +145,36 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'stock.order_reopened' && !shortString(e.orderId)) return { reason: `event ${e.id} has an invalid order id` };
     if (e.type === 'stock.grn') {
       const by = e.approvedBy;
+      const lines = e.lines;
       if (
-        !shortString(e.grnNo, 20) || !shortString(e.orderId) || !shortString(e.supplierId) || !Array.isArray(e.lines) || e.lines.length > 200 ||
-        !e.lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received)) ||
+        !shortString(e.grnNo, 20) || !shortString(e.orderId) || !shortString(e.supplierId) || !Array.isArray(lines) || lines.length > 200 ||
+        !lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received) && (l.accepted === undefined || packs(l.accepted)) && (l.returned === undefined || packs(l.returned))) ||
         !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) ||
-        !(e.shortDecision === undefined || e.shortDecision === 'wait' || e.shortDecision === 'close')
+        !(e.shortDecision === undefined || e.shortDecision === 'wait' || e.shortDecision === 'close') ||
+        !(e.overDecision === undefined || e.overDecision === 'accept' || e.overDecision === 'return')
       ) return { reason: `event ${e.id} has an invalid goods received note` };
-      // A delivery that differs from its order needs a manager's approval.
-      if (by === null && e.lines.some((l) => isObj(l) && l.received !== l.ordered)) {
-        return { reason: `event ${e.id} differs from its order without a manager's approval` };
+      const rows = lines as { ordered: number; received: number; accepted?: number; returned?: number }[];
+      // A delivery that differs from its order needs a manager's approval and the decisions.
+      if (by === null && rows.some((l) => l.received !== l.ordered)) return { reason: `event ${e.id} differs from its order without a manager's approval` };
+      if (rows.some((l) => l.received < l.ordered) && e.shortDecision === undefined) return { reason: `event ${e.id} is short but does not say wait or close` };
+      if (rows.some((l) => l.received > l.ordered) && e.overDecision === undefined) return { reason: `event ${e.id} has extra but does not say accept or return` };
+      // The stock a GRN puts in is worked out from accepted: it must be exactly what the decisions allow.
+      for (const l of rows) {
+        if (l.accepted === undefined) continue;
+        const accepted = l.received > l.ordered && e.overDecision === 'return' ? l.ordered : l.received;
+        if (Math.abs(l.accepted - accepted) > 1e-6 || Math.abs((l.returned ?? 0) - (l.received - accepted)) > 1e-6) return { reason: `event ${e.id} puts the wrong amount into stock` };
       }
     }
     if (e.type === 'stock.settings_set') {
       const why = checkStockSetting(e.key, e.value);
       if (why) return { reason: `event ${e.id} has an invalid setting: ${why}` };
     }
-    if (e.type === 'stock.grn_undone' && !shortString(e.grnId)) return { reason: `event ${e.id} has an invalid GRN id` };
+    if (e.type === 'stock.grn_undone') {
+      const by = e.approvedBy;
+      if (!shortString(e.grnId) || !shortString(e.reason, 200) || !(isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) {
+        return { reason: `event ${e.id} undoes a GRN without a manager or a reason` };
+      }
+    }
     if (e.type === 'stock.receive_unit_set' && (!shortString(e.itemId) || !isUnitId(e.unit))) {
       return { reason: `event ${e.id} has an invalid receiving unit` };
     }

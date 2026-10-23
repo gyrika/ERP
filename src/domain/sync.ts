@@ -87,9 +87,9 @@ export type StockEvent =
    * 'receive' adjustments; this is the record, closing the order. approvedBy: the manager
    * whose PIN let a short or over delivery in.
    */
-  | (StockBase & { type: 'stock.grn'; grnNo: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null; shortDecision?: 'wait' | 'close' })
-  /** A GRN taken back (Undo): its order is open again. */
-  | (StockBase & { type: 'stock.grn_undone'; grnId: string })
+  | (StockBase & { type: 'stock.grn'; grnNo: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null; shortDecision?: 'wait' | 'close'; overDecision?: 'accept' | 'return' })
+  /** A GRN taken back by a manager, with why: its stock comes off and its order goes back. The GRN stays, marked undone. */
+  | (StockBase & { type: 'stock.grn_undone'; grnId: string; reason?: string; approvedBy?: Actor })
   /** One stock movement, in base units (g, ml, pcs, sheets); docId: the GRN or count it belongs to. */
   | (StockItemBase & { type: 'stock.movement'; kind: MovementKind; qtyBase: number; docId: string })
   /** The owner changes one of the stock rules' numbers (stockSettings.ts). */
@@ -104,7 +104,12 @@ export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
 /** stockQty: the packs in base units (2 packs of 25 kg = 25000 g × 2); older orders have none. */
 export interface PoLine { itemId: string; packs: number; stockQty?: number }
-export interface GrnLine { itemId: string; ordered: number; received: number }
+/**
+ * ordered: what was still owed when it came; received: what came; accepted: what went into
+ * stock (the stock movement is worked out from this); returned: the extra sent back.
+ * Older notes have no accepted: their stock was written as separate movements.
+ */
+export interface GrnLine { itemId: string; ordered: number; received: number; accepted?: number; returned?: number }
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
 export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | RecipeEvent;

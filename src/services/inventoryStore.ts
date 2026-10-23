@@ -14,7 +14,7 @@ import { useShopEvents } from './ownerData.ts';
 import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } from '../domain/itemStory.ts';
 import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
-import { grnNumber, mergeLines, poNumber, purchasesFromEvents, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import { grnNumber, grnProblem, mergeLines, poNumber, purchasesFromEvents, settleGrn, undoCheck, type GrnDecisions, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 
@@ -328,30 +328,37 @@ export const cancelOrder = (orderId: string, reason: string): (() => void) => {
 };
 
 /**
- * Goods received against an order (GRN): stock in per line ('receive' adjustments) and
- * the GRN record, which closes the order. approvedBy: the manager who let a difference in.
- * Returns the GRN number and one Undo for all of it (the order opens again).
+ * Goods received against an order (GRN): ONE record that carries what was owed, what came,
+ * what went into stock and what was returned, the manager's approval and decisions. The
+ * stock movement is worked out from it, so a GRN either happens whole or not at all.
+ * Returns the GRN, or why it is not allowed (`grnProblem`).
  */
 export const receiveGoods = (
-  order: PurchaseOrder, rows: InventoryRow[], lines: GrnLine[], approvedBy: Actor | null, grnCount: number,
-): { grnNo: string; undo: () => void } => {
+  order: PurchaseOrder, lines: GrnLine[], decisions: GrnDecisions, approvedBy: Actor | null, grnCount: number,
+): { grnNo: string; id: string } | string => {
+  const why = grnProblem(order, lines, decisions, approvedBy);
+  if (why) return why;
+  const settled = settleGrn(lines, decisions.over);
   const grnNo = grnNumber(Math.max(grnCount, purchasesFromEvents(readAll()).grnCount) + 1);
   const e = appendEvent({
     type: 'stock.grn', at: Date.now(), orderNumber: 0, actor: currentCashier(),
-    grnNo, orderId: order.id, supplierId: order.supplierId, lines, approvedBy,
+    grnNo, orderId: order.id, supplierId: order.supplierId, lines: settled, approvedBy,
+    ...(decisions.short ? { shortDecision: decisions.short } : {}), ...(decisions.over ? { overDecision: decisions.over } : {}),
   });
-  const moved = lines.flatMap((l) => {
-    const row = rows.find((r) => r.id === l.itemId);
-    const qty = row ? l.received * row.packQty : 0;
-    return row && qty > 0 && addStockMovement('GRN', row.id, qty, e.id) ? [{ id: row.id, qty }] : [];
-  });
-  return {
-    grnNo,
-    undo: () => {
-      moved.forEach((m) => addStockMovement('GRN_UNDO', m.id, -m.qty, e.id));
-      appendEvent({ type: 'stock.grn_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), grnId: e.id });
-    },
-  };
+  return { grnNo, id: e.id };
+};
+
+/**
+ * Takes a GRN back: only the latest of its order, within the allowed hours, by a manager
+ * (their PIN, checked by the screen), with a reason. Its stock comes off exactly; the
+ * order goes back to what it was; the GRN stays on record, marked undone.
+ */
+export const undoGrn = (purchases: PurchaseState, grnId: string, reason: string, manager: Actor, hours: number): string | null => {
+  const why = undoCheck(purchases, grnId, Date.now(), hours);
+  if (why) return why;
+  if (!reason.trim()) return 'Say why it is being undone.';
+  appendEvent({ type: 'stock.grn_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), grnId, reason: reason.trim(), approvedBy: manager });
+  return null;
 };
 
 /** Every standing shelf count, oldest first (the Manager page's progress). */

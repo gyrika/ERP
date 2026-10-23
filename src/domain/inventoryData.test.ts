@@ -335,3 +335,21 @@ test('stock movements: GRN in, GRN_UNDO out, COUNT_ADJUST either way; the shelf 
   assert.equal(row([move('a', 'GRN', 100)]).lastCountedAt, null, 'a delivery is not');
   assert.equal(inventoryFromEvents(SEED_INVENTORY, [{ ...move('z', 'GRN', 5), itemId: 'gone' }]).length, SEED_INVENTORY.length);
 });
+
+test('a GRN is its own stock movement: what it accepted goes in, its undo takes exactly that off; older notes add nothing here', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const flour = SEED_INVENTORY[0].id; // 25 kg packs
+  const grn = (id: string, lines: { itemId: string; ordered: number; received: number; accepted?: number }[]) =>
+    ({ ...base, id, type: 'stock.grn' as const, grnNo: id, orderId: 'po', supplierId: 's', lines, approvedBy: null });
+  const row = (events: Parameters<typeof inventoryFromEvents>[1]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === flour)!;
+
+  const got = row([grn('g1', [{ itemId: flour, ordered: 3, received: 3, accepted: 2 }])]);
+  assert.equal(got.onHandBaseUnits, 2 * SEED_INVENTORY[0].packQty, 'accepted, not received (1 pack was returned)');
+  assert.equal(got.counted, true, 'received counts as known');
+  const undone = row([grn('g1', [{ itemId: flour, ordered: 2, received: 2, accepted: 2 }]), { ...base, id: 'u', type: 'stock.grn_undone', grnId: 'g1', reason: 'Entered by mistake', approvedBy: actor }]);
+  assert.equal(undone.onHandBaseUnits, 0, 'exactly what that GRN added');
+  assert.equal(undone.counted, true);
+  assert.equal(row([grn('old', [{ itemId: flour, ordered: 2, received: 2 }])]).onHandBaseUnits, 0, 'a note from before has no accepted: its stock was separate movements');
+  assert.equal(row([{ ...base, id: 'u2', type: 'stock.grn_undone', grnId: 'nope', reason: 'x', approvedBy: actor }]).onHandBaseUnits, 0);
+});

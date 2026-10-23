@@ -5,6 +5,7 @@ import {
   restoreInventoryItem,
   useInventory,
   usePurchases,
+  useStockSettings,
   type StockStatus,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
@@ -55,9 +56,10 @@ export function InventoryView({
   const [delivery, setDelivery] = useState(false);
   const [ordering, setOrdering] = useState(false);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
-  const [done, setDone] = useState<{ message: string; undo: () => void } | null>(null);
+  const [done, setDone] = useState<{ message: string; undo?: () => void } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
   const purchases = usePurchases();
+  const settings = useStockSettings();
   const coming = useMemo(() => {
     const packs = onOrder(purchases.open);
     const po = new Map<string, string>();
@@ -131,7 +133,7 @@ export function InventoryView({
       {done && !archived && !error && (
         <div className="inv-notice" role="status">
           {done.message}
-          <button type="button" onClick={() => { done.undo(); setDone(null); }}>Undo</button>
+          {done.undo && <button type="button" onClick={() => { done.undo?.(); setDone(null); }}>Undo</button>}
         </div>
       )}
 
@@ -237,7 +239,7 @@ export function InventoryView({
         />
       )}
       {delivery && (
-        <GoodsReceivingSheet items={items} suppliers={suppliers} purchases={purchases} onClose={() => setDelivery(false)} onDone={(message, undo) => setDone({ message, undo })} />
+        <GoodsReceivingSheet items={items} suppliers={suppliers} purchases={purchases} settings={settings} onClose={() => setDelivery(false)} onDone={(message) => setDone({ message })} />
       )}
       {ordering && (
         <OrderSheet items={items} suppliers={suppliers} purchases={purchases} onClose={() => setOrdering(false)} onDone={(message, undo) => setDone({ message, undo })} />

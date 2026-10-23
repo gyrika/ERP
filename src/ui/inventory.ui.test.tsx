@@ -366,19 +366,31 @@ test('Goods receiving offers only open orders and only what was ordered; as orde
 
   expect(screen.getByRole('status').textContent).toMatch(/^GRN-0001 from .* saved\./);
   const grn = readAll().find((e) => e.type === 'stock.grn')!;
-  expect(grn).toMatchObject({ type: 'stock.grn', grnNo: 'GRN-0001', approvedBy: null, lines: [{ itemId: 'inv-0001', ordered: 2, received: 2 }] });
-  // Its stock is one movement that points back at it.
-  expect(readAll().filter((e) => e.type === 'stock.movement')).toMatchObject([{ kind: 'GRN', itemId: 'inv-0001', qtyBase: 50000, docId: grn.id }]);
+  // One record carries what was owed, what came and what went into stock; no separate movement.
+  expect(grn).toMatchObject({ type: 'stock.grn', grnNo: 'GRN-0001', approvedBy: null, lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2, returned: 0 }] });
+  expect(readAll().some((e) => e.type === 'stock.movement')).toBe(false);
   expect(amount()).toContain('2 packs · 50 kg');
   await user.click(screen.getByRole('button', { name: 'GRN' }));
   expect(screen.getByText(/^Nothing on order/)).toBeTruthy(); // the order is closed
   await user.keyboard('{Escape}');
 
-  await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(amount()).toContain('Empty');
-  expect(readAll().filter((e) => e.type === 'stock.movement').map((e) => (e as { kind: string }).kind)).toEqual(['GRN', 'GRN_UNDO']);
+  // Undo: a manager's PIN (a cashier's is refused), then why. The GRN stays listed, marked undone.
   await user.click(screen.getByRole('button', { name: 'GRN' }));
-  expect(screen.getByRole('dialog', { name: /PO-0001$/ })).toBeTruthy(); // open again
+  await user.click(screen.getByRole('button', { name: 'Undo GRN-0001' }));
+  await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '1111');
+  expect(screen.getByRole('alert').textContent).toContain('PIN not accepted');
+  await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  expect(readAll().some((e) => e.type === 'stock.grn_undone')).toBe(false); // the PIN alone undoes nothing
+  await user.click(within(screen.getByRole('group', { name: 'Reason' })).getByRole('button', { name: 'Entered by mistake' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.grn_undone', grnId: grn.id, reason: 'Entered by mistake', approvedBy: { name: 'Ravi', role: 'manager' } });
+  await user.keyboard('{Escape}');
+  expect(amount()).toContain('Empty');
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await user.click(screen.getByRole('button', { name: 'Recent GRNs' })); // one open order: straight into it; the list is a tap away
+  expect(screen.getByText(/· Undone: Entered by mistake/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Undo GRN-0001' })).toBeNull(); // once
+  await user.click(screen.getByRole('button', { name: /PO-0001 · expected/ })); // the order is open again
+  expect(screen.getByRole('dialog', { name: /PO-0001$/ })).toBeTruthy();
 });
 
 test('a short delivery shows as short and needs a manager PIN; a wrong PIN saves nothing', async () => {
@@ -411,14 +423,76 @@ test('a short delivery shows as short and needs a manager PIN; a wrong PIN saves
   // Approve: saved with the approver on the record, never on the screen; back to the GRN list.
   await user.click(screen.getByRole('button', { name: 'Manager approves' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  // The manager must choose what happens to the short line before Approve works.
+  expect(screen.getByRole('button', { name: 'Approve' })).toHaveProperty('disabled', true);
+  await user.click(within(screen.getByRole('group', { name: 'Short lines' })).getByRole('button', { name: 'Close order' }));
   await user.click(screen.getByRole('button', { name: 'Approve' }));
-  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ approvedBy: { name: 'Ravi', role: 'manager' }, lines: [{ ordered: 2, received: 1 }] });
+  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ approvedBy: { name: 'Ravi', role: 'manager' }, shortDecision: 'close', lines: [{ ordered: 2, received: 1, accepted: 1 }] });
   const grn = screen.getByRole('dialog', { name: 'GRN' });
   expect(within(grn).getByText(/^Nothing on order/)).toBeTruthy();
   expect(within(grn).getByRole('status').textContent).toBe('GRN-0001 from Prima / David Stores (Wholesale) saved, approved by a manager.Undo');
   expect(document.body.textContent).not.toContain('Ravi');
   await user.keyboard('{Escape}');
   expect(amount()).toContain('1 pack');
+});
+
+test('Received everything fills every line with what is still owed', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour(3);
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  const field = screen.getByRole('textbox', { name: 'Packs of Pizza Flour' });
+  await user.clear(field);
+  await user.type(field, '1');
+  expect(screen.getByRole('button', { name: 'Manager approves' })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Received everything' }));
+  expect(field).toHaveProperty('value', '3');
+  expect(screen.getByRole('button', { name: 'Save GRN' })).toBeTruthy();
+});
+
+test('short + wait: the rest stays on order; the next GRN expects only what is left; only the latest GRN can be undone', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour(4);
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  const field = screen.getByRole('textbox', { name: 'Packs of Pizza Flour' });
+  await user.clear(field);
+  await user.type(field, '1');
+  await user.click(screen.getByRole('button', { name: 'Manager approves' }));
+  await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  await user.click(screen.getByRole('button', { name: 'Wait for the rest' }));
+  await user.click(screen.getByRole('button', { name: 'Approve' }));
+  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ shortDecision: 'wait', lines: [{ ordered: 4, received: 1, accepted: 1 }] });
+
+  // Still on the list, now Partly received; the rest (3) is what the next GRN expects.
+  await user.click(screen.getByRole('button', { name: /PO-0001 · expected .* · partly received/ }));
+  expect(screen.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
+  expect(screen.getByText('expected 3 packs')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Save GRN' }));
+  expect(amount()).toContain('4 packs · 100 kg');
+  expect(screen.getByText(/^Nothing on order/)).toBeTruthy(); // everything came: closed
+
+  // Two GRNs stand against PO-0001: only the latest has an Undo.
+  expect(screen.queryByRole('button', { name: 'Undo GRN-0001' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Undo GRN-0002' })).toBeTruthy();
+});
+
+test('over + return: only what was owed goes into stock, the extra is recorded as returned', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour(2);
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  const field = screen.getByRole('textbox', { name: 'Packs of Pizza Flour' });
+  await user.clear(field);
+  await user.type(field, '3');
+  await user.click(screen.getByRole('button', { name: 'Manager approves' }));
+  await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  expect(screen.getByRole('button', { name: 'Approve' })).toHaveProperty('disabled', true);
+  await user.click(within(screen.getByRole('group', { name: 'Extra lines' })).getByRole('button', { name: 'Return extra' }));
+  await user.click(screen.getByRole('button', { name: 'Approve' }));
+  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ overDecision: 'return', lines: [{ ordered: 2, received: 3, accepted: 2, returned: 1 }] });
+  await user.keyboard('{Escape}');
+  expect(amount()).toContain('2 packs · 50 kg');
 });
 
 test('more than ordered shows as over', async () => {
@@ -496,9 +570,10 @@ test('the owner, with his PIN, makes flour received in kg; the sheet and the pri
   await user.type(field, '12.5');
   await user.click(screen.getByRole('button', { name: 'Manager approves' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  await user.click(screen.getByRole('button', { name: 'Close order' }));
   await user.click(screen.getByRole('button', { name: 'Approve' }));
   await user.keyboard('{Escape}');
-  expect(readAll().find((e) => e.type === 'stock.movement')).toMatchObject({ kind: 'GRN', qtyBase: 12500 });
+  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ lines: [{ ordered: 2, received: 0.5, accepted: 0.5 }] });
   expect(amount()).toContain('½ pack · 12.5 kg');
 });
 

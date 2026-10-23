@@ -35,7 +35,24 @@ export interface PurchaseOrder {
   cancelReason: string | null;
 }
 
+/** A GRN as the screens list it: it stays on record when undone. */
+export interface PurchaseGrn {
+  id: string;
+  grnNo: string;
+  orderId: string;
+  poNo: string;
+  supplierId: string;
+  at: number;
+  lines: GrnLine[];
+  shortDecision: 'wait' | 'close' | null;
+  overDecision: 'accept' | 'return' | null;
+  /** Taken back: when, and why. */
+  undone: { at: number; reason: string } | null;
+}
+
 export interface PurchaseState {
+  /** Every GRN, newest first (undone ones marked). */
+  grns: PurchaseGrn[];
   /** Orders still awaiting goods: Open and Partly received, oldest first. */
   open: PurchaseOrder[];
   /** Every order, with its status. */
@@ -71,8 +88,8 @@ export const mergeLines = (lines: readonly PoLine[]): PoLine[] => {
 export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick<StockSettings, 'leadSamples'> = STOCK_DEFAULTS): PurchaseState => {
   interface Doc { id: string; poNo: string; supplierId: string; lines: PoLine[]; at: number; actor: Actor; cancelled: string | null }
   const docs = new Map<string, Doc>();
-  const grns = new Map<string, { orderId: string; supplierId: string; at: number; lines: GrnLine[]; closes: boolean }>();
-  const undone = new Set<string>();
+  const grns = new Map<string, { id: string; grnNo: string; orderId: string; supplierId: string; at: number; lines: GrnLine[]; closes: boolean; shortDecision: 'wait' | 'close' | null; overDecision: 'accept' | 'return' | null }>();
+  const undone = new Map<string, { at: number; reason: string }>();
   /** Live GRNs per order, as the events arrive: an edit or cancel after one is ignored. */
   const live = new Map<string, Set<string>>();
   let poCount = 0;
@@ -92,16 +109,16 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
       if (d) d.cancelled = null;
     } else if (e.type === 'stock.grn') {
       grnCount++;
-      grns.set(e.id, { orderId: e.orderId, supplierId: e.supplierId, at: e.at, lines: e.lines, closes: e.shortDecision !== 'wait' });
+      grns.set(e.id, { id: e.id, grnNo: e.grnNo, orderId: e.orderId, supplierId: e.supplierId, at: e.at, lines: e.lines, closes: e.shortDecision !== 'wait', shortDecision: e.shortDecision ?? null, overDecision: e.overDecision ?? null });
       live.set(e.orderId, (live.get(e.orderId) ?? new Set()).add(e.id));
     } else if (e.type === 'stock.grn_undone') {
-      undone.add(e.grnId);
+      undone.set(e.grnId, { at: e.at, reason: e.reason ?? '' });
       const g = grns.get(e.grnId);
       if (g) live.get(g.orderId)?.delete(e.grnId);
     }
   }
 
-  const standing = [...grns.entries()].filter(([id]) => !undone.has(id)).map(([, g]) => g).sort((a, b) => a.at - b.at);
+  const standing = [...grns.values()].filter((g) => !undone.has(g.id)).sort((a, b) => a.at - b.at);
   const leadSamples = new Map<string, number[]>();
   const lastSupplier = new Map<string, string>();
   const receivedBy = new Map<string, Map<string, number>>();
@@ -117,7 +134,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
     const got = receivedBy.get(g.orderId) ?? new Map<string, number>();
     for (const l of g.lines) {
       if (l.received > 0) lastSupplier.set(l.itemId, g.supplierId);
-      got.set(l.itemId, round3((got.get(l.itemId) ?? 0) + l.received));
+      got.set(l.itemId, round3((got.get(l.itemId) ?? 0) + (l.accepted ?? l.received)));
     }
     receivedBy.set(g.orderId, got);
     lastCloses.set(g.orderId, g.closes);
@@ -137,7 +154,13 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
     return { id: d.id, poNo: d.poNo, supplierId: d.supplierId, lines, at: d.at, actor: d.actor, status, editable: !hasGrn && d.cancelled === null, cancelReason: d.cancelled };
   });
 
-  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, poCount, grnCount, leadDays, lastSupplier };
+  const poNoOf = new Map(orders.map((o) => [o.id, o.poNo]));
+  const grnList = [...grns.values()].sort((a, b) => b.at - a.at).map((g): PurchaseGrn => ({
+    id: g.id, grnNo: g.grnNo, orderId: g.orderId, poNo: poNoOf.get(g.orderId) ?? '', supplierId: g.supplierId, at: g.at, lines: g.lines,
+    shortDecision: g.shortDecision, overDecision: g.overDecision, undone: undone.get(g.id) ?? null,
+  }));
+
+  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, poCount, grnCount, leadDays, lastSupplier };
 };
 
 /** Packs of each item still owed on open orders: they are already coming. */
@@ -178,11 +201,69 @@ export const planOrder = (open: readonly PurchaseOrder[], supplierId: string, li
 export type Match = 'ok' | 'short' | 'over';
 export interface CheckedLine extends GrnLine { match: Match; diff: number }
 
-/** What came against what was ordered, line by line (in packs); any difference needs a manager. */
-export const compareDelivery = (lines: readonly GrnLine[]): { lines: CheckedLine[]; needsApproval: boolean } => {
+/** What came against what was still owed, line by line (in packs); any difference needs a manager. */
+export const compareDelivery = (lines: readonly GrnLine[]): { lines: CheckedLine[]; needsApproval: boolean; hasShort: boolean; hasOver: boolean } => {
   const checked = lines.map((l) => {
-    const diff = Math.round((l.received - l.ordered) * 1000) / 1000;
+    const diff = round3(l.received - l.ordered);
     return { ...l, diff, match: diff === 0 ? 'ok' : diff < 0 ? 'short' : 'over' } as CheckedLine;
   });
-  return { lines: checked, needsApproval: checked.some((l) => l.match !== 'ok') };
+  return {
+    lines: checked, needsApproval: checked.some((l) => l.match !== 'ok'),
+    hasShort: checked.some((l) => l.match === 'short'), hasOver: checked.some((l) => l.match === 'over'),
+  };
 };
+
+/**
+ * What goes into stock. Extra that came: "accept" takes what came; "return" takes only what
+ * was owed and records the rest as returned. A short line takes what came.
+ */
+export const settleGrn = (lines: readonly GrnLine[], overDecision: 'accept' | 'return' | null): GrnLine[] =>
+  lines.map((l) => {
+    const over = l.received > l.ordered;
+    const accepted = over && overDecision === 'return' ? l.ordered : l.received;
+    return { itemId: l.itemId, ordered: l.ordered, received: l.received, accepted, returned: round3(l.received - accepted) };
+  });
+
+/** The delivery date the GRN list shows: placed on + the supplier's delivery time. */
+export const expectedBy = (order: Pick<PurchaseOrder, 'at' | 'supplierId'>, leadDays: ReadonlyMap<string, number>, defaultLeadDays: number): number =>
+  order.at + Math.ceil(leadDays.get(order.supplierId) ?? defaultLeadDays) * DAY;
+
+/**
+ * Can this GRN be undone now? null: yes. Otherwise why not, in plain words. Only the
+ * latest GRN of an order, only within the allowed hours; once.
+ */
+export const undoCheck = (state: Pick<PurchaseState, 'grns'>, grnId: string, now: number, hours: number): string | null => {
+  const g = state.grns.find((x) => x.id === grnId);
+  if (!g) return 'That GRN is not here.';
+  if (g.undone) return `${g.grnNo} was already undone.`;
+  const latest = state.grns.find((x) => x.orderId === g.orderId && !x.undone);
+  if (latest?.id !== g.id) return `Only the latest GRN of ${g.poNo} can be undone. Undo ${latest?.grnNo ?? 'the later one'} first.`;
+  if (now - g.at > hours * 3_600_000) return `${g.grnNo} is older than ${hours} hours: it can no longer be undone. Correct the stock with a count.`;
+  return null;
+};
+
+export interface GrnDecisions { short: 'wait' | 'close' | null; over: 'accept' | 'return' | null }
+
+/**
+ * Is this GRN allowed against this order? null: yes. Otherwise why not, in plain words.
+ * The one check: the screen, the store and the server all use it.
+ */
+export const grnProblem = (
+  order: Pick<PurchaseOrder, 'poNo' | 'status' | 'lines'>, lines: readonly GrnLine[], decisions: GrnDecisions, approver: Pick<Actor, 'role'> | null,
+): string | null => {
+  if (order.status !== 'open' && order.status !== 'partly') return `${order.poNo} is ${order.status}: nothing more can be received on it.`;
+  if (lines.length === 0) return 'There is nothing on this GRN.';
+  for (const l of lines) {
+    const owed = order.lines.find((x) => x.itemId === l.itemId);
+    if (!owed) return 'That item is not on this order.';
+    if (!Number.isFinite(l.received) || l.received < 0) return 'An amount cannot be less than zero.';
+    if (round3(l.ordered) !== owed.remaining) return `${order.poNo} changed since this GRN was opened. Open it again.`;
+  }
+  const checked = compareDelivery(lines);
+  if (checked.needsApproval && !(approver && (approver.role === 'manager' || approver.role === 'owner'))) return 'A delivery that differs from the order needs a manager to approve it.';
+  if (checked.hasShort && !decisions.short) return 'Choose: wait for the rest, or close the order.';
+  if (checked.hasOver && !decisions.over) return 'Choose: accept the extra, or return it.';
+  return null;
+};
+
+export const UNDO_REASONS = ['Entered by mistake', 'Wrong amounts', 'Goods sent back', 'Other'] as const;

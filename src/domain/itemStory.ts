@@ -24,7 +24,7 @@ export interface ItemStory {
 export type HistoryEntry =
   | { kind: 'count'; at: number; by: string; counted: number; expected: number; delta: number; valueCents: Cents;
       reason: GapReason | null; photo: string | null; first: boolean; review: Review | null }
-  | { kind: 'delivery'; at: number; by: string; packs: number }
+  | { kind: 'delivery'; at: number; by: string; packs: number; grnId?: string }
   | { kind: 'price'; at: number; by: string; before: Cents; after: Cents };
 
 /**
@@ -37,6 +37,17 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQt
   const out: HistoryEntry[] = [];
   let counted = false;
   for (const e of events) {
+    // A GRN is a delivery of every item it accepted; its undo takes that delivery off the list.
+    if (e.type === 'stock.grn') {
+      const accepted = e.lines.filter((l) => l.itemId === itemId).reduce((n, l) => n + (l.accepted ?? 0), 0);
+      if (accepted > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs: accepted, grnId: e.id });
+      continue;
+    }
+    if (e.type === 'stock.grn_undone') {
+      const i = out.findIndex((d) => d.kind === 'delivery' && d.grnId === e.grnId);
+      if (i >= 0) out.splice(i, 1);
+      continue;
+    }
     if (!('itemId' in e) || e.itemId !== itemId) continue;
     if (e.type === 'stock.counted' && !undone.has(e.id)) {
       out.push({
