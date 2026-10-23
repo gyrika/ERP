@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
 import {
-  addonCost, addonOf, addonQuestion, checkOwnLines, marginOf, menuCost, questionKind, recipeOf, recipeQuestion,
-  sizesOf, STOCK_LINE, waitingOn, type Cost, type CostContext, type Recipe,
+  addonCost, addonOf, addonQuestion, batchMakes, checkAnswer, checkOwnLines, checkPrepName, kitchenLine, KITCHEN_LINE, linesCost, marginOf,
+  menuCost, newPrepId, ownPrepOf, ownPreps, prepQuestion, questionKind, recipeOf, recipeQuestion, recipeUnit, sizesOf, STOCK_LINE, undefinedNames,
+  UNITS, waitingOn, type Answer, type Cost, type CostContext, type OwnPrep, type Recipe,
 } from '../domain/costing.ts';
 import { menuItems } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
-import type { BookLine } from '../domain/recipeBook.ts';
+import { PREPS, type BookLine } from '../domain/recipeBook.ts';
 import { MENU_RECIPES } from '../domain/recipeMap.ts';
 import type { MenuItem, Option } from '../domain/types.ts';
 import { requireOwner } from '../services/auth.ts';
@@ -32,6 +33,10 @@ import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwnerSession,
  * one warm lamp behind the PIN; the right PIN springs the gold lock, two dark doors
  * slide apart and the recipes come into focus. The recipes are there at once (the
  * doors only cover them for under half a second), so nothing ever waits on it.
+ *
+ * Below the dishes: what his kitchen makes for them (dough, sauces, the cheese blend), from
+ * his sheet, and the semi-processed items he adds here himself. Once added, one is offered
+ * in every recipe like his sheet's batches, priced, and taken from stock through what goes in it.
  */
 export { RECIPES_IDLE_MS } from './RecipeLines.tsx';
 /** How long the doors stay over the recipes after the right PIN (the CSS takes less). */
@@ -95,9 +100,12 @@ function entriesOf(menu: readonly MenuItem[], ctx: CostContext): Entry[] {
   return out;
 }
 
-/** "stock:inv-0006" → "Mozzarella (Prabhat)"; his own names as they are. */
-const lineName = (name: string, ctx: CostContext) =>
-  name.startsWith(STOCK_LINE) ? ctx.items.find((i) => i.id === name.slice(STOCK_LINE.length))?.name ?? 'An item no longer in stock' : name;
+/** "stock:inv-0006" → "Mozzarella (Prabhat)", "kitchen:k…" → "Garlic Mayo"; his own names as they are. */
+const lineName = (name: string, ctx: CostContext) => {
+  if (name.startsWith(STOCK_LINE)) return ctx.items.find((i) => i.id === name.slice(STOCK_LINE.length))?.name ?? 'An item no longer in stock';
+  if (name.startsWith(KITCHEN_LINE)) return ownPrepOf(name, ctx.answers)?.name ?? 'An item no longer made';
+  return name;
+};
 
 const amountText = (l: BookLine) => `${Number(l.qty.toFixed(3)).toLocaleString('en-US')} ${l.unit}`;
 
@@ -225,15 +233,17 @@ function Book({ owner, onLock }: { owner: Actor; onLock: () => void }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [last, setLast] = useState<{ message: string; undo: () => void } | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
+  /** The semi-processed item being written: its id, or '' for a new one. */
+  const [prepEditing, setPrepEditing] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || editing) return;
+      if (e.key !== 'Escape' || editing || prepEditing !== null) return;
       if (open) setOpen(null); else onLock();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, editing, onLock]);
+  }, [open, editing, prepEditing, onLock]);
 
   const complete = entries.filter((e) => e.cost.complete).length;
   // Not complete first, then by the menu's order; groups in a fixed order.
@@ -257,7 +267,10 @@ function Book({ owner, onLock }: { owner: Actor; onLock: () => void }) {
     <main className="owner__main vault__book" aria-label="Recipes">
       <div className="vault__top">
         <h1 className="vault__title">Your recipes</h1>
-        <button type="button" className="linkbtn" onClick={onLock}>Lock</button>
+        <div className="vault__tools">
+          <button type="button" className="linkbtn" onClick={() => setPrepEditing('')}>New semi-processed item</button>
+          <button type="button" className="linkbtn" onClick={onLock}>Lock</button>
+        </div>
       </div>
       <p className="vault__lead num">
         {complete === entries.length
@@ -315,7 +328,196 @@ function Book({ owner, onLock }: { owner: Actor; onLock: () => void }) {
           </ul>
         </section>
       ))}
+      <Kitchen
+        ctx={ctx} entries={entries} editing={prepEditing} onEdit={setPrepEditing}
+        onSave={(id, answer) => {
+          const question = prepQuestion(id);
+          saved(`${answer.name}: saved. Your recipes can use it now.`, answerQuestion(question, answer, ctx.answers.get(question) ?? null, owner));
+          setPrepEditing(null);
+        }}
+        onDelete={(p) => {
+          const question = prepQuestion(p.id);
+          saved(`${p.name}: deleted.`, answerQuestion(question, null, ctx.answers.get(question) ?? null, owner));
+        }}
+      />
     </main>
+  );
+}
+
+const unitAmount = (qty: number, unit: string) => `${Number(qty.toFixed(3)).toLocaleString('en-US')} ${unit}`;
+
+/** What his kitchen makes for the dishes: the semi-processed items he added here, then his sheet's batches. */
+function Kitchen({ ctx, entries, editing, onEdit, onSave, onDelete }: {
+  ctx: CostContext; entries: Entry[]; editing: string | null; onEdit: (id: string | null) => void;
+  onSave: (id: string, answer: PrepAnswer) => void; onDelete: (p: OwnPrep) => void;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  const own = ownPreps(ctx.answers);
+  const rows = [
+    ...own.map((p) => ({ key: p.id, name: p.name, own: p as OwnPrep | null })),
+    ...Object.keys(PREPS).sort((a, b) => a.localeCompare(b)).map((name) => ({ key: name, name, own: null as OwnPrep | null })),
+  ];
+  // Used by a dish: by its id, or by the name his sheet uses for it.
+  const usedIn = (row: { name: string; own: OwnPrep | null }) => entries.filter((e) => e.recipe?.lines.some((l) =>
+    l.name === row.name || (row.own && l.name === kitchenLine(row.own.id)))).length;
+  const editor = (p: OwnPrep | null) => (
+    <PrepEditor key={p?.id ?? 'new'} item={p} ctx={ctx} onCancel={() => onEdit(null)} onSave={onSave} />
+  );
+
+  return (
+    <section className="vault__group" aria-label="Made in your kitchen">
+      <h2 className="vault__group-name">Made in your kitchen · semi-processed</h2>
+      <ul className="vault__list">
+        {editing === '' && <li>{editor(null)}</li>}
+        {rows.map((row) => {
+          if (row.own && editing === row.own.id) return <li key={row.key}>{editor(row.own)}</li>;
+          const prep = row.own ?? PREPS[row.name];
+          const cost = linesCost(prep.lines, ctx);
+          const used = usedIn(row);
+          const makes = row.own ? row.own.makes : batchMakes(row.name, recipeUnit(row.name) ?? prep.makes?.unit ?? 'g', ctx.answers);
+          const status = [
+            makes ? `Makes ${unitAmount(makes.qty, makes.unit)}` : 'Batch size not known yet',
+            cost.complete ? `costs ${fmt(cost.cents)} a batch` : waitingOn(cost.missing, menuItems(), 2),
+          ].join(' · ');
+          const isOpen = open === row.key;
+          return (
+            <li key={row.key}>
+              <article className={`rcard rcard--${cost.complete && makes ? 'ok' : 'gap'}${isOpen ? ' rcard--open' : ''}`}>
+                <button type="button" className="rcard__head" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : row.key)}>
+                  <span className="rcard__name">{row.name}</span>
+                  <span className="rcard__status num">{status}</span>
+                </button>
+                <ul className="rcard__lines" aria-hidden={!isOpen}>
+                  {prep.lines.map((l, i) => (
+                    <li key={i}><span>{lineName(l.name, ctx)}</span><span className="rcard__amt num">{amountText(l)}</span></li>
+                  ))}
+                </ul>
+                {isOpen && (
+                  <div className="rcard__more">
+                    <div className="rcard__actions">
+                      {row.own && <button type="button" className="chip" onClick={() => onEdit(row.own!.id)}>Edit</button>}
+                      {row.own && used === 0 && <button type="button" className="linkbtn" onClick={() => onDelete(row.own!)}>Delete</button>}
+                      <span className="rcard__from">
+                        {[row.own ? 'Added here' : 'From your sheet', used ? `in ${used} recipe${used === 1 ? '' : 's'}` : 'in no recipe yet'].join(' · ')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </article>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+type PrepAnswer = Extract<Answer, { kind: 'prep' }>;
+
+/**
+ * Writing a semi-processed item: its name, one batch's output, what goes in. A new one first
+ * offers the names his recipes already use but nothing defines (Fried Chicken Cubes), so
+ * picking one completes every dish that names it; a new name only when none fits.
+ */
+function PrepEditor({ item, ctx, onSave, onCancel }: {
+  item: OwnPrep | null; ctx: CostContext; onSave: (id: string, answer: PrepAnswer) => void; onCancel: () => void;
+}) {
+  const [name, setName] = useState(item?.name ?? '');
+  const [qty, setQty] = useState(item ? String(item.makes.qty) : '');
+  const [unit, setUnit] = useState(item?.makes.unit ?? 'g');
+  const [rows, setRows] = useState<Draft[]>(() => (item ? toDraft(item.lines) : [EMPTY_ROW]));
+  const { suppliers } = useCatalog();
+  const [error, setError] = useState('');
+  const form = useRef<HTMLFormElement>(null);
+
+  // Opened from the top of the page, it is written at the bottom, with what his kitchen makes: go there, name first.
+  useEffect(() => {
+    form.current?.scrollIntoView?.({ block: 'start' });
+    form.current?.querySelector('input')?.focus({ preventScroll: true });
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  const clean = name.trim().replace(/\s+/g, ' ');
+  const sheetUnit = recipeUnit(clean);
+  const typed = clean.toLowerCase();
+  const suggestions = item ? [] : undefinedNames(ctx.answers).filter((u) => u.name.toLowerCase().includes(typed) && u.name !== clean).slice(0, 5);
+  const draft = draftLines(rows);
+  const preview = draft.length ? linesCost(draft, ctx) : null;
+  const makes = Number(qty);
+  const per100 = unit === 'g' || unit === 'ml';
+  const per = preview?.complete && makes > 0
+    ? ` · ${fmt(Math.round((preview.cents / makes) * (per100 ? 100 : 1)))} per ${per100 ? `100 ${unit}` : unit === 'pcs' ? 'piece' : 'sheet'}`
+    : '';
+
+  const save = (ev: FormEvent) => {
+    ev.preventDefault();
+    const taken = ownPreps(ctx.answers).some((p) => p.id !== item?.id && p.name.toLowerCase() === clean.toLowerCase());
+    if (taken) return setError('You already have one with that name.');
+    const wrongName = checkPrepName(clean);
+    if (wrongName) return setError(wrongName);
+    if (!/^\d+(\.\d{1,4})?$/.test(qty.trim()) || !(makes > 0)) return setError('Type how much one batch makes, like 2000.');
+    const lines = readRows(rows);
+    if (typeof lines === 'string') return setError(lines);
+    const id = item?.id ?? newPrepId();
+    const answer: PrepAnswer = { kind: 'prep', name: clean, makes: { qty: makes, unit }, lines };
+    const wrong = checkAnswer(prepQuestion(id), answer);
+    if (wrong) return setError(wrong);
+    onSave(id, answer);
+  };
+
+  return (
+    <form ref={form} className="rcard rcard--open rcard--edit" onSubmit={save} aria-label={item ? `${item.name}: what goes in it` : 'New semi-processed item'}>
+      <div className="rcard__head rcard__head--static">
+        <span className="rcard__name">{item ? item.name : 'New semi-processed item'}</span>
+        <span className="rcard__status">One batch</span>
+      </div>
+      <div className="prep__top">
+        <label className="prep__field prep__name">Name
+          <input value={name} maxLength={60} placeholder="Garlic sauce"
+            onChange={(e) => { setName(e.target.value); setError(''); }} />
+        </label>
+        <label className="prep__field">One batch makes
+          <span className="prep__makes">
+            <input className="num" inputMode="decimal" value={qty} aria-label="One batch makes"
+              onChange={(e) => { setQty(e.target.value); setError(''); }} />
+            <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
+              {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </span>
+        </label>
+      </div>
+      {suggestions.length > 0 && (
+        <div className="chips" role="group" aria-label="Your recipes name these">
+          <span className="rcard__from">Your recipes name these, nothing makes them yet:</span>
+          {suggestions.map((u) => (
+            <button key={u.name} type="button" className="chip"
+              onClick={() => { setName(u.name); setUnit(u.unit); setError(''); }}>
+              {u.name} · {u.dishes} {u.dishes === 1 ? 'dish' : 'dishes'}
+            </button>
+          ))}
+        </div>
+      )}
+      {sheetUnit && <p className="rcard__from">Your recipes already use {clean}: saving it gives them its cost and stock.</p>}
+      <p className="rcard__from">What goes into one batch:</p>
+      <LinesEditor rows={rows} onChange={(r) => { setRows(r); setError(''); }} ctx={ctx} suppliers={suppliers} ownPrepsToo={false} />
+      {preview && (
+        <p className="redit__cost num" aria-live="polite">
+          {preview.complete
+            ? `One batch costs ${fmt(preview.cents)}${per}`
+            : `One batch costs ${fmt(preview.cents)} so far · ${waitingOn(preview.missing, menuItems())}`}
+        </p>
+      )}
+      {error && <p className="costq__error" role="alert">{error}</p>}
+      <div className="costq__actions">
+        <button type="button" className="linkbtn" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="cta">Save</button>
+      </div>
+    </form>
   );
 }
 

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { recipeQuestion, yieldQuestion, type Answer, type RecipeEvent } from './costing.ts';
+import { prepQuestion, recipeQuestion, yieldQuestion, type Answer, type RecipeEvent } from './costing.ts';
 import { inventoryFromEvents, stockFromEvents, stockStatus, USAGE_DAYS } from './inventory.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
 import { bookGaps, bookUsage } from './stockUsage.ts';
@@ -156,4 +156,17 @@ test('items sold this week with no recipe are counted once, by quantity', () => 
     sent('old', [line('no-such-item', { id: 'n2', qty: 5 })], NOW - 30 * DAY),
   ];
   assert.equal(stockFromEvents(SEED_INVENTORY, events, { now: NOW }).untrackedSold, 2);
+});
+
+test('a semi-processed item he added takes its own lines from stock, by the batch', () => {
+  // A test item (not his): 2,000 g of onion and 20 g salt make 1,000 g onion jam; his Chicken Burger gets 40 g of it.
+  const jam: [string, Answer] = [prepQuestion('konionjam'), {
+    kind: 'prep', name: 'Onion Jam', makes: { qty: 1000, unit: 'g' },
+    lines: [{ name: `stock:${ONION}`, qty: 2000, unit: 'g' }, { name: 'stock:inv-0004', qty: 20, unit: 'g' }],
+  }];
+  const burger: [string, Answer] = [recipeQuestion('chicken-burger', ''), {
+    kind: 'own', lines: [{ name: 'stock:inv-0052', qty: 1, unit: 'pcs' }, { name: 'kitchen:konionjam', qty: 40, unit: 'g' }],
+  }];
+  assert.deepEqual(usage(line('chicken-burger', { qty: 2 }), new Map([jam, burger])), { [BUN]: 2, [ONION]: 160, 'inv-0004': 1.6 });
+  assert.deepEqual(bookGaps(line('chicken-burger'), new Map([jam, burger])).items, []);
 });

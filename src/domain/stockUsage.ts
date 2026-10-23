@@ -1,12 +1,12 @@
-import { addonOf, batchMakes, recipeOf, sourceOf, STOCK_LINE, type Answer } from './costing.ts';
-import { PREPS, PRODUCTS, type BookLine } from './recipeBook.ts';
+import { addonOf, batchMakes, prepOf, recipeOf, sourceOf, STOCK_LINE, type Answer } from './costing.ts';
+import { PRODUCTS, type BookLine } from './recipeBook.ts';
 import { FREE_INGREDIENTS, LEAVE_OUT_LINES } from './recipeMap.ts';
 import type { OrderLine } from './types.ts';
 
 /**
  * What a sale takes from stock (SCRUM-78), from the owner's own recipes, the same
  * way costing.ts prices them: each sold item is traced through his batches (dough,
- * sauce, cheese blend) down to the items on his price list, in their base units
+ * sauce, cheese blend, and the semi-processed items he adds in the app) down to the items on his price list, in their base units
  * (g, ml, pcs). Leave-outs take their lines off; extras add his add-on recipe.
  *
  * Nothing is guessed. A part his sheets leave open (a batch whose output he has not
@@ -28,7 +28,7 @@ const trace = (line: BookLine, times: number, answers: ReadonlyMap<string, Answe
   if (FREE_INGREDIENTS.has(line.name)) return;
   const qty = line.qty * times;
 
-  const prep = PREPS[line.name];
+  const prep = prepOf(line.name, answers);
   if (prep) {
     const makes = batchMakes(line.name, line.unit, answers);
     if (!makes || makes.unit !== line.unit) return; // output not confirmed yet
@@ -89,7 +89,7 @@ export type GapsOf = (line: Pick<OrderLine, 'itemId' | 'qty' | 'size' | 'adds' |
 /** Every price-list item a recipe line reaches, whatever the batch sizes. */
 const reach = (line: BookLine, answers: ReadonlyMap<string, Answer>, ids: Set<string>, depth: number): void => {
   if (depth > MAX_DEPTH) throw new Error(`recipe nesting too deep at ${line.name}`);
-  const below = PREPS[line.name]?.lines ?? PRODUCTS[line.name];
+  const below = prepOf(line.name, answers)?.lines ?? PRODUCTS[line.name];
   if (below) { for (const l of below) reach(l, answers, ids, depth + 1); return; }
   const source = sourceOf(line.name, answers);
   if (source) ids.add(source.inventoryId);
@@ -98,7 +98,7 @@ const reach = (line: BookLine, answers: ReadonlyMap<string, Answer>, ids: Set<st
 /** The items behind batches not confirmed yet, met on the way down a recipe line. */
 const held = (line: BookLine, answers: ReadonlyMap<string, Answer>, ids: Set<string>, depth: number): void => {
   if (depth > MAX_DEPTH) throw new Error(`recipe nesting too deep at ${line.name}`);
-  const prep = PREPS[line.name];
+  const prep = prepOf(line.name, answers);
   if (prep) {
     const makes = batchMakes(line.name, line.unit, answers);
     if (!makes || makes.unit !== line.unit) { reach(line, answers, ids, depth); return; }

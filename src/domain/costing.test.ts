@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  answersFromEvents, batchMakes, checkAnswer, gapName, ingredientQuestion, linesCost, marginOf, menuCost, openQuestions, recipeChoices,
-  recipeQuestion, stockLine, waitingOn, yieldQuestion, type Answer, type RecipeEvent,
+  answersFromEvents, batchMakes, checkAnswer, gapName, ingredientQuestion, linesCost, marginOf, menuCost, openQuestions, ownPreps, prepOf,
+  kitchenLine, prepQuestion, recipeChoices, recipeQuestion, undefinedNames, stockLine, waitingOn, yieldQuestion, type Answer, type RecipeEvent,
 } from './costing.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
@@ -130,4 +130,56 @@ test('a gap is named in a few words, so the owner knows what to give (SCRUM-129)
   assert.equal(gapName(recipeQuestion('sausages', 'M'), MENU), 'the recipe for Sausages M');
   const five = ['a', 'b', 'c', 'd', 'e'].map((n) => ingredientQuestion(n));
   assert.equal(waitingOn([...five, five[0]], MENU), 'waiting on a price, b price, c price and 2 more');
+});
+
+// ----- semi-processed items he adds in the app -----
+
+/** A test item (not his): 50 g garlic powder + 950 g sugar make 1,000 g. */
+const GARLIC_ID = 'kgarlic1';
+const GARLIC: [string, Answer] = [prepQuestion(GARLIC_ID), {
+  kind: 'prep', name: 'Garlic Sauce', makes: { qty: 1000, unit: 'g' },
+  lines: [{ name: stockLine('inv-0037'), qty: 50, unit: 'g' }, { name: stockLine('inv-0003'), qty: 950, unit: 'g' }],
+}];
+
+test('a semi-processed item of his own is priced per batch and used by id, like his sheet batches', () => {
+  const batch = 50 * per('inv-0037') + 950 * per('inv-0003');
+  const use = [{ name: kitchenLine(GARLIC_ID), qty: 20, unit: 'g' }];
+  assert.equal(linesCost(use, ctx([GARLIC])).cents, Math.round((batch / 1000) * 20));
+  assert.equal(prepOf(kitchenLine(GARLIC_ID), new Map([GARLIC]))?.makes?.qty, 1000);
+  assert.deepEqual(ownPreps(new Map([GARLIC])).map((p) => p.name), ['Garlic Sauce']);
+  // Deleted, a line naming it costs nothing and asks about it, never guessed.
+  assert.equal(linesCost(use, ctx()).complete, false);
+});
+
+test('defining a name his sheet uses but never defines completes every dish that names it', () => {
+  // His BBQ Chicken pizza names "Fried Chicken Cubes", which nothing defines: it waits on a price.
+  assert.ok(menuCost('bbq-chicken', 'M', ctx()).missing.includes(ingredientQuestion('Fried Chicken Cubes')));
+  assert.ok(undefinedNames(new Map()).some((u) => u.name === 'Fried Chicken Cubes' && u.unit === 'g' && u.dishes === 6));
+  // A test item (not his): 1,000 g chicken + 100 g oil make 800 g of cubes.
+  const cubes: [string, Answer] = [prepQuestion('kcubes01'), {
+    kind: 'prep', name: 'Fried Chicken Cubes', makes: { qty: 800, unit: 'g' },
+    lines: [{ name: stockLine('inv-0011'), qty: 1000, unit: 'g' }, { name: stockLine('inv-0022'), qty: 100, unit: 'g' }],
+  }];
+  assert.equal(menuCost('bbq-chicken', 'M', ctx([cubes])).missing.includes(ingredientQuestion('Fried Chicken Cubes')), false);
+  assert.equal(undefinedNames(new Map([cubes])).some((u) => u.name === 'Fried Chicken Cubes'), false);
+  // His recipes use it in g: a batch in pcs would never match them.
+  assert.equal(checkAnswer(cubes[0], { ...cubes[1], makes: { qty: 40, unit: 'pcs' } } as Answer), 'Your recipes use it in g: type the batch in g.');
+});
+
+test('a semi-processed item needs a free name, its output, and lines from stock or his sheet batches only', () => {
+  const [q, a] = GARLIC;
+  const as = (patch: object) => ({ ...a, ...patch }) as Answer;
+  assert.equal(checkAnswer(q, a), null);
+  assert.equal(checkAnswer(q, as({ name: 'Pizza Sauce Batch' })), 'Your recipe book already has that name.');
+  assert.equal(checkAnswer(q, as({ name: 'mozzarella blend' })), 'Your recipe book already has that name.');
+  assert.equal(checkAnswer(q, as({ name: 'Margherita Pizza 10 inch' })), 'Your recipe book already has that name.');
+  assert.equal(checkAnswer(q, as({ name: 'Onion' })), 'Your recipe book already has that name.');
+  assert.equal(checkAnswer(q, as({ name: ' ' })), 'Type its name.');
+  assert.equal(checkAnswer(prepQuestion('Garlic Sauce'), a), 'That is not one of your items.');
+  assert.equal(checkAnswer(q, as({ makes: { qty: 0, unit: 'g' } })), 'Type how much one batch makes.');
+  assert.equal(checkAnswer(q, as({ makes: { qty: 5, unit: 'kg' } })), 'Type how much one batch makes.');
+  // Never inside another item of his own (so never inside itself); his sheet's batches are fine.
+  assert.notEqual(checkAnswer(q, as({ lines: [{ name: kitchenLine(GARLIC_ID), qty: 5, unit: 'g' }] })), null);
+  assert.equal(checkAnswer(q, as({ lines: [{ name: 'Pizza Sauce Batch', qty: 500, unit: 'g' }] })), null);
+  assert.notEqual(checkAnswer(q, { kind: 'own', lines: [{ name: stockLine('inv-0003'), qty: 1, unit: 'g' }] }), null);
 });

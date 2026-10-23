@@ -992,6 +992,13 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .rcard__shared { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 .rcard__shared .costq__ask { font-size: 18px; }
 .redit__cost { margin: 0; color: var(--ink-2); font-size: 15px; }
+.vault__tools { display: flex; gap: 20px; }
+.prep__top { display: flex; flex-wrap: wrap; gap: 12px; }
+.prep__field { display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); font-size: 14px; }
+.prep__name { flex: 1 1 240px; }
+.prep__makes { display: flex; gap: 8px; }
+.prep__field input, .prep__field select { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); color: var(--ink); font: inherit; font-size: 16px; min-width: 0; }
+.prep__makes input { width: 120px; text-align: right; }
 
 /* ----- Count day (SCRUM-89) ----- */
 .count-due { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 8px 40px 0; padding: 16px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); border-left: 4px solid var(--warn); }

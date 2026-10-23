@@ -1,6 +1,6 @@
 import type { Actor } from './auth.ts';
 import type { InventoryItem } from './inventoryData.ts';
-import { PREPS, PRODUCTS, type BookLine } from './recipeBook.ts';
+import { PREPS, PRODUCTS, type BookLine, type Prep } from './recipeBook.ts';
 import { ADD_RECIPES, CONFIRMED_BATCHES, FREE_INGREDIENTS, INGREDIENT_SOURCES, MENU_RECIPES } from './recipeMap.ts';
 import type { Cents, MenuItem } from './types.ts';
 
@@ -30,7 +30,13 @@ export type Answer =
    * A line names one of his batches or ingredients, or a price-list item directly
    * (`stock:<id>`, in that item's base unit).
    */
-  | { kind: 'own'; lines: BookLine[] };
+  | { kind: 'own'; lines: BookLine[] }
+  /**
+   * A semi-processed item of his own, added in the app (a garlic sauce, fried chicken cubes):
+   * its name, what one batch makes and what goes in it. Recipes use it like his sheet's
+   * batches, by id (`kitchen:<id>`), or by name where his sheet names it but never defines it.
+   */
+  | { kind: 'prep'; name: string; makes: { qty: number; unit: string }; lines: BookLine[] };
 
 interface RecipeBase { id: string; shopId: string; at: number; orderNumber: 0; actor: Actor }
 /**
@@ -62,8 +68,10 @@ export const ingredientQuestion = (name: string) => `ingredient:${name}`;
 export const recipeQuestion = (itemId: string, size: string) => `recipe:${itemId}:${size}`;
 /** The recipe for a menu extra (a pizza topping, a cheese slice), by its id. */
 export const addonQuestion = (extraId: string) => `addon:${extraId}`;
+/** A semi-processed item he added in the app, by its id (names are labels: they may change). */
+export const prepQuestion = (id: string) => `prep:${id}`;
 
-export type QuestionKind = 'yield' | 'ingredient' | 'recipe' | 'addon';
+export type QuestionKind = 'yield' | 'ingredient' | 'recipe' | 'addon' | 'prep';
 export const questionKind = (id: string): QuestionKind => id.slice(0, id.indexOf(':')) as QuestionKind;
 /** What the question is about: the batch, the ingredient, or [menu item id, size]. */
 export const questionSubject = (id: string): string => id.slice(id.indexOf(':') + 1);
@@ -80,6 +88,12 @@ export const recipeUnit = (name: string): string | null => {
 /** A price-list item used straight in an own recipe line. */
 export const STOCK_LINE = 'stock:';
 export const stockLine = (inventoryId: string) => `${STOCK_LINE}${inventoryId}`;
+/** A semi-processed item of his own used in a recipe line, by its id. */
+export const KITCHEN_LINE = 'kitchen:';
+export const kitchenLine = (id: string) => `${KITCHEN_LINE}${id}`;
+const PREP_ID = /^k[a-z0-9]{4,24}$/;
+/** A new id for a semi-processed item of his. */
+export const newPrepId = () => `k${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 export const UNITS = ['g', 'ml', 'pcs', 'sheets'] as const;
 export const MAX_OWN_LINES = 40;
@@ -98,9 +112,44 @@ export const checkOwnLines = (lines: unknown): string | null => {
   return null;
 };
 
+export const MAX_PREP_NAME = 60;
+
+/**
+ * Null when this can name a semi-processed item of his: not a batch, a dish or a matched
+ * ingredient of his recipe book. A name his sheet uses but never defines ("Fried Chicken
+ * Cubes") is allowed: the item then defines it, wherever his recipes name it.
+ */
+export const checkPrepName = (name: unknown): string | null => {
+  if (typeof name !== 'string' || !name.trim()) return 'Type its name.';
+  if (name !== name.trim() || name.length > MAX_PREP_NAME) return `At most ${MAX_PREP_NAME} letters.`;
+  if (name.startsWith(STOCK_LINE) || name.startsWith(KITCHEN_LINE)) return 'Type its name.';
+  const same = (n: string) => n.toLowerCase() === name.toLowerCase();
+  if ([...Object.keys(PREPS), ...Object.keys(PRODUCTS), ...Object.keys(INGREDIENT_SOURCES), ...FREE_INGREDIENTS].some(same)) {
+    return 'Your recipe book already has that name.';
+  }
+  return null;
+};
+
+/**
+ * Null when a semi-processed item is well formed. Its lines are his stock and his sheet's
+ * batches only (never another item of his own), so one can never end up inside itself.
+ * Where his sheet already uses the name, it keeps the sheet's unit.
+ */
+const checkPrep = (id: string, a: Extract<Answer, { kind: 'prep' }>): string | null => {
+  if (!PREP_ID.test(id)) return 'That is not one of your items.';
+  const sheetUnit = typeof a.name === 'string' ? recipeUnit(a.name) : null;
+  return checkPrepName(a.name)
+    ?? (typeof a.makes === 'object' && a.makes !== null && positive(a.makes.qty) && a.makes.qty <= 1_000_000
+      && (UNITS as readonly string[]).includes(a.makes.unit) ? null : 'Type how much one batch makes.')
+    ?? (sheetUnit && sheetUnit !== a.makes.unit ? `Your recipes use it in ${sheetUnit}: type the batch in ${sheetUnit}.` : null)
+    ?? checkOwnLines(a.lines)
+    ?? (a.lines.every((l) => l.name in PREPS || l.name.startsWith(STOCK_LINE)) ? null : 'Choose each line from your stock or your batches.');
+};
+
 /** Is this a well-formed answer to that question? (The server checks the same.) */
 export const checkAnswer = (question: string, a: Answer): string | null => {
   const kind = questionKind(question);
+  if (kind === 'prep') return a.kind === 'prep' ? checkPrep(questionSubject(question), a) : 'Write what goes in it.';
   if (kind === 'yield') return a.kind === 'yield' && positive(a.qty) ? null : 'Type how much one batch makes.';
   if (kind === 'recipe') {
     if (a.kind === 'own') return checkOwnLines(a.lines);
@@ -144,12 +193,60 @@ export const sourceOf = (name: string, answers: ReadonlyMap<string, Answer>) => 
   return INGREDIENT_SOURCES[name] ?? (answer?.kind === 'source' ? answer : null);
 };
 
+export interface OwnPrep { id: string; name: string; makes: { qty: number; unit: string }; lines: BookLine[] }
+
+const ownCache = new WeakMap<ReadonlyMap<string, Answer>, OwnPrep[]>();
+
+/** The semi-processed items he added in the app, A to Z. */
+export const ownPreps = (answers: ReadonlyMap<string, Answer>): OwnPrep[] => {
+  // Asked for every recipe line of every sale: worked out once per set of answers.
+  let list = ownCache.get(answers);
+  if (!list) {
+    list = [...answers]
+      .flatMap(([q, a]) => (questionKind(q) === 'prep' && a.kind === 'prep' ? [{ id: questionSubject(q), name: a.name, makes: a.makes, lines: a.lines }] : []))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    ownCache.set(answers, list);
+  }
+  return list;
+};
+
+/** His own item a recipe line names: `kitchen:<id>`, or the name his sheet uses for it. */
+export const ownPrepOf = (line: string, answers: ReadonlyMap<string, Answer>): OwnPrep | null => {
+  if (line.startsWith(KITCHEN_LINE)) {
+    const id = line.slice(KITCHEN_LINE.length);
+    const a = answers.get(prepQuestion(id));
+    return a?.kind === 'prep' ? { id, name: a.name, makes: a.makes, lines: a.lines } : null;
+  }
+  return ownPreps(answers).find((p) => p.name === line) ?? null;
+};
+
+/** A batch from his sheet, else a semi-processed item he added in the app. */
+export const prepOf = (name: string, answers: ReadonlyMap<string, Answer>): Prep | null =>
+  PREPS[name] ?? ownPrepOf(name, answers);
+
+/**
+ * Names his sheet's recipes for menu dishes use but nothing defines (no batch, no price-list
+ * item, no item of his own yet), most used first: what a new semi-processed item may be.
+ */
+export const undefinedNames = (answers: ReadonlyMap<string, Answer>): { name: string; unit: string; dishes: number }[] => {
+  const own = new Set(ownPreps(answers).map((p) => p.name));
+  const found = new Map<string, { name: string; unit: string; dishes: number }>();
+  for (const product of new Set(Object.values(MENU_RECIPES))) {
+    for (const l of new Set((PRODUCTS[product] ?? []).map((x) => x.name))) {
+      if (checkPrepName(l) || own.has(l) || answers.has(ingredientQuestion(l))) continue;
+      const f = found.get(l) ?? { name: l, unit: recipeUnit(l) ?? 'g', dishes: 0 };
+      found.set(l, { ...f, dishes: f.dishes + 1 });
+    }
+  }
+  return [...found.values()].sort((a, b) => b.dishes - a.dishes || a.name.localeCompare(b.name));
+};
+
 /**
  * How much one batch of his makes, in the unit `unit` it is used in: his sheet, then his answer
  * in the app, then what he confirmed outside it (recipeMap.ts). Null: not known yet.
  */
 export const batchMakes = (name: string, unit: string, answers: ReadonlyMap<string, Answer>): { qty: number; unit: string } | null => {
-  const prep = PREPS[name];
+  const prep = prepOf(name, answers);
   if (!prep) return null;
   if (prep.makes) return prep.makes;
   const answer = answers.get(yieldQuestion(name));
@@ -170,7 +267,7 @@ const lineCost = (line: BookLine, ctx: CostContext, missing: Set<string>, depth:
   if (depth > MAX_DEPTH) throw new Error(`recipe nesting too deep at ${line.name}`);
   if (FREE_INGREDIENTS.has(line.name)) return 0;
 
-  const prep = PREPS[line.name];
+  const prep = prepOf(line.name, ctx.answers);
   if (prep) {
     const makes = batchMakes(line.name, line.unit, ctx.answers);
     const batch = sumLines(prep.lines, ctx, missing, depth + 1); // collect its gaps too, all at once
@@ -257,7 +354,7 @@ export interface OpenQuestion {
   blocks: string[];
 }
 
-const KIND_ORDER: Record<QuestionKind, number> = { yield: 0, recipe: 1, addon: 2, ingredient: 3 };
+const KIND_ORDER: Record<QuestionKind, number> = { yield: 0, recipe: 1, addon: 2, ingredient: 3, prep: 4 };
 
 /** Every open question, those holding back the most menu items first (then batches, recipes, ingredients). */
 export const openQuestions = (menu: readonly MenuItem[], ctx: CostContext): OpenQuestion[] => {
@@ -282,6 +379,7 @@ export const questionText = (id: string, menu: readonly MenuItem[]): string => {
   if (kind === 'yield') return `How much one ${subject} makes`;
   if (kind === 'ingredient') return `${subject}: its price`;
   if (kind === 'addon') return `The recipe for extra ${subject}`;
+  if (kind === 'prep') return `What goes in ${subject}`;
   const [itemId, size] = subject.split(':');
   const item = menu.find((m) => m.id === itemId);
   return `Which recipe is ${item?.name.en ?? itemId}${size ? ` ${size}` : ''}`;
