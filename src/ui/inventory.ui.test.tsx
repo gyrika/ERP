@@ -407,7 +407,16 @@ test('Purchase orders: a cart per supplier from what runs low; Place order saves
   expect(readAll().find((e) => e.type === 'stock.numbered')).toMatchObject({ kind: 'PO', number: 'PO-0001' });
   // Step 3: send. The message is ready; WhatsApp is the big thing to do.
   const placed = within(screen.getByRole('region', { name: /^PO-0001 / }));
-  expect(placed.getByLabelText('Message').textContent).toBe('Hi, this is CheesyBeez. Please send:\n2 × Pizza Flour (25 kg packs)\nThank you.');
+  const message = placed.getByRole('textbox', { name: 'Message' });
+  expect(message).toHaveProperty('value', 'Hi, this is CheesyBeez. Please send:\n2 × Pizza Flour (25 kg packs)\nThank you.');
+  // The message is the person's to change before sending; only WhatsApp is offered, no Copy or Call.
+  await user.type(message, '{Enter}Please deliver before 10.');
+  expect(message).toHaveProperty('value', 'Hi, this is CheesyBeez. Please send:\n2 × Pizza Flour (25 kg packs)\nThank you.\nPlease deliver before 10.');
+  expect(placed.queryByRole('button', { name: 'Copy message' })).toBeNull();
+  expect(placed.queryByRole('link', { name: /^Call/ })).toBeNull();
+  await user.click(placed.getByRole('button', { name: 'Reset' }));
+  expect(message).toHaveProperty('value', 'Hi, this is CheesyBeez. Please send:\n2 × Pizza Flour (25 kg packs)\nThank you.');
+  expect(placed.queryByRole('button', { name: 'Reset' })).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Done' }));
   // On order: cancel it, with a reason.
   await openOrders(user);
@@ -467,7 +476,7 @@ test('an item already on an open order is added to it, not ordered twice; the ca
 
   expect(readAll().filter((e) => e.type === 'stock.ordered')).toHaveLength(1); // no second order
   expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', orderId: expect.any(String), lines: [{ itemId: 'inv-0001', packs: 3, stockQty: 75000 }] });
-  expect(screen.getByLabelText('Message').textContent).toContain('Please add to PO-0001:\n1 × Pizza Flour');
+  expect((screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement).value).toContain('Please add to PO-0001:\n1 × Pizza Flour');
   await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 2, stockQty: 50000 }] });
 });
@@ -1066,14 +1075,22 @@ test('the owner, with his PIN, makes flour received in kg; the sheet and the pri
   await openGrn(user);
   expect(screen.getByRole('textbox', { name: 'kg of Pizza Flour' })).toHaveProperty('value', '50');
   await receive(user, '12.5', 'kg of Pizza Flour');
+  // The price is per kg too: Rs 6,400 a 25 kg pack is Rs 256 a kg; the bill says Rs 260 a kg.
+  const perKg = screen.getByRole('textbox', { name: 'Delivered price per kg of Pizza Flour' });
+  expect(perKg).toHaveProperty('value', '256');
+  await user.clear(perKg);
+  await user.type(perKg, '260');
+  expect(screen.getByText(/short −37.5 kg/)).toBeTruthy();
   await toReview(user);
   await user.click(screen.getByRole('button', { name: 'Manager approves' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
   await user.click(screen.getByRole('button', { name: /^Close order/ }));
   await user.click(screen.getByRole('button', { name: 'Approve' }));
   await user.keyboard('{Escape}');
-  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ lines: [{ ordered: 2, received: 0.5, accepted: 0.5 }] });
-  expect(amount()).toContain('½ pack · 12.5 kg');
+  // Kept in packs at the pack price: 12.5 kg is ½ pack, Rs 260 a kg is Rs 6,500 a pack.
+  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ lines: [{ ordered: 2, received: 0.5, accepted: 0.5, unitPriceCents: 650000 }] });
+  expect(amount()).toContain('12.5 kg');
+  expect(amount()).not.toContain('pack');
 });
 
 // ----- the sheet's tabs stay in the sheet; history (SCRUM-97) -----

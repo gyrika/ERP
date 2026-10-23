@@ -94,6 +94,8 @@ test('adding a supplier with a new ingredient updates Inventory and Find Supplie
   await user.type(screen.getByRole('textbox', { name: 'Phone Optional' }), '+94770000000');
   await user.type(screen.getByRole('searchbox', { name: 'Ingredients' }), 'End-to-end Flour');
   await user.click(screen.getByRole('button', { name: '+ Add “End-to-end Flour” as new ingredient' }));
+  await user.click(within(screen.getByRole('group', { name: 'End-to-end Flour unit' })).getByRole('button', { name: 'kg' }));
+  await user.type(screen.getByRole('textbox', { name: 'End-to-end Flour price per kg' }), '300');
   await user.click(screen.getByRole('button', { name: 'Save Supplier' }));
 
   await user.click(await screen.findByRole('link', { name: 'Items' }));

@@ -386,6 +386,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-suggest__options { display: flex; max-height: 200px; flex-direction: column; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .inv-suggest__option { min-height: 48px; padding: 8px 12px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .inv-suggest__option:hover, .inv-suggest__option:focus-visible { background: var(--chip); }
+.inv-units { display: flex; flex-wrap: wrap; gap: 8px; }
+.inv-units .chip { padding: 0 18px; min-height: 48px; }
+.inv-new-ingredient { display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; }
+.inv-new-ingredient .inv-suggest__pill { align-self: flex-start; }
 .inv-suggest__empty, .inv-modal__note { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
 .inv-modal__error { margin: 0; color: var(--bad); font-size: 14px; }
 .inv-modal__actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 4px; }
@@ -1108,7 +1112,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-row__order { min-height: 48px; padding: 0 18px; border: 1px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .inv-row__order:hover { background: color-mix(in srgb, var(--warn) 22%, transparent); }
 .inv-modal__remove { align-self: flex-start; color: var(--bad); }
-.order__message { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--chip); color: var(--ink-2); font: inherit; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+.order__message { box-sizing: border-box; width: 100%; min-height: 48px; margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--chip); color: var(--ink); font: inherit; font-size: 15px; line-height: 1.5; white-space: pre-wrap; resize: vertical; field-sizing: content; }
+.order__message:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 /* An item's story (SCRUM-93): the row says enough at a glance; the sheet says everything. */
 .inv-row__counted { color: var(--ink-3); }
