@@ -3,7 +3,7 @@ import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
 import { parsePacks } from '../domain/inventory.ts';
 import { draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
-import { fmt } from '../domain/money.ts';
+import { fmt, parseLKR } from '../domain/money.ts';
 import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { PoLine } from '../domain/sync.ts';
 import { formatLasts, formatQuantity } from './quantity.ts';
@@ -11,16 +11,16 @@ import { BigStepper } from './flow/BigStepper.tsx';
 import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
-import { addToOrder, cancelOrder, editOrder, placeOrder, type InventoryRow } from '../services/inventoryStore.ts';
+import { addToOrder, cancelOrder, editOrder, placeOrder, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
 
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
+ *   0 On order, at the top: the open orders, to edit or cancel with a reason until goods come
  *   1 Who?   a big card per supplier with how many items need ordering ("Prima · 3 to order")
- *   2 What?  that supplier's items as cards with a stepper, the suggested packs already in,
- *            totals at the bottom, and one main button: Place order (or Add to PO-0003, which
+ *   2 What?  that supplier's items as a bill (item, qty, price, total), the suggested packs already
+ *            in, "+ Add item" to add more, the total at the bottom, and one main button: Place order (or Add to PO-0003, which
  *            `planOrder` chooses so an item is never on two orders)
  *   3 Send   the message, WhatsApp as the big thing to do; then the next supplier, or Done
- * "On order" lists the open orders: edit them, or cancel them with a reason, until goods come.
  * The item sheet's Order tab is the same step 2 (ItemOrder), started from that item.
  */
 type Packs = Record<string, number>;
@@ -81,49 +81,133 @@ function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], pur
 }
 type Draft = ReturnType<typeof useDraft>;
 
-/** The items of a draft as cards with a stepper each, and the total at the bottom. */
+const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
+
+/**
+ * The price of one pack on a bill line, typed over in place. Enter or leaving the box saves it as
+ * the supplier's new price (audited, the same as the item's Order tab); Esc puts it back.
+ */
+function PriceCell({ row, onTyped, onSaved }: { row: InventoryRow; onTyped: (cents: number | null) => void; onSaved: (message: string, undo: () => void) => void }) {
+  const shown = row.workingPriceCents > 0 ? fmt(row.workingPriceCents) : '';
+  const [text, setText] = useState<string | null>(null);
+  const reset = () => { setText(null); onTyped(null); };
+  const save = () => {
+    if (text === null) return;
+    const cents = parseLKR(text);
+    reset();
+    if (cents === null || cents <= 0 || cents === row.workingPriceCents) return;
+    const before = row.workingPriceCents;
+    setWorkingPrice(row.id, cents);
+    onSaved(`${row.name}: price now ${rs(cents)} a pack.`, () => setWorkingPrice(row.id, before));
+  };
+  return (
+    <span className="price">
+      <span className="price__rs" aria-hidden="true">Rs</span>
+      <input className="price__num num" inputMode="decimal" aria-label={`Price of one pack of ${row.name}`} placeholder="0" value={text ?? shown}
+        onChange={(e) => { setText(e.target.value); const c = parseLKR(e.target.value); onTyped(c !== null && c > 0 ? c : null); }}
+        onFocus={(e) => e.currentTarget.select()} onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+          if (e.key === 'Escape') { e.preventDefault(); reset(); }
+        }} />
+    </span>
+  );
+}
+
+/**
+ * The draft as a bill: one line per item (name, quantity, price of one pack, line total) and the
+ * total at the bottom. "+ Add item" opens the supplier's other items; a tap puts one on the bill
+ * at 1 pack (change the qty on its line), and the list stays open for the next.
+ */
 function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: string; draft: Draft; items: InventoryRow[]; suppliers: Supplier[] }) {
   const { packs, typed, plan, blocked, totals } = draft;
   const name = nameOf(suppliers, supplierId);
   const byId = new Map(items.map((i) => [i.id, i]));
   const extra = items.filter((i) => i.supplierIds.includes(supplierId) && !(i.id in packs));
+  /** The add-item list is open. It stays open, so several items go on one after another. */
+  const [picking, setPicking] = useState(false);
+  /** A price being typed (the line total follows it), and the last price saved, with Undo. */
+  const [typing, setTyping] = useState<{ id: string; cents: number } | null>(null);
+  const [priced, setPriced] = useState<{ message: string; undo: () => void } | null>(null);
+  const priceOf = (row: InventoryRow) => (typing?.id === row.id ? typing.cents : row.workingPriceCents);
+  const lines = Object.entries(packs).flatMap(([id, n]) => { const row = byId.get(id); return row ? [{ id, n, row }] : []; });
+
   return (
     <section className="flow__list" aria-label={`Order from ${name}`}>
-      {Object.keys(packs).length === 0 && <p className="flow-hint">Nothing here yet. Add what you need from {name}.</p>}
-      {Object.keys(packs).length > 0 && (
-        <ul className="flow__list flow__plain" aria-label={`To order from ${name}`}>
-          {Object.entries(packs).map(([id, n]) => {
-            const row = byId.get(id);
-            if (!row) return null;
+      <table className="bill" aria-label={`To order from ${name}`}>
+        <thead>
+          <tr><th scope="col">Item</th><th scope="col" className="bill__qty">Qty</th><th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th><th scope="col"><span className="sr-only">Remove</span></th></tr>
+        </thead>
+        <tbody>
+          {lines.length === 0 && (
+            <tr><td colSpan={5} className="bill__empty">Nothing on it yet. Add what you need from {name}.</td></tr>
+          )}
+          {lines.map(({ id, n, row }) => {
             const on = plan.onOrder.get(id);
             const why = row.suggestedPacks > 0 && row.usedPerDay > 0
               ? `${formatLasts(row.lastsDays) ? `${formatLasts(row.lastsDays)} · ` : ''}uses about ${formatQuantity(Math.round(row.usedPerDay), row.baseUnit)} a day` : '';
             return (
-              <li key={id} className="flow-card flow-card--item">
-                <span className="flow-card__text">
-                  <span className="flow-card__name">{row.name}</span>
-                  <span className="flow-card__line">{n} × {formatQuantity(row.packQty, row.baseUnit)} = {formatQuantity(n * row.packQty, row.baseUnit)}</span>
-                  {why && <span className="flow-card__line">{why}</span>}
+              <tr key={id}>
+                <td>
+                  <span className="bill__name">{row.name}</span>
+                  <span className="bill__sub">{n} × {formatQuantity(row.packQty, row.baseUnit)} = {formatQuantity(n * row.packQty, row.baseUnit)}</span>
+                  {why && <span className="bill__sub">{why}</span>}
                   {on && <span className="flow-card__tag">On order · {on}{blocked.has(id) ? ': partly received, wait for it or close it first' : ''}</span>}
-                  <button type="button" className="linkbtn" aria-label={`Remove ${row.name}`} onClick={() => draft.remove(id)}>Remove</button>
-                </span>
-                <BigStepper compact value={typed[id] ?? String(n)} unit={word(n, 'pack', 'packs')} label={`Packs of ${row.name}`}
-                  lessLabel={`One pack less of ${row.name}`} moreLabel={`One pack more of ${row.name}`}
-                  onText={(text) => draft.setText(id, text)} onBump={(by) => draft.set(id, n + by)} />
-              </li>
+                </td>
+                <td className="bill__qty">
+                  <span className="qty">
+                    <button type="button" className="qty__btn" aria-label={`One pack less of ${row.name}`} onClick={() => draft.set(id, Math.max(1, n - 1))}>−</button>
+                    <input className="qty__num num" inputMode="decimal" aria-label={`Packs of ${row.name}`} value={typed[id] ?? String(n)}
+                      onChange={(e) => draft.setText(id, e.target.value)} onFocus={(e) => e.currentTarget.select()} />
+                    <button type="button" className="qty__btn" aria-label={`One pack more of ${row.name}`} onClick={() => draft.set(id, n + 1)}>+</button>
+                  </span>
+                </td>
+                <td className="bill__num">
+                  <PriceCell row={row} onTyped={(cents) => setTyping(cents === null ? null : { id, cents })} onSaved={(message, undo) => setPriced({ message, undo })} />
+                </td>
+                <td className="bill__num num" aria-label={`Total for ${row.name}`}>{priceOf(row) > 0 ? rs(n * priceOf(row)) : '—'}</td>
+                <td className="bill__x"><button type="button" className="qty__btn qty__btn--x" aria-label={`Remove ${row.name}`} onClick={() => draft.remove(id)}>×</button></td>
+              </tr>
             );
           })}
-        </ul>
+          {/* Add the next line right under the last one; the list opens in place, so nothing covers the total. */}
+          {(extra.length > 0 || lines.length > 0) && (
+            <tr className="bill__addrow">
+              <td colSpan={5}>
+                {extra.length === 0 ? <span className="bill__sub">Everything {name} sells is on it.</span> : (
+                  <div className="bill-add" onKeyDown={(e) => { if (e.key === 'Escape' && picking) { e.preventDefault(); setPicking(false); } }}>
+                    <button type="button" className="bill-add__btn" aria-expanded={picking} aria-label={`Add an item from ${name}`} onClick={() => setPicking(!picking)}>+ Add item</button>
+                    {picking && (
+                      <ul className="bill-add__menu" aria-label={`Items from ${name}`}>
+                        {extra.map((i) => (
+                          <li key={i.id}>
+                            <button type="button" className="bill-add__item" onClick={() => draft.set(i.id, 1)}>
+                              <span>{i.name}</span>
+                              <span className="bill__sub num">{i.workingPriceCents > 0 ? `${rs(i.workingPriceCents)} a pack` : formatQuantity(i.packQty, i.baseUnit)}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </td>
+            </tr>
+          )}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colSpan={3} className="bill__sum">{totals.items} {word(totals.items, 'item', 'items')} · {totals.packs} {word(totals.packs, 'pack', 'packs')}</th>
+            <td colSpan={2} className="bill__num bill__grand num" aria-label="Order total">{rs(totals.cents)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      {priced && (
+        <p className="bill__said" role="status">
+          {priced.message}
+          <button type="button" className="linkbtn" onClick={() => { priced.undo(); setPriced(null); }}>Undo</button>
+        </p>
       )}
-      {extra.length > 0 && (
-        <select className="flow__add" aria-label={`Add an item from ${name}`} value="" onChange={(e) => { if (e.target.value) draft.set(e.target.value, 1); }}>
-          <option value="">+ Add item</option>
-          {extra.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-        </select>
-      )}
-      <p className="flow__total" aria-label="Order total">
-        {totals.items} {word(totals.items, 'item', 'items')} · {totals.packs} {word(totals.packs, 'pack', 'packs')}{totals.cents > 0 ? ` · about Rs ${fmt(totals.cents)}` : ''}
-      </p>
     </section>
   );
 }
@@ -173,12 +257,22 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
     onDone(`${order.poNo} changed.`, result);
   };
 
+  const actions = !order.editable ? null : editing ? null : why ? null : (
+    <span className="po-card__actions">
+      <button type="button" className="linkbtn" aria-label={`Edit ${order.poNo}`} onClick={() => setEditing(Object.fromEntries(order.lines.map((l) => [l.itemId, l.packs])))}>Edit</button>
+      <button type="button" className="linkbtn" aria-label={`Cancel ${order.poNo}`} onClick={() => setWhy(true)}>Cancel</button>
+    </span>
+  );
   return (
-    <li className="flow__list">
-      <InfoCard name={`${order.poNo} · ${nameOf(suppliers, order.supplierId)}`} tone={order.status === 'partly' ? 'warn' : undefined}
-        line={editing ? undefined : order.lines.map((l) => `${l.packs} × ${nameFor(l.itemId)}${l.received > 0 ? ` (${l.received} received)` : ''}`).join(', ')}>
-        <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span>
-      </InfoCard>
+    <li className={`row row--stack${order.status === 'partly' ? ' row--warn' : ''}`}>
+      <div className="po-card">
+        <span className="flow-card__text">
+          <span className="row__name">{order.poNo} · {nameOf(suppliers, order.supplierId)} <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span></span>
+          {!editing && <span className="flow-card__line">{order.lines.map((l) => `${l.packs} × ${nameFor(l.itemId)}${l.received > 0 ? ` (${l.received} received)` : ''}`).join(', ')}</span>}
+          {!order.editable && <span className="flow-card__line">Goods came: finish it with GRN.</span>}
+        </span>
+        {actions}
+      </div>
       {editing && (
         <ul className="flow__list flow__plain" aria-label={`Change ${order.poNo}`}>
           {Object.entries(editing).map(([id, n]) => (
@@ -196,26 +290,19 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
         </ul>
       )}
       {error && <p className="reason-msg" role="alert">{error}</p>}
-      {order.editable ? (
-        editing ? (
-          <div className="flow__row">
-            <button type="button" className="linkbtn" onClick={() => { setEditing(null); setError(''); }}>Keep as it was</button>
-            <button type="button" className="chip chip--solid" aria-label={`Save ${order.poNo}`} onClick={save}>Save changes</button>
-          </div>
-        ) : why ? (
-          <div role="group" aria-label={`Why cancel ${order.poNo}`} className="flow__list">
-            {CANCEL_REASONS.map((r) => (
-              <ChoiceCard key={r} name={r} onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))} />
-            ))}
-          </div>
-        ) : (
-          <div className="flow__row">
-            <button type="button" className="linkbtn" aria-label={`Edit ${order.poNo}`} onClick={() => setEditing(Object.fromEntries(order.lines.map((l) => [l.itemId, l.packs])))}>Edit</button>
-            <button type="button" className="linkbtn" aria-label={`Cancel ${order.poNo}`} onClick={() => setWhy(true)}>Cancel</button>
-          </div>
-        )
-      ) : (
-        <p className="flow-hint">Goods came: finish it with GRN.</p>
+      {editing && (
+        <div className="flow__row">
+          <button type="button" className="linkbtn" onClick={() => { setEditing(null); setError(''); }}>Keep as it was</button>
+          <button type="button" className="chip chip--solid" aria-label={`Save ${order.poNo}`} onClick={save}>Save changes</button>
+        </div>
+      )}
+      {why && !editing && (
+        <div role="group" aria-label={`Why cancel ${order.poNo}`} className="po-why">
+          {CANCEL_REASONS.map((r) => (
+            <ChoiceCard key={r} name={r} onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))} />
+          ))}
+          <button type="button" className="linkbtn" onClick={() => setWhy(false)}>Don't cancel</button>
+        </div>
       )}
     </li>
   );
@@ -227,14 +314,27 @@ function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]
   return (
     <section aria-label="On order" className="flow__list">
       <p className="flow-hint">On order</p>
-      <ul className="flow__list flow__plain">
+      <ul className="rows flow__plain">
         {orders.map((o) => <OnOrderRow key={o.id} order={o} items={items} suppliers={suppliers} onDone={onDone} />)}
       </ul>
     </section>
   );
 }
 
-type Step = 'who' | 'what' | 'send' | 'open';
+/** A supplier in a list: the + at the end starts an order with them; the row itself is only text. */
+function SupplierRow({ name, line, tone, label, onAdd }: { name: string; line?: string; tone?: 'warn'; label: string; onAdd: () => void }) {
+  return (
+    <li className={`row${tone ? ` row--${tone}` : ''}`}>
+      <span className="flow-card__text row__text">
+        <span className="row__name">{name}</span>
+        {line && <span className="flow-card__line">{line}</span>}
+      </span>
+      <button type="button" className="row__add" aria-label={label} onClick={onAdd}>+</button>
+    </li>
+  );
+}
+
+type Step = 'who' | 'what' | 'send';
 
 export function OrderSheet({ items, suppliers, purchases, inline = false, onClose, onDone }: {
   items: InventoryRow[];
@@ -262,17 +362,6 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, onClos
 
   const total = waiting.length + finished.filter((id) => suggested.has(id)).length;
 
-  if (step === 'open') {
-    return (
-      <FlowSheet title="Purchase orders" sub="On order" inline={inline} onClose={onClose} onBack={toWho}>
-        <RejectionNotices />
-        {purchases.open.length === 0
-          ? <p className="flow-hint">Nothing is on order.</p>
-          : <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />}
-      </FlowSheet>
-    );
-  }
-
   if ((step === 'what' || step === 'send') && supplierId) {
     return (
       <WhatStep key={supplierId} inline={inline} step={step} supplierId={supplierId} start={start} items={items} suppliers={suppliers} purchases={purchases}
@@ -290,25 +379,29 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, onClos
   return (
     <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
       step={total > 1 ? { index: 1, of: 3, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: 3, label: 'Who?' }}
-      extra={purchases.open.length > 0 ? <button type="button" className="linkbtn flow__back" onClick={() => setStep('open')}>On order ({purchases.open.length})</button> : undefined}>
+      >
       <RejectionNotices />
+      {/* What is already on order comes first: the person sees it before ordering more. */}
+      <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
       {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
       {waiting.length > 0 && (
-        <>
-          <p className="flow-hint">Who do you want to order from?</p>
-          <div role="group" aria-label="Suppliers that need ordering" className="flow__list">
+        <section className="flow__list">
+          <p className="flow-hint">Needs ordering</p>
+          <ul role="group" aria-label="Suppliers that need ordering" className="rows flow__plain">
             {waiting.map((s) => {
               const n = Object.keys(suggested.get(s.id) ?? {}).length;
-              return <ChoiceCard key={s.id} name={s.name} tone="warn" line={`${n} to order`} badge={n} label={`Order from ${s.name}`} onClick={() => choose(s.id)} />;
+              return <SupplierRow key={s.id} name={s.name} line={`${n} to order`} tone="warn" label={`Order from ${s.name}`} onAdd={() => choose(s.id)} />;
             })}
-          </div>
-        </>
+          </ul>
+        </section>
       )}
       {others.length > 0 && (
-        <div role="group" aria-label="Order from another supplier" className="flow__list">
-          {waiting.length > 0 && <p className="flow-hint">Or another supplier</p>}
-          {others.map((s) => <ChoiceCard key={s.id} name={`+ ${s.name}`} line="Choose the items yourself" label={`+ ${s.name}`} onClick={() => choose(s.id)} />)}
-        </div>
+        <section className="flow__list">
+          <p className="flow-hint">{waiting.length > 0 ? 'Other suppliers' : 'Suppliers'}: + to choose the items yourself</p>
+          <ul role="group" aria-label="Order from another supplier" className="rows flow__plain">
+            {others.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => choose(s.id)} />)}
+          </ul>
+        </section>
       )}
     </FlowSheet>
   );

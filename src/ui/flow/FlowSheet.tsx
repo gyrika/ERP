@@ -54,6 +54,7 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
     if (!keys) return;
     const onKey = (e: KeyboardEvent) => {
       const { onBack: back, onClose: close, primary: main } = latest.current;
+      if (e.defaultPrevented) return; // something inside already used the key (a dropdown, a box asking a number)
       if (e.key === 'Escape') { e.preventDefault(); (back ?? close)(); return; }
       if (e.key !== 'Enter' || e.defaultPrevented || !main || main.disabled) return;
       const t = e.target as HTMLElement | null;
