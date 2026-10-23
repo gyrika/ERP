@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useCatalog } from '../services/inventoryStore.ts';
 import { newLineId } from '../domain/order.ts';
 import { AutoSuggestPills } from './AutoSuggestPills.tsx';
+import type { NewIngredient } from '../services/inventoryStore.ts';
+import { EMPTY_UNIT_PRICE, UnitPriceFields, unitPriceItem, type UnitPrice } from './UnitPriceFields.tsx';
 
 export function AddSupplierModal({
   onClose,
@@ -11,26 +13,30 @@ export function AddSupplierModal({
   onSave: (
     data: { id: string; name: string; phone?: string },
     linkedItemIds: string[],
-    newIngredientNames: string[],
+    newIngredients: NewIngredient[],
   ) => void;
 }) {
   const { items } = useCatalog();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [linkedItemIds, setLinkedItemIds] = useState<string[]>([]);
-  const [newIngredientNames, setNewIngredientNames] = useState<string[]>([]);
+  const [newIngredients, setNewIngredients] = useState<({ name: string } & UnitPrice)[]>([]);
   const [error, setError] = useState('');
   const toggleItem = (id: string) => setLinkedItemIds((previous) =>
     previous.includes(id) ? previous.filter((selected) => selected !== id) : [...previous, id]);
 
   const addNewIngredient = (ingredientName: string) => {
-    if (newIngredientNames.some((existing) => existing.toLowerCase() === ingredientName.toLowerCase())) {
+    if (newIngredients.some((existing) => existing.name.toLowerCase() === ingredientName.toLowerCase())) {
       setError(`${ingredientName} is already in the new ingredient list.`);
       return;
     }
-    setNewIngredientNames((previous) => [...previous, ingredientName]);
+    setNewIngredients((previous) => [...previous, { name: ingredientName, ...EMPTY_UNIT_PRICE }]);
     setError('');
   };
+
+  const priced = newIngredients.map((ingredient) => unitPriceItem(ingredient));
+  const setUnitPrice = (ingredientName: string, next: UnitPrice) => setNewIngredients((previous) =>
+    previous.map((ingredient) => (ingredient.name === ingredientName ? { ...ingredient, ...next } : ingredient)));
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
@@ -39,11 +45,12 @@ export function AddSupplierModal({
   }, [onClose]);
 
   const submit = () => {
+    if (priced.some((item) => !item)) return;
     try {
       onSave(
         { id: `sup_${newLineId()}`, name, ...(phone.trim() ? { phone: phone.trim() } : {}) },
         linkedItemIds,
-        newIngredientNames,
+        newIngredients.map(({ name: ingredientName }, i) => ({ name: ingredientName, ...priced[i]! })),
       );
       onClose();
     } catch (cause) {
@@ -74,30 +81,27 @@ export function AddSupplierModal({
             label="Ingredients"
             onAddCustom={addNewIngredient}
           />
-          {newIngredientNames.length > 0 && (
-            <div className="inv-suggest__selected" aria-label="New ingredients to create">
-              {newIngredientNames.map((ingredientName) => (
-                <button
-                  key={ingredientName}
-                  type="button"
-                  className="inv-suggest__pill"
-                  aria-label={`Remove new ingredient ${ingredientName}`}
-                  onClick={() => setNewIngredientNames((previous) => previous.filter((name) => name !== ingredientName))}
-                >
-                  {ingredientName} <span aria-hidden="true">×</span>
-                </button>
-              ))}
+          {newIngredients.map((ingredient) => (
+            <div key={ingredient.name} className="inv-new-ingredient" aria-label={`New ingredient ${ingredient.name}`}>
+              <button
+                type="button"
+                className="inv-suggest__pill"
+                aria-label={`Remove new ingredient ${ingredient.name}`}
+                onClick={() => setNewIngredients((previous) => previous.filter((other) => other.name !== ingredient.name))}
+              >
+                {ingredient.name} <span aria-hidden="true">×</span>
+              </button>
+              <UnitPriceFields name={ingredient.name} value={ingredient} onChange={(next) => setUnitPrice(ingredient.name, next)} />
             </div>
-          )}
+          ))}
         </div>
-        <p className="inv-modal__note">New ingredients are created as General items measured in pieces; you can update their pack size and price in Inventory.</p>
         {error && <p className="inv-modal__error" role="alert">{error}</p>}
         <div className="inv-modal__actions">
           <button type="button" className="inv-modal__cancel" onClick={onClose}>Cancel</button>
           <button
             type="button"
             className="insight__action"
-            disabled={!name.trim() || (linkedItemIds.length === 0 && newIngredientNames.length === 0)}
+            disabled={!name.trim() || (linkedItemIds.length === 0 && newIngredients.length === 0) || priced.some((item) => !item)}
             onClick={submit}
           >
             Save Supplier

@@ -18,7 +18,7 @@ import { StockSheet, type SheetTab } from './StockSheet.tsx';
 import { ItemsTabs } from './ItemsTabs.tsx';
 import { RejectionNotices } from './Rejections.tsx';
 import { onOrder } from '../domain/purchaseOrders.ts';
-import { countsDue, tiersOf } from '../domain/counting.ts';
+import { countsDue, receiveUnitOf, tiersOf, unitName } from '../domain/counting.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
@@ -211,7 +211,7 @@ export function InventoryView({
                  {item.counted && (dueIds.has(item.id)
                    ? <strong>Count due · hidden</strong>
                    : <strong>{formatStock(item.onHandBaseUnits, item)}</strong>)}
-                 {!item.counted && <span className="inv-row__lasts">{formatQuantity(item.packQty, item.baseUnit)} a pack</span>}
+                 {!item.counted && <span className="inv-row__lasts">{receiveUnitOf(item).id === 'pack' ? `${formatQuantity(item.packQty, item.baseUnit)} a pack` : `Bought by ${unitName(receiveUnitOf(item))}`}</span>}
                  {status === 'unsure'
                    ? <span className="inv-row__lasts">{missedText(item.missedSales)}</span>
                    : item.counted && !dueIds.has(item.id) && formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}

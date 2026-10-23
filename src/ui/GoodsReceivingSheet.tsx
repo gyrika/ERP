@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { parsePacks } from '../domain/inventory.ts';
-import { receiveUnitOf, toPacks, unitName } from '../domain/counting.ts';
+import { formatInUnit, fromPacks, packPrice, receiveUnitOf, roundForUnit, toPacks, unitName, unitPrice, type CountUnit } from '../domain/counting.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
 import {
   compareDelivery, expectedBy, grnValueCents, settleGrn, undoCheck, UNDO_REASONS, type GrnDecisions, type PurchaseGrn, type PurchaseOrder, type PurchaseState,
@@ -31,7 +31,8 @@ import { RejectionNotices } from './Rejections.tsx';
  *                      within the allowed hours, a manager's PIN and a reason; the GRN stays, marked Undone.
  * The rules are in purchaseOrders.ts and on the server; this file only walks through them.
  */
-const round = (n: number) => Math.round(n * 1000) / 1000;
+/** Packs are kept to 6 decimals, so 48.53 kg of a 25 kg pack stays 48.53 kg. */
+const round = (n: number) => Math.round(n * 1e6) / 1e6;
 const day = (at: number) => new Date(at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
 const SHORT_CHOICES = [['wait', 'Wait for the rest', 'The order stays open for what is still to come.'], ['close', 'Close order', 'What did not come is dropped.']] as const;
@@ -49,6 +50,9 @@ interface BillLine {
   unitPriceCents: number;
   orderPriceCents?: number;
   status?: string;
+  /** What the item is received in (a pack, kg, a Tray), and its pack size. */
+  unit: CountUnit;
+  packQty: number;
 }
 
 function GrnBill({ lines, totalCents, priceEntry }: {
@@ -56,26 +60,29 @@ function GrnBill({ lines, totalCents, priceEntry }: {
   totalCents: number;
   priceEntry?: (itemId: string) => ReactNode;
 }) {
-  const packs = (n: number) => `${round(n)} ${n === 1 ? 'pack' : 'packs'}`;
   return (
     <table className="bill grn-bill" aria-label="Delivery bill">
-      <thead><tr><th>Item</th><th className="bill__num">Quantity</th><th className="bill__num">Price / pack</th><th className="bill__num">Total price</th></tr></thead>
+      <thead><tr><th>Item</th><th className="bill__num">Quantity</th><th className="bill__num">Price</th><th className="bill__num">Total price</th></tr></thead>
       <tbody>
-        {lines.map((l) => (
+        {lines.map((l) => {
+          const packs = (n: number) => formatInUnit(n, l.unit, l.packQty);
+          const per = `/ ${unitName(l.unit)}`;
+          return (
           <tr key={l.itemId}>
             <td>
               <span className="bill__name">{l.name}</span>
               <span className="bill__sub">
-                Expected {packs(l.expectedPacks)} · {l.orderPriceCents === undefined ? 'Order price not recorded' : `Order Rs ${fmt(l.orderPriceCents)} / pack`}
+                Expected {packs(l.expectedPacks)} · {l.orderPriceCents === undefined ? 'Order price not recorded' : `Order Rs ${fmt(unitPrice(l.orderPriceCents, l.unit, l.packQty))} ${per}`}
                 {l.returnedPacks > 0 ? ` · ${packs(l.receivedPacks)} received, ${packs(l.returnedPacks)} returned` : ''}
               </span>
               {l.status && <span className="bill__sub grn-bill__status">{l.status}</span>}
             </td>
             <td className="bill__num">{packs(l.quantityPacks)}</td>
-            <td className="bill__num">{priceEntry ? priceEntry(l.itemId) : `Rs ${fmt(l.unitPriceCents)}`}</td>
+            <td className="bill__num">{priceEntry ? priceEntry(l.itemId) : `Rs ${fmt(unitPrice(l.unitPriceCents, l.unit, l.packQty))} ${per}`}</td>
             <td className="bill__num">Rs {fmt(Math.round(l.quantityPacks * l.unitPriceCents))}</td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
       <tfoot>
         <tr><th colSpan={3}>Final total</th><th className="bill__num" aria-label="Final total price">Rs {fmt(totalCents)}</th></tr>
@@ -122,15 +129,24 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
     if (!row) return [];
     const unit = receiveUnitOf(row);
     return [{
-      row, unit, expected: l.remaining, expectedInUnit: round((l.remaining * row.packQty) / unit.base),
+      row, unit, expected: l.remaining, expectedInUnit: roundForUnit(fromPacks(l.remaining, unit, row.packQty)),
       orderPriceCents: l.unitPriceCents,
     }];
   }) : [];
 
   const typed = (l: (typeof lines)[number]) => (amounts[l.row.id] ?? String(l.expectedInUnit)).trim();
+  /** The pack price it was ordered at (or today's), the one the price box starts from. */
+  const startPrice = (l: (typeof lines)[number]) => l.orderPriceCents ?? l.row.workingPriceCents;
+  /** The price box, in the unit it is received in: Rs 260 a kg, not Rs 6,500 a pack. */
   const typedPrice = (l: (typeof lines)[number]) =>
-    (priceAmounts[l.row.id] ?? fmt(l.orderPriceCents ?? l.row.workingPriceCents)).trim();
-  const priceFor = (l: (typeof lines)[number]) => parseLKR(typedPrice(l));
+    (priceAmounts[l.row.id] ?? fmt(unitPrice(startPrice(l), l.unit, l.row.packQty))).trim();
+  /** The delivered price of one pack; untouched, exactly the order's (no rounding through the unit). */
+  const priceFor = (l: (typeof lines)[number]) => {
+    if (priceAmounts[l.row.id] === undefined) return startPrice(l);
+    const cents = parseLKR(typedPrice(l));
+    if (cents === null) return null;
+    return cents === unitPrice(startPrice(l), l.unit, l.row.packQty) ? startPrice(l) : packPrice(cents, l.unit, l.row.packQty);
+  };
   /** What came, line by line in packs; null when a number is not a number. */
   const received = () => {
     const out = [];
@@ -152,13 +168,14 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
     };
   }), lines.map((l) => ({ itemId: l.row.id, unitPriceCents: l.orderPriceCents })));
   const choiceReady = (!check.hasShort || decisions.short !== null) && (!check.hasOver || decisions.over !== null);
-  const diff = (c: (typeof check.lines)[number], l: (typeof lines)[number]) => `${c.diff > 0 ? '+' : '−'}${round(Math.abs(c.diff) * l.row.packQty / l.unit.base)}`;
+  const diff = (c: (typeof check.lines)[number], l: (typeof lines)[number]) => `${c.diff > 0 ? '+' : '−'}${roundForUnit(fromPacks(Math.abs(c.diff), l.unit, l.row.packQty))}${l.unit.id === 'pack' ? '' : ` ${unitName(l.unit)}`}`;
   const word = (n: number, one: string, many: string) => (n === 1 ? one : many);
   const priceInput = (l: (typeof lines)[number], onTyped?: () => void) => (
     <span className="price">
       <span className="price__rs" aria-hidden="true">Rs</span>
-      <input className="price__num num" inputMode="decimal" aria-label={`Delivered price per pack of ${l.row.name}`}
+      <input className="price__num num" inputMode="decimal" aria-label={`Delivered price per ${unitName(l.unit)} of ${l.row.name}`}
         value={typedPrice(l)} onFocus={(e) => e.currentTarget.select()} onChange={(e) => { updatePrice(l.row.id, e.target.value); onTyped?.(); }} />
+      <span className="bill__sub">/ {unitName(l.unit)}</span>
     </span>
   );
   const updatePrice = (itemId: string, text: string) => {
@@ -173,7 +190,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
       itemId: c.itemId, name: l.row.name, expectedPacks: c.ordered,
       quantityPacks: settled.accepted ?? c.received, receivedPacks: c.received,
       returnedPacks: settled.returned ?? 0, unitPriceCents: c.unitPriceCents ?? 0,
-      orderPriceCents: c.expectedUnitPriceCents,
+      orderPriceCents: c.expectedUnitPriceCents, unit: l.unit, packQty: l.row.packQty,
       status: [
         c.match === 'ok' ? '' : `${c.match} ${diff(c, l)}`,
         c.priceMismatch ? 'delivered price differs from order' : '',
@@ -188,7 +205,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
 
   const bump = (l: (typeof lines)[number], by: number) => {
     const now = parsePacks(typed(l) || '0') ?? 0;
-    setAmounts({ ...amounts, [l.row.id]: String(Math.max(0, round(now + by))) });
+    setAmounts({ ...amounts, [l.row.id]: String(Math.max(0, roundForUnit(now + by))) });
     setError('');
   };
 
@@ -241,6 +258,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   };
 
   const itemName = (id: string) => items.find((i) => i.id === id)?.name ?? id;
+  /** What an item is received in, for its GRN document; null: no longer on the price list (shown in packs). */
+  const unitOf = (id: string) => { const row = items.find((i) => i.id === id); return row ? { unit: receiveUnitOf(row), packQty: row.packQty } : null; };
   const view = (id: string) => { setViewing(id); setError(''); setStep('grn'); };
   const pinOpen = asking || (undoing !== null && undoing.manager === null);
   const shared = { onClose, keys: !pinOpen, error, inline };
@@ -305,7 +324,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           extra={!shown.undone && undoCheck(purchases, shown.id, Date.now(), settings.grnUndoHours) === null
             ? <button type="button" className="linkbtn flow__back" aria-label={`Undo ${shown.grnNo}`} onClick={() => startUndo(shown)}>Undo</button> : undefined}>
           <RejectionNotices />
-          <GrnDocument grn={shown} supplier={supplier} itemName={itemName} />
+          <GrnDocument grn={shown} supplier={supplier} itemName={itemName} unitOf={unitOf} />
         </FlowSheet>
         {pins}
       </>
@@ -387,7 +406,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
             <thead>
               <tr>
                 <th scope="col"><span className="sr-only">Came</span></th><th scope="col">Item</th><th scope="col" className="bill__qty">Qty</th>
-                <th scope="col" className="bill__num">Price / pack</th><th scope="col" className="bill__num">Total</th>
+                <th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -405,7 +424,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
                     <td>
                       <span className="bill__name">{l.row.name}</span>
                       <span className="bill__sub num">Expected {l.expectedInUnit} {unitWord}</span>
-                      <span className="bill__sub num">{l.orderPriceCents === undefined ? 'Order price not recorded' : <>Ordered at <span className="nowrap">Rs {fmt(l.orderPriceCents)}</span></>}</span>
+                      <span className="bill__sub num">{l.orderPriceCents === undefined ? 'Order price not recorded' : <>Ordered at <span className="nowrap">Rs {fmt(unitPrice(l.orderPriceCents, l.unit, l.row.packQty))} / {unitName(l.unit)}</span></>}</span>
                       {on && (
                         <span className={`grn-match grn-match--${fine ? 'ok' : 'warn'}`}
                           aria-label={`${l.row.name}: ${fine ? 'as ordered' : c.match === 'ok' ? 'price differs' : c.match}`}>

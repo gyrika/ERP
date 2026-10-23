@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
 import { parsePacks } from '../domain/inventory.ts';
+import { receiveUnitOf } from '../domain/counting.ts';
 import { cartOf, cartsOf, draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
 import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
@@ -259,29 +260,33 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
   );
 }
 
-/** A PO just placed (or lines just added to one): its message, and WhatsApp as the big thing to do. */
+/**
+ * A PO just placed (or lines just added to one): its message in a box, ready and editable
+ * ("deliver before 10"), and WhatsApp as the one thing to do: it sends what is in the box.
+ * The edit is only for sending, never saved.
+ */
 export function PlacedOrder({ placed: { order, added }, items, suppliers }: { placed: Placed; items: InventoryRow[]; suppliers: Supplier[] }) {
   const name = nameOf(suppliers, order.supplierId);
   const phone = suppliers.find((s) => s.id === order.supplierId)?.phone;
-  const text = orderMessage(order.lines.flatMap((l) => {
+  const generated = orderMessage(order.lines.flatMap((l) => {
     const row = items.find((i) => i.id === l.itemId);
-    return row ? [{ name: row.name, packs: l.packs, packQty: row.packQty, baseUnit: row.baseUnit }] : [];
+    return row ? [{ name: row.name, packs: l.packs, packQty: row.packQty, baseUnit: row.baseUnit, unit: receiveUnitOf(row) }] : [];
   }), 'CheesyBeez', added ? `Hi, this is CheesyBeez. Please add to ${isPending(order.poNo) ? 'our order' : order.poNo}:` : undefined);
+  const [text, setText] = useState(generated);
+
   return (
     <section className="flow__list" aria-label={`${order.poNo} ${name}`}>
       <InfoCard name={added ? `Added to ${order.poNo}` : `${order.poNo} placed`} line={name} tone="ok" />
-      <pre className="order__message" aria-label="Message">{text}</pre>
+      <textarea className="order__message" aria-label="Message" rows={text.split('\n').length + 1} value={text}
+        onChange={(e) => setText(e.target.value)} />
       {phone ? (
-        <>
-          <a className="flow-card flow-card--tap flow-card--wa" href={whatsAppLink(phone, text)} target="_blank" rel="noreferrer">
-            <span className="flow-card__text"><span className="flow-card__name">Send on WhatsApp</span><span className="flow-card__line">{phone}</span></span>
-          </a>
-          <a className="linkbtn" href={`tel:${phone}`}>Call {phone}</a>
-        </>
+        <a className="flow-card flow-card--tap flow-card--wa" href={whatsAppLink(phone, text)} target="_blank" rel="noreferrer">
+          <span className="flow-card__text"><span className="flow-card__name">Send on WhatsApp</span><span className="flow-card__line">{phone}</span></span>
+        </a>
       ) : (
         <p className="flow-hint">No phone saved for {name}. Add it on <a href="#suppliers">Suppliers</a>.</p>
       )}
-      <button type="button" className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(text).catch(() => {}); }}>Copy message</button>
+      {text !== generated && <button type="button" className="linkbtn" onClick={() => setText(generated)}>Reset</button>}
     </section>
   );
 }

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   checkUnitName, countedBase, countedSince, countHistory, countsDue, dailyStreak, dayGrid, gapOf, isBigGap, isGapReason, reasonLabel, reasonsFor, reasonText, tiersOf,
-  unitsOf, type Tier,
+  newItemUnit, NEW_ITEM_UNITS, unitsOf, type Tier,
 } from './counting.ts';
 import { inventoryFromEvents } from './inventory.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
@@ -25,6 +25,14 @@ test('count in packs, an opened pack by eye or weighed, kg or g, or a unit learn
   assert.equal(checkUnitName('Tray', MOZZ), null);
   assert.ok(checkUnitName('kg', MOZZ), 'built-in names are taken');
   assert.ok(checkUnitName('3', MOZZ));
+});
+
+test('a new ingredient is priced per kg, g, L, ml, pcs or sheets; kg and L are packs of 1000', () => {
+  assert.deepEqual(NEW_ITEM_UNITS.map((u) => u.id), ['kg', 'g', 'L', 'ml', 'pcs', 'sheets']);
+  assert.deepEqual(newItemUnit('kg'), { baseUnit: 'g', packQty: 1000 });
+  assert.deepEqual(newItemUnit('ml'), { baseUnit: 'ml', packQty: 1 });
+  assert.deepEqual(newItemUnit('sheets'), { baseUnit: 'sheets', packQty: 1 });
+  assert.equal(newItemUnit('pack'), null);
 });
 
 test('a gap needs a reason when it is over 10% of what was expected OR worth over Rs 2,000', () => {

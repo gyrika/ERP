@@ -29,6 +29,18 @@ const BUILT_IN: Record<BaseUnit, CountUnit[]> = {
   sheets: [{ id: 'sheets', label: 'sheets', base: 1 }],
 };
 
+/** What a new ingredient is priced in ("Rs 450 per kg"): one of these is its pack. */
+export const NEW_ITEM_UNITS: readonly CountUnit[] = Object.values(BUILT_IN).flat();
+
+/** The chosen unit as the stored item's base unit and pack size: kg → 1000 g. */
+export const newItemUnit = (id: string): { baseUnit: BaseUnit; packQty: number } | null => {
+  for (const [baseUnit, units] of Object.entries(BUILT_IN) as [BaseUnit, CountUnit[]][]) {
+    const unit = units.find((u) => u.id === id);
+    if (unit) return { baseUnit, packQty: unit.base };
+  }
+  return null;
+};
+
 /** Its pack ("Pack · 2 kg"), the units learned for it, then the built-in ones. */
 export const unitsOf = (item: { baseUnit: BaseUnit; packQty: number; units?: readonly LearnedUnit[] }): CountUnit[] => [
   { id: 'pack', label: `Pack · ${formatQuantity(item.packQty, item.baseUnit)}`, base: item.packQty },
@@ -58,6 +70,18 @@ export const packPrice = (unitCents: number, unit: CountUnit, packQty: number): 
 
 /** The unit's short name for a sentence: "pack", "kg", "Tray". */
 export const unitName = (unit: CountUnit): string => (unit.id === 'pack' ? 'pack' : unit.id.startsWith('unit:') ? unit.id.slice(5) : unit.id);
+
+/** So many packs in `unit` (the inverse of toPacks). */
+export const fromPacks = (packs: number, unit: CountUnit, packQty: number): number => (unit.base > 0 ? (packs * packQty) / unit.base : 0);
+
+/** A number for reading: at most 3 decimals ("48.5", "0.25"). */
+export const roundForUnit = (n: number): number => Math.round(n * 1000) / 1000;
+
+/** "2 packs", "1 pack", "48.5 kg", "3 Tray": so many packs, said in the item's unit. */
+export const formatInUnit = (packs: number, unit: CountUnit, packQty: number): string => {
+  const n = roundForUnit(fromPacks(packs, unit, packQty));
+  return unit.id === 'pack' ? `${n} ${n === 1 ? 'pack' : 'packs'}` : `${n} ${unitName(unit)}`;
+};
 
 /** "Tray", "Box": a short name, not a number and not one of the built-in units. */
 export const checkUnitName = (name: string, item: { baseUnit: BaseUnit; units?: readonly LearnedUnit[] }): string | null => {

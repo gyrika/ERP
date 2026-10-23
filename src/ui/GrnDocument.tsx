@@ -1,3 +1,4 @@
+import { formatInUnit, unitName, unitPrice, type CountUnit } from '../domain/counting.ts';
 import { fmt } from '../domain/money.ts';
 import { grnLineCents, grnValueCents, type PurchaseGrn } from '../domain/purchaseOrders.ts';
 import { SHOP_HEADER } from '../domain/receipt.ts';
@@ -5,15 +6,20 @@ import { SHOP_HEADER } from '../domain/receipt.ts';
 const SHORT = { wait: 'Waiting for the rest', close: 'Order closed: the rest was dropped' } as const;
 const OVER = { accept: 'Extra accepted into stock', return: 'Extra returned to the supplier' } as const;
 
-const round = (n: number) => Math.round(n * 1000) / 1000;
 const when = (at: number) => new Date(at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 /**
  * One GRN as a document: on screen in GRN history, and the page that is saved as a PDF
- * (printGrn). Quantities in packs, money in rupees from integer cents. The approver is kept
- * on the record, never shown.
+ * (printGrn). Quantities and prices in what each item is received in (packs, kg), money in
+ * rupees from integer cents. The approver is kept on the record, never shown.
  */
-export function GrnDocument({ grn, supplier, itemName }: { grn: PurchaseGrn; supplier: string; itemName: (id: string) => string }) {
+export function GrnDocument({ grn, supplier, itemName, unitOf }: {
+  grn: PurchaseGrn;
+  supplier: string;
+  itemName: (id: string) => string;
+  /** What an item is received in; null: shown in packs. */
+  unitOf: (id: string) => { unit: CountUnit; packQty: number } | null;
+}) {
   const returned = grn.lines.some((l) => (l.returned ?? 0) > 0);
   const notes = [
     grn.shortDecision && SHORT[grn.shortDecision],
@@ -42,19 +48,21 @@ export function GrnDocument({ grn, supplier, itemName }: { grn: PurchaseGrn; sup
           <tr>
             <th scope="col">Item</th><th scope="col" className="bill__num">Ordered</th><th scope="col" className="bill__num">Received</th>
             {returned && <th scope="col" className="bill__num">Returned</th>}
-            <th scope="col" className="bill__num">Price / pack</th><th scope="col" className="bill__num">Total</th>
+            <th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th>
           </tr>
         </thead>
         <tbody>
           {grn.lines.map((l) => {
             const cents = grnLineCents(l);
+            const u = unitOf(l.itemId) ?? { unit: { id: 'pack', label: 'pack', base: 1 }, packQty: 1 };
+            const qty = (packs: number) => formatInUnit(packs, u.unit, u.packQty);
             return (
               <tr key={l.itemId}>
                 <td>{itemName(l.itemId)}</td>
-                <td className="bill__num num">{round(l.ordered)}</td>
-                <td className="bill__num num">{round(l.received)}</td>
-                {returned && <td className="bill__num num">{round(l.returned ?? 0)}</td>}
-                <td className="bill__num num">{l.unitPriceCents === undefined ? '—' : `Rs ${fmt(l.unitPriceCents)}`}</td>
+                <td className="bill__num num">{qty(l.ordered)}</td>
+                <td className="bill__num num">{qty(l.received)}</td>
+                {returned && <td className="bill__num num">{qty(l.returned ?? 0)}</td>}
+                <td className="bill__num num">{l.unitPriceCents === undefined ? '—' : `Rs ${fmt(unitPrice(l.unitPriceCents, u.unit, u.packQty))} / ${unitName(u.unit)}`}</td>
                 <td className="bill__num num">{cents === null ? '—' : `Rs ${fmt(cents)}`}</td>
               </tr>
             );
@@ -68,7 +76,6 @@ export function GrnDocument({ grn, supplier, itemName }: { grn: PurchaseGrn; sup
         </tfoot>
       </table>
       {notes.length > 0 && <ul className="grn-doc__notes">{notes.map((n) => <li key={n}>{n}</li>)}</ul>}
-      <p className="grn-doc__meta">Quantities in packs.</p>
     </article>
   );
 }

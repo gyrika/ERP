@@ -1,5 +1,6 @@
 import type { BaseUnit } from './inventoryData.ts';
 import type { StockSettings } from './stockSettings.ts';
+import { formatInUnit, type CountUnit } from './counting.ts';
 import { formatQuantity } from './quantity.ts';
 
 /**
@@ -7,12 +8,18 @@ import { formatQuantity } from './quantity.ts';
  * message, ready to send. All the reorder maths is `suggestions` below, nowhere else;
  * every number it uses is in stockSettings.ts.
  */
-export interface OrderLine { name: string; packs: number; packQty: number; baseUnit: BaseUnit }
+/** unit: what it is bought in (receiveUnitOf); missing or the pack: said in packs. */
+export interface OrderLine { name: string; packs: number; packQty: number; baseUnit: BaseUnit; unit?: CountUnit }
 
-/** "2 × Mozzarella (Prabhat), 2 kg packs", one line per item; lines with no packs are left out. */
+/**
+ * "2 × Mozzarella (Prabhat) (2 kg packs)", or "Flour: 50 kg" for an item bought by the kg,
+ * one line per item; lines with no packs are left out.
+ */
 export const orderMessage = (lines: readonly OrderLine[], shop = 'CheesyBeez', intro = `Hi, this is ${shop}. Please send:`): string => [
   intro,
-  ...lines.filter((l) => l.packs > 0).map((l) => `${l.packs} × ${l.name} (${formatQuantity(l.packQty, l.baseUnit)} ${l.packs === 1 ? 'pack' : 'packs'})`),
+  ...lines.filter((l) => l.packs > 0).map((l) => (l.unit && l.unit.id !== 'pack'
+    ? `${l.name}: ${formatInUnit(l.packs, l.unit, l.packQty)}`
+    : `${l.packs} × ${l.name} (${formatQuantity(l.packQty, l.baseUnit)} ${l.packs === 1 ? 'pack' : 'packs'})`)),
   'Thank you.',
 ].join('\n');
 
