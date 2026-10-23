@@ -18,6 +18,7 @@ import { menuItems } from '../domain/menu.ts';
 import { grnProblem, mergeLines, purchasesFromEvents, settleGrn, undoCheck, type GrnDecisions, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
+import type { WasteChoice, WasteReason } from '../domain/waste.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -423,6 +424,18 @@ export function useCostContext(): CostContext {
 export const answerQuestion = (question: string, after: Answer | null, before: Answer | null, actor: Actor = currentCashier()): (() => void) => {
   appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor, question, before, after });
   return () => appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor, question, before: after, after: before });
+};
+
+/**
+ * Thrown away (manager mode, the bin): one audited event that takes stock through the
+ * recipes, like a sale (waste.ts). Returns the Undo.
+ */
+export const recordWaste = (choice: WasteChoice, qty: number, reason: WasteReason, note: string, actor: Actor): (() => void) => {
+  const e = appendEvent({
+    type: 'stock.wasted', at: Date.now(), orderNumber: 0, actor, what: choice.what, name: choice.name, qty, reason,
+    ...(note.trim() ? { note: note.trim() } : {}),
+  });
+  return () => { appendEvent({ type: 'stock.waste_undone', at: Date.now(), orderNumber: 0, actor, wasteId: e.id }); };
 };
 
 /** The Recipes screen was opened: who and when, in the audit trail. */

@@ -5,6 +5,7 @@ import { MENU } from '../src/domain/menu.ts';
 import { checkStockSetting } from '../src/domain/stockSettings.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
 import { isGapReason } from '../src/domain/counting.ts';
+import { checkWaste } from '../src/domain/waste.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import type { MenuItem } from '../src/domain/types.ts';
 import {
@@ -125,6 +126,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !(e.note === undefined || shortString(e.note, 200)) || (e.reason === 'other' && !(typeof e.note === 'string' && e.note.trim()))
       ) return { reason: `event ${e.id} has an invalid count` };
     }
+    if (e.type === 'stock.wasted' && checkWaste(e.what, e.qty, e.reason, e.note, e.name) !== null) return { reason: `event ${e.id} has an invalid waste` };
+    if (e.type === 'stock.waste_undone' && !shortString(e.wasteId)) return { reason: `event ${e.id} has an invalid waste id` };
     if (e.type === 'stock.count_undone' && !shortString(e.countId)) return { reason: `event ${e.id} has an invalid count id` };
     if (e.type === 'stock.unit_set' && (
       !shortString(e.itemId) || !shortString(e.name, 20) || typeof e.base !== 'number' || !Number.isFinite(e.base) || (e.base as number) < 0

@@ -6,6 +6,7 @@ import { formatQuantity } from './quantity.ts';
 import { bookUsage } from './stockUsage.ts';
 import { gapCases, type Review } from './gapReview.ts';
 import type { SyncEvent } from './sync.ts';
+import { wasteRecords, type WasteReason } from './waste.ts';
 import type { Cents, MenuItem, SizeId } from './types.ts';
 
 /**
@@ -25,7 +26,9 @@ export type HistoryEntry =
   | { kind: 'count'; at: number; by: string; counted: number; expected: number; delta: number; valueCents: Cents;
       reason: GapReason | null; photo: string | null; first: boolean; review: Review | null }
   | { kind: 'delivery'; at: number; by: string; packs: number; grnId?: string }
-  | { kind: 'price'; at: number; by: string; before: Cents; after: Cents };
+  | { kind: 'price'; at: number; by: string; before: Cents; after: Cents }
+  /** Thrown away (waste.ts): qty in base units; from: the dish, batch or the item itself. */
+  | { kind: 'waste'; at: number; by: string; qty: number; from: string; reason: WasteReason; note?: string };
 
 /**
  * Everything that happened to one item's stock, newest first. Undone counts are left
@@ -76,7 +79,13 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQt
       else out.push({ kind: 'price', at: e.at, by: e.actor.name, before: e.before, after: e.after });
     }
   }
-  return out.reverse();
+  out.reverse();
+  // Waste reaches this item through recipes too: merged in by time, newest first.
+  for (const w of wasteRecords(events)) {
+    const qty = w.takes.filter((t) => t.inventoryId === itemId).reduce((n, t) => n + t.qtyBaseUnits, 0);
+    if (qty > 0) out.push({ kind: 'waste', at: w.at, by: w.by, qty, from: w.name, reason: w.reason, ...(w.note ? { note: w.note } : {}) });
+  }
+  return out.sort((a, b) => b.at - a.at); // stable: same-time entries keep their order
 };
 
 export const itemStory = (events: readonly SyncEvent[], itemId: string, packQty = 0): ItemStory => {

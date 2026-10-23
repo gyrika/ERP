@@ -2,7 +2,7 @@ import type { BaseUnit, InventoryItem, Supplier } from './inventoryData.ts';
 import type { SyncEvent } from './sync.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { answersFromEvents, type Answer, type RecipeEvent } from './costing.ts';
-import { bookGaps, bookUsage, type GapsOf, type RecipeLine, type UsageOf } from './stockUsage.ts';
+import { bookGaps, bookUsage, wasteUsage, type GapsOf, type RecipeLine, type UsageOf } from './stockUsage.ts';
 import type { LearnedUnit, Tier } from './counting.ts';
 import { suggestions } from './ordering.ts';
 import { onOrder, purchasesFromEvents } from './purchaseOrders.ts';
@@ -264,6 +264,8 @@ export const stockFromEvents = (
   const counts = new Map<string, { itemId: string; delta: number; previous: number | undefined }>();
   /** For a manager's Undo: what the line had taken before the change (null: nothing). */
   const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null; gaps: { untracked: boolean; items: string[]; qty: number } | null }>();
+  /** What each waste took, for its Undo. */
+  const wasted = new Map<string, RecipeLine[]>();
   const setLine = (lineId: string, usage: RecipeLine[] | null) => {
     const had = taken.get(lineId);
     if (had) take(had, -1);
@@ -408,6 +410,18 @@ export const stockFromEvents = (
           setLine(was.lineId, was.usage);
           if (was.gaps) gaps.set(was.lineId, was.gaps); else gaps.delete(was.lineId);
         }
+        break;
+      }
+      case 'stock.wasted': {
+        // His answers as they were then, like a sale.
+        const usage = wasteUsage(e.what, e.qty, answers);
+        take(usage, 1);
+        wasted.set(e.id, usage);
+        break;
+      }
+      case 'stock.waste_undone': {
+        const usage = wasted.get(e.wasteId);
+        if (usage) { take(usage, -1); wasted.delete(e.wasteId); }
         break;
       }
       default: break; // payments, discounts and the kitchen do not move stock

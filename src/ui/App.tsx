@@ -22,6 +22,7 @@ import { useKitchenTickets } from './kitchenStore.ts';
 import { setSoundOn, soundOn } from './sound.ts';
 import { useManagerMode } from './useManagerMode.ts';
 import { useRegister } from './useRegister.ts';
+import { BinIcon, WasteSheet } from './WasteSheet.tsx';
 import { useMenu } from './menuStore.ts';
 import { THEME_LABEL, setTheme, themeChoice, type ThemeChoice } from './theme.ts';
 import { useFleet } from './ShopsView.tsx';
@@ -33,6 +34,7 @@ type Sheet =
   | { kind: 'pay' }
   | { kind: 'pin' }
   | { kind: 'online' }
+  | { kind: 'waste' }
   | null;
 
 const isTypingTarget = (el: EventTarget | null): boolean =>
@@ -92,6 +94,14 @@ export function App({
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [sound, setSound] = useState(soundOn);
+  /** The last waste, for its Undo (toast and Ctrl+Z) while the toast shows. */
+  const [wasted, setWasted] = useState<{ id: number; message: string; undo: () => void } | null>(null);
+  useEffect(() => {
+    if (!wasted) return;
+    const t = setTimeout(() => setWasted(null), 6000);
+    return () => clearTimeout(t);
+  }, [wasted]);
+  const undoWaste = useCallback(() => { wasted?.undo(); setWasted(null); }, [wasted]);
   const fleet = useFleet();
   const { endManagerSession } = reg;
   const mode = useManagerMode(useCallback(() => {
@@ -99,7 +109,8 @@ export function App({
     setPalette(false);
     setPendingVoid(null);
     setAdjusting(null);
-    setSheet((s) => (s?.kind === 'edit' ? null : s));
+    setSheet((s) => (s?.kind === 'edit' || s?.kind === 'waste' ? null : s));
+    setWasted(null);
     endManagerSession();
   }, [endManagerSession]));
   const manager = mode.manager;
@@ -152,7 +163,7 @@ export function App({
         // Esc leaves manager mode from ANY state: palette, sheet, half-done void or adjustment.
         if (e.key === 'Escape') { e.preventDefault(); mode.exit(); return; }
         if (mod && key === 'm') { e.preventDefault(); mode.exit(); return; }
-        if (mod && key === 'z') { e.preventDefault(); reg.undoManager(manager); return; }
+        if (mod && key === 'z') { e.preventDefault(); if (wasted) undoWaste(); else reg.undoManager(manager); return; }
         if (mod && key === 'k') { e.preventDefault(); setPalette(true); return; }
         if (palette || sheet || adjusting) return; // they own their keys (Enter, typing)
         if (pendingVoid) {
@@ -172,6 +183,7 @@ export function App({
         }
         if ((e.key === 'Delete' || e.key === 'Backspace') && selectedLine && !listing) { e.preventDefault(); askVoid(selectedLine); return; }
         if (key === 'p' && selectedLine && !listing) { e.preventDefault(); askAdjust(selectedLine); return; }
+        if (key === 'w') { e.preventDefault(); setSheet({ kind: 'waste' }); return; }
         if (/^[1-4]$/.test(e.key)) { e.preventDefault(); toggleChip(e.key); }
         return;
       }
@@ -191,7 +203,7 @@ export function App({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [reg, sheet, typed, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
-    selected, selectedLine, askVoid, askAdjust, toggleChip, manage]);
+    selected, selectedLine, askVoid, askAdjust, toggleChip, manage, wasted, undoWaste]);
 
   // Tapping empty space outside an opened order goes back to the "Waiting to pay" list.
   // Cards, buttons and the order panel itself are not background, so adding a round still works.
@@ -250,6 +262,7 @@ export function App({
       { id: 'sound', label: sound ? 'Turn sound off' : 'Turn sound on', run: () => { setSoundOn(!sound); setSound(!sound); } },
       { id: 'leave', label: 'Leave manager mode', hint: 'Esc', run: mode.exit },
     );
+    list.push({ id: 'waste', label: 'Waste: something was thrown away', hint: 'W', run: () => setSheet({ kind: 'waste' }) });
     if (canManageStock) {
       list.push({ id: 'receive', label: 'Receive: a delivery came', run: () => { location.hash = '#receive'; } });
       list.push({ id: 'order', label: 'Order: what to buy', run: () => { location.hash = '#order'; } });
@@ -267,6 +280,10 @@ export function App({
         {manager ? (
           <span className="corner corner--managing" role="status">
             <span className="corner__who">Managing · {manager.name}</span>
+            {/* Whoever is signed in, manager mode is a manager's PIN: the waste is theirs. */}
+            <button type="button" className="corner__key corner__bin" onClick={() => setSheet({ kind: 'waste' })}>
+              <BinIcon /> Waste <kbd>W</kbd>
+            </button>
             <button type="button" className="corner__key" onClick={() => setPalette(true)}>Commands <kbd>Ctrl K</kbd></button>
             <button type="button" className="corner__key" onClick={mode.exit}>Done <kbd>Esc</kbd></button>
           </span>
@@ -362,10 +379,23 @@ export function App({
       {sheet?.kind === 'pin' && (
         <PinSheet onClose={closeSheet} onUnlock={(actor) => { closeSheet(); mode.enter(actor); }} />
       )}
+      {sheet?.kind === 'waste' && manager && (
+        <WasteSheet
+          actor={manager}
+          onClose={closeSheet}
+          onWasted={(message, undo) => { closeSheet(); setWasted({ id: Date.now(), message, undo }); }}
+        />
+      )}
       {palette && manager && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
 
       {/* Hidden under an open sheet: it would cover the sheet's buttons (e.g. Card). */}
-      {reg.toast && !sheet && !palette && (
+      {wasted && manager && !sheet && !palette && (
+        <div className="toast" role="status" key={`waste-${wasted.id}`}>
+          <span>{wasted.message}</span>
+          <button type="button" onClick={undoWaste}>Undo</button>
+        </div>
+      )}
+      {reg.toast && !wasted && !sheet && !palette && (
         <div className="toast" role="status" key={reg.toast.id}>
           <span>{reg.toast.message}</span>
           {reg.toast.manager
