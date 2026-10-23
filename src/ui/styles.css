@@ -1305,3 +1305,12 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .flow__dot--on { background: var(--primary); transform: scale(1.35); }
 .flow__dot--warn { background: var(--warn); }
 .flow:focus { outline: none; }
+.bigstep--compact { gap: 10px; padding: 0; flex: none; }
+.bigstep--compact .bigstep__btn { width: 52px; height: 52px; font-size: 26px; }
+.bigstep--compact .bigstep__num { width: 64px; font-size: 28px; letter-spacing: -0.8px; border-bottom-width: 2px; }
+.bigstep--compact .bigstep__unit { font-size: 13px; }
+.flow-card--item { flex-wrap: wrap; row-gap: 8px; }
+.flow-card--wa { text-decoration: none; background: var(--primary); color: var(--on-primary); border-left-color: var(--primary); }
+.flow-card--wa .flow-card__line { color: inherit; opacity: 0.8; }
+.flow__add { min-height: 56px; padding: 0 16px; border: 1px dashed var(--line); border-radius: 14px; background: none; color: var(--ink-2); font: inherit; font-size: 16px; }
+.flow__row { display: flex; align-items: center; gap: 16px; }

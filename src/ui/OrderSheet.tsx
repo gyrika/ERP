@@ -1,23 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
+import { parsePacks } from '../domain/inventory.ts';
 import { draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
 import { fmt } from '../domain/money.ts';
 import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { PoLine } from '../domain/sync.ts';
-import { formatQuantity } from './quantity.ts';
+import { formatLasts, formatQuantity } from './quantity.ts';
+import { BigStepper } from './flow/BigStepper.tsx';
+import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
+import { FlowSheet } from './flow/FlowSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
 import { addToOrder, cancelOrder, editOrder, placeOrder, type InventoryRow } from '../services/inventoryStore.ts';
 
 /**
- * Purchase orders: the one way to order. Serves the manager deciding what to buy: the
- * drafts are already written, one per supplier, with what will run out before the next
- * delivery (`suggestions` in ordering.ts: use, delivery time, what is already on order).
- * They change a number, Place order saves the PO, then WhatsApp opens with the message.
- * An item already on an open order is never ordered twice: the card says "On order · PO-0003"
- * and offers "Add to PO-0003" (`planOrder`). An order can be edited or cancelled, with a
- * reason, until goods are received against it. The item sheet's Order tab is the same
- * card (SupplierDraft), started from that item.
+ * Purchase orders: the one way to order, one step at a time (src/ui/flow):
+ *   1 Who?   a big card per supplier with how many items need ordering ("Prima · 3 to order")
+ *   2 What?  that supplier's items as cards with a stepper, the suggested packs already in,
+ *            totals at the bottom, and one main button: Place order (or Add to PO-0003, which
+ *            `planOrder` chooses so an item is never on two orders)
+ *   3 Send   the message, WhatsApp as the big thing to do; then the next supplier, or Done
+ * "On order" lists the open orders: edit them, or cancel them with a reason, until goods come.
+ * The item sheet's Order tab is the same step 2 (ItemOrder), started from that item.
  */
 type Packs = Record<string, number>;
 type Done = (message: string, undo: () => void) => void;
@@ -25,30 +29,35 @@ type Done = (message: string, undo: () => void) => void;
 interface Placed { order: PurchaseOrder; added: boolean }
 
 const nameOf = (suppliers: Supplier[], id: string) => suppliers.find((s) => s.id === id)?.name ?? 'Supplier';
+const word = (n: number, one: string, many: string) => (n === 1 ? one : many);
+const placedText = (p: Placed, suppliers: Supplier[]) => (p.added ? `Added to ${p.order.poNo}.` : `${p.order.poNo} placed with ${nameOf(suppliers, p.order.supplierId)}.`);
 
-/** One supplier's draft: packs per item, add another of its items, Place order / Add to PO. */
-export function SupplierDraft({ supplierId, initial, items, suppliers, purchases, onPlaced }: {
-  supplierId: string;
-  initial: Packs;
-  items: InventoryRow[];
-  suppliers: Supplier[];
-  purchases: PurchaseState;
-  /** done: nothing left on the card. */
-  onPlaced: (placed: Placed, undo: () => void, done: boolean) => void;
-}) {
+/**
+ * One supplier's draft: packs per item (typed or stepped), items added or removed, what the
+ * order comes to, and the one action that does everything the draft shows. Used by the
+ * "What?" step and by the item sheet's Order tab.
+ */
+function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], purchases: PurchaseState) {
   const [packs, setPacks] = useState<Packs>(initial);
+  /** What is in each box while it is being typed (so "1." and an empty box are allowed). */
+  const [typed, setTyped] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
-  const name = nameOf(suppliers, supplierId);
-  const byId = new Map(items.map((i) => [i.id, i]));
-  const extra = items.filter((i) => i.supplierIds.includes(supplierId) && !(i.id in packs));
-  const set = (id: string, n: number) => { setPacks({ ...packs, [id]: Math.max(0, n) }); setError(''); };
-  const remove = (id: string) => { const { [id]: _gone, ...rest } = packs; setPacks(rest); setError(''); };
   const lines: PoLine[] = Object.entries(packs).filter(([, n]) => n > 0).map(([itemId, n]) => ({ itemId, packs: n }));
   const plan = planOrder(purchases.open, supplierId, lines);
   const blocked = new Map(plan.blocked.map((b) => [b.itemId, b.poNo]));
+  const totals = orderTotals(lines, new Map(items.map((i) => [i.id, i.workingPriceCents])));
+  const mainLabel = plan.create.length > 0
+    ? (plan.add.length > 0 ? `Place order and add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order')
+    : plan.add.length > 0 ? `Add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order';
+  const canAct = plan.add.length > 0 || plan.create.length > 0;
 
-  /** The one main button does everything the card shows: adds to the orders that already have the item, and places the rest. */
-  const act = () => {
+  const clearTyped = (id: string) => setTyped(({ [id]: _gone, ...rest }) => rest);
+  const set = (id: string, n: number) => { setPacks({ ...packs, [id]: Math.max(0, n) }); clearTyped(id); setError(''); };
+  const setText = (id: string, text: string) => { setTyped({ ...typed, [id]: text }); setPacks({ ...packs, [id]: parsePacks(text) ?? 0 }); setError(''); };
+  const remove = (id: string) => { const { [id]: _gone, ...rest } = packs; setPacks(rest); clearTyped(id); setError(''); };
+
+  /** Adds to the orders that already have the item and places the rest; tells the caller what was made. */
+  const act = (onPlaced: (placed: Placed, undo: () => void, done: boolean) => void) => {
     const placed: { p: Placed; undo: () => void }[] = [];
     const handled = new Set<string>();
     for (const a of plan.add) {
@@ -67,53 +76,59 @@ export function SupplierDraft({ supplierId, initial, items, suppliers, purchases
     setPacks(rest);
     placed.forEach(({ p, undo }, i) => onPlaced(p, undo, i === placed.length - 1 && Object.keys(rest).length === 0));
   };
-  const mainLabel = plan.create.length > 0
-    ? (plan.add.length > 0 ? `Place order and add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order')
-    : plan.add.length > 0 ? `Add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order';
-  const totals = orderTotals(lines, new Map(items.map((i) => [i.id, i.workingPriceCents])));
 
+  return { packs, typed, error, setError, lines, plan, blocked, totals, mainLabel, canAct, set, setText, remove, act };
+}
+type Draft = ReturnType<typeof useDraft>;
+
+/** The items of a draft as cards with a stepper each, and the total at the bottom. */
+function DraftItems({ supplierId, draft, items, suppliers }: { supplierId: string; draft: Draft; items: InventoryRow[]; suppliers: Supplier[] }) {
+  const { packs, typed, plan, blocked, totals } = draft;
+  const name = nameOf(suppliers, supplierId);
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const extra = items.filter((i) => i.supplierIds.includes(supplierId) && !(i.id in packs));
   return (
-    <section className="po-card" aria-label={`Order from ${name}`}>
-      <strong>{name}</strong>
+    <section className="flow__list" aria-label={`Order from ${name}`}>
+      {Object.keys(packs).length === 0 && <p className="flow-hint">Nothing here yet. Add what you need from {name}.</p>}
       {Object.keys(packs).length > 0 && (
-        <ul className="order__lines" aria-label={`To order from ${name}`}>
+        <ul className="flow__list flow__plain" aria-label={`To order from ${name}`}>
           {Object.entries(packs).map(([id, n]) => {
             const row = byId.get(id);
             if (!row) return null;
             const on = plan.onOrder.get(id);
+            const why = row.suggestedPacks > 0 && row.usedPerDay > 0
+              ? `${formatLasts(row.lastsDays) ? `${formatLasts(row.lastsDays)} · ` : ''}uses about ${formatQuantity(Math.round(row.usedPerDay), row.baseUnit)} a day` : '';
             return (
-              <li key={id}>
-                <span className="delivery__name">
-                  {row.name}
-                  <small>{n} × {formatQuantity(row.packQty, row.baseUnit)} = {formatQuantity(n * row.packQty, row.baseUnit)}</small>
-                  {on && <small className="po-tag">On order · {on}{blocked.has(id) ? ': partly received, wait for it or close it first' : ''}</small>}
+              <li key={id} className="flow-card flow-card--item">
+                <span className="flow-card__text">
+                  <span className="flow-card__name">{row.name}</span>
+                  <span className="flow-card__line">{n} × {formatQuantity(row.packQty, row.baseUnit)} = {formatQuantity(n * row.packQty, row.baseUnit)}</span>
+                  {why && <span className="flow-card__line">{why}</span>}
+                  {on && <span className="flow-card__tag">On order · {on}{blocked.has(id) ? ': partly received, wait for it or close it first' : ''}</span>}
+                  <button type="button" className="linkbtn" aria-label={`Remove ${row.name}`} onClick={() => draft.remove(id)}>Remove</button>
                 </span>
-                <button type="button" className="step" aria-label={`One pack less of ${row.name}`} onClick={() => set(id, n - 1)}>−</button>
-                <strong className="num order__packs" aria-label={`Packs of ${row.name}`}>{n}</strong>
-                <button type="button" className="step" aria-label={`One pack more of ${row.name}`} onClick={() => set(id, n + 1)}>+</button>
-                <button type="button" className="linkbtn" aria-label={`Remove ${row.name}`} onClick={() => remove(id)}>×</button>
+                <BigStepper compact value={typed[id] ?? String(n)} unit={word(n, 'pack', 'packs')} label={`Packs of ${row.name}`}
+                  lessLabel={`One pack less of ${row.name}`} moreLabel={`One pack more of ${row.name}`}
+                  onText={(text) => draft.setText(id, text)} onBump={(by) => draft.set(id, n + by)} />
               </li>
             );
           })}
         </ul>
       )}
-      {error && <p className="inv-modal__error" role="alert">{error}</p>}
       {extra.length > 0 && (
-        <select className="inv-modal__input po-card__add" aria-label={`Add an item from ${name}`} value=""
-          onChange={(e) => { if (e.target.value) set(e.target.value, 1); }}>
+        <select className="flow__add" aria-label={`Add an item from ${name}`} value="" onChange={(e) => { if (e.target.value) draft.set(e.target.value, 1); }}>
           <option value="">+ Add item</option>
           {extra.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
         </select>
       )}
-      <p className="po-card__total" aria-label="Order total">
-        {totals.items} {totals.items === 1 ? 'item' : 'items'} · {totals.packs} {totals.packs === 1 ? 'pack' : 'packs'}{totals.cents > 0 ? ` · about Rs ${fmt(totals.cents)}` : ''}
+      <p className="flow__total" aria-label="Order total">
+        {totals.items} {word(totals.items, 'item', 'items')} · {totals.packs} {word(totals.packs, 'pack', 'packs')}{totals.cents > 0 ? ` · about Rs ${fmt(totals.cents)}` : ''}
       </p>
-      <button type="button" className="insight__action po-card__main" disabled={plan.add.length === 0 && plan.create.length === 0} onClick={act}>{mainLabel}</button>
     </section>
   );
 }
 
-/** A PO just placed (or lines just added to one): its message, to send on WhatsApp, call, or copy. */
+/** A PO just placed (or lines just added to one): its message, and WhatsApp as the big thing to do. */
 export function PlacedOrder({ placed: { order, added }, items, suppliers }: { placed: Placed; items: InventoryRow[]; suppliers: Supplier[] }) {
   const name = nameOf(suppliers, order.supplierId);
   const phone = suppliers.find((s) => s.id === order.supplierId)?.phone;
@@ -122,20 +137,20 @@ export function PlacedOrder({ placed: { order, added }, items, suppliers }: { pl
     return row ? [{ name: row.name, packs: l.packs, packQty: row.packQty, baseUnit: row.baseUnit }] : [];
   }), 'CheesyBeez', added ? `Hi, this is CheesyBeez. Please add to ${isPending(order.poNo) ? 'our order' : order.poNo}:` : undefined);
   return (
-    <section className="po-card po-card--placed" aria-label={`${order.poNo} ${name}`}>
-      <strong>{added ? `Added to ${order.poNo}` : `${order.poNo} placed`} · {name}</strong>
+    <section className="flow__list" aria-label={`${order.poNo} ${name}`}>
+      <InfoCard name={added ? `Added to ${order.poNo}` : `${order.poNo} placed`} line={name} tone="ok" />
       <pre className="order__message" aria-label="Message">{text}</pre>
-      <div className="order__send">
-        {phone ? (
-          <>
-            <a className="restock-action restock-action--wa" href={whatsAppLink(phone, text)} target="_blank" rel="noreferrer">WhatsApp</a>
-            <a className="restock-action order__call" href={`tel:${phone}`}>Call {phone}</a>
-          </>
-        ) : (
-          <p className="order__nophone">No phone saved for {name}. Add it on <a href="#suppliers">Suppliers</a>.</p>
-        )}
-        <button type="button" className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(text).catch(() => {}); }}>Copy message</button>
-      </div>
+      {phone ? (
+        <>
+          <a className="flow-card flow-card--tap flow-card--wa" href={whatsAppLink(phone, text)} target="_blank" rel="noreferrer">
+            <span className="flow-card__text"><span className="flow-card__name">Send on WhatsApp</span><span className="flow-card__line">{phone}</span></span>
+          </a>
+          <a className="linkbtn" href={`tel:${phone}`}>Call {phone}</a>
+        </>
+      ) : (
+        <p className="flow-hint">No phone saved for {name}. Add it on <a href="#suppliers">Suppliers</a>.</p>
+      )}
+      <button type="button" className="linkbtn" onClick={() => { void navigator.clipboard?.writeText(text).catch(() => {}); }}>Copy message</button>
     </section>
   );
 }
@@ -159,49 +174,48 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
   };
 
   return (
-    <li className="po-open">
-      <span className="delivery__name">
-        {order.poNo} · {nameOf(suppliers, order.supplierId)}
-        <small className="po-tag">{STATUS_WORDS[order.status]}</small>
-        {!editing && (
-          <small>{order.lines.map((l) => `${l.packs} × ${nameFor(l.itemId)}${l.received > 0 ? ` (${l.received} received)` : ''}`).join(', ')}</small>
-        )}
-      </span>
+    <li className="flow__list">
+      <InfoCard name={`${order.poNo} · ${nameOf(suppliers, order.supplierId)}`} tone={order.status === 'partly' ? 'warn' : undefined}
+        line={editing ? undefined : order.lines.map((l) => `${l.packs} × ${nameFor(l.itemId)}${l.received > 0 ? ` (${l.received} received)` : ''}`).join(', ')}>
+        <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span>
+      </InfoCard>
       {editing && (
-        <ul className="order__lines" aria-label={`Change ${order.poNo}`}>
+        <ul className="flow__list flow__plain" aria-label={`Change ${order.poNo}`}>
           {Object.entries(editing).map(([id, n]) => (
-            <li key={id}>
-              <span className="delivery__name">{nameFor(id)}</span>
-              <button type="button" className="step" aria-label={`One pack less of ${nameFor(id)} on ${order.poNo}`} onClick={() => setEditing({ ...editing, [id]: Math.max(1, n - 1) })}>−</button>
-              <strong className="num order__packs" aria-label={`Packs of ${nameFor(id)} on ${order.poNo}`}>{n}</strong>
-              <button type="button" className="step" aria-label={`One pack more of ${nameFor(id)} on ${order.poNo}`} onClick={() => setEditing({ ...editing, [id]: n + 1 })}>+</button>
-              <button type="button" className="linkbtn" aria-label={`Remove ${nameFor(id)} from ${order.poNo}`}
-                onClick={() => { const { [id]: _gone, ...rest } = editing; setEditing(rest); }}>×</button>
+            <li key={id} className="flow-card flow-card--item">
+              <span className="flow-card__text">
+                <span className="flow-card__name">{nameFor(id)}</span>
+                <button type="button" className="linkbtn" aria-label={`Remove ${nameFor(id)} from ${order.poNo}`}
+                  onClick={() => { const { [id]: _gone, ...rest } = editing; setEditing(rest); }}>Remove</button>
+              </span>
+              <BigStepper compact value={String(n)} unit={word(n, 'pack', 'packs')} label={`Packs of ${nameFor(id)} on ${order.poNo}`}
+                lessLabel={`One pack less of ${nameFor(id)} on ${order.poNo}`} moreLabel={`One pack more of ${nameFor(id)} on ${order.poNo}`}
+                onText={(text) => setEditing({ ...editing, [id]: parsePacks(text) ?? 0 })} onBump={(by) => setEditing({ ...editing, [id]: Math.max(1, n + by) })} />
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="inv-modal__error" role="alert">{error}</p>}
+      {error && <p className="reason-msg" role="alert">{error}</p>}
       {order.editable ? (
         editing ? (
-          <span className="po-open__actions">
+          <div className="flow__row">
             <button type="button" className="linkbtn" onClick={() => { setEditing(null); setError(''); }}>Keep as it was</button>
-            <button type="button" className="insight__action" aria-label={`Save ${order.poNo}`} onClick={save}>Save changes</button>
-          </span>
+            <button type="button" className="chip chip--solid" aria-label={`Save ${order.poNo}`} onClick={save}>Save changes</button>
+          </div>
         ) : why ? (
-          <div className="chips" role="group" aria-label={`Why cancel ${order.poNo}`}>
+          <div role="group" aria-label={`Why cancel ${order.poNo}`} className="flow__list">
             {CANCEL_REASONS.map((r) => (
-              <button key={r} type="button" className="chip" onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))}>{r}</button>
+              <ChoiceCard key={r} name={r} onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))} />
             ))}
           </div>
         ) : (
-          <span className="po-open__actions">
+          <div className="flow__row">
             <button type="button" className="linkbtn" aria-label={`Edit ${order.poNo}`} onClick={() => setEditing(Object.fromEntries(order.lines.map((l) => [l.itemId, l.packs])))}>Edit</button>
             <button type="button" className="linkbtn" aria-label={`Cancel ${order.poNo}`} onClick={() => setWhy(true)}>Cancel</button>
-          </span>
+          </div>
         )
       ) : (
-        <small className="po-open__locked">Goods came: finish it with GRN.</small>
+        <p className="flow-hint">Goods came: finish it with GRN.</p>
       )}
     </li>
   );
@@ -211,14 +225,16 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
 function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]; items: InventoryRow[]; suppliers: Supplier[]; onDone: Done }) {
   if (orders.length === 0) return null;
   return (
-    <section aria-label="On order">
-      <p className="delivery__hint">On order</p>
-      <ul className="order__lines">
+    <section aria-label="On order" className="flow__list">
+      <p className="flow-hint">On order</p>
+      <ul className="flow__list flow__plain">
         {orders.map((o) => <OnOrderRow key={o.id} order={o} items={items} suppliers={suppliers} onDone={onDone} />)}
       </ul>
     </section>
   );
 }
+
+type Step = 'who' | 'what' | 'send' | 'open';
 
 export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
   items: InventoryRow[];
@@ -228,55 +244,114 @@ export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
   onDone: Done;
 }) {
   const suggested = useMemo(() => draftsOf(items), [items]);
-  /** The cards shown: the suggested ones, then any supplier added by hand. */
-  const [cards, setCards] = useState<[string, Packs][]>(() => [...suggested]);
-  /** Placed here, so the message can be sent. */
+  const [step, setStep] = useState<Step>('who');
+  /** The supplier being ordered from, and the draft the person starts from. */
+  const [supplierId, setSupplierId] = useState<string | null>(null);
+  const [start, setStart] = useState<Packs>({});
+  /** Suppliers already ordered from in this visit, and what was placed (for the Send step). */
+  const [finished, setFinished] = useState<string[]>([]);
   const [placed, setPlaced] = useState<Placed[]>([]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const withItems = suppliers.filter((s) => items.some((i) => i.supplierIds.includes(s.id)));
+  const waiting = withItems.filter((s) => suggested.has(s.id) && !finished.includes(s.id));
+  const others = withItems.filter((s) => !suggested.has(s.id) || finished.includes(s.id));
+  const choose = (id: string) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep('what'); };
+  const toWho = () => { setStep('who'); setSupplierId(null); setPlaced([]); };
 
-  const others = suppliers.filter((s) => !cards.some(([id]) => id === s.id) && items.some((i) => i.supplierIds.includes(s.id)));
+  const total = waiting.length + finished.filter((id) => suggested.has(id)).length;
+
+  if (step === 'open') {
+    return (
+      <FlowSheet title="Purchase orders" sub="On order" onClose={onClose} onBack={toWho}>
+        <RejectionNotices />
+        {purchases.open.length === 0
+          ? <p className="flow-hint">Nothing is on order.</p>
+          : <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />}
+      </FlowSheet>
+    );
+  }
+
+  if ((step === 'what' || step === 'send') && supplierId) {
+    return (
+      <WhatStep key={supplierId} step={step} supplierId={supplierId} start={start} items={items} suppliers={suppliers} purchases={purchases}
+        placed={placed} moreSuppliers={waiting.filter((s) => s.id !== supplierId).length} onClose={onClose} onBack={toWho}
+        onPlaced={(p, undo, done) => {
+          setPlaced((all) => [...all, p]);
+          onDone(placedText(p, suppliers), undo);
+          if (done) setFinished((f) => [...f, supplierId]);
+          setStep('send'); // the message is to be sent either way
+        }}
+        onNext={() => { const next = waiting.find((s) => s.id !== supplierId); if (next) choose(next.id); else toWho(); }} />
+    );
+  }
 
   return (
-    <div className="inv-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="inv-modal order" role="dialog" aria-modal="true" aria-labelledby="po-title">
-        <button type="button" className="count__close" aria-label="Close" onClick={onClose}>×</button>
-        <h2 id="po-title">Purchase orders</h2>
-        <RejectionNotices />
-
-        {placed.map((p, i) => <PlacedOrder key={`${p.order.id}-${i}`} placed={p} items={items} suppliers={suppliers} />)}
-        {cards.length === 0 && placed.length === 0 && <p className="delivery__hint">Nothing needs ordering now.</p>}
-        {cards.map(([sup, packs]) => (
-          <SupplierDraft key={sup} supplierId={sup} initial={packs} items={items} suppliers={suppliers} purchases={purchases}
-            onPlaced={(p, undo, done) => {
-              if (done) setCards(cards.filter(([id]) => id !== sup));
-              setPlaced([...placed, p]);
-              onDone(p.added ? `Added to ${p.order.poNo}.` : `${p.order.poNo} placed with ${nameOf(suppliers, sup)}.`, undo);
-            }} />
-        ))}
-
-        {others.length > 0 && (
-          <div className="delivery__suppliers" role="group" aria-label="Order from another supplier">
-            {others.map((s) => (
-              <button key={s.id} type="button" className="chip" onClick={() => setCards([...cards, [s.id, {}]])}>+ {s.name}</button>
-            ))}
+    <FlowSheet title="Purchase orders" onClose={onClose}
+      step={total > 1 ? { index: 1, of: 3, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: 3, label: 'Who?' }}
+      extra={purchases.open.length > 0 ? <button type="button" className="linkbtn flow__back" onClick={() => setStep('open')}>On order ({purchases.open.length})</button> : undefined}>
+      <RejectionNotices />
+      {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
+      {waiting.length > 0 && (
+        <>
+          <p className="flow-hint">Who do you want to order from?</p>
+          <div role="group" aria-label="Suppliers that need ordering" className="flow__list">
+            {waiting.map((s) => {
+              const n = Object.keys(suggested.get(s.id) ?? {}).length;
+              return <ChoiceCard key={s.id} name={s.name} tone="warn" line={`${n} to order`} badge={n} label={`Order from ${s.name}`} onClick={() => choose(s.id)} />;
+            })}
           </div>
-        )}
+        </>
+      )}
+      {others.length > 0 && (
+        <div role="group" aria-label="Order from another supplier" className="flow__list">
+          {waiting.length > 0 && <p className="flow-hint">Or another supplier</p>}
+          {others.map((s) => <ChoiceCard key={s.id} name={`+ ${s.name}`} line="Choose the items yourself" label={`+ ${s.name}`} onClick={() => choose(s.id)} />)}
+        </div>
+      )}
+    </FlowSheet>
+  );
+}
 
-        <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
-      </div>
-    </div>
+/** Steps 2 and 3 for one supplier: what to order, then sending it. */
+function WhatStep({ step, supplierId, start, items, suppliers, purchases, placed, moreSuppliers, onClose, onBack, onPlaced, onNext }: {
+  step: 'what' | 'send';
+  supplierId: string;
+  start: Packs;
+  items: InventoryRow[];
+  suppliers: Supplier[];
+  purchases: PurchaseState;
+  placed: Placed[];
+  moreSuppliers: number;
+  onClose: () => void;
+  onBack: () => void;
+  onPlaced: (p: Placed, undo: () => void, done: boolean) => void;
+  onNext: () => void;
+}) {
+  const draft = useDraft(supplierId, start, items, purchases);
+  const name = nameOf(suppliers, supplierId);
+
+  if (step === 'send') {
+    return (
+      <FlowSheet title="Purchase orders" sub={name} step={{ index: 3, of: 3, label: 'Send' }} onClose={onClose}
+        primary={{ label: moreSuppliers > 0 ? 'Next supplier' : 'Done', onClick: moreSuppliers > 0 ? onNext : onClose }}>
+        <RejectionNotices />
+        {placed.map((p, i) => <PlacedOrder key={`${p.order.id}-${i}`} placed={p} items={items} suppliers={suppliers} />)}
+      </FlowSheet>
+    );
+  }
+  return (
+    <FlowSheet title="Purchase orders" sub={name} step={{ index: 2, of: 3, label: 'What to order' }} onClose={onClose} onBack={onBack} error={draft.error}
+      primary={{ label: draft.mainLabel, onClick: () => draft.act(onPlaced), disabled: !draft.canAct }}>
+      <RejectionNotices />
+      <DraftItems supplierId={supplierId} draft={draft} items={items} suppliers={suppliers} />
+    </FlowSheet>
   );
 }
 
 /**
- * The item sheet's Order tab: the same draft, started from this item (its suggested
- * packs, else one), with its supplier's other items that need ordering. Already on an
- * open PO: that PO, with Cancel, so it is never ordered twice.
+ * The item sheet's Order tab: the same "what to order", started from this item (its suggested
+ * packs, else one), with its supplier's other items that need ordering. Already on an open PO:
+ * that PO is listed, with Edit and Cancel, and the draft adds to it, so it is never ordered twice.
  */
 export function ItemOrder({ item, items, suppliers, purchases, onDone }: {
   item: InventoryRow;
@@ -290,11 +365,11 @@ export function ItemOrder({ item, items, suppliers, purchases, onDone }: {
   const last = purchases.lastSupplier.get(item.id);
   const first = item.suggestedSupplierId ?? (sources.some((s) => s.id === last) ? last : sources[0]?.id) ?? null;
   const [supplierId, setSupplierId] = useState(first);
-  const [placed, setPlaced] = useState<Placed | null>(null);
+  const [placed, setPlaced] = useState<Placed[]>([]);
   const open = purchases.open.filter((o) => o.lines.some((l) => l.itemId === item.id));
 
-  if (placed) return <PlacedOrder placed={placed} items={items} suppliers={suppliers} />;
-  if (!supplierId) return <p className="order__nophone">No active supplier for {item.name}. Add one on <a href="#suppliers">Suppliers</a>.</p>;
+  if (placed.length > 0) return <>{placed.map((p, i) => <PlacedOrder key={`${p.order.id}-${i}`} placed={p} items={items} suppliers={suppliers} />)}</>;
+  if (!supplierId) return <p className="flow-hint">No active supplier for {item.name}. Add one on <a href="#suppliers">Suppliers</a>.</p>;
 
   const draft = drafts.get(supplierId) ?? {};
   const initial = { [item.id]: Math.max(1, draft[item.id] ?? 0), ...Object.fromEntries(Object.entries(draft).filter(([id]) => id !== item.id)) };
@@ -308,8 +383,23 @@ export function ItemOrder({ item, items, suppliers, purchases, onDone }: {
           ))}
         </div>
       )}
-      <SupplierDraft key={supplierId} supplierId={supplierId} initial={initial} items={items} suppliers={suppliers} purchases={purchases}
-        onPlaced={(p, undo) => { setPlaced(p); onDone(p.added ? `Added to ${p.order.poNo}.` : `${p.order.poNo} placed with ${nameOf(suppliers, supplierId)}.`, undo); }} />
+      <ItemDraft key={supplierId} supplierId={supplierId} initial={initial} items={items} suppliers={suppliers} purchases={purchases}
+        onPlaced={(p, undo) => { setPlaced((all) => [...all, p]); onDone(placedText(p, suppliers), undo); }} />
+    </>
+  );
+}
+
+/** The draft with its own main button, for the item sheet. */
+function ItemDraft({ supplierId, initial, items, suppliers, purchases, onPlaced }: {
+  supplierId: string; initial: Packs; items: InventoryRow[]; suppliers: Supplier[]; purchases: PurchaseState;
+  onPlaced: (p: Placed, undo: () => void) => void;
+}) {
+  const draft = useDraft(supplierId, initial, items, purchases);
+  return (
+    <>
+      <DraftItems supplierId={supplierId} draft={draft} items={items} suppliers={suppliers} />
+      {draft.error && <p className="reason-msg" role="alert">{draft.error}</p>}
+      <button type="button" className="cta" disabled={!draft.canAct} onClick={() => draft.act((p, undo) => onPlaced(p, undo))}>{draft.mainLabel}</button>
     </>
   );
 }
