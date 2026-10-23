@@ -165,6 +165,12 @@ test("the owner's own recipe and opening his recipes pass; a malformed recipe do
   const bad = { kind: 'own', lines: [{ name: 'stock:inv-0016', qty: -2, unit: 'pcs' }] };
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.answer_set', question: 'recipe:sausages:M', before: null, after: bad }] }, 'shop-1'));
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.viewed', orderNumber: 4 }] }, 'shop-1'));
+  // His version of a sheet batch: its lines are his stock or what the batch already takes.
+  const batch = { kind: 'batch', makes: { qty: 2000, unit: 'g' }, lines: [{ name: 'Mozzarella A', qty: 1500, unit: 'g' }] };
+  const edit = { ...owner, type: 'recipe.answer_set', question: 'batch:Mozzarella Blend', before: null, after: batch };
+  assert.deepEqual(validatePush({ events: [edit] }, 'shop-1'), { events: [edit] });
+  const inside = { ...batch, lines: [{ name: 'Mozzarella Blend', qty: 5, unit: 'g' }] };
+  assert.ok('reason' in validatePush({ events: [{ ...edit, after: inside }] }, 'shop-1'));
 });
 
 test('purchase orders and GRNs: a GRN that differs from its order needs a manager and the decisions', () => {
@@ -188,6 +194,10 @@ test('purchase orders and GRNs: a GRN that differs from its order needs a manage
   assert.match(reason({ ...over, overDecision: 'accept', lines: [{ itemId: 'inv-1', ordered: 2, received: 3, accepted: 5, returned: 0 }] }), /wrong amount into stock/, 'stock cannot be made up');
   assert.match(reason({ ...over, overDecision: 'accept', lines: line(3, 5) }), /invalid goods received note/);
   assert.match(reason({ ...ordered, lines: [] }), /invalid purchase order/);
+  const draft = { ...base, id: 'event-3', type: 'stock.draft_set', supplierId: 'sup', lines: [{ itemId: 'inv-1', packs: 2 }] };
+  assert.ok('events' in validatePush({ events: [draft, { ...draft, id: 'event-4', lines: [] }] }, 'shop-1'), 'no lines clears the draft');
+  assert.match(reason({ ...draft, lines: [{ itemId: 'inv-1', packs: 0 }] }), /invalid draft order/);
+  assert.match(reason({ ...draft, supplierId: '' }), /invalid draft order/);
 });
 
 test('an undone GRN names a manager and a reason', () => {
@@ -230,4 +240,12 @@ test('a count: Other must say what happened; the note is short', () => {
   assert.match(reason({ ...counted, reason: 'other', note: '   ' }), /invalid count/);
   assert.match(reason({ ...counted, note: 'x'.repeat(201) }), /invalid count/);
   assert.ok('events' in validatePush({ events: [{ ...counted, reason: 'delivery-short' }] }, 'shop-1'), 'an older reason still reads');
+});
+
+test('a price change passes, marked with the GRN it came from or not; a bad GRN mark does not', () => {
+  const price = { ...base, actor: { id: 'm', name: 'Ravi', role: 'manager' }, type: 'stock.price_set', itemId: 'inv-0001', before: 640000, after: 660000 };
+  assert.deepEqual(validatePush({ events: [price] }, 'shop-1'), { events: [price] });
+  const fromGrn = { ...price, grnId: 'grn-event-1' };
+  assert.deepEqual(validatePush({ events: [fromGrn] }, 'shop-1'), { events: [fromGrn] });
+  assert.ok('reason' in validatePush({ events: [{ ...price, grnId: 42 }] }, 'shop-1'));
 });

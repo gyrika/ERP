@@ -36,7 +36,12 @@ export type Answer =
    * its name, what one batch makes and what goes in it. Recipes use it like his sheet's
    * batches, by id (`kitchen:<id>`), or by name where his sheet names it but never defines it.
    */
-  | { kind: 'prep'; name: string; makes: { qty: number; unit: string }; lines: BookLine[] };
+  | { kind: 'prep'; name: string; makes: { qty: number; unit: string }; lines: BookLine[] }
+  /**
+   * His own version of one of his sheet's batches, changed in the app: what one batch makes and
+   * what goes in it. It wins over his sheet; the name stays, since his sheet's dishes use it by name.
+   */
+  | { kind: 'batch'; makes: { qty: number; unit: string }; lines: BookLine[] };
 
 interface RecipeBase { id: string; shopId: string; at: number; orderNumber: 0; actor: Actor }
 /**
@@ -70,8 +75,10 @@ export const recipeQuestion = (itemId: string, size: string) => `recipe:${itemId
 export const addonQuestion = (extraId: string) => `addon:${extraId}`;
 /** A semi-processed item he added in the app, by its id (names are labels: they may change). */
 export const prepQuestion = (id: string) => `prep:${id}`;
+/** One of his sheet's batches as he changed it in the app, by its name on his sheet. */
+export const batchQuestion = (name: string) => `batch:${name}`;
 
-export type QuestionKind = 'yield' | 'ingredient' | 'recipe' | 'addon' | 'prep';
+export type QuestionKind = 'yield' | 'ingredient' | 'recipe' | 'addon' | 'prep' | 'batch';
 export const questionKind = (id: string): QuestionKind => id.slice(0, id.indexOf(':')) as QuestionKind;
 /** What the question is about: the batch, the ingredient, or [menu item id, size]. */
 export const questionSubject = (id: string): string => id.slice(id.indexOf(':') + 1);
@@ -146,10 +153,28 @@ const checkPrep = (id: string, a: Extract<Answer, { kind: 'prep' }>): string | n
     ?? (a.lines.every((l) => l.name in PREPS || l.name.startsWith(STOCK_LINE)) ? null : 'Choose each line from your stock or your batches.');
 };
 
+/**
+ * Null when his version of a sheet batch is well formed. In the unit his dishes use it in; its
+ * lines are his stock, or what the sheet's batch already takes (its ingredients and batches),
+ * so a batch can never end up inside itself.
+ */
+const checkBatch = (name: string, a: Extract<Answer, { kind: 'batch' }>): string | null => {
+  const sheet = PREPS[name];
+  if (!sheet) return 'That is not one of your batches.';
+  const unit = recipeUnit(name) ?? sheet.makes?.unit;
+  const taken = new Set(sheet.lines.map((l) => l.name));
+  return (typeof a.makes === 'object' && a.makes !== null && positive(a.makes.qty) && a.makes.qty <= 1_000_000
+    && (UNITS as readonly string[]).includes(a.makes.unit) ? null : 'Type how much one batch makes.')
+    ?? (unit && unit !== a.makes.unit ? `Your recipes use it in ${unit}: type the batch in ${unit}.` : null)
+    ?? checkOwnLines(a.lines)
+    ?? (a.lines.every((l) => taken.has(l.name) || l.name.startsWith(STOCK_LINE)) ? null : 'Choose each line from your stock or what the batch already takes.');
+};
+
 /** Is this a well-formed answer to that question? (The server checks the same.) */
 export const checkAnswer = (question: string, a: Answer): string | null => {
   const kind = questionKind(question);
   if (kind === 'prep') return a.kind === 'prep' ? checkPrep(questionSubject(question), a) : 'Write what goes in it.';
+  if (kind === 'batch') return a.kind === 'batch' ? checkBatch(questionSubject(question), a) : 'Write what goes in it.';
   if (kind === 'yield') return a.kind === 'yield' && positive(a.qty) ? null : 'Type how much one batch makes.';
   if (kind === 'recipe') {
     if (a.kind === 'own') return checkOwnLines(a.lines);
@@ -220,9 +245,15 @@ export const ownPrepOf = (line: string, answers: ReadonlyMap<string, Answer>): O
   return ownPreps(answers).find((p) => p.name === line) ?? null;
 };
 
-/** A batch from his sheet, else a semi-processed item he added in the app. */
+/** His own version of a sheet batch, if he changed it in the app. */
+export const batchEdit = (name: string, answers: ReadonlyMap<string, Answer>): Prep | null => {
+  const a = name in PREPS ? answers.get(batchQuestion(name)) : undefined;
+  return a?.kind === 'batch' ? { makes: a.makes, lines: a.lines } : null;
+};
+
+/** A batch from his sheet (as he changed it, if he did), else a semi-processed item he added in the app. */
 export const prepOf = (name: string, answers: ReadonlyMap<string, Answer>): Prep | null =>
-  PREPS[name] ?? ownPrepOf(name, answers);
+  batchEdit(name, answers) ?? PREPS[name] ?? ownPrepOf(name, answers);
 
 /**
  * Names his sheet's recipes for menu dishes use but nothing defines (no batch, no price-list
@@ -354,7 +385,7 @@ export interface OpenQuestion {
   blocks: string[];
 }
 
-const KIND_ORDER: Record<QuestionKind, number> = { yield: 0, recipe: 1, addon: 2, ingredient: 3, prep: 4 };
+const KIND_ORDER: Record<QuestionKind, number> = { yield: 0, recipe: 1, addon: 2, ingredient: 3, prep: 4, batch: 5 };
 
 /** Every open question, those holding back the most menu items first (then batches, recipes, ingredients). */
 export const openQuestions = (menu: readonly MenuItem[], ctx: CostContext): OpenQuestion[] => {
@@ -379,7 +410,7 @@ export const questionText = (id: string, menu: readonly MenuItem[]): string => {
   if (kind === 'yield') return `How much one ${subject} makes`;
   if (kind === 'ingredient') return `${subject}: its price`;
   if (kind === 'addon') return `The recipe for extra ${subject}`;
-  if (kind === 'prep') return `What goes in ${subject}`;
+  if (kind === 'prep' || kind === 'batch') return `What goes in ${subject}`;
   const [itemId, size] = subject.split(':');
   const item = menu.find((m) => m.id === itemId);
   return `Which recipe is ${item?.name.en ?? itemId}${size ? ` ${size}` : ''}`;

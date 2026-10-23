@@ -81,7 +81,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     )) return { reason: `event ${e.id} has an invalid stock movement` };
     if (e.type === 'stock.price_set' && (
       !shortString(e.itemId) || !Number.isSafeInteger(e.before) || !Number.isSafeInteger(e.after) ||
-      (e.before as number) < 0 || (e.after as number) < 0
+      (e.before as number) < 0 || (e.after as number) < 0 || (e.grnId !== undefined && !shortString(e.grnId))
     )) return { reason: `event ${e.id} has an invalid price` };
     if (e.type === 'stock.item_added') {
       const item = e.item;
@@ -140,6 +140,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       return { reason: `event ${e.id} has an invalid purchase order` };
     }
     if (e.type === 'stock.order_edited' && (!shortString(e.orderId) || !poLines(e.lines))) return { reason: `event ${e.id} has an invalid order change` };
+    if (e.type === 'stock.draft_set' && (!shortString(e.supplierId) || !(Array.isArray(e.lines) && (e.lines.length === 0 || poLines(e.lines))))) {
+      return { reason: `event ${e.id} has an invalid draft order` };
+    }
     if (e.type === 'stock.order_cancelled' && (!shortString(e.orderId) || !shortString(e.reason, 200))) {
       return { reason: `event ${e.id} cancels an order without saying why` };
     }

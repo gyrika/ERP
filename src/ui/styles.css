@@ -428,7 +428,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-metric-badge--low { color: var(--warn); }
 .inv-metric-badge--ok { color: var(--ok-ink); }
 .inv-rows { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: 0; width: 100%; overflow-y: auto; overscroll-behavior-y: contain; margin: 0; padding: 8px 40px 24px; list-style: none; }
-.inv-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 220px) auto; align-items: center; gap: 16px; min-height: 64px; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.inv-row { display: grid; grid-template-columns: minmax(0, 1fr) 200px 200px; align-items: center; gap: 16px; min-height: 64px; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
 .inv-row--selected { border-color: var(--gold); }
 .inv-row__main { min-width: 0; }
 .inv-row__name { overflow: hidden; margin: 0; color: var(--ink); font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
@@ -436,7 +436,12 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-row__quantity { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
 .inv-row__quantity span { color: var(--ink-3); font-size: 10px; }
 .inv-row__quantity strong { overflow: hidden; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.inv-row__actions { display: flex; align-items: center; gap: 4px; }
+.inv-row__actions { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
+/* Above the row's open-the-sheet layer, like the supplier links. */
+.inv-row__cart { position: relative; z-index: 1; max-width: 100%; overflow: hidden; color: var(--ink-2); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+.inv-row__cart:hover, .inv-row__cart:focus-visible { color: var(--ink); text-decoration: underline; }
+.inv-row__cart--add { min-height: 48px; padding: 0 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.inv-row__cart--add:hover { background: var(--chip); text-decoration: none; }
 .inv-row__quantity .inv-row__price { color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 .inv-search { display: block; padding: 8px 52px 0; }
 .inv-empty { margin: 24px 12px; color: var(--ink-2); font-size: 15px; }
@@ -579,7 +584,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .inv-notice, .count-due { margin-left: 16px; margin-right: 16px; }
   .inv-rows { padding: 8px 16px 24px; }
   .inv-search { padding: 8px 20px 0; }
-  .inv-row { grid-template-columns: minmax(0, 1fr) minmax(110px, auto) auto; gap: 8px; padding-right: 4px; padding-left: 4px; }
+  .inv-row { grid-template-columns: minmax(0, 1fr) 110px 96px; gap: 8px; padding-right: 4px; padding-left: 4px; }
+  .inv-row__onorder { white-space: normal; }
   .inv-command-bar { padding: 12px 16px; }
   .inv-command-bar__top { align-items: stretch; flex-direction: column; }
   .inv-search-wrap { max-width: none; }
@@ -1101,10 +1107,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .order__message { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--chip); color: var(--ink-2); font: inherit; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
 
 /* An item's story (SCRUM-93): the row says enough at a glance; the sheet says everything. */
-.inv-level { display: block; width: 100%; max-width: 120px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
-.inv-level span { display: block; height: 100%; border-radius: 2px; background: var(--ok); transition: width 250ms var(--ease); }
-.inv-level--low span, .inv-level--unsure span { background: var(--warn); }
-.inv-level--out span { background: var(--bad); }
 .inv-row__counted { color: var(--ink-3); }
 .inv-modal.stock-sheet { position: relative; }
 .inv-modal.stock-sheet h2 { margin: 0; padding-right: 48px; }
@@ -1184,7 +1186,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .mgr__day-by { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; }
 
 /* Purchase orders and goods receiving (GRN) */
-.inv-row__onorder { font-size: 13px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.inv-row__onorder { overflow: hidden; font-size: 13px; font-weight: 600; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
 .receive-price { display: flex; flex-direction: column; gap: 10px; }
 
 /* Stock rules */
@@ -1391,14 +1393,12 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 @media (prefers-reduced-motion: reduce) { .avail__track, .avail__knob { transition: none; } }
 /* A flow in the page itself (Receive, Order): the panel beside the menu holds the work; no sheet,
    no backdrop. The main button stays in reach at the bottom of the panel. */
-.flow--inline { display: flex; flex-direction: column; width: 100%; max-width: 680px; outline: none; }
+.flow--inline { display: flex; flex-direction: column; width: 100%; max-width: 680px; max-height: none; outline: none; }
 .flow--inline .sheet__body { padding: 0; overflow: visible; max-width: none; margin: 0; }
 .flow--inline .sheet__foot { position: sticky; bottom: 0; z-index: 2; max-width: none; margin: 8px 0 0; padding: 14px 0 20px; background: var(--ground); border-top: 1px solid var(--line); }
 .flow--inline .sheet__title h1 { font-size: 30px; font-weight: 500; letter-spacing: -1px; }
 .work__main { padding-bottom: 0; }
 /* GRN: tick each item off the list. Grey until ticked; green as ordered; orange short or over. */
-.grn-row { align-items: center; }
-.grn-row--todo { border-left-color: var(--line); }
 .tick { flex: none; width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--line); background: var(--surface); color: transparent; font-size: 22px; font-weight: 700; display: inline-grid; place-items: center; cursor: pointer; transition: background 120ms, border-color 120ms, color 120ms, transform 80ms var(--ease); }
 .tick:active { transform: scale(0.92); }
 .tick--on { background: var(--ok); border-color: var(--ok); color: #fff; }
@@ -1406,6 +1406,23 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 .grn-match { font-size: 14px; font-weight: 600; }
 .grn-match--ok { color: var(--ok-ink); }
 .grn-match--short, .grn-match--over { color: var(--warn); }
+.grn-match--warn { color: var(--warn); }
+/* GRN step 2 is one bill: tick, item, qty, price, total; the final total at the bottom. */
+.grn-check__tick { width: 48px; }
+.grn-bill.grn-check td:nth-child(2), .grn-bill.grn-check th:nth-child(2) { text-align: left; }
+.grn-check :is(td, th):nth-child(n + 3) { width: 1%; }
+.grn-check td.bill__qty, .grn-check th.bill__qty { text-align: center; }
+.bill .grn-check__tick { padding-right: 12px; }
+.grn-check .grn-match { display: block; margin-top: 2px; }
+.grn-check .price__num { border-color: var(--line); background: var(--surface); }
+.grn-check--warn .qty__num { border-color: var(--warn); color: var(--warn); }
+.grn-check--ok .qty__num { border-color: var(--ok); }
+.grn-bill { font-size: 14px; }
+.grn-bill th { white-space: nowrap; }
+.grn-bill td:nth-child(n + 2), .grn-bill th:nth-child(n + 2) { text-align: right; }
+.grn-bill .price { justify-content: flex-end; height: auto; background: none; }
+.grn-bill .price__num { width: 84px; }
+.grn-bill__status { color: var(--warn); font-weight: 600; }
 /* Order page: lists, not walls of cards. Open orders on top, then suppliers; only the + at the end starts an order. */
 .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 16px; background: var(--ground); overflow: hidden; }
 .row { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 2px 16px; border-left: 5px solid transparent; }
@@ -1465,3 +1482,37 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 .price__num:focus { border-color: var(--line); background: var(--surface); outline: 2px solid var(--primary); outline-offset: 1px; }
 .bill__said { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 15px; color: var(--ink-2); }
 .bill__said .linkbtn { min-height: 40px; }
+.bill__move { display: block; min-height: 32px; padding: 0; font-size: 13px; }
+.bill .chips--tight { margin-top: 4px; }
+/* The item sheet's Order tab: one line per fact, then packs and Add to cart on one row. */
+.item-order { gap: 12px; }
+.item-order__line { margin: 0; font-size: 15px; color: var(--ink-2); }
+.item-order__add { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.nowrap { white-space: nowrap; }
+
+/* A GRN as a document (GrnDocument.tsx): on screen in GRN history, and the page saved as a PDF. */
+.grn-doc { display: flex; flex-direction: column; gap: 16px; }
+.grn-doc p { margin: 0; }
+.grn-doc__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.grn-doc__shop { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; }
+.grn-doc__id { text-align: right; }
+.grn-doc__title { font-size: 13px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.4px; }
+.grn-doc__no { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; }
+.grn-doc__meta { font-size: 14px; color: var(--ink-3); }
+.grn-doc__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 0; }
+.grn-doc__facts dt { font-size: 13px; color: var(--ink-3); }
+.grn-doc__facts dd { margin: 2px 0 0; font-size: 16px; font-weight: 600; }
+.grn-doc__undone { padding: 10px 14px; border-left: 5px solid var(--bad); border-radius: 10px; background: var(--chip); font-weight: 600; }
+.grn-doc__notes { margin: 0; padding-left: 18px; font-size: 15px; color: var(--ink-2); }
+
+/* Export PDF: only the GRN document prints, black on white, whatever the theme. Everything that
+   is not the document or a box around it is taken out, so a long GRN flows onto more pages. */
+@media print {
+  body.print-grn { background: #fff !important; }
+  body.print-grn *:not(:has(.grn-doc)):not(.grn-doc):not(.grn-doc *) { display: none !important; }
+  body.print-grn :has(.grn-doc) { position: static !important; inset: auto !important; width: auto !important; max-width: none !important; height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; overflow: visible !important; background: none !important; box-shadow: none !important; transform: none !important; animation: none !important; }
+  body.print-grn .grn-doc, body.print-grn .grn-doc * { color: #000 !important; background: none !important; border-color: #bbb !important; }
+  body.print-grn .grn-doc tr { break-inside: avoid; }
+  body.print-grn .grn-doc__undone { border-left: 5px solid #000 !important; }
+  @page { margin: 16mm; }
+}

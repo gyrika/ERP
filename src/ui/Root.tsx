@@ -176,7 +176,10 @@ export function Root() {
   // (#inventory, #manager, #menu, #recipes) still open the same places.
   const isOwnerHere = !needsLogin || staff?.role === 'owner';
   if (hash === '#receive' && mayManageStock) return <ReceiveView onRegister={() => go('')} />;
-  if (hash === '#order' && mayManageStock) return <OrderView onRegister={() => go('')} />;
+  // #order/<supplier id> opens that supplier's cart.
+  if ((hash === '#order' || hash.startsWith('#order/')) && mayManageStock) {
+    return <OrderView key={hash} supplierId={hash.startsWith('#order/') ? decodeURIComponent(hash.slice('#order/'.length)) : undefined} onRegister={() => go('')} />;
+  }
   if ((hash === '#count' || hash === '#manager') && mayManageStock) return <ManagerView onRegister={() => go('')} />;
   if ((hash === '#items' || hash === '#items/raw' || hash === '#inventory') && mayManageStock) {
     return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;

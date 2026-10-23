@@ -56,6 +56,21 @@ test('a GRN: as owed passes; a difference needs a real manager and the decisions
   assert.match(ask(orders, short({ ...nimal, role: 'manager' })) ?? '', /not from a manager or the owner/, 'a cashier claiming to be a manager');
 });
 
+test('the server requires a real manager for a delivered price that differs from the PO', () => {
+  const order: SyncEvent = {
+    ...base, id: 'p1', at: 0, type: 'stock.ordered', supplierId: 'sup',
+    lines: [{ itemId: 'flour', packs: 2, unitPriceCents: 640000 }],
+  };
+  const deliveredLines = [{ ...line(2, 2), unitPriceCents: 650000 }];
+  const delivered = grn('g1', 'p1', deliveredLines);
+  assert.match(ask([order], delivered) ?? '', /needs a manager/);
+  assert.match(ask([order], grn('g1', 'p1', [line(2, 2)])) ?? '', /Enter the delivered price/);
+  assert.equal(ask([order], grn('g1', 'p1', deliveredLines, { approvedBy: ravi })), null);
+  assert.match(ask([order], grn('g1', 'p1', deliveredLines, { approvedBy: nimal })) ?? '', /needs a manager|not from a manager or the owner/);
+  assert.match(ask([order], grn('g1', 'p1', [{ ...line(2, 2), unitPriceCents: 640000.5 }])) ?? '', /whole number of cents/);
+  assert.match(ask([], { ...order, lines: [{ itemId: 'flour', packs: 2, unitPriceCents: -1 }] }) ?? '', /purchase-order price must be a whole number of cents/);
+});
+
 test('a GRN needs an order that is waiting for goods, from that supplier, for exactly what is still owed', () => {
   assert.match(ask([po('p1')], grn('g1', 'nope', [line(2, 2)])) ?? '', /not here/);
   assert.match(ask([po('p1')], grn('g1', 'p1', [line(2, 2)], { supplierId: 'other' })) ?? '', /different supplier/);

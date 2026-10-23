@@ -1,5 +1,6 @@
 import type { Actor } from './auth.ts';
 import type { GrnLine, PoLine, SyncEvent } from './sync.ts';
+import type { Cents } from './types.ts';
 import { docNumber, pendingNumber } from './docNumbers.ts';
 import { STOCK_DEFAULTS, type StockSettings } from './stockSettings.ts';
 
@@ -17,6 +18,8 @@ export interface PoLineState {
   packs: number;
   /** The packs in base units, when the order recorded it. */
   stockQty: number | null;
+  /** Agreed price of one pack, captured when the order was placed. */
+  unitPriceCents?: number;
   /** Packs received so far (GRNs that stand, not undone). */
   received: number;
   /** Packs still owed: ordered less received, never below zero. */
@@ -62,6 +65,8 @@ export interface PurchaseState {
   leadDays: Map<string, number>;
   /** The supplier each item last came from. */
   lastSupplier: Map<string, string>;
+  /** Each supplier's draft order, not yet placed: packs per item. A supplier with none is not in the map. */
+  drafts: Map<string, Record<string, number>>;
 }
 
 const DAY = 86_400_000;
@@ -78,9 +83,18 @@ export const mergeLines = (lines: readonly PoLine[]): PoLine[] => {
   for (const l of lines) {
     if (!(l.packs > 0)) continue;
     const had = by.get(l.itemId);
-    by.set(l.itemId, had ? { ...had, packs: round3(had.packs + l.packs), stockQty: had.stockQty !== undefined && l.stockQty !== undefined ? had.stockQty + l.stockQty : undefined } : { ...l });
+    by.set(l.itemId, had ? {
+      ...had,
+      packs: round3(had.packs + l.packs),
+      stockQty: had.stockQty !== undefined && l.stockQty !== undefined ? had.stockQty + l.stockQty : undefined,
+      unitPriceCents: had.unitPriceCents ?? l.unitPriceCents,
+    } : { ...l });
   }
-  return [...by.values()].map((l) => (l.stockQty === undefined ? { itemId: l.itemId, packs: l.packs } : l));
+  return [...by.values()].map((l) => ({
+    itemId: l.itemId, packs: l.packs,
+    ...(l.stockQty === undefined ? {} : { stockQty: l.stockQty }),
+    ...(l.unitPriceCents === undefined ? {} : { unitPriceCents: l.unitPriceCents }),
+  }));
 };
 
 export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick<StockSettings, 'leadSamples'> = STOCK_DEFAULTS): PurchaseState => {
@@ -94,6 +108,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
   const numbers = new Map<string, string>();
   /** A record that arrives twice (a sync retry, two routes) counts once. */
   const seen = new Set<string>();
+  const drafts = new Map<string, Record<string, number>>();
   for (const e of events) {
     if (seen.has(e.id)) continue;
     seen.add(e.id);
@@ -103,6 +118,9 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
     } else if (e.type === 'stock.order_edited') {
       const d = docs.get(e.orderId);
       if (d && !d.cancelled && !live.get(e.orderId)?.size) d.lines = mergeLines(e.lines);
+    } else if (e.type === 'stock.draft_set') {
+      if (e.lines.length === 0) drafts.delete(e.supplierId);
+      else drafts.set(e.supplierId, Object.fromEntries(mergeLines(e.lines).map((l) => [l.itemId, l.packs])));
     } else if (e.type === 'stock.order_cancelled') {
       const d = docs.get(e.orderId);
       if (d && !live.get(e.orderId)?.size) d.cancelled = e.reason;
@@ -147,7 +165,11 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
     const got = receivedBy.get(d.id);
     const lines = d.lines.map((l): PoLineState => {
       const received = got?.get(l.itemId) ?? 0;
-      return { itemId: l.itemId, packs: l.packs, stockQty: l.stockQty ?? null, received, remaining: Math.max(0, round3(l.packs - received)) };
+      return {
+        itemId: l.itemId, packs: l.packs, stockQty: l.stockQty ?? null,
+        ...(l.unitPriceCents === undefined ? {} : { unitPriceCents: l.unitPriceCents }),
+        received, remaining: Math.max(0, round3(l.packs - received)),
+      };
     });
     const hasGrn = got !== undefined;
     const allIn = lines.every((l) => l.remaining === 0);
@@ -161,7 +183,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
     shortDecision: g.shortDecision, overDecision: g.overDecision, undone: undone.get(g.id) ?? null,
   }));
 
-  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier };
+  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier, drafts };
 };
 
 /** Packs of each item still owed on open orders: they are already coming. */
@@ -200,16 +222,31 @@ export const planOrder = (open: readonly PurchaseOrder[], supplierId: string, li
 };
 
 export type Match = 'ok' | 'short' | 'over';
-export interface CheckedLine extends GrnLine { match: Match; diff: number }
+export interface CheckedLine extends GrnLine {
+  match: Match;
+  diff: number;
+  priceMismatch?: boolean;
+  expectedUnitPriceCents?: number;
+}
 
-/** What came against what was still owed, line by line (in packs); any difference needs a manager. */
-export const compareDelivery = (lines: readonly GrnLine[]): { lines: CheckedLine[]; needsApproval: boolean; hasShort: boolean; hasOver: boolean } => {
+/** What came against what was still owed, line by line; quantity or price differences need a manager. */
+export const compareDelivery = (
+  lines: readonly GrnLine[],
+  orderLines: readonly Pick<PoLineState, 'itemId' | 'unitPriceCents'>[] = [],
+): { lines: CheckedLine[]; needsApproval: boolean; hasShort: boolean; hasOver: boolean } => {
+  const orderPrices = new Map(orderLines.map((l) => [l.itemId, l.unitPriceCents]));
   const checked = lines.map((l) => {
     const diff = round3(l.received - l.ordered);
-    return { ...l, diff, match: diff === 0 ? 'ok' : diff < 0 ? 'short' : 'over' } as CheckedLine;
+    const expectedUnitPriceCents = orderPrices.get(l.itemId);
+    const priceMismatch = expectedUnitPriceCents !== undefined && l.unitPriceCents !== undefined && expectedUnitPriceCents !== l.unitPriceCents;
+    return {
+      ...l, diff, match: diff === 0 ? 'ok' : diff < 0 ? 'short' : 'over',
+      ...(expectedUnitPriceCents === undefined && l.unitPriceCents === undefined ? {} : { priceMismatch }),
+      ...(expectedUnitPriceCents === undefined ? {} : { expectedUnitPriceCents }),
+    } as CheckedLine;
   });
   return {
-    lines: checked, needsApproval: checked.some((l) => l.match !== 'ok'),
+    lines: checked, needsApproval: checked.some((l) => l.match !== 'ok' || l.priceMismatch === true),
     hasShort: checked.some((l) => l.match === 'short'), hasOver: checked.some((l) => l.match === 'over'),
   };
 };
@@ -222,7 +259,11 @@ export const settleGrn = (lines: readonly GrnLine[], overDecision: 'accept' | 'r
   lines.map((l) => {
     const over = l.received > l.ordered;
     const accepted = over && overDecision === 'return' ? l.ordered : l.received;
-    return { itemId: l.itemId, ordered: l.ordered, received: l.received, accepted, returned: round3(l.received - accepted) };
+    return {
+      itemId: l.itemId, ordered: l.ordered, received: l.received, accepted,
+      returned: round3(l.received - accepted),
+      ...(l.unitPriceCents === undefined ? {} : { unitPriceCents: l.unitPriceCents }),
+    };
   });
 
 /** The delivery date the GRN list shows: placed on + the supplier's delivery time. */
@@ -258,9 +299,12 @@ export const grnProblem = (
     const owed = order.lines.find((x) => x.itemId === l.itemId);
     if (!owed) return 'That item is not on this order.';
     if (!Number.isFinite(l.received) || l.received < 0) return 'An amount cannot be less than zero.';
+    if (owed.unitPriceCents !== undefined && (!Number.isSafeInteger(owed.unitPriceCents) || owed.unitPriceCents < 0)) return 'This order has an invalid price. Correct the purchase order before receiving it.';
+    if (l.unitPriceCents !== undefined && (!Number.isSafeInteger(l.unitPriceCents) || l.unitPriceCents < 0)) return 'A delivered price must be a whole number of cents, zero or more.';
+    if (owed.unitPriceCents !== undefined && l.unitPriceCents === undefined) return 'Enter the delivered price for each item.';
     if (round3(l.ordered) !== owed.remaining) return `${order.poNo} changed since this GRN was opened. Open it again.`;
   }
-  const checked = compareDelivery(lines);
+  const checked = compareDelivery(lines, order.lines);
   if (checked.needsApproval && !(approver && (approver.role === 'manager' || approver.role === 'owner'))) return 'A delivery that differs from the order needs a manager to approve it.';
   if (checked.hasShort && !decisions.short) return 'Choose: wait for the rest, or close the order.';
   if (checked.hasOver && !decisions.over) return 'Choose: accept the extra, or return it.';
@@ -279,6 +323,14 @@ export const orderTotals = (lines: readonly PoLine[], priceCents: ReadonlyMap<st
 };
 
 /** What a delivery comes to against what was owed, in packs. */
+/** One GRN line's value in cents: what went into stock × the delivered price; null when no price was recorded. */
+export const grnLineCents = (l: GrnLine): Cents | null =>
+  l.unitPriceCents === undefined ? null : Math.round((l.accepted ?? l.received) * l.unitPriceCents);
+
+/** The GRN's value in cents: the lines that have a price, each rounded once. */
+export const grnValueCents = (lines: readonly GrnLine[]): Cents =>
+  lines.reduce((sum, l) => sum + (grnLineCents(l) ?? 0), 0);
+
 export const grnTotals = (lines: readonly GrnLine[]): { expected: number; received: number } => ({
   expected: round3(lines.reduce((n, l) => n + l.ordered, 0)),
   received: round3(lines.reduce((n, l) => n + l.received, 0)),
