@@ -80,6 +80,19 @@ test('an undo: latest GRN only, inside the hours, with a reason and a real manag
   assert.match(ask([...two, undo('g2')], undo('g2'), 3 * HOUR) ?? '', /already undone/);
 });
 
+test('a count far from what was expected must say why, by the owner\'s numbers; a small one need not', () => {
+  const count = (counted: number, expected: number, valueCents: number, reason: 'spoiled' | null): SyncEvent =>
+    ({ ...base, id: 'c', at: 1, type: 'stock.counted', itemId: 'flour', counted, expected, entries: [], reason, valueCents, tier: 'daily' });
+  assert.match(ask([], count(4000, 6000, -50000, null)) ?? '', /Count again and say why/, 'a third short, no reason');
+  assert.equal(ask([], count(4000, 6000, -50000, 'spoiled')), null);
+  assert.equal(ask([], count(5900, 6000, -5000, null)), null, 'under both allowances');
+  assert.match(ask([], count(99000, 100000, -260000, null)) ?? '', /Count again/, 'only 1% but over Rs 2,000');
+  // The owner raised the allowance: the same count now needs no reason.
+  const raised: SyncEvent = { ...base, actor: { id: 'o', name: 'Owner', role: 'owner' }, id: 's', at: 0, type: 'stock.settings_set', key: 'countGapShare', value: 0.5 };
+  assert.equal(stockRuleProblem(count(4000, 6000, -50000, null), { state: purchasesFromEvents([]), settings: { ...STOCK_DEFAULTS, countGapShare: 0.5 }, staff, now: 1 }), null);
+  void raised;
+});
+
 // ----- one batch at a time, each record seeing the ones before it -----
 
 async function shop() {

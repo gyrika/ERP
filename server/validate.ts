@@ -121,7 +121,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !entries.every((x) => isObj(x) && shortString(x.unit, 40) && amount(x.qty) && (x.qty as number) >= 0) ||
         !(e.reason === null || isGapReason(e.reason)) || !Number.isSafeInteger(e.valueCents) ||
         !['daily', 'weekly', 'monthly'].includes(String(e.tier)) ||
-        !(e.photo === undefined || e.photo === null || isPhotoId(e.photo))
+        !(e.photo === undefined || e.photo === null || isPhotoId(e.photo)) ||
+        !(e.note === undefined || shortString(e.note, 200)) || (e.reason === 'other' && !(typeof e.note === 'string' && e.note.trim()))
       ) return { reason: `event ${e.id} has an invalid count` };
     }
     if (e.type === 'stock.count_undone' && !shortString(e.countId)) return { reason: `event ${e.id} has an invalid count id` };

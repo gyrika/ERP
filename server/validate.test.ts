@@ -221,3 +221,13 @@ test('order changes: edits need lines, a cancel needs a reason, a GRN decision i
   assert.ok('events' in validatePush({ events: [{ ...grn, shortDecision: 'wait' }] }, 'shop-1'));
   assert.match((validatePush({ events: [{ ...grn, shortDecision: 'later' }] }, 'shop-1') as { reason: string }).reason, /invalid goods received note/);
 });
+
+test('a count: Other must say what happened; the note is short', () => {
+  const counted = { ...base, type: 'stock.counted', itemId: 'inv-0006', counted: 1000, expected: 2000, entries: [], reason: 'spoiled', valueCents: -260000, tier: 'daily' };
+  const reason = (e: unknown) => (validatePush({ events: [e] }, 'shop-1') as { reason: string }).reason;
+  assert.ok('events' in validatePush({ events: [counted, { ...counted, id: 'e2', reason: 'other', note: 'The fridge was off' }, { ...counted, id: 'e3', reason: 'wrong-entry' }] }, 'shop-1'));
+  assert.match(reason({ ...counted, reason: 'other' }), /invalid count/);
+  assert.match(reason({ ...counted, reason: 'other', note: '   ' }), /invalid count/);
+  assert.match(reason({ ...counted, note: 'x'.repeat(201) }), /invalid count/);
+  assert.ok('events' in validatePush({ events: [{ ...counted, reason: 'delivery-short' }] }, 'shop-1'), 'an older reason still reads');
+});

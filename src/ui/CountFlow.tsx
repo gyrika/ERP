@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
-  checkUnitName, countedBase, gapOf, reasonLabel, reasonsFor, unitsOf, type CountEntry, type DueCount, type GapReason, type Tier,
+  checkUnitName, countedBase, gapOf, reasonText, reasonsFor, unitsOf, type CountEntry, type DueCount, type GapReason, type Tier,
 } from '../domain/counting.ts';
 import { formatQuantity } from '../domain/quantity.ts';
 import { fmt } from '../domain/money.ts';
-import { learnUnit, recordCount, type InventoryRow } from '../services/inventoryStore.ts';
+import { MAX_NOTE } from '../domain/gapReview.ts';
+import { learnUnit, recordCount, useStockSettings, type InventoryRow } from '../services/inventoryStore.ts';
 import { isManagerPhone } from '../services/pairing.ts';
 import { keepPhoto, newPhotoId, shrinkPhoto } from '../services/photos.ts';
 
@@ -101,7 +102,10 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   const [newUnit, setNewUnit] = useState<{ name: string; base: string } | null>(null);
   const [why, setWhy] = useState<{ counted: number; entries: CountEntry[] } | null>(null);
   /** The reason is chosen; on the phone the shelf photo comes next. */
-  const [proof, setProof] = useState<{ reason: GapReason; photo: string | null; busy: boolean } | null>(null);
+  const [proof, setProof] = useState<{ reason: GapReason; note: string | null; photo: string | null; busy: boolean } | null>(null);
+  /** "Other" needs a note saying what happened: the note, while it is being written. */
+  const [other, setOther] = useState<string | null>(null);
+  const settings = useStockSettings();
   const [error, setError] = useState('');
 
   const packUnitInfo = units.find((u) => u.id === packUnit)!;
@@ -123,18 +127,18 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
     event.preventDefault();
     if (!typed || !touched) return setError('Type what is on the shelf. Nothing there? Type 0 packs.');
     const counted = total!;
-    const gap = gapOf(row.onHandBaseUnits, counted, row);
+    const gap = gapOf(row.onHandBaseUnits, counted, row, settings);
     if (row.counted && gap.big) { setWhy({ counted, entries: typed }); return; }
     onSaved(gap.valueCents, false, recordCount(row, typed, counted, null, due.tier));
   };
 
-  const saveWith = (reason: GapReason, photo: string | null = null) => {
-    const gap = gapOf(row.onHandBaseUnits, why!.counted, row);
+  const saveWith = (reason: GapReason, photo: string | null = null, note: string | null = null) => {
+    const gap = gapOf(row.onHandBaseUnits, why!.counted, row, settings);
     let photoId: string | null = null;
     if (photo) { photoId = newPhotoId(); keepPhoto(photoId, photo); }
-    onSaved(gap.valueCents, true, recordCount(row, why!.entries, why!.counted, reason, due.tier, photoId));
+    onSaved(gap.valueCents, true, recordCount(row, why!.entries, why!.counted, reason, due.tier, photoId, note));
   };
-  const choose = (reason: GapReason) => (photoRequired ? setProof({ reason, photo: null, busy: false }) : saveWith(reason));
+  const choose = (reason: GapReason, note: string | null = null) => (photoRequired ? setProof({ reason, note, photo: null, busy: false }) : saveWith(reason, null, note));
 
   const took = async (file: File | undefined) => {
     if (!file || !proof) return;
@@ -168,12 +172,12 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   );
 
   if (why && proof) {
-    const gap = gapOf(row.onHandBaseUnits, why.counted, row);
+    const gap = gapOf(row.onHandBaseUnits, why.counted, row, settings);
     return (
       <div className="count__why">
         {head}
         <p className={`count__gap count__gap--${gap.delta < 0 ? 'short' : 'over'} num`}>
-          {formatQuantity(Math.abs(gap.delta), row.baseUnit)} {gap.delta < 0 ? 'short' : 'more than expected'} · {reasonLabel(proof.reason)}
+          {formatQuantity(Math.abs(gap.delta), row.baseUnit)} {gap.delta < 0 ? 'short' : 'more than expected'} · {reasonText(proof.reason, proof.note)}
         </p>
         <p className="count__hint">A photo of the shelf, so the owner sees what you saw.</p>
         {proof.photo && <img className="count__photo" src={`data:image/jpeg;base64,${proof.photo}`} alt={`Shelf photo of ${row.name}`} />}
@@ -186,14 +190,14 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
         <div className="inv-modal__actions">
           <button type="button" className="inv-modal__cancel" onClick={() => setProof(null)}>Back</button>
           <button type="button" className="insight__action" disabled={!proof.photo}
-            onClick={() => saveWith(proof.reason, proof.photo)}>Save</button>
+            onClick={() => saveWith(proof.reason, proof.photo, proof.note)}>Save</button>
         </div>
       </div>
     );
   }
 
   if (why) {
-    const gap = gapOf(row.onHandBaseUnits, why.counted, row);
+    const gap = gapOf(row.onHandBaseUnits, why.counted, row, settings);
     return (
       <div className="count__why">
         {head}
@@ -201,12 +205,25 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
           {formatQuantity(Math.abs(gap.delta), row.baseUnit)} {gap.delta < 0 ? 'short' : 'more than expected'} · Rs {fmt(Math.abs(gap.valueCents))}
         </p>
         <p className="count__hint">You counted {formatQuantity(why.counted, row.baseUnit)}; sales and deliveries say {formatQuantity(Math.max(0, row.onHandBaseUnits), row.baseUnit)}. Why?</p>
-        <div className="chips" role="group" aria-label="Why">
-          {reasonsFor(gap.delta).map((r) => (
-            <button key={r.id} type="button" className="chip" onClick={() => choose(r.id)}>{r.label}</button>
-          ))}
-        </div>
-        <button type="button" className="linkbtn" onClick={() => setWhy(null)}>Count again</button>
+        {other === null ? (
+          <div className="chips" role="group" aria-label="Why">
+            {reasonsFor(gap.delta).map((r) => (
+              <button key={r.id} type="button" className="chip" onClick={() => (r.id === 'other' ? setOther('') : choose(r.id))}>{r.label}</button>
+            ))}
+          </div>
+        ) : (
+          <div className="count__other">
+            <label className="inv-modal__field"><span>What happened?</span>
+              <textarea className="inv-modal__input" rows={2} maxLength={MAX_NOTE} autoFocus value={other} aria-label="What happened"
+                onChange={(e) => setOther(e.target.value)} />
+            </label>
+            <div className="inv-modal__actions">
+              <button type="button" className="inv-modal__cancel" onClick={() => setOther(null)}>Back</button>
+              <button type="button" className="insight__action" disabled={!other.trim()} onClick={() => choose('other', other.trim())}>Save</button>
+            </div>
+          </div>
+        )}
+        <button type="button" className="linkbtn" onClick={() => { setWhy(null); setOther(null); }}>Count again</button>
       </div>
     );
   }

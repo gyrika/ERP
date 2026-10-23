@@ -1,6 +1,7 @@
 import type { BaseUnit } from './inventoryData.ts';
 import { formatQuantity } from './quantity.ts';
 import type { SyncEvent } from './sync.ts';
+import { STOCK_DEFAULTS, type StockSettings } from './stockSettings.ts';
 import type { Cents } from './types.ts';
 
 /**
@@ -76,40 +77,55 @@ export const countedBase = (entries: readonly CountEntry[], units: readonly Coun
 
 // ----- the comparison -----
 
-/** A gap smaller than this share of what was expected, or worth less than ALLOW_CENTS, matches. */
-export const ALLOW_SHARE = 0.02;
-export const ALLOW_CENTS: Cents = 10_000; // Rs 100
-
 export interface Gap {
   /** Counted minus expected, in base units: negative = short. */
   delta: number;
   /** What the gap is worth at today's price (whole cents, signed like delta). */
   valueCents: Cents;
-  /** Beyond the allowance: needs a reason. */
+  /** Beyond the allowance: needs a reason, and goes to the owner's count review. */
   big: boolean;
 }
 
-export const gapOf = (expected: number, counted: number, item: { packQty: number; workingPriceCents: Cents }): Gap => {
-  const delta = counted - Math.max(0, expected);
-  const valueCents = Math.round((delta / item.packQty) * item.workingPriceCents);
+/**
+ * A gap needs a reason when it is more than `countGapShare` of what was expected OR worth
+ * more than `countGapCents` (stockSettings.ts, the owner's numbers); anything less matches.
+ */
+export const isBigGap = (delta: number, expected: number, valueCents: Cents, allow: Pick<StockSettings, 'countGapShare' | 'countGapCents'> = STOCK_DEFAULTS): boolean => {
   const share = expected > 0 ? Math.abs(delta) / expected : Math.abs(delta) > 0 ? 1 : 0;
-  return { delta, valueCents, big: share > ALLOW_SHARE && Math.abs(valueCents) >= ALLOW_CENTS };
+  return share > allow.countGapShare || Math.abs(valueCents) > allow.countGapCents;
 };
 
-/** Why the shelf differs. "more" ones only when there is more than expected. */
+export const gapOf = (
+  expected: number, counted: number, item: { packQty: number; workingPriceCents: Cents },
+  allow: Pick<StockSettings, 'countGapShare' | 'countGapCents'> = STOCK_DEFAULTS,
+): Gap => {
+  const delta = counted - Math.max(0, expected);
+  const valueCents = Math.round((delta / item.packQty) * item.workingPriceCents);
+  return { delta, valueCents, big: isBigGap(delta, expected, valueCents, allow) };
+};
+
+/**
+ * Why the shelf differs: Spoiled, Spilled, Wrong entry, or Other (with a note saying what).
+ * "less" ones only when there is less than expected. Records from before keep the older
+ * reasons (legacy): they still read, but are no longer offered.
+ */
 export const GAP_REASONS = [
-  { id: 'spoiled', label: 'Spoiled or expired', when: 'less' },
-  { id: 'spilled', label: 'Dropped or spilled', when: 'less' },
-  { id: 'staff-meal', label: 'Staff meal', when: 'less' },
-  { id: 'delivery-short', label: 'Delivery was short', when: 'less' },
-  { id: 'not-received', label: 'A delivery was not recorded', when: 'more' },
-  { id: 'miscounted', label: 'Last count was wrong', when: 'both' },
-  { id: 'unknown', label: "Don't know", when: 'both' },
+  { id: 'spoiled', label: 'Spoiled or expired', when: 'less', legacy: false },
+  { id: 'spilled', label: 'Dropped or spilled', when: 'less', legacy: false },
+  { id: 'wrong-entry', label: 'Wrong entry', when: 'both', legacy: false },
+  { id: 'other', label: 'Other', when: 'both', legacy: false },
+  { id: 'staff-meal', label: 'Staff meal', when: 'less', legacy: true },
+  { id: 'delivery-short', label: 'Delivery was short', when: 'less', legacy: true },
+  { id: 'not-received', label: 'A delivery was not recorded', when: 'more', legacy: true },
+  { id: 'miscounted', label: 'Last count was wrong', when: 'both', legacy: true },
+  { id: 'unknown', label: "Don't know", when: 'both', legacy: true },
 ] as const;
 export type GapReason = (typeof GAP_REASONS)[number]['id'];
 export const isGapReason = (r: unknown): r is GapReason => GAP_REASONS.some((g) => g.id === r);
-export const reasonsFor = (delta: number) => GAP_REASONS.filter((r) => r.when === 'both' || r.when === (delta < 0 ? 'less' : 'more'));
+export const reasonsFor = (delta: number) => GAP_REASONS.filter((r) => !r.legacy && (r.when === 'both' || r.when === (delta < 0 ? 'less' : 'more')));
 export const reasonLabel = (id: string): string => GAP_REASONS.find((r) => r.id === id)?.label ?? id;
+/** The reason, with the note when there is one ("Other: the walk-in fridge was off"). */
+export const reasonText = (id: string, note?: string | null): string => (note?.trim() ? `${reasonLabel(id)}: ${note.trim()}` : reasonLabel(id));
 
 // ----- what to count when -----
 

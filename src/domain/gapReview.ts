@@ -25,6 +25,8 @@ export interface GapCase {
   delta: number;
   valueCents: Cents;
   reason: GapReason;
+  /** What happened, when the reason is Other. */
+  note: string | null;
   photo: string | null;
   review: Review;
 }
@@ -37,7 +39,7 @@ export const gapCases = (events: readonly SyncEvent[]): GapCase[] => {
     if (e.type === 'stock.counted' && e.reason && !undone.has(e.id)) {
       cases.set(e.id, {
         countId: e.id, itemId: e.itemId, at: e.at, by: e.actor.name, delta: e.counted - Math.max(0, e.expected),
-        valueCents: e.valueCents, reason: e.reason, photo: e.photo ?? null, review: { kind: 'open' },
+        valueCents: e.valueCents, reason: e.reason, note: e.note ?? null, photo: e.photo ?? null, review: { kind: 'open' },
       });
     }
   }

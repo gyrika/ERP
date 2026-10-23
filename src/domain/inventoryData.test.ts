@@ -353,3 +353,18 @@ test('a GRN is its own stock movement: what it accepted goes in, its undo takes 
   assert.equal(row([grn('old', [{ itemId: flour, ordered: 2, received: 2 }])]).onHandBaseUnits, 0, 'a note from before has no accepted: its stock was separate movements');
   assert.equal(row([{ ...base, id: 'u2', type: 'stock.grn_undone', grnId: 'nope', reason: 'x', approvedBy: actor }]).onHandBaseUnits, 0);
 });
+
+test('marking a count reviewed, or asking about it, never changes stock', () => {
+  const owner = { id: 'o', name: 'Owner', role: 'owner' as const };
+  const manager = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const flour = SEED_INVENTORY[0].id;
+  const base = { shopId: 's', orderNumber: 0 as const, at: 1, itemId: flour };
+  const count = { ...base, actor: manager, id: 'c1', type: 'stock.counted' as const, counted: 20000, expected: 50000, entries: [], reason: 'spilled' as const, valueCents: -1, tier: 'daily' as const };
+  const events = [{ ...base, actor: manager, id: 'a', type: 'stock.adjusted' as const, deltaPacks: 2 }, count];
+  const stock = (more: typeof events) => inventoryFromEvents(SEED_INVENTORY, [...events, ...more]).find((r) => r.id === flour)!.onHandBaseUnits;
+  const before = stock([]);
+  assert.equal(before, 20000, 'the count: 20 kg on the shelf');
+  assert.equal(stock([{ ...base, actor: owner, id: 'r1', type: 'stock.gap_reviewed', countId: 'c1', decision: 'ok', note: '' } as never]), before);
+  assert.equal(stock([{ ...base, actor: owner, id: 'r2', type: 'stock.gap_reviewed', countId: 'c1', decision: 'ask', note: 'Why?' } as never,
+    { ...base, actor: manager, id: 'r3', type: 'stock.gap_answered', countId: 'c1', note: 'Dropped a bag' } as never]), before);
+});

@@ -253,11 +253,11 @@ test('Count opens the blind count: the gap shows only after counting, then the s
   await user.type(form.getByRole('textbox', { name: 'Full packs' }), '1.5');
   await user.click(form.getByRole('button', { name: 'Next' }));
   expect(screen.getByText(/^12.5 kg short · Rs /)).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Delivery was short' }));
+  await user.click(screen.getByRole('button', { name: 'Wrong entry' }));
   await user.click(screen.getByRole('button', { name: 'Close' }));
 
   expect(amount()).toContain('1½ packs · 37.5 kg');
-  expect(lastEvent()).toMatchObject({ type: 'stock.counted', counted: 37500, expected: 50000, reason: 'delivery-short' });
+  expect(lastEvent()).toMatchObject({ type: 'stock.counted', counted: 37500, expected: 50000, reason: 'wrong-entry' });
 });
 
 test('search finds by ingredient, category or supplier; Escape clears it', async () => {

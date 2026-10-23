@@ -60,6 +60,8 @@ export type StockEvent =
   | (StockItemBase & {
     type: 'stock.counted'; counted: number; expected: number; entries: CountEntry[];
     reason: GapReason | null; valueCents: Cents; tier: Tier;
+    /** What happened, when the reason is Other. */
+    note?: string;
     /** The shelf photo taken as proof of a big gap (SCRUM-94), kept on the shop PC. */
     photo?: string | null;
   })

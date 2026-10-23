@@ -1,4 +1,5 @@
 import type { Actor } from '../src/domain/auth.ts';
+import { isBigGap } from '../src/domain/counting.ts';
 import { grnProblem, purchasesFromEvents, settleGrn, undoCheck, type PurchaseState } from '../src/domain/purchaseOrders.ts';
 import { stockSettingsFromEvents, type StockSettings } from '../src/domain/stockSettings.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
@@ -12,7 +13,7 @@ import type { Device, EventStore, StaffMember } from './store.ts';
  */
 const RELEVANT = new Set<string>([
   'stock.ordered', 'stock.order_edited', 'stock.order_cancelled', 'stock.order_reopened',
-  'stock.grn', 'stock.grn_undone', 'stock.settings_set',
+  'stock.grn', 'stock.grn_undone', 'stock.counted', 'stock.settings_set',
 ]);
 
 interface Context { state: PurchaseState; settings: StockSettings; staff: readonly StaffMember[]; now: number }
@@ -63,6 +64,13 @@ export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now }: 
       if (why) return why;
       if (!e.reason?.trim()) return 'Say why the GRN is being undone.';
       return approverProblem(e.approvedBy, staff);
+    }
+    case 'stock.counted': {
+      // A gap beyond the owner's allowance must say why: the device is not trusted to have asked.
+      if (e.reason === null && isBigGap(e.counted - Math.max(0, e.expected), e.expected, e.valueCents, settings) && e.expected > 0) {
+        return 'This count is a long way from what was expected. Count again and say why: spoiled, spilled, wrong entry, or other.';
+      }
+      return null;
     }
     default:
       return null;

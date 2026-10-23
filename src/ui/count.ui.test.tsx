@@ -51,18 +51,50 @@ test('blind count: no expected amount before counting; a big gap asks why and sa
   const form = await openCount(user, MOZZ);
   expect(screen.queryByText(/6 kg/)).toBeNull();
   await user.type(form.getByRole('textbox', { name: 'Full packs' }), '2');
-  await user.type(form.getByRole('textbox', { name: 'Opened pack, weighed' }), '1.4');
+  await user.type(form.getByRole('textbox', { name: 'Opened pack, weighed' }), '1.3');
   await user.click(form.getByRole('button', { name: 'kg' }));
-  expect(form.getByText('= 5.4 kg')).toBeTruthy();
+  expect(form.getByText('= 5.3 kg')).toBeTruthy();
   await user.click(form.getByRole('button', { name: 'Next' }));
 
-  expect(screen.getByText(/^600 g short · Rs [\d,]+/)).toBeTruthy();
-  expect(screen.getByText(/You counted 5.4 kg; sales and deliveries say 6 kg/)).toBeTruthy();
+  expect(screen.getByText(/^700 g short · Rs [\d,]+/)).toBeTruthy(); // 11.7%: over the 10% allowance
+  expect(screen.getByText(/You counted 5.3 kg; sales and deliveries say 6 kg/)).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Spoiled or expired' }));
-  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', itemId: 'inv-0006', counted: 5400, expected: 6000, reason: 'spoiled' });
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', itemId: 'inv-0006', counted: 5300, expected: 6000, reason: 'spoiled' });
 
   await user.click(screen.getByRole('button', { name: 'Close' }));
-  expect(within(mozz).getByText('2¾ packs · 5.4 kg')).toBeTruthy();
+  expect(within(mozz).getByText('2¾ packs · 5.3 kg')).toBeTruthy();
+});
+
+test('Other needs a note saying what happened; the reason and note go on the count', async () => {
+  addEvents([counted('inv-0006', Date.now() - 40 * 24 * 3600_000, 6000)]);
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  const form = await openCount(user, MOZZ);
+  await user.type(form.getByRole('textbox', { name: 'Full packs' }), '2');
+  await user.click(form.getByRole('button', { name: 'Next' })); // 4 kg of 6 kg: a third short
+
+  const why = within(screen.getByRole('group', { name: 'Why' }));
+  expect(why.getAllByRole('button').map((b) => b.textContent)).toEqual(['Spoiled or expired', 'Dropped or spilled', 'Wrong entry', 'Other']);
+  await user.click(why.getByRole('button', { name: 'Other' }));
+  const save = screen.getByRole('button', { name: 'Save' });
+  expect(save).toHaveProperty('disabled', true); // nothing is saved until it says what happened
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', reason: null });
+  await user.type(screen.getByRole('textbox', { name: 'What happened' }), '  The walk-in fridge was off overnight  ');
+  await user.click(save);
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', counted: 4000, expected: 6000, reason: 'other', note: 'The walk-in fridge was off overnight' });
+});
+
+test('a gap under both allowances (10% and Rs 2,000) is not asked about', async () => {
+  addEvents([counted('inv-0006', Date.now() - 40 * 24 * 3600_000, 6000)]);
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  const form = await openCount(user, MOZZ);
+  await user.type(form.getByRole('textbox', { name: 'Full packs' }), '2');
+  await user.type(form.getByRole('textbox', { name: 'Opened pack, weighed' }), '1.9');
+  await user.click(form.getByRole('button', { name: 'kg' }));
+  await user.click(form.getByRole('button', { name: 'Next' })); // 5.9 kg of 6 kg: under 2%
+  expect(screen.queryByRole('group', { name: 'Why' })).toBeNull();
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', counted: 5900, reason: null });
 });
 
 test('a small gap matches with no question; Undo takes the count back', async () => {

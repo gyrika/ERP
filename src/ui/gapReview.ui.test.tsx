@@ -20,8 +20,8 @@ test('the owner asks about a gap, the manager answers, the owner sees it and say
   addEvents([gap('c1', 'inv-0006', -260000), gap('c2', 'inv-0001', -64000)]);
   const user = userEvent.setup();
   const owner = render(<OwnerView />);
-  const card = await screen.findByRole('article', { name: '2 gaps in the counts to check' });
-  await user.click(within(card).getByRole('button', { name: 'Check' }));
+  const card = await screen.findByRole('article', { name: '2 gaps in the count review' });
+  await user.click(within(card).getByRole('button', { name: 'Count review' }));
   const sheet = within(screen.getByRole('dialog'));
   const mozz = within(sheet.getByRole('listitem', { name: 'Mozzarella (Prabhat)' }));
   expect(mozz.getByText(/^1 kg short · Spoiled or expired · Ravi/)).toBeTruthy();
@@ -33,7 +33,7 @@ test('the owner asks about a gap, the manager answers, the owner sees it and say
   expect(await mozz.findByText('Waiting for the answer.')).toBeTruthy();
 
   // The flour is fine: OK, and it leaves the list.
-  await user.click(sheet.getByRole('button', { name: 'OK Pizza Flour' }));
+  await user.click(sheet.getByRole('button', { name: 'Reviewed Pizza Flour' }));
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.gap_reviewed', countId: 'c2', decision: 'ok' });
   owner.unmount();
 
@@ -52,9 +52,9 @@ test('the owner asks about a gap, the manager answers, the owner sees it and say
   render(<OwnerView />);
   const back = await screen.findByRole('article', { name: /^Mozzarella \(Prabhat\): 1 kg short/ });
   expect(within(back).getByText('1 answer from the manager.')).toBeTruthy();
-  await user.click(within(back).getByRole('button', { name: 'Check' }));
+  await user.click(within(back).getByRole('button', { name: 'Count review' }));
   expect(screen.getByText('Fridge door left open overnight.')).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'OK Mozzarella (Prabhat)' }));
+  await user.click(screen.getByRole('button', { name: 'Reviewed Mozzarella (Prabhat)' }));
   expect(screen.queryByRole('article', { name: /^Mozzarella \(Prabhat\): / })).toBeNull();
 });
 
