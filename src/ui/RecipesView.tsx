@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from
 import { PIN_LENGTH, type Actor } from '../domain/auth.ts';
 import {
   addonCost, addonOf, addonQuestion, checkOwnLines, marginOf, menuCost, questionKind, recipeOf, recipeQuestion,
-  sizesOf, STOCK_LINE, type Cost, type CostContext, type Recipe,
+  sizesOf, STOCK_LINE, waitingOn, type Cost, type CostContext, type Recipe,
 } from '../domain/costing.ts';
 import { menuItems } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
@@ -101,9 +101,12 @@ const lineName = (name: string, ctx: CostContext) =>
 
 const amountText = (l: BookLine) => `${Number(l.qty.toFixed(3)).toLocaleString('en-US')} ${l.unit}`;
 
+const upper = (t: string) => `${t[0].toUpperCase()}${t.slice(1)}`;
+
 const statusText = (e: Entry) => {
   if (!e.recipe) return 'No recipe yet';
-  if (!e.cost.complete) return `${e.cost.missing.length} ${e.cost.missing.length === 1 ? 'thing' : 'things'} missing`;
+  // What it waits for, by name (SCRUM-129): a written recipe is not wrong, an amount or price is still to come.
+  if (!e.cost.complete) return upper(waitingOn(e.cost.missing, menuItems(), 2));
   const margin = marginOf(e.price, e.cost.cents);
   return `Complete · costs ${fmt(e.cost.cents)}${margin === null ? '' : ` · earns ${Math.round(margin * 100)}%`}`;
 };
@@ -424,7 +427,7 @@ function Editor({ entry, entries, ctx, onSave, onCancel }: {
         <p className="redit__cost num" aria-live="polite">
           {preview.complete
             ? `Costs ${fmt(preview.cents)}${margin === null ? '' : ` · earns ${Math.round(margin * 100)}% of ${fmt(entry.price)}`}`
-            : `Costs ${fmt(preview.cents)} so far · ${preview.missing.length} ${preview.missing.length === 1 ? 'thing' : 'things'} still missing`}
+            : `Costs ${fmt(preview.cents)} so far · ${waitingOn(preview.missing, menuItems())}`}
         </p>
       )}
       {error && <p className="costq__error" role="alert">{error}</p>}

@@ -98,7 +98,7 @@ test('a gap shared by many recipes is asked once, at the top, and answering it m
   const cheese = within(top.getByRole('form', { name: 'Mozzarella Blend: how much does one batch make?' }));
   await user.type(cheese.getByRole('textbox', { name: 'One batch makes (g)' }), '2000{Enter}');
   expect(readAll().at(-1)).toMatchObject({ question: 'yield:Mozzarella Blend', after: { kind: 'yield', qty: 2000 }, actor: { role: 'owner' } });
-  expect(within(card('Margherita Medium')).getByText('2 things missing')).toBeTruthy();
+  expect(within(card('Margherita Medium')).getByText('Waiting on Pizza Sauce batch size, Basil price')).toBeTruthy();
   expect(top.getByRole('heading', { name: 'First, these · 6 to go' })).toBeTruthy();
 });
 
