@@ -26,7 +26,7 @@ How stock, ordering and receiving work. Inventory is **managers and owners only*
 - Stock is the sum of movements (`GRN`, `GRN_UNDO`, `COUNT_ADJUST`, and sales worked out from orders). A GRN is one record that carries its own stock movement; nothing edits a stock figure.
 - Saved records are never deleted; Undo writes a reversal. Every record has a UUID made on the device, so a sync retry changes nothing.
 - PO and GRN numbers (PO-0001, GRN-0001) come from the shop server (`server/numbering.ts`); until they arrive a document shows *PO (pending)*. A device with no server (demo, development) numbers its own.
-- The **server re-checks** every purchasing rule against what it has stored (`server/stockRules.ts`): order exists and is still editable, a GRN matches what is owed, changed delivered prices and quantity differences have a real active manager or owner approval, the stock amount is the one the decisions allow, undo is allowed, a big count gap has a reason. A refused record is not stored; the device keeps the reason, stops counting it, and tells the person what to do next.
+- The **server re-checks** every purchasing rule against what it has stored (`server/stockRules.ts`): order exists and is still editable, a GRN matches what is owed, changed delivered prices and quantity differences have a real active manager or owner approval, the stock amount is the one the decisions allow, undo is allowed, a big count gap has a reason (worked out from the server's own price; an item's first count is its opening stock and needs none), and stock never changes by a bare movement, only by a count, a GRN, a sale or waste. A refused record is not stored; the device keeps the reason, stops counting it, and tells the person what to do next.
 
 ## The owner's numbers
 

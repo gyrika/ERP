@@ -1,5 +1,6 @@
 import type { Actor } from '../src/domain/auth.ts';
-import { isBigGap } from '../src/domain/counting.ts';
+import { gapOf } from '../src/domain/counting.ts';
+import { SEED_INVENTORY } from '../src/domain/inventoryData.ts';
 import { grnProblem, purchasesFromEvents, settleGrn, undoCheck, type PurchaseState } from '../src/domain/purchaseOrders.ts';
 import { stockSettingsFromEvents, type StockSettings } from '../src/domain/stockSettings.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
@@ -14,9 +15,27 @@ import type { Device, EventStore, StaffMember } from './store.ts';
 const RELEVANT = new Set<string>([
   'stock.ordered', 'stock.order_edited', 'stock.order_cancelled', 'stock.order_reopened',
   'stock.grn', 'stock.grn_undone', 'stock.counted', 'stock.settings_set',
+  // What a count is checked against: has the item been counted before, and what is it worth.
+  'stock.adjusted', 'stock.movement', 'stock.item_added', 'stock.price_set',
 ]);
 
-interface Context { state: PurchaseState; settings: StockSettings; staff: readonly StaffMember[]; now: number }
+/** What the server knows of an item for a count: its pack and price, and whether stock was ever recorded for it. */
+export interface StockFacts { packQty: number | null; workingPriceCents: number | null; counted: boolean }
+
+/** Each item's facts from the stored records (the price list, then the shop's changes), as the stock fold has them. */
+export const stockFacts = (log: readonly SyncEvent[]): Map<string, StockFacts> => {
+  const facts = new Map<string, StockFacts>(SEED_INVENTORY.map((i) => [i.id, { packQty: i.packQty, workingPriceCents: i.workingPriceCents, counted: false }]));
+  const of = (id: string) => facts.get(id) ?? facts.set(id, { packQty: null, workingPriceCents: null, counted: false }).get(id)!;
+  for (const e of log) {
+    if (e.type === 'stock.item_added' && !facts.has(e.item.id)) facts.set(e.item.id, { packQty: e.item.packQty, workingPriceCents: e.item.workingPriceCents, counted: false });
+    else if (e.type === 'stock.price_set') of(e.itemId).workingPriceCents = e.after;
+    else if (e.type === 'stock.counted' || e.type === 'stock.adjusted' || e.type === 'stock.movement') of(e.itemId).counted = true;
+    else if (e.type === 'stock.grn') for (const l of e.lines) if (l.accepted !== undefined && l.accepted > 0) of(l.itemId).counted = true;
+  }
+  return facts;
+};
+
+interface Context { state: PurchaseState; settings: StockSettings; staff: readonly StaffMember[]; now: number; items: ReadonlyMap<string, StockFacts> }
 
 const orderPriceProblem = (lines: readonly { unitPriceCents?: number }[]): string | null =>
   lines.some((l) => l.unitPriceCents !== undefined && (!Number.isSafeInteger(l.unitPriceCents) || l.unitPriceCents < 0))
@@ -34,7 +53,7 @@ const approverProblem = (by: Actor | null | undefined, staff: readonly StaffMemb
 };
 
 /** Why this record is not allowed now, or null. */
-export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now }: Context): string | null => {
+export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now, items }: Context): string | null => {
   switch (e.type) {
     case 'stock.ordered':
       return orderPriceProblem(e.lines);
@@ -74,12 +93,20 @@ export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now }: 
       return approverProblem(e.approvedBy, staff);
     }
     case 'stock.counted': {
-      // A gap beyond the owner's allowance must say why: the device is not trusted to have asked.
-      if (e.reason === null && isBigGap(e.counted - Math.max(0, e.expected), e.expected, e.valueCents, settings) && e.expected > 0) {
-        return 'This count is a long way from what was expected. Count again and say why: spoiled, spilled, wrong entry, or other.';
-      }
-      return null;
+      // A gap beyond the owner's allowance must say why: the device is not trusted to have asked. As on the
+      // count screen, an item's first count (its opening stock) needs no reason; a shelf below zero still does.
+      // Its value is worked out here from the stored price, never taken on the device's word.
+      const item = items.get(e.itemId);
+      if (e.reason !== null || !item?.counted) return null;
+      const priced = item.packQty !== null && item.packQty > 0 && item.workingPriceCents !== null;
+      const gap = gapOf(e.expected, e.counted, priced ? { packQty: item.packQty!, workingPriceCents: item.workingPriceCents! } : { packQty: 1, workingPriceCents: 0 }, settings);
+      const big = gap.big || (!priced && Math.abs(e.valueCents) > settings.countGapCents);
+      return big ? 'This count is a long way from what was expected. Count again and say why: spoiled, spilled, wrong entry, or other.' : null;
     }
+    case 'stock.adjusted':
+    case 'stock.movement':
+      // Stock moves only by a count, a GRN, a sale or waste, each with its own checks.
+      return 'Stock is changed by counting it, or by receiving a delivery. Count the item instead.';
     default:
       return null;
   }
@@ -117,7 +144,7 @@ export function createStockRules(store: EventStore, now: () => number) {
         const known = new Set(log.map((e) => e.id));
         for (const e of events) {
           if (!RELEVANT.has(e.type) || known.has(e.id)) { allowed.push(e); continue; } // not ours to check, or sent before
-          const why = stockRuleProblem(e, { state: purchasesFromEvents(log, stockSettingsFromEvents(log)), settings: stockSettingsFromEvents(log), staff, now: now() });
+          const why = stockRuleProblem(e, { state: purchasesFromEvents(log, stockSettingsFromEvents(log)), settings: stockSettingsFromEvents(log), staff, now: now(), items: stockFacts(log) });
           if (why) { rejected.push({ id: e.id, reason: why }); continue; }
           allowed.push(e);
           log.push(e);
