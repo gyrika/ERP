@@ -1406,3 +1406,14 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 .grn-match { font-size: 14px; font-weight: 600; }
 .grn-match--ok { color: var(--ok-ink); }
 .grn-match--short, .grn-match--over { color: var(--warn); }
+/* Order page: open orders left, a new order right, on the counter screen; compact cards so it fits without scrolling. */
+.flow--inline.flow--wide { max-width: 1120px; }
+.order-split { display: grid; grid-template-columns: 1fr; gap: 24px; align-items: start; }
+@media (min-width: 1000px) { .order-split { grid-template-columns: 1fr 1fr; } }
+.flow__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.flow__grid .flow-card { min-height: 56px; padding: 10px 14px 10px 16px; }
+.flow__grid .flow-card__name { font-size: 16px; }
+.po-card { min-height: 0; padding: 12px 14px 12px 18px; }
+.po-card .flow-card__name { font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.po-card .flow-card__tag { margin-top: 0; }
+.po-card__actions { display: flex; gap: 12px; flex: none; }

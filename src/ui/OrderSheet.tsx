@@ -173,12 +173,22 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
     onDone(`${order.poNo} changed.`, result);
   };
 
+  const actions = !order.editable ? null : editing ? null : why ? null : (
+    <span className="po-card__actions">
+      <button type="button" className="linkbtn" aria-label={`Edit ${order.poNo}`} onClick={() => setEditing(Object.fromEntries(order.lines.map((l) => [l.itemId, l.packs])))}>Edit</button>
+      <button type="button" className="linkbtn" aria-label={`Cancel ${order.poNo}`} onClick={() => setWhy(true)}>Cancel</button>
+    </span>
+  );
   return (
     <li className="flow__list">
-      <InfoCard name={`${order.poNo} · ${nameOf(suppliers, order.supplierId)}`} tone={order.status === 'partly' ? 'warn' : undefined}
-        line={editing ? undefined : order.lines.map((l) => `${l.packs} × ${nameFor(l.itemId)}${l.received > 0 ? ` (${l.received} received)` : ''}`).join(', ')}>
-        <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span>
-      </InfoCard>
+      <div className={`flow-card po-card${order.status === 'partly' ? ' flow-card--warn' : ''}`}>
+        <span className="flow-card__text">
+          <span className="flow-card__name">{order.poNo} · {nameOf(suppliers, order.supplierId)} <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span></span>
+          {!editing && <span className="flow-card__line">{order.lines.map((l) => `${l.packs} × ${nameFor(l.itemId)}${l.received > 0 ? ` (${l.received} received)` : ''}`).join(', ')}</span>}
+          {!order.editable && <span className="flow-card__line">Goods came: finish it with GRN.</span>}
+        </span>
+        {actions}
+      </div>
       {editing && (
         <ul className="flow__list flow__plain" aria-label={`Change ${order.poNo}`}>
           {Object.entries(editing).map(([id, n]) => (
@@ -196,26 +206,19 @@ function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder;
         </ul>
       )}
       {error && <p className="reason-msg" role="alert">{error}</p>}
-      {order.editable ? (
-        editing ? (
-          <div className="flow__row">
-            <button type="button" className="linkbtn" onClick={() => { setEditing(null); setError(''); }}>Keep as it was</button>
-            <button type="button" className="chip chip--solid" aria-label={`Save ${order.poNo}`} onClick={save}>Save changes</button>
-          </div>
-        ) : why ? (
-          <div role="group" aria-label={`Why cancel ${order.poNo}`} className="flow__list">
-            {CANCEL_REASONS.map((r) => (
-              <ChoiceCard key={r} name={r} onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))} />
-            ))}
-          </div>
-        ) : (
-          <div className="flow__row">
-            <button type="button" className="linkbtn" aria-label={`Edit ${order.poNo}`} onClick={() => setEditing(Object.fromEntries(order.lines.map((l) => [l.itemId, l.packs])))}>Edit</button>
-            <button type="button" className="linkbtn" aria-label={`Cancel ${order.poNo}`} onClick={() => setWhy(true)}>Cancel</button>
-          </div>
-        )
-      ) : (
-        <p className="flow-hint">Goods came: finish it with GRN.</p>
+      {editing && (
+        <div className="flow__row">
+          <button type="button" className="linkbtn" onClick={() => { setEditing(null); setError(''); }}>Keep as it was</button>
+          <button type="button" className="chip chip--solid" aria-label={`Save ${order.poNo}`} onClick={save}>Save changes</button>
+        </div>
+      )}
+      {why && !editing && (
+        <div role="group" aria-label={`Why cancel ${order.poNo}`} className="flow__grid">
+          {CANCEL_REASONS.map((r) => (
+            <ChoiceCard key={r} name={r} onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))} />
+          ))}
+          <button type="button" className="linkbtn" onClick={() => setWhy(false)}>Don't cancel</button>
+        </div>
       )}
     </li>
   );
@@ -277,12 +280,14 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, onClos
   }
 
   return (
-    <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
+    <FlowSheet title="Purchase orders" inline={inline} onClose={onClose} className={inline ? 'flow--wide' : undefined}
       step={total > 1 ? { index: 1, of: 3, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: 3, label: 'Who?' }}
       >
       <RejectionNotices />
-      {/* What is already on order comes first: the person sees it before ordering more. */}
+      {/* What is already on order comes first (left on a wide screen): the person sees it before ordering more. */}
+      <div className={purchases.open.length > 0 ? 'order-split' : undefined}>
       <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
+      <div className="flow__list">
       {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
       {waiting.length > 0 && (
         <>
@@ -297,10 +302,14 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, onClos
       )}
       {others.length > 0 && (
         <div role="group" aria-label="Order from another supplier" className="flow__list">
-          {waiting.length > 0 && <p className="flow-hint">Or another supplier</p>}
-          {others.map((s) => <ChoiceCard key={s.id} name={`+ ${s.name}`} line="Choose the items yourself" label={`+ ${s.name}`} onClick={() => choose(s.id)} />)}
+          <p className="flow-hint">{waiting.length > 0 ? 'Or another supplier' : 'Order from'}: choose the items yourself</p>
+          <div className="flow__grid">
+            {others.map((s) => <ChoiceCard key={s.id} name={`+ ${s.name}`} label={`+ ${s.name}`} onClick={() => choose(s.id)} />)}
+          </div>
         </div>
       )}
+      </div>
+      </div>
     </FlowSheet>
   );
 }
