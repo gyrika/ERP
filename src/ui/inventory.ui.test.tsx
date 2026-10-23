@@ -392,6 +392,56 @@ test('the shop server refused a GRN: it stops counting, the order is waiting aga
   expect(screen.getByRole('dialog', { name: /PO-0001$/ })).toBeTruthy(); // the order is waiting again
 });
 
+test('the stock area opens on four big buttons: Inventory, Purchase orders, GRN, Count — each says what waits', async () => {
+  const user = userEvent.setup();
+  sellPizzas(500);
+  render(<InventoryView />);
+  const tiles = within(screen.getByRole('navigation', { name: 'Stock' }));
+  expect(tiles.getAllByRole('button').map((b) => b.getAttribute('aria-label')?.replace(/\(\d+/, '(n'))).toEqual(['Inventory', 'Purchase orders', 'GRN', 'Count (n due)']);
+  expect(tiles.getByRole('button', { name: 'Inventory' }).getAttribute('aria-current')).toBe('page');
+  expect(tiles.getByRole('button', { name: 'GRN' }).textContent).toContain('None waiting');
+  expect(tiles.getByRole('button', { name: 'Purchase orders' }).textContent).toContain('Nothing to order');
+
+  act(() => shelfPacks(1)); // low: flour needs ordering
+  expect(tiles.getByRole('button', { name: 'Purchase orders (1)' }).textContent).toContain('1 to order');
+  await user.click(tiles.getByRole('button', { name: 'Purchase orders (1)' }));
+  expect(screen.getByRole('dialog', { name: 'Purchase orders' })).toBeTruthy();
+  await user.keyboard('{Escape}');
+  orderFlour(3);
+  expect(tiles.getByRole('button', { name: 'GRN' }).textContent).toContain('1 waiting');
+  await user.click(tiles.getByRole('button', { name: /^Count/ }));
+  expect(screen.getByRole('dialog')).toBeTruthy(); // the count flow, for what is due
+});
+
+test('filter chips: All, Low, Out, On order show only what needs a look', async () => {
+  const user = userEvent.setup();
+  sellPizzas(500);
+  render(<InventoryView />);
+  act(() => shelfPacks(1)); // flour: low
+  const names = () => within(screen.getByRole('main', { name: 'Inventory' })).queryAllByRole('heading').map((h) => h.textContent);
+  const chips = within(screen.getByRole('group', { name: 'Show' }));
+  expect(chips.getAllByRole('button').map((b) => b.textContent)).toEqual(['All', 'Low', 'Out', 'On order']);
+  expect(chips.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('true');
+  expect(names().length).toBe(SEED_INVENTORY.length);
+
+  await user.click(chips.getByRole('button', { name: 'Low' }));
+  expect(names()).toEqual(['Pizza Flour']);
+  await user.click(chips.getByRole('button', { name: 'Out' }));
+  expect(names()).toEqual([]);
+  expect(screen.getByText('Nothing here. Everything is fine, or choose All.')).toBeTruthy();
+  act(() => shelfPacks(0));
+  expect(names()).toEqual(['Pizza Flour']);
+  await user.click(chips.getByRole('button', { name: 'On order' }));
+  expect(names()).toEqual([]);
+  orderFlour(2);
+  expect(names()).toEqual(['Pizza Flour']);
+  // A filter and the search work together.
+  await user.type(screen.getByRole('searchbox', { name: 'Search inventory' }), 'mozz');
+  expect(names()).toEqual([]);
+  await user.click(chips.getByRole('button', { name: 'All' }));
+  expect(names().every((n) => /mozzarella/i.test(n ?? ''))).toBe(true);
+});
+
 /** Orders 2 packs of flour from its first supplier. */
 const orderFlour = (packs = 2) => act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs }]); });
 

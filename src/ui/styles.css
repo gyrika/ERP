@@ -1198,10 +1198,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .grn__match { min-width: 64px; text-align: right; font-size: 13px; font-weight: 600; }
 .grn__match--ok { color: var(--ok); }
 .grn__match--short { color: var(--warn); }
-.grn__match--over { color: var(--bad); }
+.grn__match--over { color: var(--warn); }
 .receive-price { display: flex; flex-direction: column; gap: 10px; }
 .grn__decide { display: flex; flex-direction: column; gap: 12px; }
-.po-tag { color: #3E7BFA; font-weight: 600; }
+.po-tag { font-weight: 600; }
 .po-open { flex-wrap: wrap; align-items: center; }
 .po-open__actions { display: flex; align-items: center; gap: 12px; }
 .po-open__locked { color: var(--ink-3); }
@@ -1216,3 +1216,24 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .rules__value { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
 .rules__value .inv-modal__input { width: 110px; text-align: right; }
 .rules__value small { color: var(--ink-3); font-size: 12px; }
+
+/* The four big buttons, the filters, and the status colours: green = fine, orange = low / short / over, red = out, grey = not counted, blue = on order */
+:root { --info: #3E7BFA; }
+.stock-home { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 4px 40px 12px; }
+.stock-tile { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 88px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); text-align: left; font: inherit; cursor: pointer; box-shadow: var(--card-shadow); transition: transform 80ms var(--ease); }
+.stock-tile:active:not(:disabled) { transform: scale(0.98); }
+.stock-tile:disabled { opacity: 0.55; cursor: default; }
+.stock-tile--current { border-color: var(--primary); }
+.stock-tile__label { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+.stock-tile__sub { font-size: 14px; color: var(--ink-2); }
+.stock-tile__badge { position: absolute; top: 12px; right: 14px; min-width: 28px; height: 28px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border-radius: 14px; color: #fff; font-size: 14px; font-weight: 700; }
+.stock-tile__badge--warn { background: var(--warn); color: #1C1C1E; }
+.stock-tile__badge--info { background: var(--info); }
+.inv-filters { padding: 8px 52px 0; }
+.inv-row__quantity .inv-row__status--ok { color: var(--ok); }
+.inv-row__quantity .inv-row__status--unknown { color: var(--ink-3); }
+.inv-row__onorder, .po-tag { color: var(--info); }
+@media (max-width: 760px) {
+  .stock-home { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 16px; padding-right: 16px; }
+  .inv-filters { padding-left: 16px; padding-right: 16px; }
+}

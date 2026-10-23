@@ -24,9 +24,9 @@ const openCount = async (user: ReturnType<typeof userEvent.setup>, name: string)
 test("today's count lists what is due; a first count sets the starting amount", async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
-  const bar = within(screen.getByRole('region', { name: "Today's count" }));
-  expect(bar.getByText(/^Today's count · \d+ items$/)).toBeTruthy();
-  await user.click(bar.getByRole('button', { name: 'Start' }));
+  const count = screen.getByRole('button', { name: /^Count \(\d+ due\)$/ });
+  expect(count.textContent).toMatch(/\d+ due today/);
+  await user.click(count);
 
   const form = within(screen.getByRole('form', { name: /^Count / }));
   expect(form.getByText(/1 of \d+ · \w+ · first count/)).toBeTruthy();
