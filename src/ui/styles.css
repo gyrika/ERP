@@ -957,6 +957,23 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .redit__remove { min-height: 48px; border: 0; border-radius: 12px; background: none; color: var(--ink-3); font-size: 22px; cursor: pointer; }
 .redit__remove:hover { background: var(--chip); color: var(--ink); }
 .redit__add { align-self: flex-start; }
+/* Where a recipe line comes from: quiet, under its line (SCRUM-129). */
+.redit__src { grid-column: 1 / -1; margin: -2px 0 4px 13px; color: var(--ink-3); font-size: 13px; }
+/* Adding a dish: name, what goes in it, price (SCRUM-129). */
+.dish__steps { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0 0 20px; padding: 0; color: var(--ink-3); font-size: 14px; counter-reset: step; }
+.dish__steps li { counter-increment: step; display: flex; align-items: center; gap: 8px; }
+.dish__steps li::before { content: counter(step); display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); font-size: 12px; font-weight: 600; }
+.dish__steps li[aria-current="step"] { color: var(--ink); font-weight: 600; }
+.dish__steps li[aria-current="step"]::before { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.dish__steps li.dish__done { color: var(--ink-2); }
+.dish__steps li.dish__done::before { content: '✓'; border-color: var(--ok); color: var(--ok); }
+.dish__recipe { display: flex; flex-direction: column; gap: 14px; }
+.dish__recipe .chips { align-items: center; }
+.dish__hint { margin: 0 0 12px; color: var(--ink-2); font-size: 15px; }
+.dish__recipe .dish__hint { margin: 0; }
+.dish__pin { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.dish__pin .pin { width: 200px; }
+.menuv__write { margin-left: 8px; font-size: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   .vault__top, .vault__lead, .vault__group-name, .vault__list > li, .vault__lock { animation: none; }

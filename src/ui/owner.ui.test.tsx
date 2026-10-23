@@ -26,6 +26,7 @@ test('the demo owner feed: today in one line, then cards with one tap each', asy
     expect.stringMatching(/voids today, \d+ by Ravi$/),
     expect.stringMatching(/^Kitchen slow/),
     '3 items running low',
+    expect.stringMatching(/sold \d+ times this week; its stock isn't counted$|^\d+ dishes sold this week without a recipe$/),
     'Food costs: 25 answers to go',
     "BBQ Pork hasn't sold in 2 weeks",
     expect.stringMatching(/best seller$/),

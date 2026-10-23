@@ -145,7 +145,7 @@ export const sourceOf = (name: string, answers: ReadonlyMap<string, Answer>) => 
 };
 
 /** Unrounded cost of some recipe lines; adds every gap met on the way to `missing`. */
-const linesCost = (lines: readonly BookLine[], ctx: CostContext, missing: Set<string>, depth: number): number =>
+const sumLines = (lines: readonly BookLine[], ctx: CostContext, missing: Set<string>, depth: number): number =>
   lines.reduce((sum, line) => sum + lineCost(line, ctx, missing, depth), 0);
 
 const lineCost = (line: BookLine, ctx: CostContext, missing: Set<string>, depth: number): number => {
@@ -156,13 +156,13 @@ const lineCost = (line: BookLine, ctx: CostContext, missing: Set<string>, depth:
   if (prep) {
     const answer = ctx.answers.get(yieldQuestion(line.name));
     const makes = prep.makes ?? (answer?.kind === 'yield' ? { qty: answer.qty, unit: line.unit } : null);
-    const batch = linesCost(prep.lines, ctx, missing, depth + 1); // collect its gaps too, all at once
+    const batch = sumLines(prep.lines, ctx, missing, depth + 1); // collect its gaps too, all at once
     if (!makes || makes.unit !== line.unit) { missing.add(yieldQuestion(line.name)); return 0; }
     return (batch / makes.qty) * line.qty;
   }
 
   const product = PRODUCTS[line.name];
-  if (product) return linesCost(product, ctx, missing, depth + 1) * line.qty; // a sold item used inside another
+  if (product) return sumLines(product, ctx, missing, depth + 1) * line.qty; // a sold item used inside another
 
   const source = sourceOf(line.name, ctx.answers);
   if (source) {
@@ -175,6 +175,13 @@ const lineCost = (line: BookLine, ctx: CostContext, missing: Set<string>, depth:
   if (price?.kind === 'price') return (price.cents / price.qty) * line.qty;
   missing.add(ingredientQuestion(line.name));
   return 0;
+};
+
+/** What some recipe lines cost, before they belong to any item (a dish still being added). */
+export const linesCost = (lines: readonly BookLine[], ctx: CostContext): Pick<Cost, 'cents' | 'complete' | 'missing'> => {
+  const missing = new Set<string>();
+  const cents = Math.round(sumLines(lines, ctx, missing, 0));
+  return { cents, complete: missing.size === 0, missing: [...missing] };
 };
 
 /** His recipe for a menu item and size ('' when the item has no sizes), if known. */
@@ -207,7 +214,7 @@ export const addonOf = (extraId: string, answers: ReadonlyMap<string, Answer>): 
 const costOf = (recipe: Recipe | null, question: string, ctx: CostContext): Cost => {
   if (!recipe) return { cents: 0, complete: false, missing: [question], product: null, origin: null };
   const missing = new Set<string>();
-  const cents = Math.round(linesCost(recipe.lines, ctx, missing, 0));
+  const cents = Math.round(sumLines(recipe.lines, ctx, missing, 0));
   return { cents, complete: missing.size === 0, missing: [...missing], product: recipe.product, origin: recipe.origin };
 };
 
