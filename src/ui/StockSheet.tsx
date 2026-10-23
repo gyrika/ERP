@@ -5,7 +5,8 @@ import type { Supplier } from '../domain/inventoryData.ts';
 import { packPrice, reasonLabel, receiveUnitOf, unitName, unitPrice, unitsOf } from '../domain/counting.ts';
 import type { Actor } from '../domain/auth.ts';
 import type { PurchaseState } from '../domain/purchaseOrders.ts';
-import { setReceiveUnit, setWorkingPrice, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
+import { setOrderBelow, setReceiveUnit, setWorkingPrice, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
+import { parsePacks } from '../domain/inventory.ts';
 import { CountItem } from './CountFlow.tsx';
 import { ItemOrder } from './OrderSheet.tsx';
 import type { DueCount } from '../domain/counting.ts';
@@ -24,7 +25,8 @@ import { formatLasts, formatPacks, formatQuantity } from './quantity.ts';
  * it, and who supplies it, so nothing feels missing. While its count is due the
  * shelf amount stays hidden (a blind count), and the sheet says so.
  * Receiving is counted in what the owner chose for this item (SCRUM-96): packs, kg,
- * or a unit like Tray; the price is per that unit too. Changing it needs his PIN.
+ * or a unit like Tray; the price is per that unit too. Changing it needs his PIN, and
+ * so does "Order when below" (SCRUM-135).
  * Details · Order · History are tabs of this one sheet (SCRUM-97): counting
  * or ordering this item never leaves it, and what was just done shows here with its
  * Undo. History lists every count (with its gap, reason, photo and the owner's word),
@@ -217,6 +219,8 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
           )}
         </div>
 
+        <OrderBelow item={item} onDone={(message, undo) => setDone({ message, undo, tab: 'order' })} />
+
         <form className="receive-price" onSubmit={savePrice}>
           <label className="inv-modal__field">
             <span>Price per {name} (Rs) <small>What the supplier charges</small></span>
@@ -232,6 +236,57 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
           <button type="button" className="linkbtn inv-modal__remove" aria-label={`Remove ${item.name}`} onClick={onRemove}>Remove from inventory</button>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * "Order when below" (SCRUM-135): left empty, the reorder rule decides from how fast
+ * it sells; a number of packs replaces that for this item. The owner's PIN, then Undo.
+ */
+function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: string, undo: () => void) => void }) {
+  const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
+  const [typed, setTyped] = useState('');
+  const [error, setError] = useState('');
+  const current = item.orderBelowPacks;
+
+  const start = (owner: Actor) => { setTyped(current === null ? '' : String(current)); setError(''); setEdit(owner); };
+  const save = (owner: Actor, packs: number | null) => {
+    setEdit('closed');
+    if (packs === current) return;
+    setOrderBelow(item.id, packs, owner);
+    onDone(packs === null ? `${item.name}: ordered automatically again.` : `${item.name}: order when below ${formatPacks(packs)}.`,
+      () => setOrderBelow(item.id, current, owner));
+  };
+  const submit = (event: FormEvent, owner: Actor) => {
+    event.preventDefault();
+    if (!typed.trim()) return save(owner, null);
+    const packs = parsePacks(typed);
+    if (packs === null || packs <= 0) return setError('Type a number of packs, like 2, or leave it empty for automatic.');
+    save(owner, packs);
+  };
+
+  return (
+    <div className="receive-unit">
+      {edit === 'closed' && (
+        <>
+          <span>Order when below <b>{current === null ? 'automatic' : formatPacks(current)}</b>{current === null && <small> · from how fast it sells</small>}</span>
+          {!isManagerPhone() && <button type="button" className="linkbtn" aria-label="Change order when below" onClick={() => setEdit('pin')}>Change</button>}
+        </>
+      )}
+      {edit === 'pin' && <OwnerPin onOpen={start} onCancel={() => setEdit('closed')} refusal="Only the owner sets when to order." />}
+      {typeof edit === 'object' && (
+        <form className="order-below" onSubmit={(e) => submit(e, edit)}>
+          <label className="inv-modal__field">
+            <span>Order when below (packs) <small>Empty: automatic, from how fast it sells</small></span>
+            <input className="inv-modal__input num" inputMode="decimal" placeholder="automatic" autoFocus value={typed}
+              onChange={(e) => { setTyped(e.target.value); setError(''); }} />
+          </label>
+          <button type="submit" className="insight__action">Save</button>
+          {current !== null && <button type="button" className="linkbtn" onClick={() => save(edit, null)}>Automatic</button>}
+          {error && <p className="inv-modal__error" role="alert">{error}</p>}
+        </form>
+      )}
     </div>
   );
 }

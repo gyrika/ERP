@@ -115,6 +115,8 @@ export type InventoryRow = InventoryItem & {
   tier: Tier | null;
   /** What receiving it is counted in, the owner's choice (SCRUM-96); null: packs. */
   receiveUnit: string | null;
+  /** "Order when below" this many packs, the owner's choice (SCRUM-135); null: the reorder rule decides. */
+  orderBelowPacks: number | null;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -203,6 +205,7 @@ interface Shelf {
   units: LearnedUnit[];
   tier: Tier | null;
   receiveUnit: string | null;
+  orderBelowPacks: number | null;
 }
 
 /**
@@ -239,7 +242,7 @@ export const stockFromEvents = (
   { usageOf = bookUsage, gapsOf = bookGaps, now = Date.now(), settings = stockSettingsFromEvents(events) }: StockOptions = {},
 ): Stock => {
   const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
-    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null,
+    item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null, orderBelowPacks: null,
   }]));
   const take = (usage: readonly RecipeLine[], sign: 1 | -1) => {
     for (const { inventoryId, qtyBaseUnits } of usage) {
@@ -281,7 +284,7 @@ export const stockFromEvents = (
       case 'stock.item_added':
         if (!shelves.has(e.item.id)) {
           shelves.set(e.item.id, {
-            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null,
+            item: { ...e.item, supplierIds: [...e.item.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null, orderBelowPacks: null,
           });
         }
         break;
@@ -367,6 +370,11 @@ export const stockFromEvents = (
         if (shelf) shelf.receiveUnit = e.unit === 'pack' ? null : e.unit;
         break;
       }
+      case 'stock.limit_set': {
+        const shelf = shelves.get(e.itemId);
+        if (shelf) shelf.orderBelowPacks = e.packs;
+        break;
+      }
       case 'stock.tier_set': {
         const shelf = shelves.get(e.itemId);
         if (shelf) shelf.tier = e.tier;
@@ -450,7 +458,7 @@ export const stockFromEvents = (
     }
   }
 
-  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted, units, tier, receiveUnit }) => {
+  const rows = [...shelves.values()].map(({ item, onHandBaseUnits, archived, counted, units, tier, receiveUnit, orderBelowPacks }) => {
     const usedPerDay = (used.get(item.id) ?? 0) / days;
     return {
       ...item,
@@ -465,6 +473,7 @@ export const stockFromEvents = (
       units,
       tier,
       receiveUnit,
+      orderBelowPacks,
       suggestedPacks: 0,
       suggestedSupplierId: null as string | null,
     };

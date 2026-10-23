@@ -78,6 +78,8 @@ export type StockEvent =
   | (StockItemBase & { type: 'stock.tier_set'; tier: Tier | null })
   /** What receiving this item is counted in, the owner's choice (SCRUM-96): a unit id from unitsOf ('pack', 'kg', 'unit:Tray'). */
   | (StockItemBase & { type: 'stock.receive_unit_set'; unit: string })
+  /** "Order when below" this many packs, the owner's choice (SCRUM-135); null hands it back to the reorder rule. */
+  | (StockItemBase & { type: 'stock.limit_set'; packs: number | null })
   /** The owner on a count's gap (SCRUM-95): OK, or a question to the manager. */
   | (StockItemBase & { type: 'stock.gap_reviewed'; countId: string; decision: 'ok' | 'ask'; note: string })
   /** The manager answers the owner's question about a gap. */
@@ -143,7 +145,7 @@ export const KITCHEN_EVENT_TYPES = [
 export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
-  'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set',
+  'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set', 'stock.limit_set',
   'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.draft_set', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.numbered', 'stock.settings_set',
   'stock.wasted', 'stock.waste_undone',
 ] as const satisfies readonly StockEvent['type'][];
