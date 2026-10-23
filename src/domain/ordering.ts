@@ -10,8 +10,8 @@ import { formatQuantity } from './quantity.ts';
 export interface OrderLine { name: string; packs: number; packQty: number; baseUnit: BaseUnit }
 
 /** "2 × Mozzarella (Prabhat), 2 kg packs", one line per item; lines with no packs are left out. */
-export const orderMessage = (lines: readonly OrderLine[], shop = 'CheesyBeez'): string => [
-  `Hi, this is ${shop}. Please send:`,
+export const orderMessage = (lines: readonly OrderLine[], shop = 'CheesyBeez', intro = `Hi, this is ${shop}. Please send:`): string => [
+  intro,
   ...lines.filter((l) => l.packs > 0).map((l) => `${l.packs} × ${l.name} (${formatQuantity(l.packQty, l.baseUnit)} ${l.packs === 1 ? 'pack' : 'packs'})`),
   'Thank you.',
 ].join('\n');

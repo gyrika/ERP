@@ -1201,3 +1201,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .grn__match--over { color: var(--bad); }
 .receive-price { display: flex; flex-direction: column; gap: 10px; }
 .grn__decide { display: flex; flex-direction: column; gap: 12px; }
+.po-tag { color: #3E7BFA; font-weight: 600; }
+.po-open { flex-wrap: wrap; align-items: center; }
+.po-open__actions { display: flex; align-items: center; gap: 12px; }
+.po-open__locked { color: var(--ink-3); }

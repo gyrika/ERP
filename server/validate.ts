@@ -132,17 +132,24 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       return { reason: `event ${e.id} has an invalid count tier` };
     }
     const packs = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1e6;
-    if (e.type === 'stock.ordered' && (
-      !shortString(e.poNo, 20) || !shortString(e.supplierId) || !Array.isArray(e.lines) || e.lines.length === 0 || e.lines.length > 200 ||
-      !e.lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.packs) && (l.packs as number) > 0)
-    )) return { reason: `event ${e.id} has an invalid purchase order` };
-    if ((e.type === 'stock.order_cancelled' || e.type === 'stock.order_reopened') && !shortString(e.orderId)) return { reason: `event ${e.id} has an invalid order id` };
+    const poLines = (lines: unknown): boolean => Array.isArray(lines) && lines.length > 0 && lines.length <= 200 &&
+      lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.packs) && (l.packs as number) > 0 &&
+        (l.stockQty === undefined || (typeof l.stockQty === 'number' && Number.isFinite(l.stockQty) && l.stockQty > 0 && l.stockQty <= 1e9)));
+    if (e.type === 'stock.ordered' && (!shortString(e.poNo, 20) || !shortString(e.supplierId) || !poLines(e.lines))) {
+      return { reason: `event ${e.id} has an invalid purchase order` };
+    }
+    if (e.type === 'stock.order_edited' && (!shortString(e.orderId) || !poLines(e.lines))) return { reason: `event ${e.id} has an invalid order change` };
+    if (e.type === 'stock.order_cancelled' && (!shortString(e.orderId) || !shortString(e.reason, 200))) {
+      return { reason: `event ${e.id} cancels an order without saying why` };
+    }
+    if (e.type === 'stock.order_reopened' && !shortString(e.orderId)) return { reason: `event ${e.id} has an invalid order id` };
     if (e.type === 'stock.grn') {
       const by = e.approvedBy;
       if (
         !shortString(e.grnNo, 20) || !shortString(e.orderId) || !shortString(e.supplierId) || !Array.isArray(e.lines) || e.lines.length > 200 ||
         !e.lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received)) ||
-        !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner')))
+        !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) ||
+        !(e.shortDecision === undefined || e.shortDecision === 'wait' || e.shortDecision === 'close')
       ) return { reason: `event ${e.id} has an invalid goods received note` };
       // A delivery that differs from its order needs a manager's approval.
       if (by === null && e.lines.some((l) => isObj(l) && l.received !== l.ordered)) {

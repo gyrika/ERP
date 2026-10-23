@@ -14,7 +14,7 @@ import { useShopEvents } from './ownerData.ts';
 import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } from '../domain/itemStory.ts';
 import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
-import { grnNumber, poNumber, purchasesFromEvents, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import { grnNumber, mergeLines, poNumber, purchasesFromEvents, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 
@@ -278,23 +278,52 @@ export function usePurchases(): PurchaseState {
   return useMemo(() => purchasesFromEvents(events), [events]);
 }
 
+/** The packs with their amount in base units (2 packs of 25 kg: 50000 g), as the order records them. */
+const withStockQty = (lines: PoLine[]): PoLine[] => {
+  const items = readItems();
+  return lines.filter((l) => l.packs > 0).map((l) => {
+    const item = items.find((i) => i.id === l.itemId);
+    return item ? { itemId: l.itemId, packs: l.packs, stockQty: l.packs * item.packQty } : { itemId: l.itemId, packs: l.packs };
+  });
+};
+
 /**
  * Places a purchase order (lines with packs only). The number follows every PO this
  * device has seen. Returns the order and its Undo (cancels it).
  */
 export const placeOrder = (supplierId: string, lines: PoLine[], poCount: number): { order: PurchaseOrder; undo: () => void } => {
-  const kept = lines.filter((l) => l.packs > 0);
+  const kept = withStockQty(lines);
   const poNo = poNumber(Math.max(poCount, purchasesFromEvents(readAll()).poCount) + 1);
   const e = appendEvent({ type: 'stock.ordered', at: Date.now(), orderNumber: 0, actor: currentCashier(), poNo, supplierId, lines: kept });
   return {
-    order: { id: e.id, poNo, supplierId, lines: kept, at: e.at, actor: e.actor },
-    undo: () => { cancelOrder(e.id); },
+    order: {
+      id: e.id, poNo, supplierId, at: e.at, actor: e.actor, status: 'open', editable: true, cancelReason: null,
+      lines: kept.map((l) => ({ itemId: l.itemId, packs: l.packs, stockQty: l.stockQty ?? null, received: 0, remaining: l.packs })),
+    },
+    undo: () => { cancelOrder(e.id, 'Undone right after placing'); },
   };
 };
 
-/** Cancels an order; returns the Undo (the same order, same number, open again). */
-export const cancelOrder = (orderId: string): (() => void) => {
-  appendEvent({ type: 'stock.order_cancelled', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId });
+/**
+ * Replaces an open order's lines (edit, remove a line, or add to it). Only while no GRN
+ * stands against it. Returns the Undo (the lines as they were), or why it cannot.
+ */
+export const editOrder = (order: PurchaseOrder, lines: PoLine[]): (() => void) | string => {
+  if (!order.editable) return `${order.poNo} has goods received against it: it can no longer be changed.`;
+  const next = withStockQty(mergeLines(lines));
+  if (next.length === 0) return 'An order needs at least one item. Cancel it instead.';
+  const before = withStockQty(order.lines.map((l) => ({ itemId: l.itemId, packs: l.packs })));
+  appendEvent({ type: 'stock.order_edited', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId: order.id, lines: next });
+  return () => { appendEvent({ type: 'stock.order_edited', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId: order.id, lines: before }); };
+};
+
+/** Adds lines to an open order: the same item's packs add up. */
+export const addToOrder = (order: PurchaseOrder, added: PoLine[]): (() => void) | string =>
+  editOrder(order, [...order.lines.map((l) => ({ itemId: l.itemId, packs: l.packs })), ...added]);
+
+/** Cancels an order, saying why; returns the Undo (the same order, same number, open again). */
+export const cancelOrder = (orderId: string, reason: string): (() => void) => {
+  appendEvent({ type: 'stock.order_cancelled', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId, reason });
   return () => { appendEvent({ type: 'stock.order_reopened', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId }); };
 };
 

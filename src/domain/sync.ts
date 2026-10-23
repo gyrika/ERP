@@ -77,14 +77,17 @@ export type StockEvent =
   | (StockItemBase & { type: 'stock.gap_answered'; countId: string; note: string })
   /** A purchase order (purchaseOrders.ts): packs per item from one supplier. Its id is the event id. */
   | (StockBase & { type: 'stock.ordered'; poNo: string; supplierId: string; lines: PoLine[] })
-  /** A purchase order taken back (Undo, or it will not come). */
-  | (StockBase & { type: 'stock.order_cancelled' | 'stock.order_reopened'; orderId: string })
+  /** A purchase order cancelled, with why (only while nothing has been received); Undo reopens it. */
+  | (StockBase & { type: 'stock.order_cancelled'; orderId: string; reason: string })
+  | (StockBase & { type: 'stock.order_reopened'; orderId: string })
+  /** A purchase order's lines replaced (edit, or "Add to PO"); only while nothing has been received. */
+  | (StockBase & { type: 'stock.order_edited'; orderId: string; lines: PoLine[] })
   /**
    * Goods received against a purchase order (GRN), in packs. Stock itself goes up by
    * 'receive' adjustments; this is the record, closing the order. approvedBy: the manager
    * whose PIN let a short or over delivery in.
    */
-  | (StockBase & { type: 'stock.grn'; grnNo: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null })
+  | (StockBase & { type: 'stock.grn'; grnNo: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null; shortDecision?: 'wait' | 'close' })
   /** A GRN taken back (Undo): its order is open again. */
   | (StockBase & { type: 'stock.grn_undone'; grnId: string })
   /** One stock movement, in base units (g, ml, pcs, sheets); docId: the GRN or count it belongs to. */
@@ -99,7 +102,8 @@ export type StockEvent =
 export const MOVEMENT_KINDS = ['GRN', 'GRN_UNDO', 'COUNT_ADJUST'] as const;
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
 
-export interface PoLine { itemId: string; packs: number }
+/** stockQty: the packs in base units (2 packs of 25 kg = 25000 g × 2); older orders have none. */
+export interface PoLine { itemId: string; packs: number; stockQty?: number }
 export interface GrnLine { itemId: string; ordered: number; received: number }
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
@@ -113,7 +117,7 @@ export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
   'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set',
-  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.settings_set',
+  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.settings_set',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',

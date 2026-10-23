@@ -193,3 +193,18 @@ test('stock movements: the kind decides the sign; nothing else passes', () => {
     assert.match((validatePush({ events: [{ ...mv, ...bad }] }, 'shop-1') as { reason: string }).reason, /invalid stock movement/);
   }
 });
+
+test('order changes: edits need lines, a cancel needs a reason, a GRN decision is wait or close', () => {
+  const edited = { ...base, type: 'stock.order_edited', orderId: 'event-1', lines: [{ itemId: 'inv-1', packs: 2, stockQty: 50000 }] };
+  assert.ok('events' in validatePush({ events: [edited] }, 'shop-1'));
+  assert.match((validatePush({ events: [{ ...edited, lines: [] }] }, 'shop-1') as { reason: string }).reason, /invalid order change/);
+  assert.match((validatePush({ events: [{ ...edited, lines: [{ itemId: 'inv-1', packs: 2, stockQty: -1 }] }] }, 'shop-1') as { reason: string }).reason, /invalid order change/);
+  const cancelled = { ...base, type: 'stock.order_cancelled', orderId: 'event-1', reason: 'Ordered by mistake' };
+  assert.ok('events' in validatePush({ events: [cancelled] }, 'shop-1'));
+  assert.match((validatePush({ events: [{ ...cancelled, reason: '' }] }, 'shop-1') as { reason: string }).reason, /without saying why/);
+  const { reason: _r, ...noReason } = cancelled;
+  assert.match((validatePush({ events: [noReason] }, 'shop-1') as { reason: string }).reason, /without saying why/);
+  const grn = { ...base, type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'event-1', supplierId: 'sup', lines: [{ itemId: 'inv-1', ordered: 2, received: 2 }], approvedBy: null };
+  assert.ok('events' in validatePush({ events: [{ ...grn, shortDecision: 'wait' }] }, 'shop-1'));
+  assert.match((validatePush({ events: [{ ...grn, shortDecision: 'later' }] }, 'shop-1') as { reason: string }).reason, /invalid goods received note/);
+});
