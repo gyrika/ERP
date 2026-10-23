@@ -1,14 +1,21 @@
 import { useEffect, useState } from 'react';
-import { useCatalog } from '../services/inventoryStore.ts';
+import { suppliedItemIds, useCatalog } from '../services/inventoryStore.ts';
+import type { Supplier } from '../domain/inventoryData.ts';
 import { newLineId } from '../domain/order.ts';
 import { AutoSuggestPills } from './AutoSuggestPills.tsx';
 import type { NewIngredient } from '../services/inventoryStore.ts';
 import { EMPTY_UNIT_PRICE, UnitPriceFields, unitPriceItem, type UnitPrice } from './UnitPriceFields.tsx';
 
+/** Add Supplier, or Edit Supplier when given one: the same form, filled in. */
 export function AddSupplierModal({
+  supplier,
+  focus = 'name',
   onClose,
   onSave,
 }: {
+  supplier?: Supplier;
+  /** Where the cursor starts: Phone when the supplier is opened to add a number. */
+  focus?: 'name' | 'phone';
   onClose: () => void;
   onSave: (
     data: { id: string; name: string; phone?: string },
@@ -17,9 +24,9 @@ export function AddSupplierModal({
   ) => void;
 }) {
   const { items } = useCatalog();
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [linkedItemIds, setLinkedItemIds] = useState<string[]>([]);
+  const [name, setName] = useState(supplier?.name ?? '');
+  const [phone, setPhone] = useState(supplier?.phone ?? '');
+  const [linkedItemIds, setLinkedItemIds] = useState<string[]>(() => (supplier ? suppliedItemIds(supplier.id) : []));
   const [newIngredients, setNewIngredients] = useState<({ name: string } & UnitPrice)[]>([]);
   const [error, setError] = useState('');
   const toggleItem = (id: string) => setLinkedItemIds((previous) =>
@@ -48,7 +55,7 @@ export function AddSupplierModal({
     if (priced.some((item) => !item)) return;
     try {
       onSave(
-        { id: `sup_${newLineId()}`, name, ...(phone.trim() ? { phone: phone.trim() } : {}) },
+        { id: supplier?.id ?? `sup_${newLineId()}`, name, ...(phone.trim() ? { phone: phone.trim() } : {}) },
         linkedItemIds,
         newIngredients.map(({ name: ingredientName }, i) => ({ name: ingredientName, ...priced[i]! })),
       );
@@ -62,14 +69,14 @@ export function AddSupplierModal({
   return (
     <div className="inv-modal-backdrop">
       <section className="inv-modal" role="dialog" aria-modal="true" aria-labelledby="add-supplier-title">
-        <h2 id="add-supplier-title">Add Supplier</h2>
+        <h2 id="add-supplier-title">{supplier ? 'Edit Supplier' : 'Add Supplier'}</h2>
         <label className="inv-modal__field">
           <span>Supplier name</span>
-          <input autoFocus maxLength={120} className="inv-modal__input" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Fresh Farms" />
+          <input autoFocus={focus === 'name'} maxLength={120} className="inv-modal__input" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Fresh Farms" />
         </label>
         <label className="inv-modal__field">
           <span>Phone <small>Optional</small></span>
-          <input className="inv-modal__input" type="tel" maxLength={40} value={phone} onChange={(event) => setPhone(event.target.value.replace(/[^\d+ -]/g, ''))} placeholder="+94 77…" />
+          <input autoFocus={focus === 'phone'} className="inv-modal__input" type="tel" maxLength={40} value={phone} onChange={(event) => setPhone(event.target.value.replace(/[^\d+ -]/g, ''))} placeholder="+94 77…" />
         </label>
         <div className="inv-modal__field">
           <span>Ingredients supplied <small>Required · select existing ingredients or add new ones</small></span>
@@ -104,7 +111,7 @@ export function AddSupplierModal({
             disabled={!name.trim() || (linkedItemIds.length === 0 && newIngredients.length === 0) || priced.some((item) => !item)}
             onClick={submit}
           >
-            Save Supplier
+            {supplier ? 'Save Changes' : 'Save Supplier'}
           </button>
         </div>
       </section>

@@ -388,3 +388,24 @@ test('sync retry: a GRN, a count or a sale that arrives twice moves stock once',
   assert.equal(row([grn, grn, movement, movement]).onHandBaseUnits, row([grn, movement]).onHandBaseUnits);
   assert.equal(row([grn, grn]).onHandBaseUnits, 2 * SEED_INVENTORY[0].packQty);
 });
+
+test('a supplier edit renames it and moves which ingredients it supplies', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor, at: 1 };
+  const supplier = SEED_SUPPLIERS[0];
+  const supplied = SEED_INVENTORY.find((item) => item.supplierIds.includes(supplier.id))!;
+  const other = SEED_INVENTORY.find((item) => !item.supplierIds.includes(supplier.id))!;
+  const events = [{
+    ...base, id: 'supplier-edited', type: 'stock.supplier_edited' as const, supplierId: supplier.id,
+    before: { name: supplier.name }, after: { name: 'Renamed', phone: '0771234567' },
+    linked: [other.id], unlinked: [supplied.id],
+  }];
+
+  assert.deepEqual(suppliersFromEvents(SEED_SUPPLIERS, events).find((s) => s.id === supplier.id),
+    { id: supplier.id, name: 'Renamed', phone: '0771234567' });
+  const rows = inventoryFromEvents(SEED_INVENTORY, events);
+  assert.equal(rows.find((item) => item.id === other.id)?.supplierIds.includes(supplier.id), true);
+  assert.equal(rows.find((item) => item.id === supplied.id)?.supplierIds.includes(supplier.id), false);
+  assert.equal(mayRecord('cashier', 'stock.supplier_edited'), false);
+  assert.equal(mayRecord('manager', 'stock.supplier_edited'), true);
+});

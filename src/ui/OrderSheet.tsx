@@ -12,7 +12,8 @@ import { BigStepper } from './flow/BigStepper.tsx';
 import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
-import { addToDraft, addToOrder, cancelOrder, editOrder, moveToCart, placeOrder, setDraft, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
+import { AddSupplierModal } from './AddSupplierModal.tsx';
+import { addToDraft, addToOrder, cancelOrder, editOrder, editSupplier, moveToCart, placeOrder, setDraft, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
 import { NumberInput } from './NumberInput.tsx';
 
 /**
@@ -268,7 +269,10 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
  */
 export function PlacedOrder({ placed: { order, added }, items, suppliers }: { placed: Placed; items: InventoryRow[]; suppliers: Supplier[] }) {
   const name = nameOf(suppliers, order.supplierId);
-  const phone = suppliers.find((s) => s.id === order.supplierId)?.phone;
+  const supplier = suppliers.find((s) => s.id === order.supplierId);
+  const phone = supplier?.phone;
+  /** No number yet: the supplier's own Edit, here, so the message waits while it is added. */
+  const [addingPhone, setAddingPhone] = useState(false);
   const generated = orderMessage(order.lines.flatMap((l) => {
     const row = items.find((i) => i.id === l.itemId);
     return row ? [{ name: row.name, packs: l.packs, packQty: row.packQty, baseUnit: row.baseUnit, unit: receiveUnitOf(row) }] : [];
@@ -285,7 +289,13 @@ export function PlacedOrder({ placed: { order, added }, items, suppliers }: { pl
           <span className="flow-card__text"><span className="flow-card__name">Send on WhatsApp</span><span className="flow-card__line">{phone}</span></span>
         </a>
       ) : (
-        <p className="flow-hint">No phone saved for {name}. Add it on <a href="#suppliers">Suppliers</a>.</p>
+        <p className="flow-hint">
+          No phone saved for {name}.
+          {supplier && <> <button type="button" className="linkbtn" onClick={() => setAddingPhone(true)}>Add phone</button></>}
+        </p>
+      )}
+      {addingPhone && supplier && (
+        <AddSupplierModal supplier={supplier} focus="phone" onClose={() => setAddingPhone(false)} onSave={editSupplier} />
       )}
       {text !== generated && <button type="button" className="linkbtn" onClick={() => setText(generated)}>Reset</button>}
     </section>

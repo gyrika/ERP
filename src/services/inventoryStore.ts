@@ -60,15 +60,15 @@ export const readSuppliers = (includeArchived = false): Supplier[] =>
 /** An ingredient typed in Add Supplier: its name, what it is bought in and what one costs. */
 export type NewIngredient = Pick<InventoryItem, 'name' | 'baseUnit' | 'packQty' | 'workingPriceCents'>;
 
-export const addSupplier = (
+/** The checks Add and Edit Supplier share; returns the ingredients to link and the new ones to create. */
+const supplierInput = (
   supplier: Supplier,
+  others: Supplier[],
   linkedItemIds: string[],
-  newIngredients: NewIngredient[] = [],
-): void => {
-  const suppliers = readSuppliers(true);
+  newIngredients: NewIngredient[],
+): { linked: Set<string>; toCreate: InventoryItem[] } => {
   const items = readItems();
-  if (suppliers.some((existing) => existing.id === supplier.id)) throw new Error('A supplier with this id already exists.');
-  if (suppliers.some((existing) => existing.name.trim().toLowerCase() === supplier.name.trim().toLowerCase())) {
+  if (others.some((existing) => existing.name.trim().toLowerCase() === supplier.name.trim().toLowerCase())) {
     throw new Error('A supplier with this name already exists.');
   }
   if (!supplier.name.trim()) throw new Error('Enter a supplier name.');
@@ -94,8 +94,22 @@ export const addSupplier = (
     throw new Error('Select or add at least one ingredient for this supplier.');
   }
 
-  const errors = validateSeed({ suppliers: [...readSuppliers(), supplier], items: toCreate });
+  const errors = validateSeed({ suppliers: [...others, supplier], items: toCreate });
   if (errors.length) throw new Error(errors.join(' '));
+  return { linked, toCreate };
+};
+
+const trimmed = (supplier: Supplier): Supplier =>
+  ({ ...supplier, name: supplier.name.trim(), ...(supplier.phone ? { phone: supplier.phone.trim() } : {}) });
+
+export const addSupplier = (
+  supplier: Supplier,
+  linkedItemIds: string[],
+  newIngredients: NewIngredient[] = [],
+): void => {
+  const suppliers = readSuppliers(true);
+  if (suppliers.some((existing) => existing.id === supplier.id)) throw new Error('A supplier with this id already exists.');
+  const { linked, toCreate } = supplierInput(supplier, suppliers, linkedItemIds, newIngredients);
 
   const actor = currentCashier();
   for (const item of toCreate) {
@@ -108,8 +122,44 @@ export const addSupplier = (
     at: Date.now(),
     orderNumber: 0,
     actor,
-    supplier: { ...supplier, name: supplier.name.trim(), ...(supplier.phone ? { phone: supplier.phone.trim() } : {}) },
+    supplier: trimmed(supplier),
     linkedItemIds: [...linked],
+  });
+};
+
+/** The ingredients a supplier supplies now (active ones: the ones Edit Supplier shows). */
+export const suppliedItemIds = (supplierId: string): string[] =>
+  readItems().filter((item) => item.supplierIds.includes(supplierId)).map((item) => item.id);
+
+/**
+ * Edit Supplier: name, phone and what they supply, as one event with before and after,
+ * so it is audited and Undo is the same event reversed. Returns that Undo.
+ */
+export const editSupplier = (
+  supplier: Supplier,
+  linkedItemIds: string[],
+  newIngredients: NewIngredient[] = [],
+): (() => void) => {
+  const suppliers = readSuppliers(true);
+  const before = suppliers.find((existing) => existing.id === supplier.id);
+  if (!before) throw new Error('Supplier no longer exists.');
+  const { linked, toCreate } = supplierInput(supplier, suppliers.filter((s) => s.id !== supplier.id), linkedItemIds, newIngredients);
+
+  const actor = currentCashier();
+  for (const item of toCreate) appendEvent({ type: 'stock.item_added', at: Date.now(), orderNumber: 0, actor, item });
+  const was = new Set(suppliedItemIds(supplier.id));
+  const after = trimmed(supplier);
+  const change = {
+    supplierId: supplier.id,
+    before: { name: before.name, ...(before.phone ? { phone: before.phone } : {}) },
+    after: { name: after.name, ...(after.phone ? { phone: after.phone } : {}) },
+    linked: [...linked].filter((id) => !was.has(id)),
+    unlinked: [...was].filter((id) => !linked.has(id)),
+  };
+  appendEvent({ type: 'stock.supplier_edited', at: Date.now(), orderNumber: 0, actor, ...change });
+  return () => appendEvent({
+    type: 'stock.supplier_edited', at: Date.now(), orderNumber: 0, actor: currentCashier(),
+    supplierId: change.supplierId, before: change.after, after: change.before, linked: change.unlinked, unlinked: change.linked,
   });
 };
 

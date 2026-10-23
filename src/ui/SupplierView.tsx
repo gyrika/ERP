@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   addSupplier,
   archiveSupplier,
+  editSupplier,
   restoreSupplier,
   useInventory,
 } from '../services/inventoryStore.ts';
@@ -12,6 +13,7 @@ import { ItemsTabs } from './ItemsTabs.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
 type ArchivedSupplier = { id: string; name: string };
+type EditedSupplier = { name: string; undo: () => void };
 
 export function SupplierView({
   filterIngredientId = null,
@@ -21,6 +23,8 @@ export function SupplierView({
   onRegister?: () => void;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [edited, setEdited] = useState<EditedSupplier | null>(null);
   const [archived, setArchived] = useState<ArchivedSupplier | null>(null);
   const [error, setError] = useState('');
   const { items, suppliers } = useInventory();
@@ -44,6 +48,7 @@ export function SupplierView({
     try {
       archiveSupplier(supplierId);
       setArchived({ id: supplierId, name });
+      setEdited(null);
       setError('');
     } catch (cause) {
       if (!(cause instanceof Error)) throw cause;
@@ -63,6 +68,21 @@ export function SupplierView({
     }
   };
 
+  const saveEdit: typeof editSupplier = (supplier, linkedItemIds, newIngredients) => {
+    const undo = editSupplier(supplier, linkedItemIds, newIngredients);
+    setEdited({ name: supplier.name.trim(), undo });
+    setArchived(null);
+    setError('');
+    return undo;
+  };
+
+  const undoEdit = () => {
+    edited?.undo();
+    setEdited(null);
+  };
+
+  const editingSupplier = suppliers.find((s) => s.id === editing);
+
   return (
     <div className="inv-page">
       <OwnerNav current="items" onRegister={onRegister} />
@@ -74,10 +94,11 @@ export function SupplierView({
          <button type="button" className="insight__action" onClick={() => setShowAdd(true)}>+ Add Supplier</button>
       </div>
 
-      {(archived || error) && (
+      {(archived || edited || error) && (
         <div className={`inv-notice${error ? ' inv-notice--error' : ''}`} role={error ? 'alert' : 'status'}>
-          {error || `${archived?.name} removed from suppliers.`}
+          {error || (archived ? `${archived.name} removed from suppliers.` : `${edited?.name} updated.`)}
           {archived && !error && <button type="button" onClick={undoArchive}>Undo</button>}
+          {edited && !archived && !error && <button type="button" onClick={undoEdit}>Undo</button>}
         </div>
       )}
 
@@ -89,6 +110,7 @@ export function SupplierView({
             <SupplierCard
               key={summary.supplier.id}
               summary={summary}
+              onEdit={setEditing}
               onArchive={(id) => removeSupplier(id, summary.supplier.name)}
             />
           ))
@@ -96,6 +118,9 @@ export function SupplierView({
       </main>
       {showAdd && (
         <AddSupplierModal onClose={() => setShowAdd(false)} onSave={addSupplier} />
+      )}
+      {editingSupplier && (
+        <AddSupplierModal supplier={editingSupplier} onClose={() => setEditing(null)} onSave={saveEdit} />
       )}
     </div>
   );

@@ -167,6 +167,8 @@ export const suppliersFromEvents = (
       archived.add(event.supplierId);
     } else if (event.type === 'stock.supplier_restored') {
       archived.delete(event.supplierId);
+    } else if (event.type === 'stock.supplier_edited' && byId.has(event.supplierId)) {
+      byId.set(event.supplierId, { id: event.supplierId, ...event.after });
     }
   }
   return [...byId.values()].filter((supplier) => includeArchived || !archived.has(supplier.id));
@@ -298,6 +300,16 @@ export const stockFromEvents = (
         for (const itemId of e.linkedItemIds) {
           const shelf = shelves.get(itemId);
           if (shelf && !shelf.item.supplierIds.includes(e.supplier.id)) shelf.item.supplierIds.push(e.supplier.id);
+        }
+        break;
+      case 'stock.supplier_edited':
+        for (const itemId of e.linked) {
+          const shelf = shelves.get(itemId);
+          if (shelf && !shelf.item.supplierIds.includes(e.supplierId)) shelf.item.supplierIds.push(e.supplierId);
+        }
+        for (const itemId of e.unlinked) {
+          const shelf = shelves.get(itemId);
+          if (shelf) shelf.item.supplierIds = shelf.item.supplierIds.filter((id) => id !== e.supplierId);
         }
         break;
       case 'stock.adjusted': {

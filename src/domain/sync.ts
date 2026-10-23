@@ -57,6 +57,11 @@ export type StockEvent =
   | (StockBase & { type: 'stock.supplier_added'; supplier: Supplier; linkedItemIds: string[] })
   | (StockItemBase & { type: 'stock.item_archived' | 'stock.item_restored' })
   | (StockBase & { type: 'stock.supplier_archived' | 'stock.supplier_restored'; supplierId: string })
+  /** Edit Supplier: name and phone before/after, and the ingredients it now supplies or no longer does. */
+  | (StockBase & {
+    type: 'stock.supplier_edited'; supplierId: string;
+    before: Omit<Supplier, 'id'>; after: Omit<Supplier, 'id'>; linked: string[]; unlinked: string[];
+  })
   /**
    * A shelf count (counting.ts): what was left, what the app expected then (both in base
    * units), how it was counted, and why it differs when the gap is beyond the allowance.
@@ -144,7 +149,7 @@ export const KITCHEN_EVENT_TYPES = [
 ] as const satisfies readonly KitchenEvent['type'][];
 export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
-  'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
+  'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored', 'stock.supplier_edited',
   'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set', 'stock.limit_set',
   'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.draft_set', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.numbered', 'stock.settings_set',
   'stock.wasted', 'stock.waste_undone',
