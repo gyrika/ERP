@@ -5,6 +5,7 @@ import { draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
 import { CANCEL_REASONS, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { PoLine } from '../domain/sync.ts';
 import { formatQuantity } from './quantity.ts';
+import { RejectionNotices } from './Rejections.tsx';
 import { addToOrder, cancelOrder, editOrder, placeOrder, type InventoryRow } from '../services/inventoryStore.ts';
 
 /**
@@ -240,6 +241,7 @@ export function OrderSheet({ items, suppliers, purchases, onClose, onDone }: {
       <div className="inv-modal order" role="dialog" aria-modal="true" aria-labelledby="po-title">
         <button type="button" className="count__close" aria-label="Close" onClick={onClose}>×</button>
         <h2 id="po-title">Purchase orders</h2>
+        <RejectionNotices />
 
         {placed.map((p, i) => <PlacedOrder key={`${p.order.id}-${i}`} placed={p} items={items} suppliers={suppliers} />)}
         {cards.length === 0 && placed.length === 0 && <p className="delivery__hint">Nothing needs ordering now.</p>}

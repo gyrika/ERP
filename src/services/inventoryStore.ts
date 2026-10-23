@@ -3,7 +3,7 @@ import { answersFromEvents, type Answer, type CostContext } from '../domain/cost
 import type { Actor } from '../domain/auth.ts';
 import { countHistory, gapOf, type CountEntry, type CountRecord, type GapReason, type Tier } from '../domain/counting.ts';
 import type { SyncEvent } from '../domain/sync.ts';
-import { addEvents, appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
+import { addEvents, appendEvent, dismissRejection, readAll, readRejections, subscribeEvents, type Rejection } from '../ui/eventLog.ts';
 import { numberingOf, numbersFor, pendingNumber, type DocKind } from '../domain/docNumbers.ts';
 import { inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
 import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
@@ -32,11 +32,29 @@ import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '
  */
 export { isLowStock, isOutOfStock, stockStatus, type StockStatus, type InventoryRow } from '../domain/inventory.ts';
 
-const readAllItems = (): InventoryRow[] => inventoryFromEvents(SEED_INVENTORY, readAll());
+/**
+ * This device's own records, without the ones the shop server refused (a GRN for an order
+ * another device had already received, say): they never happened, so they never count.
+ */
+const readLive = (): SyncEvent[] => {
+  const all = readAll();
+  const refused = new Set(readRejections().map((r) => r.id));
+  return refused.size ? all.filter((e) => !refused.has(e.id)) : all;
+};
+
+/** What the server refused and the person has not read yet, to tell them. */
+export function useRejections(): Rejection[] {
+  const [list, setList] = useState(() => readRejections().filter((r) => !r.dismissed));
+  useEffect(() => subscribeEvents(() => setList(readRejections().filter((r) => !r.dismissed))), []);
+  return list;
+}
+export { dismissRejection };
+
+const readAllItems = (): InventoryRow[] => inventoryFromEvents(SEED_INVENTORY, readLive());
 /** The ingredient list (amounts here cover two days only: use useInventory for stock). */
 export const readItems = (): InventoryRow[] => readAllItems().filter((item) => !item.archived);
 export const readSuppliers = (includeArchived = false): Supplier[] =>
-  suppliersFromEvents(SEED_SUPPLIERS, readAll(), includeArchived);
+  suppliersFromEvents(SEED_SUPPLIERS, readLive(), includeArchived);
 
 export const addSupplier = (
   supplier: Supplier,
@@ -238,8 +256,8 @@ const withLocal = (history: readonly SyncEvent[], local: readonly SyncEvent[]): 
  */
 function useShopHistory(): SyncEvent[] {
   const shop = useShopEvents();
-  const [local, setLocal] = useState(readAll);
-  useEffect(() => subscribeEvents(() => setLocal(readAll())), []);
+  const [local, setLocal] = useState(readLive);
+  useEffect(() => subscribeEvents(() => setLocal(readLive())), []);
   const history = shop.state === 'loading' ? null : shop.events;
   return useMemo(() => withLocal(history ?? [], local), [history, local]);
 }
@@ -295,7 +313,7 @@ const withStockQty = (lines: PoLine[]): PoLine[] => {
  */
 const numberLocally = (docId: string, kind: DocKind): string | null => {
   if (!numbersLocally()) return null;
-  const events = readAll();
+  const events = readLive();
   const made = numbersFor(shopId(), Date.now(), [{ id: docId, kind }], numberingOf(events.filter((e) => e.id !== docId)));
   addEvents(made);
   const e = made[0];

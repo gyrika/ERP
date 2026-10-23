@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as inventoryStore from '../services/inventoryStore.ts';
-import { addEvents, appendEvent, readAll } from './eventLog.ts';
+import { addEvents, appendEvent, markRejected, readAll } from './eventLog.ts';
 import * as authService from '../services/auth.ts';
 import { SEED_INVENTORY } from '../domain/inventoryData.ts';
 import { InventoryView } from './InventoryView.tsx';
@@ -367,6 +367,29 @@ test('a paired device shows "PO (pending)" until the shop server numbers it, the
   expect(onOrder.getByText(/^PO-0042 · Prima/)).toBeTruthy();
   expect(within(flourRow()).getByText('On order 2 · PO-0042')).toBeTruthy();
   spy.mockRestore();
+});
+
+test('the shop server refused a GRN: it stops counting, the order is waiting again, and the person is told what to do', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour(2);
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  await user.click(screen.getByRole('button', { name: 'Save GRN' }));
+  await user.keyboard('{Escape}');
+  expect(amount()).toContain('2 packs · 50 kg');
+
+  // Another device had already received that order: the server's answer comes back with the next push.
+  const grn = readAll().find((e) => e.type === 'stock.grn')!;
+  act(() => markRejected([{ id: grn.id, reason: 'PO-0001 is closed: nothing more can be received on it.' }]));
+  expect(screen.getByRole('alert').textContent).toBe('The GRN was not saved: PO-0001 is closed: nothing more can be received on it.OK');
+  expect(amount()).toContain('Not counted yet'); // its stock never happened
+  expect(screen.getByRole('button', { name: /^Purchase orders/ })).toBeTruthy();
+
+  await user.click(within(screen.getByRole('alert')).getByRole('button', { name: 'OK' }));
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(amount()).toContain('Not counted yet'); // reading it does not bring it back
+  await user.click(screen.getByRole('button', { name: 'GRN' }));
+  expect(screen.getByRole('dialog', { name: /PO-0001$/ })).toBeTruthy(); // the order is waiting again
 });
 
 /** Orders 2 packs of flour from its first supplier. */

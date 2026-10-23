@@ -17,6 +17,7 @@ import type { Fleet } from './fleet.ts';
 import { SetupError, isLocal, type SetupApi } from './setup.ts';
 import type { Device, EventStore } from './store.ts';
 import { createNumberer } from './numbering.ts';
+import { createStockRules } from './stockRules.ts';
 import { validatePush } from './validate.ts';
 
 /**
@@ -149,6 +150,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     return null;
   };
   const numberDocs = createNumberer(store, now);
+  const checkStock = createStockRules(store, now);
   const broadcast = (tenantId: string, events: SyncedEvent[]) => {
     for (const st of streams.get(tenantId) ?? []) {
       if (st.held) st.held.push(...events);
@@ -311,9 +313,12 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
         if (why) rejected.push({ id: e.id, reason: why });
         return !why;
       });
-      const { accepted, stored: pushed } = await store.push(device, allowed, now());
+      // The purchasing rules, against what the shop has stored (so no device is trusted alone).
+      const { result, rejected: refused } = await checkStock(device, allowed, (ok) => store.push(device, ok, now()));
+      rejected.push(...refused);
+      const { accepted, stored: pushed } = result;
       // New purchase orders and GRNs get their number here, as records after them.
-      const stored = [...pushed, ...await numberDocs(device, allowed)];
+      const stored = [...pushed, ...await numberDocs(device, allowed.filter((e) => !refused.some((r) => r.id === e.id)))];
       broadcast(device.tenantId, stored);
       if (stored.length) onStored?.(device.tenantId, stored.map((s) => s.event));
       json(res, 200, { accepted, ...(rejected.length ? { rejected } : {}), serverTime: now() } satisfies PushResponse);
@@ -403,8 +408,9 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
 
   /** Events from elsewhere (the manager phones, through the cloud): stored as from `device`, then streamed as usual. */
   const ingest: Ingest = async (device, events) => {
-    const { stored: pushed } = await store.push(device, events, now());
-    const stored = [...pushed, ...await numberDocs(device, events)];
+    const { result, rejected } = await checkStock(device, events, (ok) => store.push(device, ok, now()));
+    const { stored: pushed } = result;
+    const stored = [...pushed, ...await numberDocs(device, events.filter((e) => !rejected.some((r) => r.id === e.id)))];
     broadcast(device.tenantId, stored);
     if (stored.length) onStored?.(device.tenantId, stored.map((s) => s.event));
     return pushed.length;

@@ -18,6 +18,7 @@ import { StockSheet, type SheetTab } from './StockSheet.tsx';
 import { CountFlow } from './CountFlow.tsx';
 import { GoodsReceivingSheet } from './GoodsReceivingSheet.tsx';
 import { OrderSheet } from './OrderSheet.tsx';
+import { RejectionNotices } from './Rejections.tsx';
 import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
 
@@ -124,6 +125,7 @@ export function InventoryView({
          </div>
       </div>
 
+      <RejectionNotices />
       {(archived || error) && (
         <div className={`inv-notice${error ? ' inv-notice--error' : ''}`} role={error ? 'alert' : 'status'}>
           {error || `${archived?.name} removed from inventory.`}

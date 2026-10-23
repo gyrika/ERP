@@ -9,6 +9,7 @@ import {
 import type { StockSettings } from '../domain/stockSettings.ts';
 import { receiveGoods, undoGrn, type InventoryRow } from '../services/inventoryStore.ts';
 import { PinSheet } from './PinSheet.tsx';
+import { RejectionNotices } from './Rejections.tsx';
 
 /**
  * GRN, goods received. Serves the person at the door with the supplier's bill in hand:
@@ -140,6 +141,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, onC
         <button type="button" className="count__close" aria-label="Close" onClick={onClose}>×</button>
         <h2 id="grn-title">{order ? `Goods from ${supplierName(order.supplierId)} · ${order.poNo}` : 'GRN'}</h2>
 
+        <RejectionNotices />
         {saved && !order && (
           <p className="count__saved" role="status">
             {saved.message}
