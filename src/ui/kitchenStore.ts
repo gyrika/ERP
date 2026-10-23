@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ticketsFromEvents, type KitchenTicket } from '../domain/kitchen.ts';
+import type { KitchenEvent } from '../domain/sync.ts';
 import { appendEvent, readAll, subscribeEvents } from './eventLog.ts';
 
 /**
@@ -21,7 +22,7 @@ export function useKitchenTickets(): KitchenTicket[] {
   return tickets;
 }
 
-export type KitchenTap = 'kitchen.seen' | 'kitchen.bumped' | 'kitchen.unbumped';
+export type KitchenTap = KitchenEvent['type'];
 
 export const recordKitchen = (type: KitchenTap, ticket: Pick<KitchenTicket, 'id' | 'number'>): void => {
   appendEvent({ type, at: Date.now(), orderNumber: ticket.number, ticketId: ticket.id });

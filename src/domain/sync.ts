@@ -26,6 +26,9 @@ interface KitchenBase {
 
 export type KitchenEvent =
   | (KitchenBase & { type: 'kitchen.seen' })
+  /** The cook started on the ticket; with `kitchen.bumped` it times the cooking (cookLog). */
+  | (KitchenBase & { type: 'kitchen.started' })
+  | (KitchenBase & { type: 'kitchen.unstarted' })
   | (KitchenBase & { type: 'kitchen.bumped' })
   | (KitchenBase & { type: 'kitchen.unbumped' });
 
@@ -121,7 +124,9 @@ export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | Rec
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;
 
-export const KITCHEN_EVENT_TYPES = ['kitchen.seen', 'kitchen.bumped', 'kitchen.unbumped'] as const;
+export const KITCHEN_EVENT_TYPES = [
+  'kitchen.seen', 'kitchen.started', 'kitchen.unstarted', 'kitchen.bumped', 'kitchen.unbumped',
+] as const satisfies readonly KitchenEvent['type'][];
 export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',

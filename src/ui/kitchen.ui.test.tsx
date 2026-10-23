@@ -19,7 +19,7 @@ const sendOne = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
 };
 
-test('a sent order appears in the kitchen before payment; Done clears it; Undo brings it back', async () => {
+test('a sent order appears in the kitchen before payment; Start, then Done clears it; Undo brings it back', async () => {
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   expect(kitchen().getByText('No orders waiting')).toBeTruthy();
@@ -30,7 +30,15 @@ test('a sent order appears in the kitchen before payment; Done clears it; Undo b
   expect(ticket.getByText('Large')).toBeTruthy();
   expect(ticket.getByText('No onion')).toBeTruthy();
   expect(ticket.getByText('00:00')).toBeTruthy();
+  expect(ticket.queryByRole('button', { name: 'Done: Order 1001' })).toBeNull();
 
+  await user.click(ticket.getByRole('button', { name: 'Start: Order 1001' }));
+  expect(ticket.getByText('Cooking')).toBeTruthy();
+  const started = screen.getAllByRole('status').find((el) => el.textContent?.includes('1001 started'))!;
+  await user.click(within(started).getByRole('button', { name: 'Undo' }));
+  expect(ticket.queryByText('Cooking')).toBeNull();
+
+  await user.click(ticket.getByRole('button', { name: 'Start: Order 1001' }));
   await user.click(ticket.getByRole('button', { name: 'Done: Order 1001' }));
   expect(kitchen().getByText('No orders waiting')).toBeTruthy();
 
@@ -79,22 +87,27 @@ test('a kitchen opened later still sees earlier tickets', async () => {
   expect(screen.getByRole('article', { name: 'Order 1001' })).toBeTruthy();
 });
 
-test('the register shows Cooking until the kitchen taps Done, next to Paid / Unpaid', async () => {
+test('the register shows Waiting until Start, Cooking until Done, next to Paid / Unpaid', async () => {
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   await sendOne(user); // 1001
   const row = () => within(panel().getByRole('button', { name: /^1001/ }));
-  expect(row().getByText('Cooking')).toBeTruthy();
+  expect(row().getByText('Waiting')).toBeTruthy();
+  expect(row().queryByText('Cooking')).toBeNull();
   expect(row().getByText('Unpaid')).toBeTruthy();
 
+  await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
+  expect(row().getByText('Cooking')).toBeTruthy();
   await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001' }));
   expect(row().getByText('Done')).toBeTruthy();
   expect(row().queryByText('Cooking')).toBeNull();
 
-  // A second round puts it back to Cooking; the opened order shows it too.
+  // A second round puts it back to Waiting, then Cooking; the opened order shows it too.
   await user.click(panel().getByRole('button', { name: /^1001/ }));
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  expect(row().getByText('Waiting')).toBeTruthy();
+  await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001, added items' }));
   expect(row().getByText('Cooking')).toBeTruthy();
 
   // Paid orders keep their kitchen state.
