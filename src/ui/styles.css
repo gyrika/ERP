@@ -1226,3 +1226,31 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .side__scrim { display: block; position: fixed; inset: 0; z-index: 60; background: var(--scrim); animation: fade 160ms linear; }
 }
 @media (prefers-reduced-motion: reduce) { .side, .side--open { transition: none; } }
+
+/* The owner screens in ChatGPT's look (SCRUM-131): white page, light grey sidebar with no edge,
+   neutral greys, hairlines instead of shadows; charcoal in the dark. Only the pages that hold the
+   sidebar take it; the counter, the kitchen and the recipes vault keep their own. */
+:is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
+  --ground: #FFFFFF; --surface: #FFFFFF; --panel: #FFFFFF; --chip: #F4F4F4; --side: #F9F9F9;
+  --ink: #0D0D0D; --ink-2: #5D5D5D; --ink-3: #8F8F8F; --line: #E5E5E5; --inv-card-border: #E5E5E5;
+  --primary: #0D0D0D; --on-primary: #FFFFFF; --scrim: rgba(0, 0, 0, 0.25);
+  --card-shadow: 0 0 0 1px var(--line);
+  background: var(--ground); color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) :is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
+    --ground: #212121; --surface: #2A2A2A; --panel: #212121; --chip: #303030; --side: #181818;
+    --ink: #ECECEC; --ink-2: #B4B4B4; --ink-3: #8F8F8F; --line: #383838; --inv-card-border: #383838;
+    --primary: #ECECEC; --on-primary: #0D0D0D; --scrim: rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme='dark'] :is(.owner, .inv-page, .setup):not(.vault):has(> .side) {
+  --ground: #212121; --surface: #2A2A2A; --panel: #212121; --chip: #303030; --side: #181818;
+  --ink: #ECECEC; --ink-2: #B4B4B4; --ink-3: #8F8F8F; --line: #383838; --inv-card-border: #383838;
+  --primary: #ECECEC; --on-primary: #0D0D0D; --scrim: rgba(0, 0, 0, 0.5);
+}
+:is(.owner, .inv-page, .setup):not(.vault) > .side { border-right-color: transparent; }
+/* "Ask or find" reads as one of the rows, as ChatGPT's search does, not as a boxed field. */
+:is(.owner, .inv-page, .setup):not(.vault) > .side .side__ask { border-color: transparent; background: transparent; color: var(--ink); }
+:is(.owner, .inv-page, .setup):not(.vault) > .side .side__ask:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+:is(.owner, .inv-page, .setup):not(.vault) > .side .side__ask kbd { color: var(--ink-2); }
