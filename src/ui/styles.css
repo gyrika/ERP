@@ -1088,24 +1088,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-row__order { min-height: 48px; padding: 0 18px; border: 1px solid var(--warn); border-radius: 10px; background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .inv-row__order:hover { background: color-mix(in srgb, var(--warn) 22%, transparent); }
 .inv-modal__remove { align-self: flex-start; color: var(--bad); }
-.inv-modal.delivery, .inv-modal.order { position: relative; }
-.inv-modal.delivery h2, .inv-modal.order h2 { margin: 0; padding-right: 48px; }
-.delivery__hint { margin: 0; color: var(--ink-2); }
-.delivery__suppliers { display: flex; flex-wrap: wrap; gap: 8px; }
-.delivery__change { align-self: flex-start; margin-top: -8px; }
-.delivery__lines, .order__lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.delivery__lines li, .order__lines li { display: flex; align-items: center; gap: 8px; min-height: 56px; border-top: 1px solid var(--line); }
-.delivery__lines li:first-child, .order__lines li:first-child { border-top: 0; }
-.delivery__name { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 500; }
-.delivery__name small { color: var(--ink-3); font-size: 12px; font-weight: 400; }
-.delivery__packs { width: 72px; text-align: center; }
-.order__packs { min-width: 32px; text-align: center; font-size: 18px; }
 .order__message { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--chip); color: var(--ink-2); font: inherit; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
-.order__send { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.order__call { background: var(--chip); color: var(--ink); border: 1px solid var(--line); }
-.order__off { pointer-events: none; opacity: 0.45; }
-.order__nophone { margin: 0; color: var(--ink-2); font-size: 14px; }
-.inv-modal.delivery .inv-modal__actions { position: sticky; bottom: -24px; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--surface); border-top: 1px solid var(--line); }
 
 /* An item's story (SCRUM-93): the row says enough at a glance; the sheet says everything. */
 .inv-level { display: block; width: 100%; max-width: 120px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
@@ -1191,32 +1174,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .mgr__day-by { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; }
 
 /* Purchase orders and goods receiving (GRN) */
-.po-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; margin-left: 8px; padding: 0 6px; border-radius: 11px; background: var(--primary); color: var(--on-primary); font-size: 12px; font-weight: 700; }
-.po-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; }
-.po-card--placed { background: var(--chip); }
-.po-card__add { flex: 1; min-height: 48px; }
 .inv-row__onorder { font-size: 13px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
-.grn__match { min-width: 64px; text-align: right; font-size: 13px; font-weight: 600; }
-.grn__match--ok { color: var(--ok); }
-.grn__match--short { color: var(--warn); }
-.grn__match--over { color: var(--warn); }
 .receive-price { display: flex; flex-direction: column; gap: 10px; }
-.grn__decide { display: flex; flex-direction: column; gap: 12px; }
-.po-tag { font-weight: 600; }
-.po-open { flex-wrap: wrap; align-items: center; }
-.po-open__actions { display: flex; align-items: center; gap: 12px; }
-.po-open__locked { color: var(--ink-3); }
-.grn__undone .delivery__name { color: var(--ink-3); text-decoration: line-through; }
-.grn__undone small { text-decoration: none; display: inline-block; }
 
 /* Stock rules */
-.rules__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.rules__list li { border-top: 1px solid var(--line); }
-.rules__list li:first-child { border-top: 0; }
-.rules__list label { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; }
-.rules__value { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
-.rules__value .inv-modal__input { width: 110px; text-align: right; }
-.rules__value small { color: var(--ink-3); font-size: 12px; }
 
 /* The four big buttons, the filters, and the status colours: green = fine, orange = low / short / over, red = out, grey = not counted, blue = on order */
 :root { --info: #3E7BFA; }
@@ -1233,17 +1194,13 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-filters { padding: 8px 52px 0; }
 .inv-row__quantity .inv-row__status--ok { color: var(--ok); }
 .inv-row__quantity .inv-row__status--unknown { color: var(--ink-3); }
-.inv-row__onorder, .po-tag { color: var(--info); }
+.inv-row__onorder { color: var(--info); }
 @media (max-width: 760px) {
   .stock-home { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 16px; padding-right: 16px; }
   .inv-filters { padding-left: 16px; padding-right: 16px; }
 }
 
 /* Big − / + buttons and the one main button at the bottom of the order card and the GRN screen */
-.step { flex: none; width: 48px; height: 48px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 50%; background: var(--chip); color: var(--ink); font: inherit; font-size: 24px; font-weight: 500; line-height: 1; cursor: pointer; transition: transform 80ms var(--ease); }
-.step:active { transform: scale(0.94); }
-.po-card__total, .grn__total { margin: 4px 0 0; padding-top: 10px; border-top: 1px solid var(--line); font-size: 15px; font-weight: 600; color: var(--ink-2); }
-.po-card__main { align-self: stretch; min-height: 52px; }
 
 /* ---------- guided flows: Purchase orders, GRN, Stock rules (src/ui/flow) ---------- */
 /* The app's own bottom sheet, narrowed and centred on a wide screen like the Owner's. */
