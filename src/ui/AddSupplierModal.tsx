@@ -69,7 +69,7 @@ export function AddSupplierModal({
         </label>
         <label className="inv-modal__field">
           <span>Phone <small>Optional</small></span>
-          <input className="inv-modal__input" type="tel" maxLength={40} value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+94 77…" />
+          <input className="inv-modal__input" type="tel" maxLength={40} value={phone} onChange={(event) => setPhone(event.target.value.replace(/[^\d+ -]/g, ''))} placeholder="+94 77…" />
         </label>
         <div className="inv-modal__field">
           <span>Ingredients supplied <small>Required · select existing ingredients or add new ones</small></span>

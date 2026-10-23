@@ -33,7 +33,7 @@ export function OwnerPin({ onOpen, onCancel, refusal = 'Only the owner can chang
       <input
         className={`pin${error ? ' pin--error' : ''}`} type="password" inputMode="numeric" autoComplete="off"
         value={pin} readOnly={checking} autoFocus aria-label="Owner PIN" aria-invalid={error} aria-describedby="mgr-pin-msg"
-        onChange={(e) => void onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
+        onChange={(e) => void onChange(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => { if (e.key === 'Escape') onCancel(); }}
       />
       <button type="button" className="linkbtn" onClick={onCancel}>Cancel</button>
     </div>

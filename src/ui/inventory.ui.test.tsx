@@ -1031,11 +1031,16 @@ test('the owner, with his PIN, sets flour to order when below 2 packs; Undo and 
   await user.type(sheet().getByLabelText('Owner PIN'), '2580'); // the manager's: refused
   expect(sheet().getByRole('alert').textContent).toBe('Only the owner sets when to order.');
   await user.type(sheet().getByLabelText('Owner PIN'), '9999');
-  await user.type(sheet().getByRole('textbox', { name: /Order when below/ }), 'none');
+  // Two choices, never an empty box that secretly means automatic (SCRUM-137).
+  expect(sheet().getByRole('button', { name: 'Automatic' }).getAttribute('aria-pressed')).toBe('true');
+  expect(sheet().queryByRole('textbox', { name: /Order when below/ })).toBeNull();
+  await user.click(sheet().getByRole('button', { name: 'Set a number' }));
+  const box = () => sheet().getByRole('textbox', { name: /Order when below/ });
+  await user.type(box(), 'none'); // letters never appear
+  expect((box() as HTMLInputElement).value).toBe('');
   await user.click(sheet().getByRole('button', { name: 'Save' }));
-  expect(sheet().getByRole('alert').textContent).toMatch(/Type a number of packs/);
-  await user.clear(sheet().getByRole('textbox', { name: /Order when below/ }));
-  await user.type(sheet().getByRole('textbox', { name: /Order when below/ }), '2{Enter}');
+  expect(sheet().getByRole('alert').textContent).toMatch(/Type how many packs/);
+  await user.type(box(), '2 packs{Enter}');
   expect(lastEvent()).toMatchObject({ type: 'stock.limit_set', itemId: 'inv-0001', packs: 2, actor: { role: 'owner' } });
   expect(sheet().getByRole('status').textContent).toMatch(/order when below 2 packs/);
 
@@ -1046,7 +1051,9 @@ test('the owner, with his PIN, sets flour to order when below 2 packs; Undo and 
   act(() => inventoryStore.setOrderBelow('inv-0001', 3, { id: 'o', name: 'Owner', role: 'owner' }));
   await user.click(sheet().getByRole('button', { name: 'Change order when below' }));
   await user.type(sheet().getByLabelText('Owner PIN'), '9999');
+  expect((box() as HTMLInputElement).value).toBe('3');
   await user.click(sheet().getByRole('button', { name: 'Automatic' }));
+  await user.click(sheet().getByRole('button', { name: 'Save' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.limit_set', packs: null });
 });
 

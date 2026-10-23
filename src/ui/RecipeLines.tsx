@@ -7,6 +7,7 @@ import { PREPS, type BookLine } from '../domain/recipeBook.ts';
 import { currentOwner } from '../services/auth.ts';
 import { subscribeAuth } from '../services/serverAuth.ts';
 import { splitSupplierName } from './supplierName.ts';
+import { NumberInput } from './NumberInput.tsx';
 
 /**
  * What goes in one dish, line by line: shared by the Recipes screen and adding a dish on
@@ -84,9 +85,9 @@ export function LinesEditor({ rows, onChange, ctx, suppliers, ownPrepsToo = true
                 {stock.map((s) => <option key={s.id} value={stockLine(s.id)}>{s.name}</option>)}
               </optgroup>
             </select>
-            <input
-              className="num" inputMode="decimal" aria-label={`Line ${i + 1}: how much`} value={r.qty}
-              onChange={(e) => set(i, { qty: e.target.value })}
+            <NumberInput
+              aria-label={`Line ${i + 1}: how much`} value={r.qty}
+              onText={(text) => set(i, { qty: text })}
             />
             <span className="redit__unit">{r.unit}</span>
             <button type="button" className="redit__remove" aria-label={`Remove line ${i + 1}`}

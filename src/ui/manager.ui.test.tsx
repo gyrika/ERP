@@ -115,6 +115,26 @@ test('P adjusts one line in cents without touching the menu price, and the order
   expect(screen.getAllByRole('button', { name: 'M 1450' }).length).toBeGreaterThan(0); // menu price unchanged
 });
 
+test('the line price box takes only rupees, refuses 0, and Remove takes the adjustment off (SCRUM-137)', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await sendAndReopen(user);
+  await unlock(user);
+  await user.keyboard('p');
+  const box = () => screen.getByRole('textbox', { name: 'Take off this line' }) as HTMLInputElement;
+  await user.keyboard('abc');
+  expect(box().value).toBe(''); // letters never appear
+  const before = auditEvents().length;
+  await user.keyboard('0{Enter}');
+  expect(auditEvents().length).toBe(before); // 0 no longer secretly removes anything
+  await user.clear(box());
+  await user.keyboard('100{Enter}');
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.line_adjusted', after: 10000 });
+  await user.keyboard('p');
+  await user.click(screen.getByRole('button', { name: /^Remove the Rs 100/ }));
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.line_adjusted', before: 10000, after: 0 });
+});
+
 test('every change creates exactly one audit entry with the manager name and before/after', async () => {
   const user = userEvent.setup();
   render(<App />);

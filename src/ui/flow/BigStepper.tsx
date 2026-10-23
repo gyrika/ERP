@@ -1,3 +1,5 @@
+import { NumberInput } from '../NumberInput.tsx';
+
 /**
  * A big − number + for the one number a step asks for: easy to hit with a thumb, easy to
  * read from arm's length. The number can also be typed (kg, half packs). Orange when it
@@ -25,8 +27,8 @@ export function BigStepper({ value, unit, label, tone, compact, readOnly, onText
     <div className={`bigstep${tone ? ` bigstep--${tone}` : ''}${compact ? ' bigstep--compact' : ''}`}>
       {!readOnly && <button type="button" className="bigstep__btn" aria-label={lessLabel} onClick={() => onBump(-1)}>−</button>}
       <div className="bigstep__mid">
-        <input className="bigstep__num num" inputMode="decimal" aria-label={label} placeholder="0" value={value} readOnly={readOnly}
-          onChange={(e) => onText(e.target.value)} onFocus={(e) => e.currentTarget.select()} />
+        <NumberInput className="bigstep__num" aria-label={label} placeholder="0" value={value} readOnly={readOnly}
+          onText={onText} onFocus={(e) => e.currentTarget.select()} />
         <span className="bigstep__unit">{unit}</span>
       </div>
       {!readOnly && <button type="button" className="bigstep__btn" aria-label={moreLabel} onClick={() => onBump(1)}>+</button>}

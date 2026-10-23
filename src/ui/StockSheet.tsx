@@ -12,6 +12,7 @@ import { ItemOrder } from './OrderSheet.tsx';
 import type { DueCount } from '../domain/counting.ts';
 import type { HistoryEntry } from '../domain/itemStory.ts';
 import { wasteReasonLabel } from '../domain/waste.ts';
+import { NumberInput } from './NumberInput.tsx';
 import { OwnerPin } from './OwnerPin.tsx';
 import { isManagerPhone } from '../services/pairing.ts';
 import { usePhotoUrl } from '../services/photos.ts';
@@ -224,7 +225,7 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
         <form className="receive-price" onSubmit={savePrice}>
           <label className="inv-modal__field">
             <span>Price per {name} (Rs) <small>What the supplier charges</small></span>
-            <input className="inv-modal__input num" inputMode="decimal" value={price} onChange={(e) => { setPrice(e.target.value); setError(''); }} />
+            <NumberInput className="inv-modal__input" decimals={2} value={price} onText={(text) => { setPrice(text); setError(''); }} />
           </label>
           {price.trim() !== shownPrice && <button type="submit" className="insight__action">Save price</button>}
           {error && <p className="inv-modal__error" role="alert">{error}</p>}
@@ -241,12 +242,14 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
 }
 
 /**
- * "Order when below" (SCRUM-135): left empty, the reorder rule decides from how fast
- * it sells; an amount replaces that for this item. Typed and shown in what it is bought
- * in (packs, kg), kept in packs. The owner's PIN, then Undo.
+ * "Order when below" (SCRUM-135): Automatic (the reorder rule decides from how fast it
+ * sells) or an amount for this item, typed and shown in what it is bought in (packs, kg),
+ * kept in packs. Two buttons, never an empty box that secretly means automatic
+ * (SCRUM-137). The owner's PIN, then Undo.
  */
 function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: string, undo: () => void) => void }) {
   const [edit, setEdit] = useState<'closed' | 'pin' | Actor>('closed');
+  const [mode, setMode] = useState<'auto' | 'number'>('auto');
   const [typed, setTyped] = useState('');
   const [error, setError] = useState('');
   const current = item.orderBelowPacks;
@@ -254,7 +257,12 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
   const isPack = unit.id === 'pack';
   const shown = (packs: number) => formatInUnit(packs, unit, item.packQty);
 
-  const start = (owner: Actor) => { setTyped(current === null ? '' : String(roundForUnit(fromPacks(current, unit, item.packQty)))); setError(''); setEdit(owner); };
+  const start = (owner: Actor) => {
+    setMode(current === null ? 'auto' : 'number');
+    setTyped(current === null ? '' : String(roundForUnit(fromPacks(current, unit, item.packQty))));
+    setError('');
+    setEdit(owner);
+  };
   const save = (owner: Actor, packs: number | null) => {
     setEdit('closed');
     if (packs === current) return;
@@ -264,9 +272,9 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
   };
   const submit = (event: FormEvent, owner: Actor) => {
     event.preventDefault();
-    if (!typed.trim()) return save(owner, null);
+    if (mode === 'auto') return save(owner, null);
     const n = parsePacks(typed);
-    if (n === null || n <= 0) return setError(`Type a number of ${isPack ? 'packs' : unitName(unit)}, like 2, or leave it empty for automatic.`);
+    if (n === null || n <= 0) return setError(`Type how many ${isPack ? 'packs' : unitName(unit)}, more than 0, or choose Automatic.`);
     save(owner, isPack ? n : Math.round(toPacks(n, unit, item.packQty) * 1e6) / 1e6);
   };
 
@@ -281,13 +289,20 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
       {edit === 'pin' && <OwnerPin onOpen={start} onCancel={() => setEdit('closed')} refusal="Only the owner sets when to order." />}
       {typeof edit === 'object' && (
         <form className="order-below" onSubmit={(e) => submit(e, edit)}>
-          <label className="inv-modal__field">
-            <span>Order when below ({isPack ? 'packs' : unitName(unit)}) <small>Empty: automatic, from how fast it sells</small></span>
-            <input className="inv-modal__input num" inputMode="decimal" placeholder="automatic" autoFocus value={typed}
-              onChange={(e) => { setTyped(e.target.value); setError(''); }} />
-          </label>
+          <div className="chips" role="group" aria-label="When to order">
+            <button type="button" className="chip" aria-pressed={mode === 'auto'} onClick={() => { setMode('auto'); setError(''); }}>Automatic</button>
+            <button type="button" className="chip" aria-pressed={mode === 'number'} onClick={() => { setMode('number'); setError(''); }}>Set a number</button>
+          </div>
+          {mode === 'auto'
+            ? <p className="inv-modal__note">Ordered when it would not last until the next delivery, from how fast it sells.</p>
+            : (
+              <label className="inv-modal__field">
+                <span>Order when below</span>
+                <NumberInput className="inv-modal__input" unit={isPack ? 'packs' : unitName(unit)} autoFocus value={typed}
+                  onText={(text) => { setTyped(text); setError(''); }} />
+              </label>
+            )}
           <button type="submit" className="insight__action">Save</button>
-          {current !== null && <button type="button" className="linkbtn" onClick={() => save(edit, null)}>Automatic</button>}
           {error && <p className="inv-modal__error" role="alert">{error}</p>}
         </form>
       )}

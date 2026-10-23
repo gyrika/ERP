@@ -15,6 +15,7 @@ import { useMenu } from './menuStore.ts';
 import { ItemsTabs } from './ItemsTabs.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwner, type Draft } from './RecipeLines.tsx';
+import { NumberInput } from './NumberInput.tsx';
 
 /**
  * The owner's menu (#menu). Serves the owner: they know their menu and want one change made
@@ -315,8 +316,8 @@ function AddDish({ section, ctx, onSaved, onClose }: {
                   return (
                     <label key={s.id}>
                       {s.hint ? `${s.label} ${s.hint}` : s.label}
-                      <input className="num" inputMode="numeric" value={price[s.id] ?? ''} autoFocus={i === 0}
-                        onChange={(e) => { setPrice({ ...price, [s.id]: e.target.value }); setError(''); }}
+                      <NumberInput decimals={0} value={price[s.id] ?? ''} autoFocus={i === 0}
+                        onText={(text) => { setPrice({ ...price, [s.id]: text }); setError(''); }}
                         aria-label={s.id === 'one' ? 'Price' : `${s.label} price`} />
                       {cost && (
                         <span className="menued__was num">
@@ -487,7 +488,7 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
                 return (
                   <label key={id}>
                     {v ? `${v.label}${v.hint ? ` ${v.hint}` : ''}` : 'Price'}
-                    <input className="num" inputMode="numeric" value={price[id]} onChange={(e) => setPrice({ ...price, [id]: e.target.value })} aria-label={v ? `${v.label} price` : 'Price'} />
+                    <NumberInput decimals={0} value={price[id]} onText={(text) => setPrice({ ...price, [id]: text })} aria-label={v ? `${v.label} price` : 'Price'} />
                     {toCents(price[id]) !== was && <span className="menued__was num">{base.added ? 'Was' : 'Printed'} {fmt(was)}</span>}
                   </label>
                 );
@@ -502,7 +503,7 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
                 {base.adds.map((opt) => (
                   <label key={opt.id}>
                     {opt.label}
-                    <input className="num" inputMode="numeric" value={adds[opt.id]} onChange={(e) => setAdds({ ...adds, [opt.id]: e.target.value })} aria-label={`${opt.label} price`} />
+                    <NumberInput decimals={0} value={adds[opt.id]} onText={(text) => setAdds({ ...adds, [opt.id]: text })} aria-label={`${opt.label} price`} />
                   </label>
                 ))}
               </div>

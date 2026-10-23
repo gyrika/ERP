@@ -2,6 +2,7 @@ import { NEW_ITEM_UNITS, newItemUnit } from '../domain/counting.ts';
 import type { BaseUnit } from '../domain/inventoryData.ts';
 import { parseLKR } from '../domain/money.ts';
 import type { Cents } from '../domain/types.ts';
+import { NumberInput } from './NumberInput.tsx';
 
 /** What a new ingredient is bought in and what one of it costs, as typed. */
 export interface UnitPrice { unit: string | null; price: string }
@@ -32,8 +33,8 @@ export function UnitPriceFields({ value, onChange, name }: { value: UnitPrice; o
       </div>
       <label className="inv-modal__field">
         <span>{label(`Price per ${value.unit ?? 'unit'}`)}</span>
-        <input className="inv-modal__input" inputMode="decimal" autoComplete="off" placeholder="Rs" value={value.price}
-          aria-invalid={bad} onChange={(event) => onChange({ ...value, price: event.target.value })} />
+        <NumberInput className="inv-modal__input" decimals={2} unit="Rs" value={value.price}
+          aria-invalid={bad} onText={(price) => onChange({ ...value, price })} />
       </label>
     </>
   );
