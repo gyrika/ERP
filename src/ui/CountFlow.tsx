@@ -8,6 +8,7 @@ import { MAX_NOTE } from '../domain/gapReview.ts';
 import { learnUnit, recordCount, useStockSettings, type InventoryRow } from '../services/inventoryStore.ts';
 import { isManagerPhone } from '../services/pairing.ts';
 import { keepPhoto, newPhotoId, shrinkPhoto } from '../services/photos.ts';
+import { NumberInput } from './NumberInput.tsx';
 
 /**
  * Count day (SCRUM-89). Serves the manager in front of the shelf: one item per
@@ -235,8 +236,8 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
       <div className="count__row">
         <label className="count__field">
           <span>Full packs</span>
-          <input className="num" inputMode="decimal" autoFocus value={packs} placeholder="0"
-            onChange={(e) => { setPacks(e.target.value); setError(''); }} />
+          <NumberInput autoFocus value={packs} placeholder="0"
+            onText={(text) => { setPacks(text); setError(''); }} />
         </label>
         <div className="chips" role="group" aria-label="Counted in">
           {units.filter((u) => u.id === 'pack' || u.id.startsWith('unit:')).map((u) => (
@@ -252,7 +253,7 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
             <input value={newUnit.name} placeholder="Tray" autoFocus onChange={(e) => { setNewUnit({ ...newUnit, name: e.target.value }); setError(''); }} />
           </label>
           <label className="count__field"><span>One {newUnit.name.trim() || 'of it'} holds ({row.baseUnit})</span>
-            <input className="num" inputMode="decimal" value={newUnit.base} onChange={(e) => { setNewUnit({ ...newUnit, base: e.target.value }); setError(''); }} />
+            <NumberInput value={newUnit.base} onText={(text) => { setNewUnit({ ...newUnit, base: text }); setError(''); }} />
           </label>
           <button type="button" className="chip" onClick={addUnit}>Save unit</button>
         </div>
@@ -269,8 +270,8 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
         <span className="count__or">or</span>
         <label className="count__field count__field--inline">
           <span className="sr-only">Opened pack, weighed</span>
-          <input className="num" inputMode="decimal" value={amount} placeholder="0"
-            onChange={(e) => { setAmount(e.target.value); setFraction(null); setError(''); }} />
+          <NumberInput value={amount} placeholder="0"
+            onText={(text) => { setAmount(text); setFraction(null); setError(''); }} />
         </label>
         <div className="chips" role="group" aria-label="Weighed in">
           {loose.map((u) => (

@@ -16,6 +16,7 @@ import { useMenu } from './menuStore.ts';
 import { ItemsTabs } from './ItemsTabs.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwner, type Draft } from './RecipeLines.tsx';
+import { NumberInput } from './NumberInput.tsx';
 
 /**
  * The recipes of the finished items (SCRUM-75), under Items › Finished. Serves the owner, who
@@ -399,8 +400,8 @@ function PrepEditor({ item, sheet, ctx, onSave, onCancel }: {
         )}
         <label className="prep__field">One batch makes
           <span className="prep__makes">
-            <input className="num" inputMode="decimal" value={qty} aria-label="One batch makes"
-              onChange={(e) => { setQty(e.target.value); setError(''); }} />
+            <NumberInput value={qty} aria-label="One batch makes"
+              onText={(text) => { setQty(text); setError(''); }} />
             {sheet ? <span className="redit__unit">{unit}</span> : (
               <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)}>
                 {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}

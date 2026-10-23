@@ -8,6 +8,7 @@ import {
   WASTE_REASONS, checkWaste, matchesWaste, wasteChoices, type WasteChoice, type WasteReason,
 } from '../domain/waste.ts';
 import { recordWaste, useCatalog, useCostContext } from '../services/inventoryStore.ts';
+import { NumberInput } from './NumberInput.tsx';
 
 /**
  * The bin (manager mode). Serves the manager: something was burnt, dropped or went off,
@@ -142,12 +143,11 @@ export function WasteSheet({ actor, onClose, onWasted }: {
               <section className="group">
                 <h2>How much</h2>
                 <label className="waste__qty">
-                  <input
+                  <NumberInput
                     ref={qtyRef}
-                    className="note num"
-                    inputMode="decimal"
+                    className="note"
                     value={qty}
-                    onChange={(e) => setQty(e.target.value.replace(/[^\d.]/g, ''))}
+                    onText={setQty}
                     aria-label={`How much, in ${picked.unit}`}
                   />
                   <span>{picked.unit}</span>

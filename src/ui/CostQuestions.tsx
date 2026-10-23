@@ -6,6 +6,7 @@ import type { Actor } from '../domain/auth.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
 import { answerQuestion } from '../services/inventoryStore.ts';
+import { NumberInput } from './NumberInput.tsx';
 
 /**
  * Serves the owner, who knows his kitchen: his recipes are in, and the app asks
@@ -84,7 +85,7 @@ export function Question({ q, ctx, actor, autoFocus = true, onAnswered, onSkip }
           <p className="costq__hint">Your recipe for one batch: {prepOf(subject, ctx.answers)?.lines.map((l) => `${l.qty.toLocaleString('en-US')} ${l.unit} ${l.name}`).join(', ')}.</p>
           <label className="costq__field">
             <span>One batch makes ({unit})</span>
-            <input autoFocus={autoFocus} className="num" inputMode="decimal" value={qty} onChange={(e) => { setQty(e.target.value); setError(''); }} />
+            <NumberInput autoFocus={autoFocus}  value={qty} onText={(text) => { setQty(text); setError(''); }} />
           </label>
         </>
       )}
@@ -115,7 +116,7 @@ export function Question({ q, ctx, actor, autoFocus = true, onAnswered, onSkip }
           {chosen !== null && (
             <label className="costq__field">
               <span>1 {unit} of {subject} takes ({ctx.items.find((i) => i.id === chosen)?.baseUnit} of it; 1 when it goes in as it is)</span>
-              <input className="num" inputMode="decimal" value={per} onChange={(e) => { setPer(e.target.value); setError(''); }} />
+              <NumberInput value={per} onText={(text) => { setPer(text); setError(''); }} />
             </label>
           )}
           <p className="costq__hint">
@@ -124,10 +125,10 @@ export function Question({ q, ctx, actor, autoFocus = true, onAnswered, onSkip }
           </p>
           <div className="costq__price">
             <label className="costq__field"><span>Rs</span>
-              <input className="num" inputMode="decimal" value={rupees} disabled={chosen !== null} onChange={(e) => { setRupees(e.target.value); setError(''); }} />
+              <NumberInput decimals={2} value={rupees} disabled={chosen !== null} onText={(text) => { setRupees(text); setError(''); }} />
             </label>
             <label className="costq__field"><span>for ({unit})</span>
-              <input className="num" inputMode="decimal" value={qty} disabled={chosen !== null} onChange={(e) => { setQty(e.target.value); setError(''); }} />
+              <NumberInput value={qty} disabled={chosen !== null} onText={(text) => { setQty(text); setError(''); }} />
             </label>
           </div>
         </>

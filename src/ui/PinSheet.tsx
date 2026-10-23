@@ -57,7 +57,7 @@ export function PinSheet({ onUnlock, onClose, reason = 'To change or cancel sent
             autoComplete="off"
             value={pin}
             readOnly={checking}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
             aria-label="Manager PIN"
             aria-invalid={error}
             aria-describedby="pin-msg"

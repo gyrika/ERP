@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NumberInput } from './NumberInput.tsx';
 import type { Actor } from '../domain/auth.ts';
 import { cookState, type KitchenTicket } from '../domain/kitchen.ts';
 import { DISCOUNT_CHIPS } from '../domain/manager.ts';
@@ -121,20 +122,23 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
   const current = lineAdjustment(order, line);
   const [raw, setRaw] = useState(current ? String(current / 100) : '');
   const cents = parseRupees(raw);
+  // Taking it off again is its own button, never "type 0" (SCRUM-137).
   return (
     <div className="inline">
-      <label className="inline__label" htmlFor={`adj-${line.id}`}>Take off this line (Rs)</label>
-      <input
+      <label className="inline__label" htmlFor={`adj-${line.id}`}>Take off this line</label>
+      <NumberInput
         id={`adj-${line.id}`}
-        className="note num"
-        inputMode="decimal"
+        className="note"
+        decimals={2}
+        unit="Rs"
         value={raw}
-        onChange={(e) => setRaw(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && cents !== null) onAdjust(line.id, cents); }}
-        placeholder="e.g. 150, then Enter (0 removes it)"
-        aria-invalid={raw !== '' && cents === null}
+        onText={setRaw}
+        onKeyDown={(e) => { if (e.key === 'Enter' && cents !== null && cents > 0) onAdjust(line.id, cents); }}
+        placeholder="e.g. 150, then Enter"
+        aria-invalid={raw !== '' && !(cents !== null && cents > 0)}
         autoFocus
       />
+      {current > 0 && <button type="button" className="linkbtn" onClick={() => onAdjust(line.id, 0)}>Remove the Rs {fmt(current)} off</button>}
     </div>
   );
 }

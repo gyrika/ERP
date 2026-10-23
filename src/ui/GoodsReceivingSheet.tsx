@@ -15,6 +15,7 @@ import { FlowSheet } from './flow/FlowSheet.tsx';
 import { GrnDocument, printGrn } from './GrnDocument.tsx';
 import { PinSheet } from './PinSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
+import { NumberInput } from './NumberInput.tsx';
 
 /**
  * GRN, goods received: a delivery came. Serves the person at the door with the supplier's
@@ -157,8 +158,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   const priceInput = (l: (typeof lines)[number], onTyped?: () => void) => (
     <span className="price">
       <span className="price__rs" aria-hidden="true">Rs</span>
-      <input className="price__num num" inputMode="decimal" aria-label={`Delivered price per pack of ${l.row.name}`}
-        value={typedPrice(l)} onFocus={(e) => e.currentTarget.select()} onChange={(e) => { updatePrice(l.row.id, e.target.value); onTyped?.(); }} />
+      <NumberInput decimals={2} className="price__num" aria-label={`Delivered price per pack of ${l.row.name}`}
+        value={typedPrice(l)} onFocus={(e) => e.currentTarget.select()} onText={(text) => { updatePrice(l.row.id, text); onTyped?.(); }} />
     </span>
   );
   const updatePrice = (itemId: string, text: string) => {
@@ -417,9 +418,9 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
                     <td className="bill__qty">
                       <span className="qty">
                         <button type="button" className="qty__btn" aria-label={`One less of ${l.row.name}`} onClick={() => { bump(l, -1); tick(l.row.id); }}>−</button>
-                        <input className="qty__num num" inputMode="decimal" aria-label={l.unit.id === 'pack' ? `Packs of ${l.row.name}` : `${unitName(l.unit)} of ${l.row.name}`}
+                        <NumberInput className="qty__num" aria-label={l.unit.id === 'pack' ? `Packs of ${l.row.name}` : `${unitName(l.unit)} of ${l.row.name}`}
                           value={typed(l)} onFocus={(e) => e.currentTarget.select()}
-                          onChange={(e) => { setAmounts({ ...amounts, [l.row.id]: e.target.value }); tick(l.row.id); setError(''); }} />
+                          onText={(text) => { setAmounts({ ...amounts, [l.row.id]: text }); tick(l.row.id); setError(''); }} />
                         <button type="button" className="qty__btn" aria-label={`One more of ${l.row.name}`} onClick={() => { bump(l, 1); tick(l.row.id); }}>+</button>
                       </span>
                       {l.unit.id !== 'pack' && <span className="bill__sub">{unitName(l.unit)}</span>}

@@ -12,6 +12,7 @@ import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
 import { addToDraft, addToOrder, cancelOrder, editOrder, moveToCart, placeOrder, setDraft, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
+import { NumberInput } from './NumberInput.tsx';
 
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
@@ -120,8 +121,8 @@ function PriceCell({ row, onTyped, onSaved }: { row: InventoryRow; onTyped: (cen
   return (
     <span className="price">
       <span className="price__rs" aria-hidden="true">Rs</span>
-      <input className="price__num num" inputMode="decimal" aria-label={`Price of one pack of ${row.name}`} placeholder="0" value={text ?? shown}
-        onChange={(e) => { setText(e.target.value); const c = parseLKR(e.target.value); onTyped(c !== null && c > 0 ? c : null); }}
+      <NumberInput decimals={2} className="price__num" aria-label={`Price of one pack of ${row.name}`} placeholder="0" value={text ?? shown}
+        onText={(typed) => { setText(typed); const c = parseLKR(typed); onTyped(c !== null && c > 0 ? c : null); }}
         onFocus={(e) => e.currentTarget.select()} onBlur={save}
         onKeyDown={(e) => {
           if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
@@ -202,8 +203,8 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
                 <td className="bill__qty">
                   <span className="qty">
                     <button type="button" className="qty__btn" aria-label={`One pack less of ${row.name}`} onClick={() => draft.set(id, Math.max(1, n - 1))}>−</button>
-                    <input className="qty__num num" inputMode="decimal" aria-label={`Packs of ${row.name}`} value={typed[id] ?? String(n)}
-                      onChange={(e) => draft.setText(id, e.target.value)} onBlur={() => draft.commit(id)} onFocus={(e) => e.currentTarget.select()} />
+                    <NumberInput className="qty__num" aria-label={`Packs of ${row.name}`} value={typed[id] ?? String(n)}
+                      onText={(text) => draft.setText(id, text)} onBlur={() => draft.commit(id)} onFocus={(e) => e.currentTarget.select()} />
                     <button type="button" className="qty__btn" aria-label={`One pack more of ${row.name}`} onClick={() => draft.set(id, n + 1)}>+</button>
                   </span>
                 </td>

@@ -1541,3 +1541,8 @@ ul.side__foot { list-style: none; margin: auto 0 0; padding: 12px 0 0; }
 .waste__takes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 16px; }
 .waste__takes li { display: flex; justify-content: space-between; gap: 16px; max-width: 480px; }
 .waste__takes .num { color: var(--ink-2); }
+
+/* The one number box (SCRUM-137): what it counts sits inside it, on the right. */
+.numfield { position: relative; display: flex; width: 100%; }
+.numfield > input { flex: 1 1 auto; min-width: 0; padding-right: 64px; }
+.numfield__unit { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); color: var(--ink-3); font-size: 14px; pointer-events: none; }
