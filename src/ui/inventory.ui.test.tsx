@@ -247,7 +247,6 @@ test('Count opens the blind count: the gap shows only after counting, then the s
   inventoryStore.adjustStock('inv-0001', 2);
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
-  await user.click(within(screen.getByRole('dialog', { name: 'Pizza Flour' })).getByRole('tab', { name: 'Count' }));
   const form = within(screen.getByRole('form', { name: 'Count Pizza Flour' }));
   expect(screen.queryByText(/expects/)).toBeNull();
   await user.type(form.getByRole('textbox', { name: 'Full packs' }), '1.5');
@@ -440,6 +439,26 @@ test('filter chips: All, Low, Out, On order show only what needs a look', async 
   expect(names()).toEqual([]);
   await user.click(chips.getByRole('button', { name: 'All' }));
   expect(names().every((n) => /mozzarella/i.test(n ?? ''))).toBe(true);
+});
+
+test('an item opens on Details, or on Order when it needs ordering; the tabs are Details, Order, History', async () => {
+  const user = userEvent.setup();
+  sellPizzas(500);
+  render(<InventoryView />);
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  let sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
+  expect(sheet.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Details', 'Order', 'History']);
+  expect(sheet.getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true');
+  expect(sheet.getByLabelText('About this item')).toBeTruthy(); // the story is on Details
+  expect(sheet.getByRole('form', { name: 'Count Pizza Flour' })).toBeTruthy(); // and so is counting it
+  await user.click(sheet.getByRole('tab', { name: 'Order' }));
+  expect(sheet.queryByLabelText('About this item')).toBeNull();
+  await user.keyboard('{Escape}');
+
+  act(() => shelfPacks(1)); // low: it needs ordering
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
+  expect(sheet.getByRole('tab', { name: 'Order' }).getAttribute('aria-selected')).toBe('true');
 });
 
 /** Orders 2 packs of flour from its first supplier. */
@@ -696,9 +715,9 @@ test('Count happens inside the item sheet, then History shows it with the delive
     'Counted 37.5 kg · expected 50 kg · 12.5 kg short (Rs 3,200) · Spoiled or expired',
     'Received 2 packs (50 kg)',
   ]);
-  // Undo the count: back on Count, and it leaves the history.
+  // Undo the count: back on Details, and it leaves the history.
   await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(sheet.getByRole('tab', { name: 'Count' }).getAttribute('aria-selected')).toBe('true');
+  expect(sheet.getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true');
   await user.click(sheet.getByRole('tab', { name: 'History' }));
   expect(within(sheet.getByRole('list', { name: 'History of Pizza Flour' })).getAllByRole('listitem')).toHaveLength(1);
 });

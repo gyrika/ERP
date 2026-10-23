@@ -16,7 +16,7 @@ import { usePhotoUrl } from '../services/photos.ts';
 import { formatLasts, formatPacks, formatQuantity } from './quantity.ts';
 
 /**
- * Serves the manager looking at one item: its story, then Order · Count · History.
+ * Serves the manager looking at one item: Details (its story, and counting it) · Order · History.
  * Stock comes in only through a GRN against a purchase order; Order here is the same
  * draft as Purchase orders, started from this item. The item's whole story sits on top (SCRUM-93): what is on the shelf and how long
  * it lasts, the last count and delivery, the price and its last change, what uses
@@ -24,18 +24,18 @@ import { formatLasts, formatPacks, formatQuantity } from './quantity.ts';
  * shelf amount stays hidden (a blind count), and the sheet says so.
  * Receiving is counted in what the owner chose for this item (SCRUM-96): packs, kg,
  * or a unit like Tray; the price is per that unit too. Changing it needs his PIN.
- * Order · Count · History are tabs of this one sheet (SCRUM-97): counting
+ * Details · Order · History are tabs of this one sheet (SCRUM-97): counting
  * or ordering this item never leaves it, and what was just done shows here with its
  * Undo. History lists every count (with its gap, reason, photo and the owner's word),
  * delivery and price change, newest first. Removing the item lives here, out of the
  * way, with Undo on the inventory screen.
  */
-export type SheetTab = 'order' | 'count' | 'history';
+export type SheetTab = 'details' | 'order' | 'history';
 const TABS: { id: SheetTab; label: string }[] = [
-  { id: 'order', label: 'Order' }, { id: 'count', label: 'Count' }, { id: 'history', label: 'History' },
+  { id: 'details', label: 'Details' }, { id: 'order', label: 'Order' }, { id: 'history', label: 'History' },
 ];
 
-export function StockSheet({ item, items = [item], suppliers = [], purchases, countAs, countDue = false, tab: firstTab = 'order', photoRequired, onClose, onRemove }: {
+export function StockSheet({ item, items = [item], suppliers = [], purchases, countAs, countDue = false, tab: firstTab = 'details', photoRequired, onClose, onRemove }: {
   item: InventoryRow;
   /** Every item: an order takes this supplier's other items that need ordering too. */
   items?: InventoryRow[];
@@ -81,8 +81,8 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
   const sources = suppliers.filter((x) => item.supplierIds.includes(x.id));
   const now = Date.now();
   const tabs = TABS.filter((t) => t.id !== 'order' || purchases);
-  /** Without purchase orders (the manager's phone), the sheet opens on Count. */
-  const tabState: SheetTab = tab === 'order' && !purchases ? 'count' : tab;
+  /** Without purchase orders (the manager's phone), the sheet opens on Details. */
+  const tabState: SheetTab = tab === 'order' && !purchases ? 'details' : tab;
 
   /** A new price the supplier charges (audited), with Undo. */
   const savePrice = (event: FormEvent) => {
@@ -97,7 +97,7 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
   };
 
   const counted = (gapCents: number, big: boolean, undo: () => void) => {
-    setDone({ message: big ? `Counted: gap of Rs ${fmt(Math.abs(gapCents))} saved.` : 'Counted: it matches.', undo, tab: 'count' });
+    setDone({ message: big ? `Counted: gap of Rs ${fmt(Math.abs(gapCents))} saved.` : 'Counted: it matches.', undo, tab: 'details' });
     setCountKey(countKey + 1);
     setTab('history');
   };
@@ -107,65 +107,6 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
       <section className="inv-modal stock-sheet" role="dialog" aria-modal="true" aria-labelledby="stock-sheet-title">
         <button type="button" className="count__close" aria-label="Close" onClick={onClose}>×</button>
         <h2 id="stock-sheet-title">{item.name}</h2>
-
-        <dl className="story" aria-label="About this item">
-          <div>
-            <dt>On the shelf</dt>
-            <dd>
-              {!item.counted ? 'Not counted yet: count it once to start'
-                : countDue ? 'Count due: hidden until it is counted'
-                : <><strong className="num">{formatStock(item.onHandBaseUnits, item)}</strong>
-                  {[formatLasts(item.lastsDays), item.usedPerDay > 0 && `uses about ${formatQuantity(Math.round(item.usedPerDay), item.baseUnit)} a day`]
-                    .filter(Boolean).map((t) => <span key={String(t)}>{t}</span>)}</>}
-            </dd>
-          </div>
-          <div>
-            <dt>Last count</dt>
-            <dd>
-              {story.lastCount
-                ? <>{daysAgo(story.lastCount.at, now)} · {story.lastCount.by} · {story.lastCount.reason
-                  ? `${formatQuantity(Math.abs(story.lastCount.delta), item.baseUnit)} ${story.lastCount.delta < 0 ? 'short' : 'over'}, ${reasonLabel(story.lastCount.reason).toLowerCase()}`
-                  : story.lastCount.first ? 'first count' : 'matched'}</>
-                : 'Never'}
-              {story.lastCount?.photo && (photo
-                ? <a className="story__photo" href={photo} target="_blank" rel="noreferrer"><img src={photo} alt={`Shelf photo from the last count of ${item.name}`} /></a>
-                : <span>photo on the shop PC</span>)}
-            </dd>
-          </div>
-          <div>
-            <dt>Last delivery</dt>
-            <dd>{story.lastDelivery ? `${daysAgo(story.lastDelivery.at, now)} · ${formatPacks(story.lastDelivery.packs)} · ${story.lastDelivery.by}` : 'None recorded yet'}</dd>
-          </div>
-          <div>
-            <dt>Price</dt>
-            <dd>
-              <span className="num">Rs {fmt(item.workingPriceCents)} a pack of {formatQuantity(item.packQty, item.baseUnit)}</span>
-              {story.lastPrice && (
-                <span className={`story__price story__price--${story.lastPrice.after > story.lastPrice.before ? 'up' : 'down'}`}>
-                  {story.lastPrice.after > story.lastPrice.before ? '↑' : '↓'} Rs {fmt(Math.abs(story.lastPrice.after - story.lastPrice.before))} {daysAgo(story.lastPrice.at, now)}
-                </span>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>Used in</dt>
-            <dd>
-              {story.usedIn.length === 0 ? 'No recipe uses it yet'
-                : `${story.usedIn.length} menu ${story.usedIn.length === 1 ? 'item' : 'items'}: ${story.usedIn.slice(0, 4).join(', ')}${story.usedIn.length > 4 ? '…' : ''}`}
-            </dd>
-          </div>
-          <div>
-            <dt>{sources.length === 1 ? 'Supplier' : 'Suppliers'}</dt>
-            <dd className="story__suppliers">
-              {sources.length === 0 && 'None'}
-              {sources.map((x) => (
-                <span key={x.id} className="story__supplier">
-                  {x.name}
-                </span>
-              ))}
-            </dd>
-          </div>
-        </dl>
 
         <div className="inv-mode sheet-tabs" role="tablist" aria-label={item.name}>
           {tabs.map((t) => (
@@ -181,8 +122,67 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
           </p>
         )}
 
-        {tabState === 'count' && (
-          <div role="tabpanel" id="panel-count" aria-labelledby="tab-count">
+        {tabState === 'details' && (
+          <div role="tabpanel" id="panel-details" aria-labelledby="tab-details" className="sheet-panel">
+          <dl className="story" aria-label="About this item">
+            <div>
+              <dt>On the shelf</dt>
+              <dd>
+                {!item.counted ? 'Not counted yet: count it once to start'
+                  : countDue ? 'Count due: hidden until it is counted'
+                  : <><strong className="num">{formatStock(item.onHandBaseUnits, item)}</strong>
+                    {[formatLasts(item.lastsDays), item.usedPerDay > 0 && `uses about ${formatQuantity(Math.round(item.usedPerDay), item.baseUnit)} a day`]
+                      .filter(Boolean).map((t) => <span key={String(t)}>{t}</span>)}</>}
+              </dd>
+            </div>
+            <div>
+              <dt>Last count</dt>
+              <dd>
+                {story.lastCount
+                  ? <>{daysAgo(story.lastCount.at, now)} · {story.lastCount.by} · {story.lastCount.reason
+                    ? `${formatQuantity(Math.abs(story.lastCount.delta), item.baseUnit)} ${story.lastCount.delta < 0 ? 'short' : 'over'}, ${reasonLabel(story.lastCount.reason).toLowerCase()}`
+                    : story.lastCount.first ? 'first count' : 'matched'}</>
+                  : 'Never'}
+                {story.lastCount?.photo && (photo
+                  ? <a className="story__photo" href={photo} target="_blank" rel="noreferrer"><img src={photo} alt={`Shelf photo from the last count of ${item.name}`} /></a>
+                  : <span>photo on the shop PC</span>)}
+              </dd>
+            </div>
+            <div>
+              <dt>Last delivery</dt>
+              <dd>{story.lastDelivery ? `${daysAgo(story.lastDelivery.at, now)} · ${formatPacks(story.lastDelivery.packs)} · ${story.lastDelivery.by}` : 'None recorded yet'}</dd>
+            </div>
+            <div>
+              <dt>Price</dt>
+              <dd>
+                <span className="num">Rs {fmt(item.workingPriceCents)} a pack of {formatQuantity(item.packQty, item.baseUnit)}</span>
+                {story.lastPrice && (
+                  <span className={`story__price story__price--${story.lastPrice.after > story.lastPrice.before ? 'up' : 'down'}`}>
+                    {story.lastPrice.after > story.lastPrice.before ? '↑' : '↓'} Rs {fmt(Math.abs(story.lastPrice.after - story.lastPrice.before))} {daysAgo(story.lastPrice.at, now)}
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Used in</dt>
+              <dd>
+                {story.usedIn.length === 0 ? 'No recipe uses it yet'
+                  : `${story.usedIn.length} menu ${story.usedIn.length === 1 ? 'item' : 'items'}: ${story.usedIn.slice(0, 4).join(', ')}${story.usedIn.length > 4 ? '…' : ''}`}
+              </dd>
+            </div>
+            <div>
+              <dt>{sources.length === 1 ? 'Supplier' : 'Suppliers'}</dt>
+              <dd className="story__suppliers">
+                {sources.length === 0 && 'None'}
+                {sources.map((x) => (
+                  <span key={x.id} className="story__supplier">
+                    {x.name}
+                  </span>
+                ))}
+              </dd>
+            </div>
+          </dl>
+            <h3 className="sheet-panel__title">Count it now</h3>
             <CountItem key={countKey} embedded row={item} position=""
               due={countAs ?? { id: item.id, tier: 'monthly', state: item.counted ? 'due' : 'never', lastCountedAt: item.lastCountedAt }}
               photoRequired={photoRequired ?? isManagerPhone()} onSaved={counted} />

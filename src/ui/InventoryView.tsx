@@ -54,7 +54,7 @@ export function InventoryView({
   const [query, setQuery] = useState('');
   /** The item whose sheet is open, and on which tab. */
   const [updating, setUpdating] = useState<string | null>(null);
-  const [sheetTab, setSheetTab] = useState<SheetTab>('order');
+  const [sheetTab, setSheetTab] = useState<SheetTab>('details');
   const [delivery, setDelivery] = useState(false);
   const [ordering, setOrdering] = useState(false);
   const [rules, setRules] = useState(false);
@@ -75,7 +75,7 @@ export function InventoryView({
   /** Items that need ordering now: the badge, and a tap opens them on Order. */
   const needed = useMemo(() => new Set([...draftsOf(items).values()].flatMap((d) => Object.keys(d))), [items]);
   const toOrder = needed.size;
-  const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'count'); setArchived(null); setError(''); };
+  const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'details'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const FILTERS = [['all', 'All'], ['low', 'Low'], ['out', 'Out'], ['order', 'On order']] as const;
   const matches = (item: (typeof items)[number], which: typeof filter) =>

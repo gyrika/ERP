@@ -1167,6 +1167,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .sheet-tabs { align-self: flex-start; position: sticky; top: -24px; z-index: 2; }
 .sheet-tabs .pill[aria-selected='true'] { background: var(--pill-on); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); }
 .sheet-panel { display: flex; flex-direction: column; gap: 18px; }
+.sheet-panel__title { margin: 4px 0 0; font-size: 17px; font-weight: 700; }
 .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .history__item { display: flex; flex-direction: column; gap: 4px; padding: 12px 0 12px 16px; border-left: 2px solid var(--line); position: relative; font-size: 15px; }
 .history__item::before { content: ''; position: absolute; left: -6px; top: 17px; width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
