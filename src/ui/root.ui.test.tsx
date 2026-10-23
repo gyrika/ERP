@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { appendEvent } from './eventLog.ts';
 import { Root } from './Root.tsx';
 
 beforeEach(() => {
@@ -93,7 +94,7 @@ test('adding a supplier with a new ingredient updates Inventory and Find Supplie
   await user.click(screen.getByRole('button', { name: '+ Add “End-to-end Flour” as new ingredient' }));
   await user.click(screen.getByRole('button', { name: 'Save Supplier' }));
 
-  await user.click(await screen.findByRole('link', { name: 'Inventory' }));
+  await user.click(await screen.findByRole('link', { name: 'Stock' }));
   const ingredientRow = screen.getByRole('heading', { name: 'End-to-end Flour' }).closest('.inv-row') as HTMLElement;
   expect(within(ingredientRow).getByText('End-to-end Supplier')).toBeTruthy();
 
@@ -104,20 +105,59 @@ test('adding a supplier with a new ingredient updates Inventory and Find Supplie
   expect(within(supplierToggle.closest('article') as HTMLElement).getByText('End-to-end Flour')).toBeTruthy();
 });
 
-test('one nav bar on every owner screen: same links, the current one marked, Register goes back', async () => {
+test('one sidebar on every owner screen: the same parts, the current one marked, Register goes back (SCRUM-131)', async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#inventory');
   render(<Root />);
   const nav = () => within(screen.getByRole('navigation', { name: 'Owner sections' }));
-  const current = () => nav().getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.textContent);
-  const links = ['Owner', 'Manager', 'Menu', 'Recipes', 'Inventory', 'Suppliers', 'Shop setup'];
+  const names = () => nav().getAllByRole('link').map((a) => a.getAttribute('aria-label'));
+  const current = () => nav().getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.getAttribute('aria-label'));
+  const parts = ['Today', 'Stock', 'Menu', 'Recipes', 'Counts', 'Suppliers', 'Shop setup'];
 
-  for (const [link, main] of [['Suppliers', 'Suppliers'], ['Owner', 'Owner'], ['Menu', 'Menu'], ['Recipes', 'Recipes, locked'], ['Manager', 'Manager'], ['Shop setup', 'Shop setup'], ['Inventory', 'Inventory']]) {
+  for (const [link, main] of [['Suppliers', 'Suppliers'], ['Today', 'Owner'], ['Menu', 'Menu'], ['Recipes', 'Recipes, locked'], ['Counts', 'Manager'], ['Shop setup', 'Shop setup'], ['Stock', 'Inventory']]) {
     await user.click(nav().getByRole('link', { name: link }));
     expect(await screen.findByRole('main', { name: main })).toBeTruthy();
-    expect(nav().getAllByRole('link').map((a) => a.textContent)).toEqual(links);
+    expect(names()).toEqual(parts);
     expect(current()).toEqual([link]);
   }
+  // Each part says what is going on there (nothing sold, nothing counted yet).
+  expect(await nav().findByText('No sales yet today')).toBeTruthy();
+  expect(nav().getByText(/^0 of \d+ counted$/)).toBeTruthy();
+  expect(nav().getByRole('heading', { name: 'Nothing needs you' })).toBeTruthy();
   await user.click(nav().getByRole('button', { name: 'Register' }));
   expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();
 });
+
+test('a part that needs a decision moves to Needs you with a badge; Ctrl K finds a part by what is going on there', async () => {
+  const user = userEvent.setup();
+  // Onion counted at a quarter of a pack: running low.
+  appendEvent({ type: 'stock.adjusted', at: Date.now(), orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, itemId: 'inv-0024', deltaPacks: 0.25, reason: 'audit' });
+  history.replaceState(null, '', '/#menu');
+  render(<Root />);
+  const nav = within(screen.getByRole('navigation', { name: 'Owner sections' }));
+  const needs = await nav.findByRole('heading', { name: 'Needs you' });
+  const stock = nav.getByRole('link', { name: 'Stock' });
+  expect(needs.nextElementSibling?.contains(stock)).toBe(true);
+  expect(stock.textContent).toBe('StockOnion running low1');
+  expect(nav.getByRole('heading', { name: 'All quiet' })).toBeTruthy();
+
+  await user.keyboard('{Control>}k{/Control}');
+  const ask = screen.getByRole('dialog', { name: 'Commands' });
+  await user.type(within(ask).getByRole('textbox', { name: 'Ask or find…' }), 'onion{Enter}');
+  expect(await screen.findByRole('main', { name: 'Inventory' })).toBeTruthy();
+});
+
+test('on a narrow screen the parts open as a drawer from the menu button', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#menu');
+  render(<Root />);
+  const open = screen.getByRole('button', { name: 'Show the parts of the shop' });
+  expect(open.getAttribute('aria-expanded')).toBe('false');
+  await user.click(open);
+  expect(open.getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByRole('navigation', { name: 'Owner sections' }).classList.contains('side--open')).toBe(true);
+  await user.keyboard('{Escape}');
+  expect(open.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.getByRole('main', { name: 'Menu' })).toBeTruthy(); // Esc closed the drawer, not the Menu
+});
+
