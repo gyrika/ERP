@@ -2,6 +2,7 @@ import { isPhotoId } from '../src/domain/photos.ts';
 import { isNote } from '../src/domain/gapReview.ts';
 import { isUnitId } from '../src/domain/counting.ts';
 import { MENU } from '../src/domain/menu.ts';
+import { checkStockSetting } from '../src/domain/stockSettings.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
 import { isGapReason } from '../src/domain/counting.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
@@ -125,6 +126,29 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'stock.tier_set' && (!shortString(e.itemId) || !(e.tier === null || ['daily', 'weekly', 'monthly'].includes(String(e.tier))))) {
       return { reason: `event ${e.id} has an invalid count tier` };
     }
+    const packs = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1e6;
+    if (e.type === 'stock.ordered' && (
+      !shortString(e.poNo, 20) || !shortString(e.supplierId) || !Array.isArray(e.lines) || e.lines.length === 0 || e.lines.length > 200 ||
+      !e.lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.packs) && (l.packs as number) > 0)
+    )) return { reason: `event ${e.id} has an invalid purchase order` };
+    if ((e.type === 'stock.order_cancelled' || e.type === 'stock.order_reopened') && !shortString(e.orderId)) return { reason: `event ${e.id} has an invalid order id` };
+    if (e.type === 'stock.grn') {
+      const by = e.approvedBy;
+      if (
+        !shortString(e.grnNo, 20) || !shortString(e.orderId) || !shortString(e.supplierId) || !Array.isArray(e.lines) || e.lines.length > 200 ||
+        !e.lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received)) ||
+        !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner')))
+      ) return { reason: `event ${e.id} has an invalid goods received note` };
+      // A delivery that differs from its order needs a manager's approval.
+      if (by === null && e.lines.some((l) => isObj(l) && l.received !== l.ordered)) {
+        return { reason: `event ${e.id} differs from its order without a manager's approval` };
+      }
+    }
+    if (e.type === 'stock.settings_set') {
+      const why = checkStockSetting(e.key, e.value);
+      if (why) return { reason: `event ${e.id} has an invalid setting: ${why}` };
+    }
+    if (e.type === 'stock.grn_undone' && !shortString(e.grnId)) return { reason: `event ${e.id} has an invalid GRN id` };
     if (e.type === 'stock.receive_unit_set' && (!shortString(e.itemId) || !isUnitId(e.unit))) {
       return { reason: `event ${e.id} has an invalid receiving unit` };
     }

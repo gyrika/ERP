@@ -17,7 +17,7 @@ test('inventory items render as compact name, status, and supplier rows', () => 
   expect(firstRow.querySelector('.inv-row__name')?.textContent).toBe('Pizza Flour');
   expect(firstRow.querySelector('.inv-row__status')?.textContent).toBe('Not counted yet');
   expect(within(firstRow).getByRole('button', { name: 'Prima / David Stores (Wholesale)' })).toBeTruthy();
-  expect(within(firstRow).queryByRole('button', { name: 'Order Pizza Flour' })).toBeNull(); // only when low or out
+  expect(within(firstRow).queryByRole('button', { name: 'Order Pizza Flour' })).toBeNull(); // ordering is Purchase orders
 });
 
 test('new ingredient requires suppliers and saves as a stock event', async () => {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { orderMessage, suggestPacks, whatsAppLink, whatsAppNumber } from './ordering.ts';
+import { orderMessage, suggestOrder, suggestPacks, whatsAppLink, whatsAppNumber } from './ordering.ts';
 
 // Ordering from a supplier (SCRUM-92).
 
@@ -22,4 +22,21 @@ test('WhatsApp gets the country code and the message', () => {
   assert.equal(whatsAppNumber('077 123 4567'), '94771234567');
   assert.equal(whatsAppNumber('+94 77 123 4567'), '94771234567');
   assert.equal(whatsAppLink('0771234567', 'Hi & bye'), 'https://wa.me/94771234567?text=Hi%20%26%20bye');
+});
+
+// Purchase orders: when and how much.
+
+const shelf = (onHandBaseUnits: number, usedPerDay = 1000, low = false) => ({ counted: true, usedPerDay, onHandBaseUnits, packQty: 2000, low });
+
+test('orders when what is in hand and on order lasts no longer than delivery plus safety days', () => {
+  assert.equal(suggestOrder(shelf(5000), 0, 1), 0, '5 days left, 3 needed: not yet');
+  assert.equal(suggestOrder(shelf(3000), 0, 1), 3, '3 kg: order 8 days of use less 3 kg = 2.5 packs');
+  assert.equal(suggestOrder(shelf(3000), 2, 1), 0, 'already on order');
+  assert.equal(suggestOrder(shelf(5000), 0, 3), 3, 'a slow supplier: order sooner');
+});
+
+test('no rate of use: low or out orders one pack, unless on order; never counted: never', () => {
+  assert.equal(suggestOrder(shelf(0, 0, true), 0, 1), 1);
+  assert.equal(suggestOrder(shelf(0, 0, true), 1, 1), 0);
+  assert.equal(suggestOrder({ ...shelf(0, 1000, true), counted: false }, 0, 1), 0);
 });

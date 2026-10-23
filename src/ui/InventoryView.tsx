@@ -4,6 +4,7 @@ import {
   archiveInventoryItem,
   restoreInventoryItem,
   useInventory,
+  usePurchases,
   type StockStatus,
 } from '../services/inventoryStore.ts';
 import { stockStatus } from '../domain/inventory.ts';
@@ -13,7 +14,9 @@ import { formatLasts, formatQuantity } from './quantity.ts';
 import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import { StockSheet, type SheetTab } from './StockSheet.tsx';
 import { CountFlow } from './CountFlow.tsx';
-import { DeliverySheet } from './DeliverySheet.tsx';
+import { GoodsReceivingSheet } from './GoodsReceivingSheet.tsx';
+import { draftsOf, OrderSheet } from './OrderSheet.tsx';
+import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, tiersOf, type DueCount } from '../domain/counting.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
@@ -26,8 +29,8 @@ const STATUS_LABELS: Record<StockStatus, string> = {
 
 /**
  * Inventory (SCRUM-92: fewer buttons). Tap a row to open its sheet (received, count,
- * remove); "Delivery came" takes a whole bill at once; Order shows only on items
- * that are low or out. The supplier's name opens that supplier.
+ * remove); "Purchase orders" is the one place to order (drafts written by
+ * suggestOrder); "Goods receiving" takes a delivery against its order (GRN). The supplier's name opens that supplier.
  */
 
 /** Why a row says "Check shelf": what it has not been able to take off. */
@@ -47,11 +50,23 @@ export function InventoryView({
   const [query, setQuery] = useState('');
   /** The item whose sheet is open, and on which tab. */
   const [updating, setUpdating] = useState<string | null>(null);
-  const [sheetTab, setSheetTab] = useState<SheetTab>('received');
+  const [sheetTab, setSheetTab] = useState<SheetTab>('order');
   const [delivery, setDelivery] = useState(false);
+  const [ordering, setOrdering] = useState(false);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo: () => void } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
+  const purchases = usePurchases();
+  const coming = useMemo(() => {
+    const packs = onOrder(purchases.open);
+    const po = new Map<string, string>();
+    for (const o of purchases.open) for (const l of o.lines) po.set(l.itemId, o.poNo);
+    return { packs, po };
+  }, [purchases]);
+  /** Items that need ordering now: the badge, and a tap opens them on Order. */
+  const needed = useMemo(() => new Set([...draftsOf(items, suppliers, purchases).values()].flatMap((d) => Object.keys(d))), [items, suppliers, purchases]);
+  const toOrder = needed.size;
+  const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'count'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -98,7 +113,10 @@ export function InventoryView({
       <div className="inv-page__head">
          <h1 className="supplier-heading">Inventory Dashboard</h1>
          <div className="inv-page__actions">
-           <button type="button" className="inv-page__primary" onClick={() => { setDelivery(true); setArchived(null); setError(''); }}>Delivery came</button>
+           <button type="button" className="inv-page__primary" onClick={() => { setDelivery(true); setArchived(null); setError(''); }}>GRN</button>
+           <button type="button" className="inv-page__secondary" onClick={() => { setOrdering(true); setArchived(null); setError(''); }}>
+             Purchase orders{toOrder > 0 && <span className="po-badge" aria-label={`${toOrder} to order`}>{toOrder}</span>}
+           </button>
            <button type="button" className="inv-page__secondary" onClick={() => setShowAdd(true)}>+ Add Ingredient</button>
          </div>
       </div>
@@ -142,6 +160,8 @@ export function InventoryView({
         <span className="sr-only">Search inventory</span>
         <input
           className="inv-modal__input" type="search" value={query} placeholder="Search ingredient, category or supplier"
+          // Never the browser's saved logins: it took this box for an email field.
+          name="inventory-search" autoComplete="off" spellCheck={false}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Escape') setQuery(''); }}
         />
@@ -154,10 +174,10 @@ export function InventoryView({
 
            return (
              <article key={item.id} className="inv-row"
-               onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a')) { setUpdating(item.id); setSheetTab('received'); setArchived(null); setError(''); } }}>
+               onClick={(e) => { if (!(e.target as HTMLElement).closest('button, a')) openItem(item.id); }}>
                <div className="inv-row__main">
                  <h2 className="inv-row__name">
-                   <button type="button" className="inv-row__open" onClick={() => { setUpdating(item.id); setSheetTab('received'); setArchived(null); setError(''); }}>
+                   <button type="button" className="inv-row__open" onClick={() => openItem(item.id)}>
                      {item.name}
                    </button>
                  </h2>
@@ -192,10 +212,8 @@ export function InventoryView({
                    : item.counted && !dueIds.has(item.id) && formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
                </div>
                <div className="inv-row__actions">
-                 {(status === 'low' || status === 'out') && item.supplierIds.some((id) => supplierNames.has(id)) && (
-                   <button type="button" className="inv-row__order" aria-label={`Order ${item.name}`} onClick={() => { setUpdating(item.id); setSheetTab('order'); }}>
-                     Order
-                   </button>
+                 {coming.packs.has(item.id) && (
+                   <span className="inv-row__onorder">On order {coming.packs.get(item.id)} · {coming.po.get(item.id)}</span>
                  )}
                </div>
              </article>
@@ -208,6 +226,7 @@ export function InventoryView({
           item={updatingItem}
           items={items}
           suppliers={suppliers}
+          purchases={purchases}
           tab={sheetTab}
           countDue={dueIds.has(updatingItem.id)}
           countAs={due.find((d) => d.id === updatingItem.id)
@@ -217,7 +236,10 @@ export function InventoryView({
         />
       )}
       {delivery && (
-        <DeliverySheet items={items} suppliers={suppliers} onClose={() => setDelivery(false)} onDone={(message, undo) => setDone({ message, undo })} />
+        <GoodsReceivingSheet items={items} suppliers={suppliers} purchases={purchases} onClose={() => setDelivery(false)} onDone={(message, undo) => setDone({ message, undo })} />
+      )}
+      {ordering && (
+        <OrderSheet items={items} suppliers={suppliers} purchases={purchases} onClose={() => setOrdering(false)} onDone={(message, undo) => setDone({ message, undo })} />
       )}
       {counting && <CountFlow due={counting} rows={items} onClose={() => setCounting(null)} />}
       {showAdd && (

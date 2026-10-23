@@ -5,6 +5,7 @@ import type { MenuEvent } from './menuEdits.ts';
 import type { Cents } from './types.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 import type { CountEntry, GapReason, Tier } from './counting.ts';
+import type { StockSettings } from './stockSettings.ts';
 
 /**
  * The sync contract between devices and the server (SCRUM-59, 60, 29, 30).
@@ -73,7 +74,24 @@ export type StockEvent =
   /** The owner on a count's gap (SCRUM-95): OK, or a question to the manager. */
   | (StockItemBase & { type: 'stock.gap_reviewed'; countId: string; decision: 'ok' | 'ask'; note: string })
   /** The manager answers the owner's question about a gap. */
-  | (StockItemBase & { type: 'stock.gap_answered'; countId: string; note: string });
+  | (StockItemBase & { type: 'stock.gap_answered'; countId: string; note: string })
+  /** A purchase order (purchaseOrders.ts): packs per item from one supplier. Its id is the event id. */
+  | (StockBase & { type: 'stock.ordered'; poNo: string; supplierId: string; lines: PoLine[] })
+  /** A purchase order taken back (Undo, or it will not come). */
+  | (StockBase & { type: 'stock.order_cancelled' | 'stock.order_reopened'; orderId: string })
+  /**
+   * Goods received against a purchase order (GRN), in packs. Stock itself goes up by
+   * 'receive' adjustments; this is the record, closing the order. approvedBy: the manager
+   * whose PIN let a short or over delivery in.
+   */
+  | (StockBase & { type: 'stock.grn'; grnNo: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null })
+  /** A GRN taken back (Undo): its order is open again. */
+  | (StockBase & { type: 'stock.grn_undone'; grnId: string })
+  /** The owner changes one of the stock rules' numbers (stockSettings.ts). */
+  | (StockBase & { type: 'stock.settings_set'; key: keyof StockSettings; value: number });
+
+export interface PoLine { itemId: string; packs: number }
+export interface GrnLine { itemId: string; ordered: number; received: number }
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
 export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | RecipeEvent;
@@ -86,6 +104,7 @@ export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored',
   'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set',
+  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.grn', 'stock.grn_undone', 'stock.settings_set',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',

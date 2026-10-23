@@ -1169,3 +1169,16 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .mgr__day-gap { color: var(--bad); text-align: right; }
 .mgr__day-ok { color: var(--ink-2); text-align: right; }
 .mgr__day-by { grid-column: 1 / -1; color: var(--ink-3); font-size: 12px; }
+
+/* Purchase orders and goods receiving (GRN) */
+.po-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; margin-left: 8px; padding: 0 6px; border-radius: 11px; background: var(--primary); color: var(--on-primary); font-size: 12px; font-weight: 700; }
+.po-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; }
+.po-card--placed { background: var(--chip); }
+.po-card__add { flex: 1; min-height: 48px; }
+.inv-row__onorder { font-size: 13px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.grn__match { min-width: 64px; text-align: right; font-size: 13px; font-weight: 600; }
+.grn__match--ok { color: var(--ok); }
+.grn__match--short { color: var(--warn); }
+.grn__match--over { color: var(--bad); }
+.receive-price { display: flex; flex-direction: column; gap: 10px; }
+.grn__decide { display: flex; flex-direction: column; gap: 12px; }

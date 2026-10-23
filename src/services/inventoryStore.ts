@@ -14,6 +14,9 @@ import { useShopEvents } from './ownerData.ts';
 import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } from '../domain/itemStory.ts';
 import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
+import { grnNumber, poNumber, purchasesFromEvents, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import type { GrnLine, PoLine } from '../domain/sync.ts';
+import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -250,6 +253,74 @@ export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; 
     };
   }, [events]);
 }
+
+/** The stock rules' numbers: the defaults with the owner's changes. */
+export function useStockSettings(): StockSettings {
+  const events = useShopHistory();
+  return useMemo(() => stockSettingsFromEvents(events), [events]);
+}
+
+/** The owner changes one number; returns what is wrong in plain words, or the Undo. */
+export const setStockSetting = <K extends keyof StockSettings>(
+  key: K, value: number, before: number, owner: Actor,
+): string | (() => void) => {
+  const why = checkStockSetting(key, value);
+  if (why) return why;
+  appendEvent({ type: 'stock.settings_set', at: Date.now(), orderNumber: 0, actor: owner, key, value });
+  return () => { appendEvent({ type: 'stock.settings_set', at: Date.now(), orderNumber: 0, actor: owner, key, value: before }); };
+};
+
+/** Open purchase orders, delivery times and the next numbers, from the whole history. */
+export function usePurchases(): PurchaseState {
+  const events = useShopHistory();
+  return useMemo(() => purchasesFromEvents(events), [events]);
+}
+
+/**
+ * Places a purchase order (lines with packs only). The number follows every PO this
+ * device has seen. Returns the order and its Undo (cancels it).
+ */
+export const placeOrder = (supplierId: string, lines: PoLine[], poCount: number): { order: PurchaseOrder; undo: () => void } => {
+  const kept = lines.filter((l) => l.packs > 0);
+  const poNo = poNumber(Math.max(poCount, purchasesFromEvents(readAll()).poCount) + 1);
+  const e = appendEvent({ type: 'stock.ordered', at: Date.now(), orderNumber: 0, actor: currentCashier(), poNo, supplierId, lines: kept });
+  return {
+    order: { id: e.id, poNo, supplierId, lines: kept, at: e.at, actor: e.actor },
+    undo: () => { cancelOrder(e.id); },
+  };
+};
+
+/** Cancels an order; returns the Undo (the same order, same number, open again). */
+export const cancelOrder = (orderId: string): (() => void) => {
+  appendEvent({ type: 'stock.order_cancelled', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId });
+  return () => { appendEvent({ type: 'stock.order_reopened', at: Date.now(), orderNumber: 0, actor: currentCashier(), orderId }); };
+};
+
+/**
+ * Goods received against an order (GRN): stock in per line ('receive' adjustments) and
+ * the GRN record, which closes the order. approvedBy: the manager who let a difference in.
+ * Returns the GRN number and one Undo for all of it (the order opens again).
+ */
+export const receiveGoods = (
+  order: PurchaseOrder, rows: InventoryRow[], lines: GrnLine[], approvedBy: Actor | null, grnCount: number,
+): { grnNo: string; undo: () => void } => {
+  const undos = lines.flatMap((l) => {
+    const row = rows.find((r) => r.id === l.itemId);
+    return row && l.received > 0 ? [receiveStock(row, l.received, row.workingPriceCents)] : [];
+  });
+  const grnNo = grnNumber(Math.max(grnCount, purchasesFromEvents(readAll()).grnCount) + 1);
+  const e = appendEvent({
+    type: 'stock.grn', at: Date.now(), orderNumber: 0, actor: currentCashier(),
+    grnNo, orderId: order.id, supplierId: order.supplierId, lines, approvedBy,
+  });
+  return {
+    grnNo,
+    undo: () => {
+      undos.forEach((u) => u());
+      appendEvent({ type: 'stock.grn_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), grnId: e.id });
+    },
+  };
+};
 
 /** Every standing shelf count, oldest first (the Manager page's progress). */
 export function useCountHistory(): CountRecord[] {

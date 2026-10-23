@@ -32,3 +32,24 @@ export const whatsAppNumber = (phone: string): string => {
 /** Opens WhatsApp with the message typed in; the manager presses send. */
 export const whatsAppLink = (phone: string, text: string): string =>
   `https://wa.me/${whatsAppNumber(phone)}?text=${encodeURIComponent(text)}`;
+
+/** Days of use kept in hand beyond the supplier's delivery time. */
+export const SAFETY_DAYS = 2;
+
+/**
+ * Packs to order now, 0 when not yet (SCRUM purchase orders). With a known rate of use:
+ * order when on hand + already on order covers no more than the delivery time plus
+ * SAFETY_DAYS, and then enough for the delivery time plus ORDER_DAYS. Without one, the
+ * old rule: low or out, one pack. Not counted: unknown, never suggested.
+ */
+export const suggestOrder = (
+  row: { counted: boolean; usedPerDay: number; onHandBaseUnits: number; packQty: number; low: boolean },
+  onOrderPacks: number,
+  leadDays: number,
+): number => {
+  if (!row.counted || row.packQty <= 0) return 0;
+  const have = Math.max(0, row.onHandBaseUnits) + onOrderPacks * row.packQty;
+  if (row.usedPerDay <= 0) return row.low && onOrderPacks === 0 ? 1 : 0;
+  if (have > row.usedPerDay * (leadDays + SAFETY_DAYS)) return 0;
+  return Math.max(1, Math.ceil((row.usedPerDay * (leadDays + ORDER_DAYS) - have) / row.packQty));
+};

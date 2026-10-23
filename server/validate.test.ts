@@ -166,3 +166,22 @@ test("the owner's own recipe and opening his recipes pass; a malformed recipe do
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.answer_set', question: 'recipe:sausages:M', before: null, after: bad }] }, 'shop-1'));
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.viewed', orderNumber: 4 }] }, 'shop-1'));
 });
+
+test('purchase orders and GRNs: a GRN that differs from its order needs a manager', () => {
+  const ordered = { ...base, type: 'stock.ordered', poNo: 'PO-0001', supplierId: 'sup', lines: [{ itemId: 'inv-1', packs: 2 }] };
+  const grn = { ...base, id: 'event-2', type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'event-1', supplierId: 'sup', lines: [{ itemId: 'inv-1', ordered: 2, received: 2 }], approvedBy: null };
+  assert.ok('events' in validatePush({ events: [ordered, grn] }, 'shop-1'));
+
+  const short = { ...grn, lines: [{ itemId: 'inv-1', ordered: 2, received: 1 }] };
+  assert.match((validatePush({ events: [short] }, 'shop-1') as { reason: string }).reason, /without a manager's approval/);
+  assert.ok('events' in validatePush({ events: [{ ...short, approvedBy: base.actor }] }, 'shop-1'));
+  const byCashier = { ...short, approvedBy: { id: 'c', name: 'Nimal', role: 'cashier' } };
+  assert.match((validatePush({ events: [byCashier] }, 'shop-1') as { reason: string }).reason, /invalid goods received note/);
+  assert.match((validatePush({ events: [{ ...ordered, lines: [] }] }, 'shop-1') as { reason: string }).reason, /invalid purchase order/);
+});
+
+test('a stock setting is checked on the server too', () => {
+  const ok = { ...base, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'stock.settings_set', key: 'usageDays', value: 21 };
+  assert.ok('events' in validatePush({ events: [ok] }, 'shop-1'));
+  assert.match((validatePush({ events: [{ ...ok, value: 0 }] }, 'shop-1') as { reason: string }).reason, /invalid setting: Type a number from 1 to 90/);
+});
