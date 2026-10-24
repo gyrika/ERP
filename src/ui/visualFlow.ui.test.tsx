@@ -15,8 +15,9 @@ test('the owner sees how a pizza is made, from flour through the dough to the pi
   render(<Root />);
   expect(await screen.findByRole('main', { name: 'Visual Flow' })).toBeTruthy();
   expect(screen.getByRole('button', { name: /^Showing Margherita Large/ })).toBeTruthy();
+  // The canvas draws its cards a moment after the page: wait for them (a slow runner is slower).
   for (const name of ['Pizza Dough Culture', 'Pizza Dough Batch', '12inch Dough Ball']) {
-    expect(screen.getByText(name, { selector: '.vf-node__name' })).toBeTruthy();
+    expect(await screen.findByText(name, { selector: '.vf-node__name' }, { timeout: 5000 })).toBeTruthy();
   }
   expect(panel().getByRole('heading', { name: 'Margherita Large' })).toBeTruthy();
   expect(readAll().some((e) => e.type === 'recipe.viewed')).toBe(true);
@@ -65,5 +66,5 @@ test('three views of the same drawing: 2 for cost, 3 for what it earns', async (
   expect(panel().getByText('Labour')).toBeTruthy();
   await user.keyboard('3');
   expect(panel().getByText('Profit each')).toBeTruthy();
-  expect(screen.getByText('Profit', { selector: '.vf-node__name' })).toBeTruthy();
+  expect(await screen.findByText('Profit', { selector: '.vf-node__name' }, { timeout: 5000 })).toBeTruthy();
 });
