@@ -104,5 +104,8 @@ test('reading the reply: the id alone, or exactly one id named in a sentence', (
   assert.equal(pickCommand({ response: 'stock or menu' }, COMMANDS), null);
   assert.equal(pickCommand({ response: 'none' }, COMMANDS), null);
   assert.equal(pickCommand(undefined, COMMANDS), null);
+  // Newer Workers AI models answer in the OpenAI shape.
+  assert.equal(pickCommand({ choices: [{ message: { content: 'owner' } }] }, COMMANDS), 'owner');
+  assert.equal(pickCommand({ choices: [{ message: { content: null } }] }, COMMANDS), null);
   assert.equal(typeof readCommandAsk({ text: 'x'.repeat(201), commands: COMMANDS }), 'string');
 });

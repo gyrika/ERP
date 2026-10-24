@@ -13,8 +13,15 @@ export interface AiLike {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 }
 
-/** Change a model here; nothing else depends on which one it is. */
-export const COMMAND_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+/**
+ * Change a model here; nothing else depends on which one it is. Chosen 2026-10-24 on real calls:
+ * llama-3.1-8b-instruct-fp8 picked 12 of 14 test requests right in ~0.2 s; llama-3.2-3b and
+ * granite-4.0-micro mostly answered nothing; mistral-small-3.1 was as right but 3x slower; the
+ * "thinking" models (glm-4.7-flash, gemma-4) are too slow for a page pick. Whisper: ~1 s for a
+ * spoken command. Workers AI retires models (llama-3.1-8b-instruct went 2026-05-30): a retired
+ * model makes the endpoints answer 503, and the screens work as before.
+ */
+export const COMMAND_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
 export const SPEECH_MODEL = '@cf/openai/whisper';
 
 /** Model calls per shop per day (cache hits are free). A bug cannot burn the free allowance. */
@@ -71,13 +78,24 @@ export const commandPrompt = (text: string, commands: readonly PageCommand[]) =>
   max_tokens: 20,
 });
 
+/**
+ * The words of a text model's reply: older Workers AI models answer `{ response }`, newer ones the
+ * OpenAI shape `{ choices: [{ message: { content } }] }`.
+ */
+export const replyText = (reply: unknown): string => {
+  if (typeof reply === 'string') return reply;
+  if (typeof reply !== 'object' || reply === null) return '';
+  const r = reply as { response?: unknown; choices?: { message?: { content?: unknown } }[] };
+  if (typeof r.response === 'string') return r.response;
+  const content = Array.isArray(r.choices) ? r.choices[0]?.message?.content : undefined;
+  return typeof content === 'string' ? content : '';
+};
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** The id the model chose, only if it is one of the commands; anything else is none. */
 export const pickCommand = (reply: unknown, commands: readonly PageCommand[]): string | null => {
-  const out = typeof reply === 'string' ? reply
-    : typeof reply === 'object' && reply !== null && typeof (reply as { response?: unknown }).response === 'string'
-      ? (reply as { response: string }).response : '';
+  const out = replyText(reply);
   const said = out.trim().replace(/^["'`\s]+|["'`.\s]+$/g, '').toLowerCase();
   const exact = commands.find((c) => c.id.toLowerCase() === said);
   if (exact) return exact.id;
@@ -119,7 +137,8 @@ export async function aiRoutes(req: Request, url: URL, c: AiContext): Promise<Re
     try { body = await req.json(); } catch { throw new HttpError(400, 'invalid_event', 'body is not JSON'); }
     const ask = readCommandAsk(body);
     if (typeof ask === 'string') throw new HttpError(400, 'invalid_event', ask);
-    const key = await sha256Hex(`command\n${ask.text.toLowerCase()}\n${ask.commands.map((x) => `${x.id}:${x.label}`).join('\n')}`);
+    // The model is part of the question: changing it never reuses an older model's answers.
+    const key = await sha256Hex(`command\n${COMMAND_MODEL}\n${ask.text.toLowerCase()}\n${ask.commands.map((x) => `${x.id}:${x.label}`).join('\n')}`);
     const hit = await db.prepare('SELECT answer FROM ai_cache WHERE tenant_id = ? AND key = ?').bind(device.tenantId, key).first<{ answer: string }>();
     if (hit) return json(200, { id: (JSON.parse(hit.answer) as { id: string | null }).id, cached: true });
     const id = pickCommand(await model(COMMAND_MODEL, commandPrompt(ask.text, ask.commands)), ask.commands);
