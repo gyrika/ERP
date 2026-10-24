@@ -8,7 +8,9 @@
 /** The updater's steps, as station-update.ps1 writes them. */
 export type UpdatePhase =
   | 'checking' | 'downloading' | 'backup' | 'installing' | 'starting' | 'done'
-  | 'going-back' | 'back' | 'up-to-date' | 'failed';
+  | 'going-back' | 'back' | 'up-to-date' | 'failed'
+  /** Downloaded, held back until the PC next starts or late at night (nothing on the counter). */
+  | 'waiting';
 
 export interface UpdateStep {
   phase: UpdatePhase;
@@ -22,7 +24,7 @@ export interface UpdateStep {
 /** A step older than this is a leftover (a crashed updater, a PC switched off mid-way): ignored. */
 export const UPDATE_STALE_MS = 15 * 60_000;
 
-/** The steps a cashier needs to know about; the rest (done, up to date, failed, back) need nothing on screen. */
+/** The steps a cashier needs to know about; the rest (done, up to date, failed, back, waiting) need nothing on screen. */
 const ACTIVE: readonly UpdatePhase[] = ['checking', 'downloading', 'backup', 'installing', 'starting', 'going-back'];
 
 /** The step the health check passes on, or null when no update is under way right now. */
