@@ -166,7 +166,7 @@ test('defining a name his sheet uses but never defines completes every dish that
   assert.equal(checkAnswer(cubes[0], { ...cubes[1], makes: { qty: 40, unit: 'pcs' } } as Answer), 'Your recipes use it in g: type the batch in g.');
 });
 
-test('a semi-processed item needs a free name, its output, and lines from stock or his sheet batches only', () => {
+test('a semi-processed item needs a free name, its output, and lines from stock or what his kitchen makes', () => {
   const [q, a] = GARLIC;
   const as = (patch: object) => ({ ...a, ...patch }) as Answer;
   assert.equal(checkAnswer(q, a), null);
@@ -178,8 +178,9 @@ test('a semi-processed item needs a free name, its output, and lines from stock 
   assert.equal(checkAnswer(prepQuestion('Garlic Sauce'), a), 'That is not one of your items.');
   assert.equal(checkAnswer(q, as({ makes: { qty: 0, unit: 'g' } })), 'Type how much one batch makes.');
   assert.equal(checkAnswer(q, as({ makes: { qty: 5, unit: 'kg' } })), 'Type how much one batch makes.');
-  // Never inside another item of his own (so never inside itself); his sheet's batches are fine.
-  assert.notEqual(checkAnswer(q, as({ lines: [{ name: kitchenLine(GARLIC_ID), qty: 5, unit: 'g' }] })), null);
+  // Never inside itself; his sheet's batches and his other items are fine (SCRUM-146; loops through others: makesLoop).
+  assert.equal(checkAnswer(q, as({ lines: [{ name: kitchenLine(GARLIC_ID), qty: 5, unit: 'g' }] })), "It can't go inside itself.");
+  assert.equal(checkAnswer(q, as({ lines: [{ name: kitchenLine('kother01'), qty: 5, unit: 'g' }] })), null);
   assert.equal(checkAnswer(q, as({ lines: [{ name: 'Pizza Sauce Batch', qty: 500, unit: 'g' }] })), null);
   assert.notEqual(checkAnswer(q, { kind: 'own', lines: [{ name: stockLine('inv-0003'), qty: 1, unit: 'g' }] }), null);
 });
@@ -197,9 +198,11 @@ test('a sheet batch he changes in the app: checked like the server does', () => 
   assert.equal(checkAnswer(batchQuestion('No Such Batch'), sauce()), 'That is not one of your batches.');
   assert.equal(checkAnswer(q, sauce({ makes: { qty: 30, unit: 'pcs' } })), 'Your recipes use it in g: type the batch in g.');
   assert.equal(checkAnswer(q, sauce({ makes: { qty: 0, unit: 'g' } })), 'Type how much one batch makes.');
-  assert.notEqual(checkAnswer(q, sauce({ lines: [{ name: SAUCE, qty: 5, unit: 'g' }] })), null, 'never inside itself');
-  assert.notEqual(checkAnswer(q, sauce({ lines: [{ name: 'Pizza Dough Batch', qty: 1, unit: 'pcs' }] })), null, 'no batch it did not take');
-  assert.notEqual(checkAnswer(q, sauce({ lines: [{ name: kitchenLine('kgarlic01'), qty: 5, unit: 'g' }] })), null);
+  assert.equal(checkAnswer(q, sauce({ lines: [{ name: SAUCE, qty: 5, unit: 'g' }] })), "It can't go inside itself.");
+  // SCRUM-146: another batch or one of his items may go in; a loop through them is makesLoop's.
+  assert.equal(checkAnswer(q, sauce({ lines: [{ name: 'Pizza Dough Batch', qty: 1, unit: 'pcs' }] })), null);
+  assert.equal(checkAnswer(q, sauce({ lines: [{ name: kitchenLine('kgarlic01'), qty: 5, unit: 'g' }] })), null);
+  assert.notEqual(checkAnswer(q, sauce({ lines: [{ name: 'Tomato Sauce From Nowhere', qty: 5, unit: 'g' }] })), null, 'nothing his book does not know');
   assert.notEqual(checkAnswer(q, { kind: 'yield', qty: 3000 }), null);
 });
 

@@ -160,7 +160,7 @@ test("the owner changes one of his sheet's batches; his dishes use it as changed
   const blend = sheet('Mozzarella Blend');
   expect(blend.getByText('From your sheet')).toBeTruthy();
   expect(blend.getByText(/^\d+ recipes$/)).toBeTruthy();
-  await user.click(blend.getByRole('button', { name: 'Edit what goes in' }));
+  await user.click(blend.getByRole('button', { name: 'Change batch size' }));
 
   const form = within(screen.getByRole('form', { name: 'Mozzarella Blend: what goes in it' }));
   expect(form.queryByRole('textbox', { name: 'Name' })).toBeNull();
@@ -173,7 +173,7 @@ test("the owner changes one of his sheet's batches; his dishes use it as changed
     type: 'recipe.answer_set', question: 'batch:Mozzarella Blend', before: null, actor: { role: 'owner' },
     after: { kind: 'batch', makes: { qty: 2000, unit: 'g' }, lines: [{ name: 'Mozzarella A', qty: 1500, unit: 'g' }, { name: 'Mozzarella B', qty: 1000, unit: 'g' }] },
   });
-  expect(blend.getByText('1,500 g')).toBeTruthy();
+  expect((blend.getByRole('textbox', { name: 'Mozzarella A, how much' }) as HTMLInputElement).value).toBe('1500');
   expect(blend.getByText('Changed here, from your sheet')).toBeTruthy();
   await user.click(blend.getByRole('button', { name: "Use your sheet's batch" }));
   expect(readAll().at(-1)).toMatchObject({ question: 'batch:Mozzarella Blend', after: null });

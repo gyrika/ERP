@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { batchEdit, batchQuestion, kitchenLine, linesCost, ownPrepOf, prepQuestion, waitingOn, type CostContext } from '../domain/costing.ts';
+import type { Actor } from '../domain/auth.ts';
+import { batchEdit, batchQuestion, checkAnswer, kitchenLine, linesCost, makesLoop, ownPrepOf, prepQuestion, waitingOn, type Answer, type CostContext } from '../domain/costing.ts';
+import type { BookLine } from '../domain/recipeBook.ts';
 import { menuItems } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { daysAgo } from '../domain/itemStory.ts';
@@ -11,7 +13,8 @@ import { ItemsTabs } from './ItemsTabs.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { NumberInput } from './NumberInput.tsx';
 import { useOwner } from './RecipeLines.tsx';
-import { amountText, entriesOf, lineName, PrepEditor, type BatchAnswer, type PrepAnswer } from './RecipesView.tsx';
+import { amountText, entriesOf, INSIDE_ITSELF, lineName, PrepEditor, type BatchAnswer, type PrepAnswer } from './RecipesView.tsx';
+import { Chain, LinesInPlace } from './ChainEditor.tsx';
 
 /**
  * Items › Semi-processed: what the kitchen makes for the dishes (dough, sauces, the cheese blend),
@@ -151,7 +154,7 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
 
       {open !== null && (open === '' || item) && (
         <PrepSheet
-          key={open} item={item} ctx={ctx} canEdit={owner !== null} uses={item ? usesOf(item) : { dishes: 0, semis: [] }}
+          key={open} item={item} items={preps} ctx={ctx} owner={owner} uses={item ? usesOf(item) : { dishes: 0, semis: [] }}
           onClose={() => setOpen(null)} onOpen={setOpen}
           onDone={(d, close) => { setDone(d); if (close) setOpen(null); }}
           onSaved={(question, answer, name, created) => {
@@ -169,10 +172,11 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
 /**
  * One semi-processed item, like a raw item's sheet: what is on hand and how fast it goes, one
  * batch (what it makes, what goes in it, its cost), which dishes use it, and "Make more when
- * below". The owner edits what goes in it here; a new item opens straight into writing it.
+ * below". The owner changes what goes in it right here, each change saved with Undo
+ * (SCRUM-146); a new item opens straight into writing it.
  */
-function PrepSheet({ item, ctx, canEdit, uses, onClose, onOpen, onDone, onSaved }: {
-  item: PrepRow | null; ctx: CostContext; canEdit: boolean; uses: Uses;
+function PrepSheet({ item, items, ctx, owner, uses, onClose, onOpen, onDone, onSaved }: {
+  item: PrepRow | null; items: readonly PrepRow[]; ctx: CostContext; owner: Actor | null; uses: Uses;
   onClose: () => void;
   /** Opens another semi-processed item's sheet: the one a line is made from, or one made from this. */
   onOpen: (key: string) => void;
@@ -180,6 +184,11 @@ function PrepSheet({ item, ctx, canEdit, uses, onClose, onOpen, onDone, onSaved 
   onSaved: (question: string, answer: PrepAnswer | BatchAnswer, name: string, created: boolean) => void;
 }) {
   const [editing, setEditing] = useState(item === null);
+  /** The last change made here, with its Undo. */
+  const [note, setNote] = useState<Done | null>(null);
+  /** What one batch cost when the sheet opened, so a change shows what it moved. */
+  const [openedCents] = useState(() => (item ? linesCost(item.lines, ctx).cents : 0));
+  const canEdit = owner !== null;
 
   useEffect(() => {
     if (editing) return; // the editor's own Escape cancels it
@@ -193,12 +202,28 @@ function PrepSheet({ item, ctx, canEdit, uses, onClose, onOpen, onDone, onSaved 
   const cost = item ? linesCost(item.lines, ctx) : null;
   const now = Date.now();
   const title = item?.name ?? 'New semi-processed item';
+  // His sheet's batch is saved as his version of it, which needs what one batch makes.
+  const inPlace = canEdit && item !== null && (own !== null || item.makes !== null);
+
+  const saveLines = (lines: BookLine[], what: string): string | null => {
+    if (!item || !owner) return null;
+    const question = own ? prepQuestion(own.id) : batchQuestion(item.key);
+    const answer: Answer = own
+      ? { kind: 'prep', name: own.name, makes: own.makes, lines }
+      : { kind: 'batch', makes: item.makes!, lines };
+    const wrong = checkAnswer(question, answer) ?? (makesLoop(question, answer, ctx.answers) ? INSIDE_ITSELF : null);
+    if (wrong) return wrong;
+    const undo = answerQuestion(question, answer, ctx.answers.get(question) ?? null, owner);
+    setNote({ message: `${item.name}: ${what}.`, undo });
+    return null;
+  };
 
   return (
     <div className="inv-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <section className={`inv-modal stock-sheet${editing ? ' semi-sheet--edit' : ''}`} role="dialog" aria-modal="true" aria-labelledby="semi-sheet-title">
         <button type="button" className="count__close" aria-label="Close" onClick={onClose}>×</button>
         <h2 id="semi-sheet-title">{title}</h2>
+        {item && !editing && <Chain item={item} items={items} answers={ctx.answers} onOpen={onOpen} />}
 
         {editing ? (
           <PrepEditor item={own} sheet={item && !item.own ? item.key : undefined} ctx={ctx}
@@ -222,11 +247,17 @@ function PrepSheet({ item, ctx, canEdit, uses, onClose, onOpen, onDone, onSaved 
                 <dd>
                   <span className="num">{item.makes ? `Makes ${prepAmount(item.makes.qty, item.makes.unit)}` : 'Batch size not known yet'}</span>
                   <span>{cost.complete ? `costs Rs ${fmt(cost.cents)}` : waitingOn(cost.missing, menuItems(), 2)}</span>
+                  {cost.complete && cost.cents !== openedCents && (
+                    <span className="semi-sheet__was">was Rs {fmt(openedCents)}{uses.dishes > 0 ? ` · ${uses.dishes} ${uses.dishes === 1 ? 'recipe moves' : 'recipes move'} with it` : ''}</span>
+                  )}
                 </dd>
               </div>
-              <div>
+              <div className={inPlace ? 'story__wide' : undefined}>
                 <dt>What goes in</dt>
                 <dd>
+                  {inPlace ? (
+                    <LinesInPlace item={item} items={items} ctx={ctx} onOpen={onOpen} onSave={saveLines} />
+                  ) : (
                   <ul className="rcard__lines semi-sheet__lines">
                     {item.lines.map((l, i) => {
                       const key = prepKey(l.name, ctx.answers);
@@ -240,6 +271,7 @@ function PrepSheet({ item, ctx, canEdit, uses, onClose, onOpen, onDone, onSaved 
                       );
                     })}
                   </ul>
+                  )}
                 </dd>
               </div>
               <div>
@@ -258,13 +290,20 @@ function PrepSheet({ item, ctx, canEdit, uses, onClose, onOpen, onDone, onSaved 
               </div>
             </dl>
 
+            {note && (
+              <div className="inv-notice semi-sheet__note" role="status">
+                {note.message}
+                <button type="button" onClick={() => { note.undo(); setNote(null); }}>Undo</button>
+              </div>
+            )}
+
             <SendToKitchen item={item} onDone={(d) => onDone(d)} />
 
             <MakeBelow item={item} onDone={(d) => onDone(d)} />
 
             {canEdit && (
               <div className="rcard__actions">
-                <button type="button" className="chip" onClick={() => setEditing(true)}>Edit what goes in</button>
+                <button type="button" className="chip" onClick={() => setEditing(true)}>{own ? 'Change name or batch size' : 'Change batch size'}</button>
                 {own && uses.dishes === 0 && uses.semis.length === 0 && (
                   <button type="button" className="linkbtn" onClick={() => {
                     const question = prepQuestion(own.id);

@@ -165,7 +165,7 @@ test("the owner's own recipe and opening his recipes pass; a malformed recipe do
   const bad = { kind: 'own', lines: [{ name: 'stock:inv-0016', qty: -2, unit: 'pcs' }] };
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.answer_set', question: 'recipe:sausages:M', before: null, after: bad }] }, 'shop-1'));
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.viewed', orderNumber: 4 }] }, 'shop-1'));
-  // His version of a sheet batch: its lines are his stock or what the batch already takes.
+  // His version of a sheet batch: its lines are his stock or what his kitchen makes, never itself.
   const batch = { kind: 'batch', makes: { qty: 2000, unit: 'g' }, lines: [{ name: 'Mozzarella A', qty: 1500, unit: 'g' }] };
   const edit = { ...owner, type: 'recipe.answer_set', question: 'batch:Mozzarella Blend', before: null, after: batch };
   assert.deepEqual(validatePush({ events: [edit] }, 'shop-1'), { events: [edit] });

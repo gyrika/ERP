@@ -60,6 +60,8 @@ export const answersFromEvents = (events: readonly { type: string }[]): Map<stri
   for (const e of events) {
     if (e.type !== 'recipe.answer_set') continue;
     const r = e as Extract<RecipeEvent, { type: 'recipe.answer_set' }>;
+    // Two screens may each add half of a loop: the later one is not taken, the same on every device.
+    if (r.after && makesLoop(r.question, r.after, answers)) continue;
     if (r.after) answers.set(r.question, r.after);
     else answers.delete(r.question);
   }
@@ -137,9 +139,16 @@ export const checkPrepName = (name: unknown): string | null => {
   return null;
 };
 
+/** Refused by the server too: an item naming itself. Through others it takes his answers (makesLoop). */
+const INSIDE = 'It can\'t go inside itself.';
+
+/** A line naming his stock, one of his sheet's batches, or one of his own items. */
+const madeOf = (name: string) =>
+  name.startsWith(STOCK_LINE) || name in PREPS || (name.startsWith(KITCHEN_LINE) && PREP_ID.test(name.slice(KITCHEN_LINE.length)));
+
 /**
- * Null when a semi-processed item is well formed. Its lines are his stock and his sheet's
- * batches only (never another item of his own), so one can never end up inside itself.
+ * Null when a semi-processed item is well formed. Its lines are his stock, his sheet's batches
+ * and his other items (SCRUM-146); one inside itself is refused where it is set (makesLoop).
  * Where his sheet already uses the name, it keeps the sheet's unit.
  */
 const checkPrep = (id: string, a: Extract<Answer, { kind: 'prep' }>): string | null => {
@@ -150,13 +159,14 @@ const checkPrep = (id: string, a: Extract<Answer, { kind: 'prep' }>): string | n
       && (UNITS as readonly string[]).includes(a.makes.unit) ? null : 'Type how much one batch makes.')
     ?? (sheetUnit && sheetUnit !== a.makes.unit ? `Your recipes use it in ${sheetUnit}: type the batch in ${sheetUnit}.` : null)
     ?? checkOwnLines(a.lines)
-    ?? (a.lines.every((l) => l.name in PREPS || l.name.startsWith(STOCK_LINE)) ? null : 'Choose each line from your stock or your batches.');
+    ?? (a.lines.every((l) => madeOf(l.name)) ? null : 'Choose each line from your stock or what your kitchen makes.')
+    ?? (a.lines.some((l) => l.name === kitchenLine(id)) ? INSIDE : null);
 };
 
 /**
  * Null when his version of a sheet batch is well formed. In the unit his dishes use it in; its
- * lines are his stock, or what the sheet's batch already takes (its ingredients and batches),
- * so a batch can never end up inside itself.
+ * lines are his stock, what the sheet's batch already takes, or what his kitchen makes
+ * (SCRUM-146; one inside itself is refused where it is set, makesLoop).
  */
 const checkBatch = (name: string, a: Extract<Answer, { kind: 'batch' }>): string | null => {
   const sheet = PREPS[name];
@@ -167,7 +177,8 @@ const checkBatch = (name: string, a: Extract<Answer, { kind: 'batch' }>): string
     && (UNITS as readonly string[]).includes(a.makes.unit) ? null : 'Type how much one batch makes.')
     ?? (unit && unit !== a.makes.unit ? `Your recipes use it in ${unit}: type the batch in ${unit}.` : null)
     ?? checkOwnLines(a.lines)
-    ?? (a.lines.every((l) => taken.has(l.name) || l.name.startsWith(STOCK_LINE)) ? null : 'Choose each line from your stock or what the batch already takes.');
+    ?? (a.lines.every((l) => taken.has(l.name) || madeOf(l.name)) ? null : 'Choose each line from your stock or what your kitchen makes.')
+    ?? (a.lines.some((l) => l.name === name) ? INSIDE : null);
 };
 
 /** Is this a well-formed answer to that question? (The server checks the same.) */
@@ -254,6 +265,36 @@ export const batchEdit = (name: string, answers: ReadonlyMap<string, Answer>): P
 /** A batch from his sheet (as he changed it, if he did), else a semi-processed item he added in the app. */
 export const prepOf = (name: string, answers: ReadonlyMap<string, Answer>): Prep | null =>
   batchEdit(name, answers) ?? PREPS[name] ?? ownPrepOf(name, answers);
+
+/** The semi-processed item a line names, as one key (a sheet batch by name, his own as kitchen:<id>); null: not one. */
+const prepIdentity = (name: string, answers: ReadonlyMap<string, Answer>): string | null => {
+  if (name in PREPS) return name;
+  const own = ownPrepOf(name, answers);
+  return own ? kitchenLine(own.id) : null;
+};
+
+/** How deep his items may sit inside each other, leaving room for the dish above them. */
+const MAX_PREP_CHAIN = MAX_DEPTH - 2;
+
+/**
+ * Would this answer put a semi-processed item inside itself, directly or through others
+ * (SCRUM-146)? A chain deeper than recipes are followed counts as one too.
+ */
+export const makesLoop = (question: string, answer: Answer | null, answers: ReadonlyMap<string, Answer>): boolean => {
+  if (!answer || (answer.kind !== 'prep' && answer.kind !== 'batch')) return false;
+  const self = answer.kind === 'prep' ? kitchenLine(questionSubject(question)) : questionSubject(question);
+  const trial = new Map(answers).set(question, answer);
+  const seen = new Set<string>();
+  const inside = (lines: readonly BookLine[], depth: number): boolean => lines.some((l) => {
+    const key = prepIdentity(l.name, trial);
+    if (!key) return false;
+    if (key === self || depth >= MAX_PREP_CHAIN) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return inside(prepOf(l.name, trial)?.lines ?? [], depth + 1);
+  });
+  return inside(answer.lines, 0);
+};
 
 /**
  * Names his sheet's recipes for menu dishes use but nothing defines (no batch, no price-list
