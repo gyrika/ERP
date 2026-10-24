@@ -365,12 +365,13 @@ export const stockFromEvents = (
       case 'stock.grn': {
         // A GRN is its own stock movement: what it accepted goes in, in one record, so the
         // note and its stock can never disagree. Older notes (no accepted) used separate movements.
+        // It does not make an item counted: a delivery says what came, not what was already
+        // on the shelf, so a never-counted item stays unknown until its first count.
         const moved: { itemId: string; qty: number }[] = [];
         for (const l of e.lines) {
           const shelf = shelves.get(l.itemId);
           if (!shelf || l.accepted === undefined || !(l.accepted > 0)) continue;
           const qty = l.accepted * shelf.item.packQty;
-          shelf.counted = true;
           shelf.onHandBaseUnits += qty;
           moved.push({ itemId: l.itemId, qty });
         }
@@ -388,7 +389,7 @@ export const stockFromEvents = (
       case 'stock.movement': {
         const shelf = shelves.get(e.itemId);
         if (!shelf) break;
-        shelf.counted = true;
+        if (e.kind === 'COUNT_ADJUST') shelf.counted = true; // a delivery (GRN) is not a count, as above
         shelf.onHandBaseUnits += e.qtyBase;
         if (e.kind === 'COUNT_ADJUST') countedAt.set(e.itemId, e.at);
         break;

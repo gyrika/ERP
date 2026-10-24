@@ -12,7 +12,7 @@ import { OwnerNav } from './OwnerNav.tsx';
  * the flow over, with what is waiting now.
  */
 export function ReceiveView({ onRegister }: { onRegister?: () => void }) {
-  const { items, suppliers } = useInventory();
+  const { allItems, suppliers } = useInventory();
   const purchases = usePurchases();
   const settings = useStockSettings();
   /** A new round starts the flow over, fresh. */
@@ -23,7 +23,7 @@ export function ReceiveView({ onRegister }: { onRegister?: () => void }) {
       <OwnerNav current="receive" onRegister={onRegister} />
       <main className="owner__main work__main" aria-label="Receive">
         {said && <p className="work__said" role="status">{said}</p>}
-        <GoodsReceivingSheet key={round} inline items={items} suppliers={suppliers} purchases={purchases} settings={settings}
+        <GoodsReceivingSheet key={round} inline items={allItems} suppliers={suppliers} purchases={purchases} settings={settings}
           onClose={() => setRound((r) => r + 1)} onDone={(message) => setSaid(message)} />
       </main>
     </div>

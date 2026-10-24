@@ -317,12 +317,14 @@ function useShopHistory(): SyncEvent[] {
 }
 
 /** Stock as it stands, from the whole history; untrackedSold: items sold this week with no recipe yet. */
-export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; untrackedSold: number } {
+export function useInventory(): { items: InventoryRow[]; allItems: InventoryRow[]; suppliers: Supplier[]; untrackedSold: number } {
   const events = useShopHistory();
   return useMemo(() => {
     const stock = stockFromEvents(SEED_INVENTORY, events);
     return {
       items: stock.rows.filter((item) => !item.archived),
+      /** With archived ones, for goods still owed on an order placed before an item was archived. */
+      allItems: stock.rows,
       suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
       untrackedSold: stock.untrackedSold,
     };
@@ -416,7 +418,7 @@ const numberLocally = (docId: string, kind: DocKind): string | null => {
  * number arrives it is "PO (pending)". Returns the order and its Undo (cancels it).
  */
 export const placeOrder = (supplierId: string, lines: PoLine[]): { order: PurchaseOrder; undo: () => void } => {
-  const kept = withStockQty(lines);
+  const kept = withStockQty(mergeLines(lines));
   const e = appendEvent({ type: 'stock.ordered', at: Date.now(), orderNumber: 0, actor: currentCashier(), supplierId, lines: kept });
   const poNo = numberLocally(e.id, 'PO') ?? pendingNumber('PO');
   return {

@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Actor } from '../src/domain/auth.ts';
 import { purchasesFromEvents } from '../src/domain/purchaseOrders.ts';
+import { SEED_INVENTORY } from '../src/domain/inventoryData.ts';
 import { STOCK_DEFAULTS } from '../src/domain/stockSettings.ts';
 import type { GrnLine, SyncEvent } from '../src/domain/sync.ts';
-import { createStockRules, stockRuleProblem } from './stockRules.ts';
+import { createStockRules, stockFacts, stockRuleProblem } from './stockRules.ts';
 import { memoryStore, type StaffMember } from './store.ts';
 
 const HOUR = 3_600_000;
@@ -21,7 +22,7 @@ const grn = (id: string, orderId: string, lines: GrnLine[], extra: object = {}, 
 
 /** What the server would say about `e` once `history` is stored, at time `now`. */
 const ask = (history: SyncEvent[], e: SyncEvent, now = 2 * HOUR) =>
-  stockRuleProblem(e, { state: purchasesFromEvents(history), settings: STOCK_DEFAULTS, staff, now });
+  stockRuleProblem(e, { state: purchasesFromEvents(history), settings: STOCK_DEFAULTS, staff, now, items: stockFacts(history) });
 
 test('an edit or cancel needs an order that is there and has had no goods', () => {
   const edit = (orderId: string): SyncEvent => ({ ...base, id: 'e', at: 1, type: 'stock.order_edited', orderId, lines: [{ itemId: 'flour', packs: 3 }] });
@@ -71,6 +72,15 @@ test('the server requires a real manager for a delivered price that differs from
   assert.match(ask([], { ...order, lines: [{ itemId: 'flour', packs: 2, unitPriceCents: -1 }] }) ?? '', /purchase-order price must be a whole number of cents/);
 });
 
+test('a PO lists each item once; a GRN lists each item once and everything still owed', () => {
+  const twice: SyncEvent = { ...base, id: 'p2', at: 0, type: 'stock.ordered', supplierId: 'sup', lines: [{ itemId: 'flour', packs: 1 }, { itemId: 'flour', packs: 1 }] };
+  assert.match(ask([], twice) ?? '', /lists an item twice/);
+  assert.match(ask([po('p1')], { ...base, id: 'e', at: 1, type: 'stock.order_edited', orderId: 'p1', lines: [{ itemId: 'flour', packs: 1 }, { itemId: 'flour', packs: 2 }] }) ?? '', /lists an item twice/);
+  assert.match(ask([po('p1', 2)], grn('g1', 'p1', [line(1, 1), line(1, 1)])) ?? '', /lists an item twice/);
+  const two: SyncEvent = { ...base, id: 'p3', at: 0, type: 'stock.ordered', supplierId: 'sup', lines: [{ itemId: 'flour', packs: 2 }, { itemId: 'salt', packs: 1 }] };
+  assert.match(ask([two], grn('g1', 'p3', [line(2, 2)])) ?? '', /leaves out something still owed/, 'no short decision: it would close the order with salt owed');
+});
+
 test('a GRN needs an order that is waiting for goods, from that supplier, for exactly what is still owed', () => {
   assert.match(ask([po('p1')], grn('g1', 'nope', [line(2, 2)])) ?? '', /not here/);
   assert.match(ask([po('p1')], grn('g1', 'p1', [line(2, 2)], { supplierId: 'other' })) ?? '', /different supplier/);
@@ -95,17 +105,42 @@ test('an undo: latest GRN only, inside the hours, with a reason and a real manag
   assert.match(ask([...two, undo('g2')], undo('g2'), 3 * HOUR) ?? '', /already undone/);
 });
 
+const count = (counted: number, expected: number, valueCents: number, reason: 'spoiled' | null, itemId = 'flour', id = 'c'): SyncEvent =>
+  ({ ...base, id, at: 1, type: 'stock.counted', itemId, counted, expected, entries: [], reason, valueCents, tier: 'daily' });
+/** flour has been counted once already: later counts are checked. */
+const before = [count(6000, 0, 0, null, 'flour', 'c0')];
+
 test('a count far from what was expected must say why, by the owner\'s numbers; a small one need not', () => {
-  const count = (counted: number, expected: number, valueCents: number, reason: 'spoiled' | null): SyncEvent =>
-    ({ ...base, id: 'c', at: 1, type: 'stock.counted', itemId: 'flour', counted, expected, entries: [], reason, valueCents, tier: 'daily' });
-  assert.match(ask([], count(4000, 6000, -50000, null)) ?? '', /Count again and say why/, 'a third short, no reason');
-  assert.equal(ask([], count(4000, 6000, -50000, 'spoiled')), null);
-  assert.equal(ask([], count(5900, 6000, -5000, null)), null, 'under both allowances');
-  assert.match(ask([], count(99000, 100000, -260000, null)) ?? '', /Count again/, 'only 1% but over Rs 2,000');
+  assert.match(ask(before, count(4000, 6000, -50000, null)) ?? '', /Count again and say why/, 'a third short, no reason');
+  assert.equal(ask(before, count(4000, 6000, -50000, 'spoiled')), null);
+  assert.equal(ask(before, count(5900, 6000, -5000, null)), null, 'under both allowances');
+  assert.match(ask(before, count(99000, 100000, -260000, null)) ?? '', /Count again/, 'only 1% but over Rs 2,000');
   // The owner raised the allowance: the same count now needs no reason.
-  const raised: SyncEvent = { ...base, actor: { id: 'o', name: 'Owner', role: 'owner' }, id: 's', at: 0, type: 'stock.settings_set', key: 'countGapShare', value: 0.5 };
-  assert.equal(stockRuleProblem(count(4000, 6000, -50000, null), { state: purchasesFromEvents([]), settings: { ...STOCK_DEFAULTS, countGapShare: 0.5 }, staff, now: 1 }), null);
-  void raised;
+  assert.equal(stockRuleProblem(count(4000, 6000, -50000, null), { state: purchasesFromEvents([]), settings: { ...STOCK_DEFAULTS, countGapShare: 0.5 }, staff, now: 1, items: stockFacts(before) }), null);
+});
+
+test('a count: the first one is opening stock; below zero is still checked; the value is the server\'s', () => {
+  assert.equal(ask([], count(4000, 6000, -50000, null)), null, 'never counted before: its opening stock needs no reason');
+  assert.match(ask(before, count(3000, -2000, 0, null)) ?? '', /Count again/, 'sold below zero: what is there is a gap from zero, and needs a reason');
+  // Mozzarella (inv-0006 on the price list) is dear: the device says the gap is worth Rs 0, the server works it out.
+  const mozz = SEED_INVENTORY.find((i) => i.id === 'inv-0006')!;
+  const counted = [count(10 * mozz.packQty, 0, 0, null, mozz.id, 'm0')];
+  const short = count(Math.round(9.5 * mozz.packQty), 10 * mozz.packQty, 0, null, mozz.id);
+  assert.ok(mozz.workingPriceCents / 2 > STOCK_DEFAULTS.countGapCents, 'half a pack is over the Rs allowance');
+  assert.match(ask(counted, short) ?? '', /Count again/, 'a 5% gap, but worth more than the allowance');
+});
+
+test('a count after a delivery but before any count is still the opening stock', () => {
+  const delivered = [po('p1', 5), grn('g1', 'p1', [line(5, 5)])];
+  assert.equal(ask(delivered, count(9000, 5000, 0, null)), null, 'the delivery is not a count: no reason asked');
+  assert.match(ask([...delivered, count(9000, 5000, 0, null, 'flour', 'c0')], count(4000, 9000, 0, null)) ?? '', /Count again/, 'once counted, a gap needs a reason');
+});
+
+test('stock is not changed by a bare movement: it is counted or received', () => {
+  const adjusted: SyncEvent = { ...base, id: 'a1', at: 1, type: 'stock.adjusted', itemId: 'flour', deltaPacks: 5 };
+  const moved: SyncEvent = { ...base, id: 'm1', at: 1, type: 'stock.movement', itemId: 'flour', kind: 'COUNT_ADJUST', qtyBase: 5000, docId: 'manual' };
+  assert.match(ask([], adjusted) ?? '', /Count the item instead/);
+  assert.match(ask([], moved) ?? '', /Count the item instead/);
 });
 
 // ----- one batch at a time, each record seeing the ones before it -----
@@ -156,9 +191,24 @@ test('a failed store does not leave the checker believing something that was not
   await assert.rejects(() => (async () => { const check = createStockRules({ ...s.store, push: async () => { throw new Error('disk'); } }, () => 5 * HOUR); await check({ id: 'd', tenantId: 'shop-a', kind: 'counter' }, [by(grn('g1', 'p1', [line(2, 2)]), s.by)], (ok) => s.store.push({ id: 'd', tenantId: 'shop-a', kind: 'counter' }, ok, 1).then(() => { throw new Error('disk'); })); })(), /disk/);
 });
 
+test('a price a GRN set stands only with that GRN; a price typed by hand passes', async () => {
+  const s = await shop();
+  const price = (id: string, grnId?: string): SyncEvent =>
+    ({ ...base, actor: s.by, id, at: 2, type: 'stock.price_set', itemId: 'flour', before: 640000, after: 680000, ...(grnId ? { grnId } : {}) });
+  await s.push([by(po('p1', 2), s.by), by(grn('g1', 'p1', [line(2, 2)]), s.by)]);
+  // The PO is now closed: a second GRN on it is refused, and so is the price it set.
+  const out = await s.push([by(grn('g2', 'p1', [line(2, 2)]), s.by), price('x2', 'g2')]);
+  assert.deepEqual(out.rejected.map((r) => r.id), ['g2', 'x2']);
+  assert.match(out.rejected[1].reason, /delivery that was not saved/);
+  // The GRN and its price in one batch, a price going back after an undo, and a hand-typed price all pass.
+  const ok = await s.push([by(po('p2', 2), s.by), by(grn('g3', 'p2', [line(2, 2)]), s.by), price('x3', 'g3'), price('x1', 'g1'), price('x4')]);
+  assert.deepEqual(ok.rejected, []);
+  assert.deepEqual(await s.stored(), ['p1', 'g1', 'p2', 'g3', 'x3', 'x1', 'x4']);
+});
+
 test('records that are not purchasing rules are passed through untouched', async () => {
   const s = await shop();
-  const adjust: SyncEvent = { ...base, actor: s.by, id: 'a1', at: 1, type: 'stock.adjusted', itemId: 'flour', deltaPacks: 1 };
+  const adjust: SyncEvent = { ...base, actor: s.by, id: 'a1', at: 1, type: 'stock.unit_set', itemId: 'flour', name: 'Tray', base: 30 };
   const out = await s.push([adjust]);
   assert.deepEqual(out.rejected, []);
   assert.deepEqual(await s.stored(), ['a1']);
