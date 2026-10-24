@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactElement } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactElement } from 'react';
 import { flushSync } from 'react-dom';
 import { managesStock, seesTakings } from '../domain/auth.ts';
 import { voicePages } from '../domain/voicePages.ts';
@@ -24,6 +24,9 @@ import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
 import { OrderView, ReceiveView } from './WorkViews.tsx';
 import { useVoice, VoiceNote } from './VoiceKey.tsx';
+
+/** Visual Flow carries its own drawing library: loaded when it is opened, so the Register stays light. */
+const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
 
 const KITCHEN = '#kitchen';
 const OWNER = '#owner';
@@ -209,6 +212,10 @@ export function Root() {
   if ((hash === '#items/recipe' || hash === '#recipes') && isOwnerHere) return <RecipesView onRegister={() => go('')} />;
   if (hash.startsWith('#items/recipe/') && isOwnerHere) {
     return <RecipesView key={hash} focus={decodeURIComponent(hash.slice('#items/recipe/'.length))} onRegister={() => go('')} />;
+  }
+  // How each dish is made, drawn (the owner's, like the recipes): #flow, or #flow/<item> for one item.
+  if ((hash === '#flow' || hash.startsWith('#flow/')) && seesOwner) {
+    return <Suspense fallback={<div className="owner" aria-busy="true" />}><VisualFlowView key={hash} onRegister={() => go('')} /></Suspense>;
   }
   if ((hash === '#suppliers' || hash === '#items/suppliers') && mayManageStock) {
     return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;

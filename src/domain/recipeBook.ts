@@ -8,7 +8,8 @@
  * how much one batch makes. makes: null = the owner has not confirmed the output
  * yet ("Confirm batch output qty" in his sheet): he answers it in the app.
  */
-export interface BookLine { name: string; qty: number; unit: string }
+/** waste: the share lost on the way (0.1 = 10%), set in the app; none on his sheet. */
+export interface BookLine { name: string; qty: number; unit: string; waste?: number }
 export interface Prep { makes: { qty: number; unit: string } | null; lines: BookLine[] }
 
 export const PRODUCTS: Readonly<Record<string, readonly BookLine[]>> = {

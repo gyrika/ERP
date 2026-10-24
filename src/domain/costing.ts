@@ -2,6 +2,7 @@ import type { Actor } from './auth.ts';
 import type { InventoryItem } from './inventoryData.ts';
 import { PREPS, PRODUCTS, type BookLine, type Prep } from './recipeBook.ts';
 import { ADD_RECIPES, CONFIRMED_BATCHES, FREE_INGREDIENTS, INGREDIENT_SOURCES, MENU_RECIPES } from './recipeMap.ts';
+import { checkRates, checkResourceLines, type Rates, type ResourceLine } from './resources.ts';
 import type { Cents, MenuItem } from './types.ts';
 
 /**
@@ -41,18 +42,25 @@ export type Answer =
    * His own version of one of his sheet's batches, changed in the app: what one batch makes and
    * what goes in it. It wins over his sheet; the name stays, since his sheet's dishes use it by name.
    */
-  | { kind: 'batch'; makes: { qty: number; unit: string }; lines: BookLine[] };
+  | { kind: 'batch'; makes: { qty: number; unit: string }; lines: BookLine[] }
+  /** What making one batch (or one dish) takes besides ingredients: electricity, labour... (resources.ts). */
+  | { kind: 'resources'; lines: ResourceLine[] }
+  /** The shop's rates for those (resources.ts). */
+  | { kind: 'rates'; rates: Rates };
 
 interface RecipeBase { id: string; shopId: string; at: number; orderNumber: 0; actor: Actor }
 /**
  * The owner answers (or clears, `after: null`) one question. Audited with what it was before.
  * recipe.viewed: someone opened the Recipes screen (his recipes are the shop's secret).
+ * recipe.draft_set: his unpublished change to one answer (recipeDrafts.ts), `after: null` drops it.
+ * A draft changes no cost and no stock; publishing it is a recipe.answer_set.
  */
 export type RecipeEvent = RecipeBase & (
   | { type: 'recipe.answer_set'; question: string; before: Answer | null; after: Answer | null }
   | { type: 'recipe.viewed' }
+  | { type: 'recipe.draft_set'; question: string; after: Answer | null }
 );
-export const RECIPE_EVENT_TYPES = ['recipe.answer_set', 'recipe.viewed'] as const satisfies readonly RecipeEvent['type'][];
+export const RECIPE_EVENT_TYPES = ['recipe.answer_set', 'recipe.viewed', 'recipe.draft_set'] as const satisfies readonly RecipeEvent['type'][];
 
 /** The newest answer per question. */
 export const answersFromEvents = (events: readonly { type: string }[]): Map<string, Answer> => {
@@ -79,8 +87,15 @@ export const addonQuestion = (extraId: string) => `addon:${extraId}`;
 export const prepQuestion = (id: string) => `prep:${id}`;
 /** One of his sheet's batches as he changed it in the app, by its name on his sheet. */
 export const batchQuestion = (name: string) => `batch:${name}`;
+/**
+ * What a recipe takes besides ingredients (resources.ts), by the recipe's own key: a dish's
+ * recipe question (recipe:<id>:<size>), an extra's (addon:<id>), or a batch by its key.
+ */
+export const resourcesQuestion = (recipeKey: string) => `resources:${recipeKey}`;
+/** The shop's rates for electricity, labour and equipment. */
+export const RATES_QUESTION = 'rates:shop';
 
-export type QuestionKind = 'yield' | 'ingredient' | 'recipe' | 'addon' | 'prep' | 'batch';
+export type QuestionKind = 'yield' | 'ingredient' | 'recipe' | 'addon' | 'prep' | 'batch' | 'resources' | 'rates';
 export const questionKind = (id: string): QuestionKind => id.slice(0, id.indexOf(':')) as QuestionKind;
 /** What the question is about: the batch, the ingredient, or [menu item id, size]. */
 export const questionSubject = (id: string): string => id.slice(id.indexOf(':') + 1);
@@ -117,9 +132,16 @@ export const checkOwnLines = (lines: unknown): string | null => {
     if (typeof l !== 'object' || l === null || typeof l.name !== 'string' || !l.name.trim() || l.name.length > 120) return 'Choose what each line is.';
     if (!positive(l.qty) || l.qty > 1_000_000) return `Type how much ${l.name.startsWith(STOCK_LINE) ? 'of it' : l.name} goes in.`;
     if (!(UNITS as readonly string[]).includes(l.unit)) return 'A line has no unit.';
+    if (l.waste !== undefined && !(typeof l.waste === 'number' && l.waste >= 0 && l.waste <= MAX_WASTE)) return `Wastage is 0 to ${MAX_WASTE * 100}%.`;
   }
   return null;
 };
+
+/** The most a line may lose on the way: more than this is a different recipe. */
+export const MAX_WASTE = 0.9;
+
+/** What a line really takes, its wastage included: 100 g at 20% wastage takes 125 g. */
+export const grossQty = (l: BookLine): number => l.qty / (1 - (l.waste ?? 0));
 
 export const MAX_PREP_NAME = 60;
 
@@ -192,6 +214,8 @@ export const checkAnswer = (question: string, a: Answer): string | null => {
     return a.kind === 'recipe' && a.product in PRODUCTS ? null : 'Choose one of the recipes.';
   }
   if (kind === 'addon') return a.kind === 'own' ? checkOwnLines(a.lines) : 'Write the recipe.';
+  if (kind === 'resources') return a.kind === 'resources' ? checkResourceLines(a.lines) : 'Add what it takes.';
+  if (kind === 'rates') return a.kind === 'rates' && question === RATES_QUESTION ? checkRates(a.rates) : 'Type the rates.';
   if (kind === 'ingredient') {
     if (a.kind === 'source') return a.inventoryId.trim() && positive(a.per) ? null : 'Choose an item.';
     if (a.kind === 'price') return Number.isSafeInteger(a.cents) && a.cents >= 0 && positive(a.qty) ? null : 'Type the price and the amount.';
@@ -344,23 +368,30 @@ const lineCost = (line: BookLine, ctx: CostContext, missing: Set<string>, depth:
     const makes = batchMakes(line.name, line.unit, ctx.answers);
     const batch = sumLines(prep.lines, ctx, missing, depth + 1); // collect its gaps too, all at once
     if (!makes || makes.unit !== line.unit) { missing.add(yieldQuestion(line.name)); return 0; }
-    return (batch / makes.qty) * line.qty;
+    return (batch / makes.qty) * grossQty(line);
   }
 
   const product = PRODUCTS[line.name];
-  if (product) return sumLines(product, ctx, missing, depth + 1) * line.qty; // a sold item used inside another
+  if (product) return sumLines(product, ctx, missing, depth + 1) * grossQty(line); // a sold item used inside another
 
   const source = sourceOf(line.name, ctx.answers);
   if (source) {
     const item = ctx.items.find((i) => i.id === source.inventoryId);
-    if (item && item.workingPriceCents > 0) return (item.workingPriceCents / item.packQty) * source.per * line.qty;
+    if (item && item.workingPriceCents > 0) return (item.workingPriceCents / item.packQty) * source.per * grossQty(line);
     missing.add(ingredientQuestion(line.name)); // the item is gone, or has no price yet
     return 0;
   }
   const price = ctx.answers.get(ingredientQuestion(line.name));
-  if (price?.kind === 'price') return (price.cents / price.qty) * line.qty;
+  if (price?.kind === 'price') return (price.cents / price.qty) * grossQty(line);
   missing.add(ingredientQuestion(line.name));
   return 0;
+};
+
+/** One line's cost, unrounded (Visual Flow sums many small ones), and the gaps met on the way. */
+export const exactLineCost = (line: BookLine, ctx: CostContext): { cents: number; missing: string[] } => {
+  const missing = new Set<string>();
+  const cents = lineCost(line, ctx, missing, 0);
+  return { cents, missing: [...missing] };
 };
 
 /** What some recipe lines cost, before they belong to any item (a dish still being added). */
@@ -426,7 +457,7 @@ export interface OpenQuestion {
   blocks: string[];
 }
 
-const KIND_ORDER: Record<QuestionKind, number> = { yield: 0, recipe: 1, addon: 2, ingredient: 3, prep: 4, batch: 5 };
+const KIND_ORDER: Record<QuestionKind, number> = { yield: 0, recipe: 1, addon: 2, ingredient: 3, prep: 4, batch: 5, resources: 6, rates: 7 };
 
 /** Every open question, those holding back the most menu items first (then batches, recipes, ingredients). */
 export const openQuestions = (menu: readonly MenuItem[], ctx: CostContext): OpenQuestion[] => {
@@ -452,6 +483,8 @@ export const questionText = (id: string, menu: readonly MenuItem[]): string => {
   if (kind === 'ingredient') return `${subject}: its price`;
   if (kind === 'addon') return `The recipe for extra ${subject}`;
   if (kind === 'prep' || kind === 'batch') return `What goes in ${subject}`;
+  if (kind === 'resources') return `What making ${subject} takes`;
+  if (kind === 'rates') return 'The shop\'s rates';
   const [itemId, size] = subject.split(':');
   const item = menu.find((m) => m.id === itemId);
   return `Which recipe is ${item?.name.en ?? itemId}${size ? ` ${size}` : ''}`;

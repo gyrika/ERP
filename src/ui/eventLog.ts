@@ -111,6 +111,7 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
     now - e.at < KEEP_SYNCED_MS ||
     e.type.startsWith('menu.') ||
     e.type === 'recipe.answer_set' ||
+    e.type === 'recipe.draft_set' ||
     e.type === 'stock.item_added' ||
     e.type === 'stock.supplier_added' ||
     e.type === 'stock.item_archived' ||

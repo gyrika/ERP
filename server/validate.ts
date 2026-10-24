@@ -4,6 +4,7 @@ import { isUnitId } from '../src/domain/counting.ts';
 import { MENU } from '../src/domain/menu.ts';
 import { checkStockSetting } from '../src/domain/stockSettings.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
+import { checkDraft } from '../src/domain/recipeDrafts.ts';
 import { isGapReason } from '../src/domain/counting.ts';
 import { checkWaste } from '../src/domain/waste.ts';
 import { checkMiss, SHORTHAND_EVENT_TYPES } from '../src/domain/shorthandMisses.ts';
@@ -218,6 +219,10 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       }
     }
     if (e.type === 'recipe.viewed' && e.orderNumber !== 0) return { reason: `event ${e.id} has an invalid order number` };
+    // A draft is checked for its shape only: it changes nothing until it is published (recipeDrafts.ts).
+    if (e.type === 'recipe.draft_set' && (
+      e.orderNumber !== 0 || !shortString(e.question, 200) || !(e.after === null || checkDraft(String(e.question), e.after) === null)
+    )) return { reason: `event ${e.id} has an invalid recipe draft` };
     if (e.type === 'shorthand.missed' && (e.orderNumber !== 0 || checkMiss(e.text, e.unresolved, e.gaveUp) !== null)) {
       return { reason: `event ${e.id} has an invalid shorthand miss` };
     }

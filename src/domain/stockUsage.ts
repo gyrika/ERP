@@ -1,4 +1,4 @@
-import { addonOf, batchMakes, prepOf, recipeOf, sourceOf, STOCK_LINE, type Answer } from './costing.ts';
+import { addonOf, batchMakes, grossQty, prepOf, recipeOf, sourceOf, STOCK_LINE, type Answer } from './costing.ts';
 import { PRODUCTS, type BookLine } from './recipeBook.ts';
 import { FREE_INGREDIENTS, LEAVE_OUT_LINES } from './recipeMap.ts';
 import type { OrderLine } from './types.ts';
@@ -35,7 +35,7 @@ const MAX_DEPTH = 8; // as in costing.ts
 const trace = (line: BookLine, times: number, answers: ReadonlyMap<string, Answer>, total: Map<string, number>, depth: number, tracked: Tracked = NONE): void => {
   if (depth > MAX_DEPTH) throw new Error(`recipe nesting too deep at ${line.name}`);
   if (FREE_INGREDIENTS.has(line.name)) return;
-  const qty = line.qty * times;
+  const qty = grossQty(line) * times; // its wastage too
 
   const prep = prepOf(line.name, answers);
   if (prep) {
@@ -121,12 +121,12 @@ export const prepUse = (line: Pick<OrderLine, 'itemId' | 'qty' | 'size' | 'adds'
       const key = prepKey(l.name, answers);
       if (key) out.set(key, (out.get(key) ?? 0) + qty);
       const makes = batchMakes(l.name, l.unit, answers);
-      if (makes && makes.unit === l.unit) for (const x of prep.lines) meet(x, x.qty * qty / makes.qty, depth + 1);
+      if (makes && makes.unit === l.unit) for (const x of prep.lines) meet(x, grossQty(x) * qty / makes.qty, depth + 1);
       return;
     }
-    for (const x of PRODUCTS[l.name] ?? []) meet(x, x.qty * qty, depth + 1);
+    for (const x of PRODUCTS[l.name] ?? []) meet(x, grossQty(x) * qty, depth + 1);
   };
-  for (const l of lines) meet(l, l.qty * times, 0);
+  for (const l of lines) meet(l, grossQty(l) * times, 0);
   return out;
 };
 

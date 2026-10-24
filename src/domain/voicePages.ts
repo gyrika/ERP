@@ -35,6 +35,7 @@ const PAGES: (VoicePage & { need: Need })[] = [
   { id: 'order', label: "Buy stock from suppliers (e.g. we are out of flour, what to purchase)", hash: '#order', words: ['purchase order', 'what to buy', 'order from', 'to order'], need: 'managesStock' },
   { id: 'count', label: "Count the shelves (e.g. check the fridge quantities)", hash: '#count', words: ['count', 'stock count'], need: 'managesStock' },
   { id: 'suppliers', label: "Suppliers: their phones and what they sell (e.g. who sells us cheese)", hash: '#suppliers', words: ['supplier', 'suppliers'], need: 'managesStock' },
+  { id: 'flow', label: "Visual Flow: how each dish is made, from raw items to the dish, and what it costs and earns (e.g. show the pizza flow)", hash: '#flow', words: ['visual flow', 'flow', 'production flow'], need: 'owner' },
   { id: 'recipes', label: "Recipes and food cost of each dish (e.g. what goes into a margherita)", hash: '#items/recipe', words: ['recipe', 'recipes', 'food cost'], need: 'owner' },
   { id: 'setup', label: "Settings: staff and PINs, printer, devices, updates (e.g. new employee, printer broken)", hash: '#setup', words: ['setup', 'settings', 'staff', 'printer', 'updates'], need: 'setup' },
 ];

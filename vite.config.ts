@@ -21,5 +21,5 @@ export default defineConfig(({ mode }) => ({
   server: { proxy: { '/api': { target: 'http://localhost:8080', ws: true } } },
   // The cloud also serves the customers' ordering page (order.html → cheesybeez.com).
   build: mode === 'cloud' ? { rollupOptions: { input: { index: 'index.html', order: 'order.html' } } } : {},
-  test: { environment: 'jsdom', include: ['src/**/*.ui.test.tsx'], globals: false },
+  test: { environment: 'jsdom', include: ['src/**/*.ui.test.tsx'], globals: false, setupFiles: ['src/ui/testSetup.ts'] },
 }));
