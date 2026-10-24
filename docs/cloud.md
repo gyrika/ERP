@@ -158,6 +158,7 @@ suggests, and selling never waits for it.
 | Run it locally (simulated D1) | `npm run migrate:local` then `npm run dev` (port 8787) |
 | Deploy a new version (builds the owner's page too) | `npm run deploy` |
 | Apply a new schema file from `cloud/migrations/` | `npm run migrate` |
+| What the shorthand parser could not read (SCRUM-143), commonest first | `npm run misses` |
 | Look at the data | `npx wrangler d1 execute cheesybeez-cloud --remote --command "SELECT COUNT(*) FROM events"` |
 
 **Release order: cloud first, then the shop PCs.** The cloud checks every event with the same

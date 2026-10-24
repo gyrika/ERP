@@ -165,7 +165,7 @@ test("the owner's own recipe and opening his recipes pass; a malformed recipe do
   const bad = { kind: 'own', lines: [{ name: 'stock:inv-0016', qty: -2, unit: 'pcs' }] };
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.answer_set', question: 'recipe:sausages:M', before: null, after: bad }] }, 'shop-1'));
   assert.ok('reason' in validatePush({ events: [{ ...owner, type: 'recipe.viewed', orderNumber: 4 }] }, 'shop-1'));
-  // His version of a sheet batch: its lines are his stock or what the batch already takes.
+  // His version of a sheet batch: its lines are his stock or what his kitchen makes, never itself.
   const batch = { kind: 'batch', makes: { qty: 2000, unit: 'g' }, lines: [{ name: 'Mozzarella A', qty: 1500, unit: 'g' }] };
   const edit = { ...owner, type: 'recipe.answer_set', question: 'batch:Mozzarella Blend', before: null, after: batch };
   assert.deepEqual(validatePush({ events: [edit] }, 'shop-1'), { events: [edit] });
@@ -277,4 +277,13 @@ test('prep sent to the kitchen (SCRUM-136): a ticket, an item, a unit and a real
   assert.ok(!ok({ ...base, type: 'prep.order_undone' }));
   assert.ok(ok({ ...base, type: 'prep.limit_set', prepId: 'Mozzarella Blend', before: null, after: 3000 }));
   assert.ok(!ok({ ...base, type: 'prep.limit_set', prepId: 'Mozzarella Blend', before: null, after: -1 }));
+});
+
+test('a shorthand miss syncs with what was typed; a malformed one is refused', () => {
+  const miss = { ...base, actor: { id: 'cashier-1', name: 'Kasun', role: 'cashier' }, type: 'shorthand.missed', text: '2 l margherita, bbq chkn', unresolved: ['bbq chkn'], gaveUp: false };
+  assert.ok('events' in validatePush({ events: [miss] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...miss, unresolved: [] }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...miss, gaveUp: undefined }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...miss, orderNumber: 7 }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...miss, actor: undefined }] }, 'shop-1'));
 });

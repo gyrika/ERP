@@ -41,6 +41,50 @@ export const prepKey = (line: string, answers: ReadonlyMap<string, Answer>): str
   return own ? kitchenLine(own.id) : null;
 };
 
+/** The semi-processed items made from this one (SCRUM-141): the dough balls for the dough batch. */
+export const madeFrom = (key: string, items: readonly PrepItem[], answers: ReadonlyMap<string, Answer>): PrepItem[] =>
+  items.filter((p) => p.key !== key && p.lines.some((l) => prepKey(l.name, answers) === key));
+
+/** Everything made from this one, however far down: what may never go into it (SCRUM-146). */
+export const madeFromAll = (key: string, items: readonly PrepItem[], answers: ReadonlyMap<string, Answer>): Set<string> => {
+  const found = new Set<string>();
+  const walk = (k: string) => {
+    for (const p of madeFrom(k, items, answers)) if (!found.has(p.key)) { found.add(p.key); walk(p.key); }
+  };
+  walk(key);
+  return found;
+};
+
+/** A line taking part of a batch that is counted in batches (it makes 1 pcs). */
+const partOfBatch = (line: BookLine, answers: ReadonlyMap<string, Answer>): boolean => {
+  if (!prepOf(line.name, answers)) return false;
+  const makes = batchMakes(line.name, line.unit, answers);
+  return !!makes && makes.unit === 'pcs' && makes.qty === 1 && line.unit === 'pcs' && line.qty > 0 && line.qty < 1;
+};
+
+/**
+ * How many one batch makes, for a line taking a whole share of a batch counted in batches:
+ * 12 for 0.0833 pcs of the dough batch (a sheet keeps 4 decimal places); null: not one.
+ */
+export const perBatch = (line: BookLine, answers: ReadonlyMap<string, Answer>): number | null => {
+  if (!partOfBatch(line, answers)) return null;
+  const n = Math.round(1 / line.qty);
+  return Math.abs(1 / n - line.qty) < 5e-4 ? n : null;
+};
+
+/** The line for "one batch makes n": 1/n of a batch, to 6 places (SCRUM-146). */
+export const shareLine = (line: BookLine, n: number): BookLine => ({ ...line, qty: Number((1 / n).toFixed(6)) });
+
+/** The most one batch can be said to make, so 1/n still reads back as n. */
+export const MAX_PER_BATCH = 999;
+
+/** Such a line as a share of the batch: "1/12 batch", "0.35 batch"; null: show it as it is. */
+export const batchShare = (line: BookLine, answers: ReadonlyMap<string, Answer>): string | null => {
+  if (!partOfBatch(line, answers)) return null;
+  const n = perBatch(line, answers);
+  return n ? `1/${n} batch` : `${Number(line.qty.toFixed(2))} batch`;
+};
+
 /** What a prep's stock row reads: what is on hand from the batches made since it was first made. */
 export const PREP_STOCK = 'prep:';
 export const prepStockId = (key: string) => `${PREP_STOCK}${key}`;

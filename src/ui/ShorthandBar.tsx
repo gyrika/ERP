@@ -4,6 +4,9 @@ import { ShorthandInterpreter } from '../domain/parser.ts';
 import type { LineSpec, OrderDraft, OrderInterpreter } from '../domain/types.ts';
 import { useMenu } from './menuStore.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
+import { missFrom } from '../domain/shorthandMisses.ts';
+import { currentCashier } from '../services/auth.ts';
+import { appendEvent } from './eventLog.ts';
 
 /**
  * The screen only knows OrderInterpreter. Swap this implementation for a voice or
@@ -34,6 +37,8 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
   const [draft, setDraft] = useState<OrderDraft>({ lines: [], unresolved: [] });
   const inputRef = useRef<HTMLInputElement>(null);
   const latest = useRef(0);
+  /** The leftover text Enter already recorded, so Esc on it right after is not counted twice. */
+  const recorded = useRef<string | null>(null);
 
   useEffect(() => {
     const el = inputRef.current;
@@ -52,11 +57,27 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
   const availableLines = draft.lines.filter(offered);
   const unavailableLines = draft.lines.filter((line) => !offered(line));
 
+  /** What the parser could not read goes to the miss log (SCRUM-143), for better rules or a language model later. */
+  const recordMiss = (gaveUp: boolean) => {
+    const miss = missFrom(text, draft.unresolved);
+    if (!miss) return;
+    appendEvent({ type: 'shorthand.missed', at: Date.now(), orderNumber: 0, actor: currentCashier(), ...miss, gaveUp });
+  };
+
   const submit = () => {
     if (!availableLines.length) return;
     onSubmit(availableLines);
-    if (draft.unresolved.length) setText(draft.unresolved.join(', ')); // keep only what needs fixing
-    else onClose();
+    if (draft.unresolved.length) {
+      recordMiss(false);
+      const left = draft.unresolved.join(', ');
+      recorded.current = left;
+      setText(left); // keep only what needs fixing
+    } else onClose();
+  };
+
+  const close = () => {
+    if (text.trim() !== recorded.current) recordMiss(true);
+    onClose();
   };
 
   return (
@@ -68,7 +89,7 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit();
-            if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
+            if (e.key === 'Escape') { e.stopPropagation(); close(); }
           }}
           placeholder="5 L, 2 margherita, burger no tomato…"
           aria-label="Type an order"

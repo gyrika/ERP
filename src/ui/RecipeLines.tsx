@@ -28,11 +28,12 @@ export const draftLines = (rows: readonly Draft[]): BookLine[] =>
 /** Every row filled in properly, or what to fix. */
 export const readRows = (rows: readonly Draft[]): BookLine[] | string => {
   const filled = rows.filter((r) => r.name || r.qty.trim());
-  if (filled.some((r) => !/^\d+(\.\d{1,4})?$/.test(r.qty.trim()))) return 'Type each amount as a number, like 90 or 0.5.';
+  if (filled.some((r) => !/^\d+(\.\d{1,6})?$/.test(r.qty.trim()))) return 'Type each amount as a number, like 90 or 0.5.';
   return filled.map((r) => ({ name: r.name, qty: Number(r.qty.trim()), unit: r.unit }));
 };
 
-const unitFor = (name: string, ctx: CostContext, fallback = 'g'): string =>
+/** The unit a line is written in: the stock item's, else what his recipes use it in. */
+export const unitFor = (name: string, ctx: CostContext, fallback = 'g'): string =>
   name.startsWith(STOCK_LINE)
     ? ctx.items.find((i) => i.id === name.slice(STOCK_LINE.length))?.baseUnit ?? fallback
     : recipeUnit(name) ?? prepOf(name, ctx.answers)?.makes?.unit ?? fallback;

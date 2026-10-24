@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepQuestion, recipeQuestion, type Answer, type RecipeEvent } from './costing.ts';
+import { answersFromEvents, checkAnswer, makesLoop, prepQuestion, recipeQuestion, type Answer, type RecipeEvent } from './costing.ts';
 import { stockFromEvents } from './inventory.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
-import { checkPrepLimit, checkPrepOrder, prepItems, prepKey, prepStatus } from './prep.ts';
+import { batchShare, checkPrepLimit, checkPrepOrder, madeFrom, madeFromAll, MAX_PER_BATCH, perBatch, prepItems, prepKey, prepStatus, shareLine } from './prep.ts';
 import { cookLog, queue, ticketsFromEvents } from './kitchen.ts';
 import type { SyncEvent } from './sync.ts';
 import { wasteRecords } from './waste.ts';
@@ -174,4 +174,49 @@ test('a batch needs an item, a unit and a real amount; anyone signed in sends on
   assert.ok(mayRecord('kitchen', 'prep.order_undone'));
   assert.ok(!mayRecord('cashier', 'prep.limit_set'));
   assert.ok(mayRecord('manager', 'prep.limit_set'));
+});
+
+test('an item made from another is linked both ways, and a share of a batch reads as one (SCRUM-141)', () => {
+  const answers = new Map<string, Answer>();
+  const list = prepItems(answers);
+  assert.deepEqual(madeFrom('Pizza Dough Batch', list, answers).map((p) => p.key), ['10inch Dough Ball', '12inch Dough Ball']);
+  assert.deepEqual(madeFrom('Pizza Dough Culture', list, answers).map((p) => p.key), ['Pizza Dough Batch']);
+  assert.deepEqual(madeFrom('12inch Dough Ball', list, answers), [], 'only dishes use the balls');
+  assert.equal(batchShare({ name: 'Pizza Dough Batch', qty: 0.0833, unit: 'pcs' }, answers), '1/12 batch');
+  assert.equal(batchShare({ name: 'Pizza Dough Batch', qty: 0.0476, unit: 'pcs' }, answers), '1/21 batch');
+  assert.equal(batchShare({ name: 'Pizza Dough Batch', qty: 0.35, unit: 'pcs' }, answers), '0.35 batch');
+  assert.equal(batchShare({ name: 'Pizza Dough Culture', qty: 1, unit: 'pcs' }, answers), null, 'a whole one reads as it is');
+  assert.equal(batchShare({ name: 'Flour', qty: 0.5, unit: 'pcs' }, answers), null, 'not a semi-processed item');
+});
+
+test('his items may be made from each other, but never end up inside themselves (SCRUM-146)', () => {
+  const none = new Map<string, Answer>();
+  const syrup: Answer = { kind: 'prep', name: 'Syrup', makes: { qty: 500, unit: 'ml' }, lines: [{ name: 'stock:inv-0001', qty: 100, unit: 'g' }] };
+  const glaze: Answer = { kind: 'prep', name: 'Glaze', makes: { qty: 200, unit: 'ml' }, lines: [{ name: 'kitchen:ksyrup1', qty: 50, unit: 'ml' }] };
+  assert.equal(checkAnswer('prep:kglaze1', glaze), null, 'one of his own items inside another');
+  const both = new Map<string, Answer>([['prep:ksyrup1', syrup], ['prep:kglaze1', glaze]]);
+  assert.equal(makesLoop('prep:kglaze1', glaze, both), false);
+  const back: Answer = { ...syrup, lines: [{ name: 'kitchen:kglaze1', qty: 10, unit: 'ml' }] };
+  assert.equal(makesLoop('prep:ksyrup1', back, both), true, 'syrup › glaze › syrup');
+  assert.equal(makesLoop('prep:ksyrup1', { ...syrup, lines: [{ name: 'kitchen:ksyrup1', qty: 1, unit: 'ml' }] }, both), true, 'inside itself');
+
+  const culture = (line: string): Answer => ({ kind: 'batch', makes: { qty: 1, unit: 'pcs' }, lines: [{ name: line, qty: 1, unit: 'pcs' }] });
+  assert.equal(checkAnswer('batch:Pizza Dough Culture', culture('Mozzarella Blend')), null, 'a sheet batch takes another batch now');
+  assert.equal(makesLoop('batch:Pizza Dough Culture', culture('12inch Dough Ball'), none), true, 'culture › ball › batch › culture');
+  assert.equal(makesLoop('batch:Pizza Dough Culture', culture('Mozzarella Blend'), none), false);
+
+  // Two screens each add half a loop: the later one is not taken, on every device alike.
+  const at = (question: string, after: Answer) => ({ type: 'recipe.answer_set', question, before: null, after });
+  const answers = answersFromEvents([at('prep:ksyrup1', syrup), at('prep:kglaze1', glaze), at('prep:ksyrup1', back)]);
+  assert.deepEqual(answers.get('prep:ksyrup1'), syrup);
+});
+
+test('"one batch makes 12" is kept as a share of the batch and read back as 12 (SCRUM-146)', () => {
+  const answers = new Map<string, Answer>();
+  const ball = { name: 'Pizza Dough Batch', qty: 0.0833, unit: 'pcs' };
+  assert.equal(perBatch(ball, answers), 12, "his sheet's 0.0833");
+  for (const n of [2, 12, 13, 21, 99, MAX_PER_BATCH]) assert.equal(perBatch(shareLine(ball, n), answers), n);
+  assert.equal(perBatch({ ...ball, qty: 0.35 }, answers), null, 'not a whole share: typed as it is');
+  assert.equal(perBatch({ name: 'Pizza Dough Culture', qty: 1, unit: 'pcs' }, answers), null);
+  assert.deepEqual([...madeFromAll('Pizza Dough Culture', prepItems(answers), answers)].sort(), ['10inch Dough Ball', '12inch Dough Ball', 'Pizza Dough Batch']);
 });

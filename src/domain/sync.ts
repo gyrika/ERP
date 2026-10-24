@@ -1,6 +1,7 @@
 import type { Actor } from './auth.ts';
 import type { OrderEvent } from './events.ts';
 import type { RecipeEvent } from './costing.ts';
+import type { ShorthandEvent } from './shorthandMisses.ts';
 import type { MenuEvent } from './menuEdits.ts';
 import type { Cents } from './types.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
@@ -153,8 +154,8 @@ export interface PoLine { itemId: string; packs: number; stockQty?: number; unit
  */
 export interface GrnLine { itemId: string; ordered: number; received: number; accepted?: number; returned?: number; unitPriceCents?: Cents }
 
-/** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
-export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent;
+/** Everything that syncs. Menu changes: src/domain/menuEdits.ts; shorthand misses: shorthandMisses.ts. */
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent | ShorthandEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;
