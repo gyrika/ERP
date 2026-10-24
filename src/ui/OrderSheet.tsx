@@ -21,8 +21,8 @@ import { navigate } from './nav.ts';
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
  *   1 Who?   the carts first ("Prima · Cart · 3 items · Rs 12,400"), then On order (the open
- *            orders, each opening in place to change or cancel); Place an order opens Items, out
- *            and low first, where anything is put in its supplier's cart
+ *            orders, each opening in place to change or cancel); Place an order asks by item
+ *            (Items, out and low first) or by supplier (every supplier; one opens on Items)
  *   2 Items  everything that supplier sells, one row each (qty, price, total): an amount puts it in
  *            the supplier's cart, 0 takes it out. Nothing is ordered here; the button goes to the cart
  *   3 Cart   the cart as a bill, and one main button: Place order (or Add to PO-0003, which
@@ -516,6 +516,8 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   const [finished, setFinished] = useState<string[]>([]);
   const [placed, setPlaced] = useState<Placed[]>([]);
 
+  /** Place an order: asked first (by item or by supplier); by supplier lists them all, as before. */
+  const [how, setHow] = useState<null | 'ask' | 'supplier'>(null);
   const withItems = suppliers.filter((s) => items.some((i) => i.supplierIds.includes(s.id)));
   const waiting = withItems.filter((s) => suggested.has(s.id) && !finished.includes(s.id));
   const choose = (id: string, to: Step = firstStep(id)) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(to); };
@@ -541,11 +543,13 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   }
 
   // Step 1: the carts come first (what to order now), then what is already on order. Anything
-  // else is ordered from Items, low and out first: one button, no list of every supplier.
+  // else starts from Place an order: by item (Items, out and low first) or by supplier (the
+  // list of suppliers, then that supplier's items). Esc steps back out of the question.
   return (
     <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
       step={total > 1 ? { index: 1, of: STEPS, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: STEPS, label: 'Who?' }}
-      primary={{ label: 'Place an order', onClick: () => navigate('#items/low') }}
+      primary={how ? undefined : { label: 'Place an order', onClick: () => setHow('ask') }}
+      onBack={how ? () => setHow(how === 'supplier' ? 'ask' : null) : undefined}
       >
       {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
       {waiting.length > 0 && (
@@ -559,6 +563,21 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
               const line = `${purchases.drafts.has(s.id) ? `Cart · ${n} ${word(n, 'item', 'items')}` : `${n} low ${word(n, 'item', 'items')}`}${cents > 0 ? ` · ${rs(cents)}` : ''}`;
               return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => pick(s.id)} />;
             })}
+          </ul>
+        </section>
+      )}
+      {how === 'ask' && (
+        <section className="flow__list" aria-label="Place an order">
+          <p className="flow-hint">Order by</p>
+          <ChoiceCard name="Item" line="What is out or low comes first" onClick={() => navigate('#items/low')} />
+          <ChoiceCard name="Supplier" line="Pick a supplier, then what to order" onClick={() => setHow('supplier')} />
+        </section>
+      )}
+      {how === 'supplier' && (
+        <section className="flow__list">
+          <p className="flow-hint">Suppliers: tap one to start a cart</p>
+          <ul role="group" aria-label="Order from a supplier" className="rows flow__plain">
+            {withItems.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => pick(s.id)} />)}
           </ul>
         </section>
       )}

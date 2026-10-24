@@ -1224,7 +1224,7 @@ test('Step 3 with no phone: Add phone opens the supplier\'s Edit here; the numbe
   expect(placed.getByRole('textbox', { name: 'Message' })).toHaveProperty('value', expect.stringContaining('Before 10.'));
 }, 15_000);
 
-test("step 1 of Orders: the carts come first; Place an order opens Items with what is out, then low, first", async () => {
+test("step 1 of Orders: the carts come first; Place an order asks by item (out, then low, first) or by supplier (the list)", async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#order');
   sellPizzas(500); // flour has a rate of use
@@ -1235,7 +1235,21 @@ test("step 1 of Orders: the carts come first; Place an order opens Items with wh
   expect(screen.getByRole('group', { name: 'Suppliers that need ordering' })).toBeTruthy();
   expect(screen.queryByRole('group', { name: 'Order from another supplier' })).toBeNull();
 
+  // Place an order asks: by supplier is the list of every supplier, as before; Esc steps back.
   await user.click(screen.getByRole('button', { name: 'Place an order' }));
+  await user.click(screen.getByRole('button', { name: /^Supplier/ }));
+  const all = within(screen.getByRole('group', { name: 'Order from a supplier' }));
+  await user.click(all.getByRole('button', { name: '+ Ajantha (Wholesale)' }));
+  expect(screen.getByText('Step 2 of 4 · Items')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Back' }));
+  await user.keyboard('{Escape}'); // the list → the question
+  expect(screen.getByRole('button', { name: /^Item/ })).toBeTruthy();
+  await user.keyboard('{Escape}'); // the question → step 1
+  expect(screen.getByRole('button', { name: 'Place an order' })).toBeTruthy();
+
+  // By item: Items, out and low first.
+  await user.click(screen.getByRole('button', { name: 'Place an order' }));
+  await user.click(screen.getByRole('button', { name: /^Item/ }));
   expect(location.hash).toBe('#items/low');
 
   orderPage?.unmount();
