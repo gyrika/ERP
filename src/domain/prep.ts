@@ -41,6 +41,24 @@ export const prepKey = (line: string, answers: ReadonlyMap<string, Answer>): str
   return own ? kitchenLine(own.id) : null;
 };
 
+/** The semi-processed items made from this one (SCRUM-141): the dough balls for the dough batch. */
+export const madeFrom = (key: string, items: readonly PrepItem[], answers: ReadonlyMap<string, Answer>): PrepItem[] =>
+  items.filter((p) => p.key !== key && p.lines.some((l) => prepKey(l.name, answers) === key));
+
+/**
+ * A recipe line taking part of a batch that is counted in batches (it makes 1 pcs), as a share
+ * of that batch: "1/12 batch" for 0.0833 pcs of the dough batch; null: show it as it is.
+ */
+export const batchShare = (line: BookLine, answers: ReadonlyMap<string, Answer>): string | null => {
+  if (!prepOf(line.name, answers)) return null;
+  const makes = batchMakes(line.name, line.unit, answers);
+  if (!makes || makes.unit !== 'pcs' || makes.qty !== 1 || line.unit !== 'pcs') return null;
+  if (!(line.qty > 0 && line.qty < 1)) return null;
+  const n = Math.round(1 / line.qty);
+  // A sheet's 0.0833 is 1/12 to the 4 decimal places it keeps.
+  return Math.abs(1 / n - line.qty) < 5e-4 ? `1/${n} batch` : `${Number(line.qty.toFixed(2))} batch`;
+};
+
 /** What a prep's stock row reads: what is on hand from the batches made since it was first made. */
 export const PREP_STOCK = 'prep:';
 export const prepStockId = (key: string) => `${PREP_STOCK}${key}`;

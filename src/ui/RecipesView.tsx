@@ -10,6 +10,7 @@ import { fmt } from '../domain/money.ts';
 import { PREPS, type BookLine } from '../domain/recipeBook.ts';
 import { MENU_RECIPES } from '../domain/recipeMap.ts';
 import type { MenuItem, Option } from '../domain/types.ts';
+import { batchShare } from '../domain/prep.ts';
 import { answerQuestion, recipesViewed, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { Question } from './CostQuestions.tsx';
 import { useMenu } from './menuStore.ts';
@@ -385,7 +386,7 @@ function Card({ entry: e, ctx, owner, open, asked, onToggle, onEdit, onSheet, on
           {e.recipe.lines.map((l, i) => (
             <li key={i}>
               <span>{lineName(l.name, ctx)}</span>
-              <span className="rcard__amt num">{amountText(l)}</span>
+              <span className="rcard__amt num">{batchShare(l, ctx.answers) ?? amountText(l)}</span>
             </li>
           ))}
         </ul>

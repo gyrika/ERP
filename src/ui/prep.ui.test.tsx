@@ -108,3 +108,19 @@ test('"make more when below": Automatic or a number, with Undo', async () => {
   await user.click(screen.getByRole('button', { name: 'Undo' }));
   expect(readAll().at(-1)).toMatchObject({ type: 'prep.limit_set', before: null, after: 3000 });
 });
+
+test('an item made from another names it, reads its share as a batch, and opens it with a tap (SCRUM-141)', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#items/semi');
+  render(<Root />);
+  expect(row('Pizza Dough Batch').getByText('In 10inch Dough Ball and 12inch Dough Ball')).toBeTruthy();
+
+  await user.click(semi().getByRole('button', { name: '12inch Dough Ball' }));
+  const sheet = () => within(screen.getByRole('dialog'));
+  expect(sheet().getByText('1/12 batch')).toBeTruthy();
+
+  await user.click(sheet().getByRole('button', { name: 'Open Pizza Dough Batch' }));
+  expect(sheet().getByRole('heading', { name: 'Pizza Dough Batch' })).toBeTruthy();
+  await user.click(sheet().getByRole('button', { name: 'Open 10inch Dough Ball' }));
+  expect(sheet().getByRole('heading', { name: '10inch Dough Ball' })).toBeTruthy();
+});

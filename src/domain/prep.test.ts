@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { prepQuestion, recipeQuestion, type Answer, type RecipeEvent } from './costing.ts';
 import { stockFromEvents } from './inventory.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
-import { checkPrepLimit, checkPrepOrder, prepItems, prepKey, prepStatus } from './prep.ts';
+import { batchShare, checkPrepLimit, checkPrepOrder, madeFrom, prepItems, prepKey, prepStatus } from './prep.ts';
 import { cookLog, queue, ticketsFromEvents } from './kitchen.ts';
 import type { SyncEvent } from './sync.ts';
 import { wasteRecords } from './waste.ts';
@@ -174,4 +174,17 @@ test('a batch needs an item, a unit and a real amount; anyone signed in sends on
   assert.ok(mayRecord('kitchen', 'prep.order_undone'));
   assert.ok(!mayRecord('cashier', 'prep.limit_set'));
   assert.ok(mayRecord('manager', 'prep.limit_set'));
+});
+
+test('an item made from another is linked both ways, and a share of a batch reads as one (SCRUM-141)', () => {
+  const answers = new Map<string, Answer>();
+  const list = prepItems(answers);
+  assert.deepEqual(madeFrom('Pizza Dough Batch', list, answers).map((p) => p.key), ['10inch Dough Ball', '12inch Dough Ball']);
+  assert.deepEqual(madeFrom('Pizza Dough Culture', list, answers).map((p) => p.key), ['Pizza Dough Batch']);
+  assert.deepEqual(madeFrom('12inch Dough Ball', list, answers), [], 'only dishes use the balls');
+  assert.equal(batchShare({ name: 'Pizza Dough Batch', qty: 0.0833, unit: 'pcs' }, answers), '1/12 batch');
+  assert.equal(batchShare({ name: 'Pizza Dough Batch', qty: 0.0476, unit: 'pcs' }, answers), '1/21 batch');
+  assert.equal(batchShare({ name: 'Pizza Dough Batch', qty: 0.35, unit: 'pcs' }, answers), '0.35 batch');
+  assert.equal(batchShare({ name: 'Pizza Dough Culture', qty: 1, unit: 'pcs' }, answers), null, 'a whole one reads as it is');
+  assert.equal(batchShare({ name: 'Flour', qty: 0.5, unit: 'pcs' }, answers), null, 'not a semi-processed item');
 });
