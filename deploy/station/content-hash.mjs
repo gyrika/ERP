@@ -13,8 +13,11 @@ function filesIn(dir, base = dir) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...filesIn(full, base));
-    else out.push(path.relative(base, full).split(path.sep).join("/"));
+    const rel = path.relative(base, full).split(path.sep).join("/");
+    // npm ci from the same lock gives the same packages: the installed list stands for node_modules.
+    if (rel === "node_modules") { if (fs.existsSync(path.join(full, ".package-lock.json"))) out.push("node_modules/.package-lock.json"); }
+    else if (entry.isDirectory()) out.push(...filesIn(full, base));
+    else out.push(rel);
   }
   return out;
 }
@@ -24,8 +27,6 @@ export function parts(stage, root) {
   const app = path.join(stage, "app");
   const list = [];
   for (const rel of filesIn(app)) {
-    // npm ci from the same lock gives the same packages: the installed list stands for node_modules.
-    if (rel.startsWith("node_modules/") && rel !== "node_modules/.package-lock.json") continue;
     // package.json also holds scripts and dev tools that never reach the shop.
     if (rel === "package.json" || rel === "package-lock.json") continue;
     list.push([`app/${rel}`, sha(fs.readFileSync(path.join(app, rel)))]);

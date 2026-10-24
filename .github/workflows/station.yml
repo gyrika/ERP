@@ -173,17 +173,11 @@ jobs:
             if (-not (Get-ChildItem deploy/station/stage/pos-app -Recurse -Filter $need)) { throw "The counter app is missing $need" }
           }
 
-      - name: Inno Setup (cached)
-        if: steps.content.outputs.changed == 'true' || github.event_name != 'push'
-        uses: actions/cache@v4
-        with:
-          path: C:\Program Files (x86)\Inno Setup 6
-          key: station-innosetup-6
-
       - name: Build Setup.exe
         if: steps.content.outputs.changed == 'true' || github.event_name != 'push'
         shell: pwsh
         run: |
+          # The Windows runners come with Inno Setup; install it only if an image ever drops it.
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=${{ steps.version.outputs.value }}" deploy\station\CheesyBeez.iss
           if ($LASTEXITCODE) { throw "ISCC failed ($LASTEXITCODE)" }
