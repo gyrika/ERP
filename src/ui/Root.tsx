@@ -193,12 +193,13 @@ export function Root() {
   // Items holds raw materials, semi-processed and finished items. The older addresses
   // (#inventory, #manager, #menu, #recipes) still open the same places.
   if (hash === '#receive' && mayManageStock) return <ReceiveView onRegister={() => go('')} />;
-  // #order/<supplier id> opens that supplier's cart.
+  // #order/suppliers: ordering by supplier, a place of its own. #order/<supplier id> opens that supplier's cart.
+  if (hash === '#order/suppliers' && mayManageStock) return <OrderView key={hash} bySupplier onRegister={() => go('')} />;
   if ((hash === '#order' || hash.startsWith('#order/')) && mayManageStock) {
     return <OrderView key={hash} supplierId={hash.startsWith('#order/') ? decodeURIComponent(hash.slice('#order/'.length)) : undefined} onRegister={() => go('')} />;
   }
   if ((hash === '#count' || hash === '#manager') && mayManageStock) return <ManagerView onRegister={() => go('')} />;
-  // #items/low: opened to order (Orders' Place an order), out and low first.
+  // #items/low: opened to order (Orders' Order by item), out and low first.
   if ((hash === '#items' || hash === '#items/raw' || hash === '#items/low' || hash === '#inventory') && mayManageStock) {
     return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} lowFirst={hash === '#items/low'} />;
   }

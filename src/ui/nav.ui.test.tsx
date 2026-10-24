@@ -123,3 +123,22 @@ test('on the Register, Back never leaves the app', async () => {
   expect(history.length).toBe(before);
   expect(await register()).toBeTruthy();
 });
+
+test("a step's own Back wins: Esc on Order by supplier goes back to Orders, once", async () => {
+  const user = userEvent.setup();
+  render(<Root />);
+  await register();
+  location.hash = '#order';
+  await user.click(await screen.findByRole('button', { name: 'Order by supplier' }));
+  expect(location.hash).toBe('#order/suppliers');
+  await user.click(screen.getByRole('button', { name: '+ Ajantha (Wholesale)' }));
+
+  await user.keyboard('{Escape}'); // Items → the supplier list, on the same page
+  expect(await screen.findByRole('group', { name: 'Order from a supplier' })).toBeTruthy();
+  expect(location.hash).toBe('#order/suppliers');
+
+  await user.keyboard('{Escape}'); // → Orders, not past it
+  expect(await screen.findByRole('button', { name: 'Order by item' })).toBeTruthy();
+  await new Promise((r) => setTimeout(r, 50));
+  expect(location.hash).toBe('#order');
+});

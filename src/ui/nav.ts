@@ -115,9 +115,13 @@ export function useBackKeys(atPlace: boolean) {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); step(); return; }
-      if (e.key !== 'Escape' || e.defaultPrevented || layerAtKey || !atPlace) return;
-      if (typing(e.target)) { e.target.blur(); return; }
-      back();
+      if (e.key !== 'Escape' || layerAtKey || !atPlace) return;
+      // Decided after every listener has had the key: a screen's own Esc (a step's Back) wins.
+      setTimeout(() => {
+        if (e.defaultPrevented) return;
+        if (typing(e.target)) e.target.blur();
+        else back();
+      });
     };
     // The mouse's back button (button 3): ours, so it never leaves the app.
     const onMouse = (e: MouseEvent) => {

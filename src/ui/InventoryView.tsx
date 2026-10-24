@@ -46,7 +46,7 @@ export function InventoryView({
 }: {
   onFindSupplier?: (id: string) => void;
   onRegister?: () => void;
-  /** Opened to order (#items/low, from Orders' Place an order): out first, then low, then the rest. */
+  /** Opened to order (#items/low, from Orders' Order by item): out first, then low, then the rest. */
   lowFirst?: boolean;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useInventory, usePurchases, useStockSettings } from '../services/inventoryStore.ts';
 import { GoodsReceivingSheet } from './GoodsReceivingSheet.tsx';
+import { back } from './nav.ts';
 import { OrderSheet } from './OrderSheet.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
@@ -30,7 +31,7 @@ export function ReceiveView({ onRegister }: { onRegister?: () => void }) {
   );
 }
 
-export function OrderView({ supplierId, onRegister }: { supplierId?: string; onRegister?: () => void }) {
+export function OrderView({ supplierId, bySupplier = false, onRegister }: { supplierId?: string; bySupplier?: boolean; onRegister?: () => void }) {
   const { items, suppliers } = useInventory();
   const purchases = usePurchases();
   const [round, setRound] = useState(0);
@@ -45,8 +46,9 @@ export function OrderView({ supplierId, onRegister }: { supplierId?: string; onR
             <button type="button" className="linkbtn" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
           </p>
         )}
-        <OrderSheet key={round} inline items={items} suppliers={suppliers} purchases={purchases} initialSupplier={round === 0 ? supplierId : undefined}
-          onClose={() => setRound((r) => r + 1)} onDone={(message, undo) => setSaid({ message, undo })} />
+        <OrderSheet key={round} inline items={items} suppliers={suppliers} purchases={purchases} initialSupplier={round === 0 ? supplierId : undefined} bySupplier={bySupplier}
+          // Done when ordering by supplier goes back to the Order page; on it, it starts over.
+          onClose={bySupplier ? back : () => setRound((r) => r + 1)} onDone={(message, undo) => setSaid({ message, undo })} />
       </main>
     </div>
   );

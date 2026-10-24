@@ -16,13 +16,14 @@ import { RejectionNotices } from './Rejections.tsx';
 import { AddSupplierModal } from './AddSupplierModal.tsx';
 import { addToDraft, addToOrder, cancelOrder, editOrder, editSupplier, moveToCart, placeOrder, setDraft, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
 import { NumberInput } from './NumberInput.tsx';
-import { navigate } from './nav.ts';
+import { back, navigate } from './nav.ts';
 
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
  *   1 Who?   the carts first ("Prima · Cart · 3 items · Rs 12,400"), then On order (the open
- *            orders, each opening in place to change or cancel); Place an order asks by item
- *            (Items, out and low first) or by supplier (every supplier; one opens on Items)
+ *            orders, each opening in place to change or cancel); two buttons: Order by item
+ *            (Items, out and low first) and Order by supplier (#order/suppliers, a place of its
+ *            own: every supplier, and the one tapped opens on Items)
  *   2 Items  everything that supplier sells, one row each (qty, price, total): an amount puts it in
  *            the supplier's cart, 0 takes it out. Nothing is ordered here; the button goes to the cart
  *   3 Cart   the cart as a bill, and one main button: Place order (or Add to PO-0003, which
@@ -492,7 +493,7 @@ function SupplierRow({ name, line, tone, label, onAdd }: { name: string; line?: 
 type Step = 'who' | 'items' | 'cart' | 'send';
 const STEPS = 4;
 
-export function OrderSheet({ items, suppliers, purchases, inline = false, initialSupplier, onClose, onDone }: {
+export function OrderSheet({ items, suppliers, purchases, inline = false, initialSupplier, bySupplier = false, onClose, onDone }: {
   items: InventoryRow[];
   suppliers: Supplier[];
   purchases: PurchaseState;
@@ -500,6 +501,8 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   inline?: boolean;
   /** Opens straight on this supplier (#order/<supplier id>): its cart, or its items when it has none. */
   initialSupplier?: string;
+  /** Order by supplier (#order/suppliers): the list of every supplier instead of the carts. */
+  bySupplier?: boolean;
   onClose: () => void;
   onDone: Done;
 }) {
@@ -516,8 +519,6 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   const [finished, setFinished] = useState<string[]>([]);
   const [placed, setPlaced] = useState<Placed[]>([]);
 
-  /** Place an order: asked first (by item or by supplier); by supplier lists them all, as before. */
-  const [how, setHow] = useState<null | 'ask' | 'supplier'>(null);
   const withItems = suppliers.filter((s) => items.some((i) => i.supplierIds.includes(s.id)));
   const waiting = withItems.filter((s) => suggested.has(s.id) && !finished.includes(s.id));
   const choose = (id: string, to: Step = firstStep(id)) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(to); };
@@ -542,14 +543,29 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
     );
   }
 
+  // Ordering by supplier is a place of its own (#order/suppliers): every supplier, then the one
+  // tapped opens on its Items. Back returns to the Order page.
+  if (bySupplier) {
+    return (
+      <FlowSheet title="Order by supplier" inline={inline} onClose={onClose} step={{ index: 1, of: STEPS, label: 'Which supplier?' }} onBack={back}>
+        <section className="flow__list">
+          <ul role="group" aria-label="Order from a supplier" className="rows flow__plain">
+            {withItems.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => pick(s.id)} />)}
+          </ul>
+        </section>
+      </FlowSheet>
+    );
+  }
+
   // Step 1: the carts come first (what to order now), then what is already on order. Anything
-  // else starts from Place an order: by item (Items, out and low first) or by supplier (the
-  // list of suppliers, then that supplier's items). Esc steps back out of the question.
+  // else starts from the two buttons: by item (Items, out and low first) or by supplier.
   return (
     <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
       step={total > 1 ? { index: 1, of: STEPS, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: STEPS, label: 'Who?' }}
-      primary={how ? undefined : { label: 'Place an order', onClick: () => setHow('ask') }}
-      onBack={how ? () => setHow(how === 'supplier' ? 'ask' : null) : undefined}
+      extra={<>
+        <button type="button" className="cta flow__cta" onClick={() => navigate('#items/low')}>Order by item</button>
+        <button type="button" className="cta flow__cta" onClick={() => navigate('#order/suppliers')}>Order by supplier</button>
+      </>}
       >
       {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
       {waiting.length > 0 && (
@@ -563,21 +579,6 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
               const line = `${purchases.drafts.has(s.id) ? `Cart · ${n} ${word(n, 'item', 'items')}` : `${n} low ${word(n, 'item', 'items')}`}${cents > 0 ? ` · ${rs(cents)}` : ''}`;
               return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => pick(s.id)} />;
             })}
-          </ul>
-        </section>
-      )}
-      {how === 'ask' && (
-        <section className="flow__list" aria-label="Place an order">
-          <p className="flow-hint">Order by</p>
-          <ChoiceCard name="Item" line="What is out or low comes first" onClick={() => navigate('#items/low')} />
-          <ChoiceCard name="Supplier" line="Pick a supplier, then what to order" onClick={() => setHow('supplier')} />
-        </section>
-      )}
-      {how === 'supplier' && (
-        <section className="flow__list">
-          <p className="flow-hint">Suppliers: tap one to start a cart</p>
-          <ul role="group" aria-label="Order from a supplier" className="rows flow__plain">
-            {withItems.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => pick(s.id)} />)}
           </ul>
         </section>
       )}
