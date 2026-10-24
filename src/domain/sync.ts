@@ -122,6 +122,21 @@ export type StockEvent =
   | (StockBase & { type: 'stock.settings_set'; key: keyof StockSettings; value: number });
 
 /**
+ * Semi-processed items (prep.ts, SCRUM-136). Running low, one is sent to the kitchen as a prep
+ * ticket (`ticketId`); the cook Starts and marks it Done like an order (kitchen.* events), and
+ * Done is the batch made: the item's stock goes up and its raw items come off. From its first
+ * batch on, sales take the item. prepId: the item's key (his own as `kitchen:<id>`, a sheet
+ * batch by name); qty in `unit`. Undo right after sending takes the ticket back.
+ */
+export type PrepEvent =
+  | (StockBase & { type: 'prep.ordered'; ticketId: string; prepId: string; name: string; qty: number; unit: string })
+  | (StockBase & { type: 'prep.order_undone'; ticketId: string })
+  /** "Make more when below" this amount, in the item's unit (managers and the owner); null: automatic. */
+  | (StockBase & { type: 'prep.limit_set'; prepId: string; before: number | null; after: number | null });
+
+export const PREP_EVENT_TYPES = ['prep.ordered', 'prep.order_undone', 'prep.limit_set'] as const satisfies readonly PrepEvent['type'][];
+
+/**
  * Stock moves only by these (stockMovements.ts): GRN in, GRN_UNDO out, COUNT_ADJUST ±.
  * Sales are not stored: they are worked out from paid orders and their recipes.
  */
@@ -139,7 +154,7 @@ export interface PoLine { itemId: string; packs: number; stockQty?: number; unit
 export interface GrnLine { itemId: string; ordered: number; received: number; accepted?: number; returned?: number; unitPriceCents?: Cents }
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts. */
-export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | MenuEvent | RecipeEvent;
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;

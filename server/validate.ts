@@ -6,14 +6,15 @@ import { checkStockSetting } from '../src/domain/stockSettings.ts';
 import { checkAnswer, RECIPE_EVENT_TYPES, type Answer } from '../src/domain/costing.ts';
 import { isGapReason } from '../src/domain/counting.ts';
 import { checkWaste } from '../src/domain/waste.ts';
+import { checkPrepLimit, checkPrepOrder } from '../src/domain/prep.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import type { MenuItem } from '../src/domain/types.ts';
 import {
-  KITCHEN_EVENT_TYPES, MOVEMENT_KINDS, ORDER_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
+  KITCHEN_EVENT_TYPES, MOVEMENT_KINDS, ORDER_EVENT_TYPES, PREP_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
 } from '../src/domain/sync.ts';
 
 const TYPES = new Set<string>([
-  ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...MENU_EVENT_TYPES, ...RECIPE_EVENT_TYPES,
+  ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...PREP_EVENT_TYPES, ...MENU_EVENT_TYPES, ...RECIPE_EVENT_TYPES,
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -65,7 +66,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (!Number.isSafeInteger(e.orderNumber) || (e.orderNumber as number) < 0) return { reason: `event ${e.id} has no orderNumber` };
     if (!Number.isSafeInteger(e.at)) return { reason: `event ${e.id} has no time` };
     if (e.shopId !== tenantId) return { reason: `event ${e.id} belongs to another shop`, wrongShop: true };
-    if (e.type.startsWith('order.') || e.type.startsWith('stock.') || e.type.startsWith('menu.') || e.type.startsWith('recipe.')) {
+    if (e.type.startsWith('order.') || e.type.startsWith('stock.') || e.type.startsWith('prep.') || e.type.startsWith('menu.') || e.type.startsWith('recipe.')) {
       const a = e.actor;
       if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
         return { reason: `event ${e.id} does not say who did it` };
@@ -134,6 +135,12 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       ) return { reason: `event ${e.id} has an invalid count` };
     }
     if (e.type === 'stock.wasted' && checkWaste(e.what, e.qty, e.reason, e.note, e.name) !== null) return { reason: `event ${e.id} has an invalid waste` };
+    if ((e.type.startsWith('prep.') && e.orderNumber !== 0)
+      || (e.type === 'prep.ordered' && (!shortString(e.ticketId) || checkPrepOrder(e.prepId, e.name, e.qty, e.unit) !== null))
+      || (e.type === 'prep.order_undone' && !shortString(e.ticketId))
+      || (e.type === 'prep.limit_set' && (!shortString(e.prepId, 120) || checkPrepLimit(e.before) !== null || checkPrepLimit(e.after) !== null))) {
+      return { reason: `event ${e.id} has an invalid batch` };
+    }
     if (e.type === 'stock.waste_undone' && !shortString(e.wasteId)) return { reason: `event ${e.id} has an invalid waste id` };
     if (e.type === 'stock.count_undone' && !shortString(e.countId)) return { reason: `event ${e.id} has an invalid count id` };
     if (e.type === 'stock.unit_set' && (

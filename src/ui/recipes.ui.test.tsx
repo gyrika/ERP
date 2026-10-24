@@ -13,7 +13,7 @@ const card = (name: string) => screen.getByText(name, { selector: '.rcard__name'
 
 /** The recipes open for the owner as signed in: no PIN. */
 const open = async (_user?: ReturnType<typeof userEvent.setup>) => {
-  await screen.findByRole('heading', { name: /^(Recipes of the finished items|Semi-processed)$/ });
+  await screen.findByRole('heading', { name: /^(Recipes of the finished items|Items)$/ });
 };
 /** Items › another tab (the recipes are part of the items they make). */
 const toTab = async (_user: ReturnType<typeof userEvent.setup>, hash: string) => {
@@ -98,15 +98,19 @@ test('a gap shared by many recipes is asked once, at the top, and answering it m
   expect(top.getByRole('heading', { name: 'First, these · 3 to go' })).toBeTruthy();
 });
 
+/** Items › Semi-processed, laid out like Raw materials: a row per item, a tap opens its sheet. */
+const semiRow = (name: string) => within(screen.getByRole('main', { name: 'Semi-processed' })).getByRole('button', { name });
+const sheet = (name: string) => within(screen.getByRole('dialog', { name }));
+
 test('the owner adds a semi-processed item; it is offered in every recipe and can be deleted while unused', async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#items/semi');
   render(<Root />);
   // Semi-processed items are items, not recipes: no PIN to see them.
   expect(screen.queryByLabelText('Owner PIN')).toBeNull();
-  expect(within(screen.getByRole('region', { name: 'Made in your kitchen' })).getByText('Pizza Sauce Batch')).toBeTruthy();
+  expect(semiRow('Pizza Sauce Batch')).toBeTruthy();
 
-  await user.click(screen.getByRole('button', { name: 'New semi-processed item' }));
+  await user.click(screen.getByRole('button', { name: '+ New semi-processed item' }));
   const form = within(screen.getByRole('form', { name: 'New semi-processed item' }));
   expect(document.activeElement).toBe(form.getByRole('textbox', { name: 'Name' }));
   await user.type(form.getByRole('textbox', { name: 'Name' }), 'Pizza Sauce Batch');
@@ -125,7 +129,10 @@ test('the owner adds a semi-processed item; it is offered in every recipe and ca
     type: 'recipe.answer_set', question: expect.stringMatching(/^prep:k[a-z0-9]+$/), before: null, actor: { role: 'owner' },
     after: { kind: 'prep', name: 'Syrup', makes: { qty: 1000, unit: 'g' }, lines: [{ name: 'stock:inv-0003', qty: 1000, unit: 'g' }] },
   });
-  expect(within(card('Syrup')).getByText(/^Makes 1,000 g · costs [\d,.]+ a batch$/)).toBeTruthy();
+  // The new item opens on its own sheet.
+  expect(sheet('Syrup').getByText('Makes 1,000 g')).toBeTruthy();
+  expect(sheet('Syrup').getByText(/^costs Rs [\d,.]+$/)).toBeTruthy();
+  await user.click(sheet('Syrup').getByRole('button', { name: 'Close' }));
 
   // Offered in a dish's recipe, under what his kitchen makes, by its id.
   await toTab(user, '#items/recipe');
@@ -137,21 +144,23 @@ test('the owner adds a semi-processed item; it is offered in every recipe and ca
   await user.click(dish.getByRole('button', { name: 'Cancel' }));
 
   await toTab(user, '#items/semi');
-  await user.click(within(card('Syrup')).getByRole('button', { name: /Syrup/ }));
-  await user.click(within(card('Syrup')).getByRole('button', { name: 'Delete' }));
+  await user.click(semiRow('Syrup'));
+  await user.click(sheet('Syrup').getByRole('button', { name: 'Delete' }));
   expect(readAll().at(-1)).toMatchObject({ question: saved.question, after: null });
-  expect(screen.queryByText('Syrup', { selector: '.rcard__name' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Syrup' })).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Undo' }));
-  expect(card('Syrup')).toBeTruthy();
+  expect(semiRow('Syrup')).toBeTruthy();
 });
 
 test("the owner changes one of his sheet's batches; his dishes use it as changed, and his sheet comes back in one tap", async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#items/semi');
   render(<Root />);
-  await user.click(within(card('Mozzarella Blend')).getByRole('button', { name: /Mozzarella Blend/ }));
-  expect(within(card('Mozzarella Blend')).getByText(/^From your sheet · in \d+ recipes$/)).toBeTruthy();
-  await user.click(within(card('Mozzarella Blend')).getByRole('button', { name: 'Edit' }));
+  await user.click(semiRow('Mozzarella Blend'));
+  const blend = sheet('Mozzarella Blend');
+  expect(blend.getByText('From your sheet')).toBeTruthy();
+  expect(blend.getByText(/^\d+ recipes$/)).toBeTruthy();
+  await user.click(blend.getByRole('button', { name: 'Edit what goes in' }));
 
   const form = within(screen.getByRole('form', { name: 'Mozzarella Blend: what goes in it' }));
   expect(form.queryByRole('textbox', { name: 'Name' })).toBeNull();
@@ -164,20 +173,20 @@ test("the owner changes one of his sheet's batches; his dishes use it as changed
     type: 'recipe.answer_set', question: 'batch:Mozzarella Blend', before: null, actor: { role: 'owner' },
     after: { kind: 'batch', makes: { qty: 2000, unit: 'g' }, lines: [{ name: 'Mozzarella A', qty: 1500, unit: 'g' }, { name: 'Mozzarella B', qty: 1000, unit: 'g' }] },
   });
-  expect(within(card('Mozzarella Blend')).getByText('1,500 g')).toBeTruthy();
-  expect(within(card('Mozzarella Blend')).getByText(/^Changed here, from your sheet/)).toBeTruthy();
-  await user.click(within(card('Mozzarella Blend')).getByRole('button', { name: "Use your sheet's batch" }));
+  expect(blend.getByText('1,500 g')).toBeTruthy();
+  expect(blend.getByText('Changed here, from your sheet')).toBeTruthy();
+  await user.click(blend.getByRole('button', { name: "Use your sheet's batch" }));
   expect(readAll().at(-1)).toMatchObject({ question: 'batch:Mozzarella Blend', after: null });
-  expect(within(card('Mozzarella Blend')).getByText(/^From your sheet/)).toBeTruthy();
+  expect(blend.getByText('From your sheet')).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Undo' }));
-  expect(within(card('Mozzarella Blend')).getByText(/^Changed here, from your sheet/)).toBeTruthy();
+  expect(blend.getByText('Changed here, from your sheet')).toBeTruthy();
 });
 
 test('a name his recipes use but nothing makes is offered first; saving it completes those dishes', async () => {
   const user = userEvent.setup();
   history.replaceState(null, '', '/#items/semi');
   render(<Root />);
-  await user.click(screen.getByRole('button', { name: 'New semi-processed item' }));
+  await user.click(screen.getByRole('button', { name: '+ New semi-processed item' }));
   const form = within(screen.getByRole('form', { name: 'New semi-processed item' }));
   await user.click(form.getByRole('button', { name: 'Fried Chicken Cubes · 6 dishes' }));
   expect((form.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe('Fried Chicken Cubes');
@@ -187,9 +196,11 @@ test('a name his recipes use but nothing makes is offered first; saving it compl
   await user.type(form.getByRole('textbox', { name: 'Line 1: how much' }), '1000');
   await user.click(form.getByRole('button', { name: 'Save' }));
   expect(readAll().at(-1)).toMatchObject({ after: { kind: 'prep', name: 'Fried Chicken Cubes', makes: { qty: 800, unit: 'g' } } });
-  await user.click(within(card('Fried Chicken Cubes')).getByRole('button', { name: /Fried Chicken Cubes/ }));
-  expect(within(card('Fried Chicken Cubes')).getByText('Added here · in 6 recipes')).toBeTruthy();
-  expect(within(card('Fried Chicken Cubes')).queryByRole('button', { name: 'Delete' })).toBeNull();
+  const cubes = sheet('Fried Chicken Cubes');
+  expect(cubes.getByText('Added here')).toBeTruthy();
+  expect(cubes.getByText('6 recipes')).toBeTruthy();
+  expect(cubes.queryByRole('button', { name: 'Delete' })).toBeNull();
+  await user.click(cubes.getByRole('button', { name: 'Close' }));
   await toTab(user, '#items/recipe');
   expect(card('BBQ Chicken Medium').querySelector('.rcard__status')!.textContent).not.toMatch(/Fried Chicken Cubes/);
 });

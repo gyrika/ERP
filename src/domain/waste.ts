@@ -3,6 +3,7 @@ import { wasteUsage, type RecipeLine } from './stockUsage.ts';
 import type { SyncEvent } from './sync.ts';
 import type { InventoryItem } from './inventoryData.ts';
 import { PREPS } from './recipeBook.ts';
+import { prepTracker } from './prep.ts';
 import type { MenuItem, SizeId } from './types.ts';
 
 /**
@@ -113,12 +114,19 @@ export const wasteRecords = (events: readonly SyncEvent[], items: readonly Pick<
   const recipe: RecipeEvent[] = [];
   let answers = new Map<string, Answer>();
   const out = new Map<string, WasteRecord>();
+  // Semi-processed items with batches standing take from their own stock, as in inventory.ts.
+  const batches = prepTracker();
+  const tracked = batches.tracked;
+  const seen = new Set<string>();
   for (const e of events) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    batches.step(e);
     if (e.type === 'recipe.answer_set') { recipe.push(e); answers = answersFromEvents(recipe); }
     else if (e.type === 'stock.wasted' && !out.has(e.id)) {
       out.set(e.id, {
         id: e.id, at: e.at, by: e.actor.name, what: e.what, name: e.name, qty: e.qty, unit: unitOf(e.what, units),
-        reason: e.reason, ...(e.note ? { note: e.note } : {}), takes: wasteUsage(e.what, e.qty, answers),
+        reason: e.reason, ...(e.note ? { note: e.note } : {}), takes: wasteUsage(e.what, e.qty, answers, tracked),
       });
     } else if (e.type === 'stock.waste_undone') out.delete(e.wasteId);
   }

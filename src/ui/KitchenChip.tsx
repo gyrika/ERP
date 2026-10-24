@@ -9,7 +9,8 @@ import { useNow } from './Kitchen.tsx';
  */
 export function KitchenChip({ tickets, onOpen }: { tickets: KitchenTicket[]; onOpen: () => void }) {
   const now = useNow(1000);
-  const open = queue(tickets);
+  // Customers' orders only: prep tickets (SCRUM-136) never hurry the counter.
+  const open = queue(tickets).filter((t) => !t.prep);
   const oldest = open[0];
   const waited = oldest ? now - oldest.firedAt : 0;
   const label = oldest

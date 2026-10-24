@@ -262,3 +262,19 @@ test('a supplier edit passes sync validation; a broken one is refused', () => {
   assert.ok('reason' in invalid);
   if ('reason' in invalid) assert.match(invalid.reason, /invalid supplier edit/);
 });
+
+test('prep sent to the kitchen (SCRUM-136): a ticket, an item, a unit and a real amount; its Undo and "make more" amount', () => {
+  const made = { ...base, type: 'prep.ordered', ticketId: 'ticket-1', prepId: 'kitchen:kdough1', name: 'Dough', qty: 20, unit: 'pcs' };
+  const ok = (e: unknown) => 'events' in validatePush({ events: [e] }, 'shop-1');
+  assert.ok(ok(made));
+  assert.ok(!ok({ ...made, qty: 0 }));
+  assert.ok(!ok({ ...made, unit: 'kg' }));
+  assert.ok(!ok({ ...made, prepId: '' }));
+  assert.ok(!ok({ ...made, actor: undefined }));
+  assert.ok(!ok({ ...made, orderNumber: 5 }));
+  assert.ok(!ok({ ...made, ticketId: '' }));
+  assert.ok(ok({ ...base, type: 'prep.order_undone', ticketId: 'ticket-1' }));
+  assert.ok(!ok({ ...base, type: 'prep.order_undone' }));
+  assert.ok(ok({ ...base, type: 'prep.limit_set', prepId: 'Mozzarella Blend', before: null, after: 3000 }));
+  assert.ok(!ok({ ...base, type: 'prep.limit_set', prepId: 'Mozzarella Blend', before: null, after: -1 }));
+});

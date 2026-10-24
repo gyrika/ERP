@@ -2,7 +2,8 @@ import type { BaseUnit, InventoryItem, Supplier } from './inventoryData.ts';
 import type { SyncEvent } from './sync.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { answersFromEvents, type Answer, type RecipeEvent } from './costing.ts';
-import { bookGaps, bookUsage, wasteUsage, type GapsOf, type RecipeLine, type UsageOf } from './stockUsage.ts';
+import { batchUsage, bookGaps, bookUsage, prepUse, wasteUsage, type GapsOf, type RecipeLine, type UsageOf } from './stockUsage.ts';
+import { PREP_STOCK, prepTracker, type PrepStock } from './prep.ts';
 import type { LearnedUnit, Tier } from './counting.ts';
 import { suggestions } from './ordering.ts';
 import { onOrder, purchasesFromEvents } from './purchaseOrders.ts';
@@ -235,6 +236,8 @@ export interface Stock {
   rows: InventoryRow[];
   /** Items sold in the last usageDays whose menu item has no recipe yet: they took nothing. */
   untrackedSold: number;
+  /** Semi-processed items (SCRUM-136): each one any batch or "make more" amount was recorded for, or used in that window. */
+  preps: PrepStock[];
 }
 
 /** inventoryFromEvents, plus what the stock does not know about. */
@@ -246,12 +249,26 @@ export const stockFromEvents = (
   const shelves = new Map<string, Shelf>(items.map((i) => [i.id, {
     item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null, orderBelowPacks: null,
   }]));
+  /** Semi-processed items by key: what is on hand, and the batches standing (prep.ts). */
+  const preps = new Map<string, { unit: string; onHand: number; batches: number; makeBelow: number | null; lastMadeAt: number | null }>();
+  /** Prep tickets as batches; its tracked items, with their unit: a sale reaching one takes it instead of its raw items. */
+  const batches = prepTracker();
+  const tracked = batches.tracked;
   const take = (usage: readonly RecipeLine[], sign: 1 | -1) => {
     for (const { inventoryId, qtyBaseUnits } of usage) {
+      if (inventoryId.startsWith(PREP_STOCK)) {
+        const prep = preps.get(inventoryId.slice(PREP_STOCK.length));
+        if (prep) prep.onHand -= sign * qtyBaseUnits;
+        continue;
+      }
       const shelf = shelves.get(inventoryId);
       if (shelf) shelf.onHandBaseUnits -= sign * qtyBaseUnits;
     }
   };
+  /** What each batch (prep ticket Done) took, by ticket, for its Undo. */
+  const made = new Map<string, RecipeLine[]>();
+  /** How much of each semi-processed item each standing sent line used, by line id (daily use). */
+  const prepTaken = new Map<string, Map<string, number>>();
   /** What each GRN put on the shelves, for its Undo. */
   const grnMoved = new Map<string, { itemId: string; qty: number }[]>();
   /** What each sent line took from stock, by line id. */
@@ -268,13 +285,14 @@ export const stockFromEvents = (
   /** Each shelf count's correction, for its Undo: the amount and the count time it replaced. */
   const counts = new Map<string, { itemId: string; delta: number; previous: number | undefined }>();
   /** For a manager's Undo: what the line had taken before the change (null: nothing). */
-  const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null; gaps: { untracked: boolean; items: string[]; qty: number } | null }>();
+  const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null; preps: Map<string, number> | null; gaps: { untracked: boolean; items: string[]; qty: number } | null }>();
   /** What each waste took, for its Undo. */
   const wasted = new Map<string, RecipeLine[]>();
-  const setLine = (lineId: string, usage: RecipeLine[] | null) => {
+  const setLine = (lineId: string, usage: RecipeLine[] | null, used: Map<string, number> | null = null) => {
     const had = taken.get(lineId);
     if (had) take(had, -1);
     if (usage) { take(usage, 1); taken.set(lineId, usage); } else taken.delete(lineId);
+    if (used) prepTaken.set(lineId, used); else prepTaken.delete(lineId);
   };
 
   /** A record that arrives twice (a sync retry, two routes) counts once. */
@@ -282,6 +300,30 @@ export const stockFromEvents = (
   for (const e of events) {
     if (seen.has(e.id)) continue;
     seen.add(e.id);
+    // A prep ticket marked Done is a batch made: its raw items come off, the item goes up (SCRUM-136).
+    const batch = batches.step(e);
+    if (batch) {
+      const { order: o } = batch;
+      const prep = preps.get(o.prepId) ?? { unit: o.unit, onHand: 0, batches: 0, makeBelow: null, lastMadeAt: null };
+      preps.set(o.prepId, prep);
+      if (batch.kind === 'made') {
+        // His answers as they are now; tracked items inside it (dough in a dough ball) come off themselves.
+        const usage = batchUsage(o.prepId, o.qty, o.unit, answers, tracked);
+        take(usage, 1);
+        made.set(o.ticketId, usage);
+        if (prep.batches === 0) { prep.unit = o.unit; prep.onHand = 0; }
+        prep.onHand += o.qty;
+        prep.batches += 1;
+        prep.lastMadeAt = o.at;
+      } else {
+        take(made.get(o.ticketId) ?? [], -1);
+        made.delete(o.ticketId);
+        prep.onHand -= o.qty;
+        prep.batches -= 1;
+        // No batch standing: sales go back to the raw items, as before its first batch.
+        if (prep.batches === 0) prep.onHand = 0;
+      }
+    }
     switch (e.type) {
       case 'stock.item_added':
         if (!shelves.has(e.item.id)) {
@@ -405,8 +447,8 @@ export const stockFromEvents = (
       case 'order.sent':
         ticketLines.set(e.ticketId, e.lines.map((l) => l.id));
         for (const line of e.lines) {
-          setLine(line.id, usageOf(line, answers));
-          gaps.set(line.id, { ...gapsOf(line, answers), qty: lineQty(line.qty) });
+          setLine(line.id, usageOf(line, answers, tracked), prepUse(line, answers));
+          gaps.set(line.id, { ...gapsOf(line, answers, tracked), qty: lineQty(line.qty) });
           sentAt.set(line.id, e.at);
         }
         break;
@@ -419,23 +461,24 @@ export const stockFromEvents = (
         const had = taken.get(e.lineId);
         const hadGaps = gaps.get(e.lineId);
         if (!had && !hadGaps) break; // never sent: it took nothing
-        beforeChange.set(e.id, { lineId: e.lineId, usage: had ?? null, gaps: hadGaps ?? null });
-        setLine(e.lineId, e.type === 'order.item_changed' ? usageOf(e.after, answers) : null);
-        if (e.type === 'order.item_changed') gaps.set(e.lineId, { ...gapsOf(e.after, answers), qty: lineQty(e.after.qty) });
+        beforeChange.set(e.id, { lineId: e.lineId, usage: had ?? null, preps: prepTaken.get(e.lineId) ?? null, gaps: hadGaps ?? null });
+        if (e.type === 'order.item_changed') setLine(e.lineId, usageOf(e.after, answers, tracked), prepUse(e.after, answers));
+        else setLine(e.lineId, null);
+        if (e.type === 'order.item_changed') gaps.set(e.lineId, { ...gapsOf(e.after, answers, tracked), qty: lineQty(e.after.qty) });
         else gaps.delete(e.lineId);
         break;
       }
       case 'order.change_undone': {
         const was = beforeChange.get(e.undoneEventId);
         if (was) {
-          setLine(was.lineId, was.usage);
+          setLine(was.lineId, was.usage, was.preps);
           if (was.gaps) gaps.set(was.lineId, was.gaps); else gaps.delete(was.lineId);
         }
         break;
       }
       case 'stock.wasted': {
         // His answers as they were then, like a sale.
-        const usage = wasteUsage(e.what, e.qty, answers);
+        const usage = wasteUsage(e.what, e.qty, answers, tracked);
         take(usage, 1);
         wasted.set(e.id, usage);
         break;
@@ -443,6 +486,12 @@ export const stockFromEvents = (
       case 'stock.waste_undone': {
         const usage = wasted.get(e.wasteId);
         if (usage) { take(usage, -1); wasted.delete(e.wasteId); }
+        break;
+      }
+      case 'prep.limit_set': {
+        const prep = preps.get(e.prepId) ?? { unit: '', onHand: 0, batches: 0, makeBelow: null, lastMadeAt: null };
+        prep.makeBelow = e.after;
+        preps.set(e.prepId, prep);
         break;
       }
       default: break; // payments, discounts and the kitchen do not move stock
@@ -499,7 +548,23 @@ export const stockFromEvents = (
     const row = rows.find((r) => r.id === s.itemId);
     if (row) { row.suggestedPacks = s.packs; row.suggestedSupplierId = s.supplierId; }
   }
-  return { rows, untrackedSold };
+  // Semi-processed items: their use a day comes from what sales used of them, tracked or not.
+  const prepUsed = new Map<string, number>();
+  for (const [lineId, use] of prepTaken) {
+    const at = sentAt.get(lineId) ?? 0;
+    if (at < now - settings.usageDays * DAY || at > now) continue;
+    for (const [key, qty] of use) prepUsed.set(key, (prepUsed.get(key) ?? 0) + qty);
+  }
+  const inKitchen = new Map<string, number>();
+  for (const o of batches.open(now)) inKitchen.set(o.prepId, (inKitchen.get(o.prepId) ?? 0) + o.qty);
+  const prepRows: PrepStock[] = [...new Set([...preps.keys(), ...prepUsed.keys(), ...inKitchen.keys()])].map((key) => {
+    const p = preps.get(key);
+    return {
+      key, unit: p?.unit ?? '', tracked: tracked.has(key), onHand: p?.onHand ?? 0, usedPerDay: (prepUsed.get(key) ?? 0) / days,
+      makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, inKitchen: inKitchen.get(key) ?? 0,
+    };
+  });
+  return { rows, untrackedSold, preps: prepRows };
 };
 
 const lineQty = (qty: number) => (Number.isFinite(qty) && qty > 0 ? qty : 1);

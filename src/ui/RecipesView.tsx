@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import {
-  addonCost, addonOf, addonQuestion, batchEdit, batchMakes, batchQuestion, checkAnswer, checkOwnLines, checkPrepName, kitchenLine, KITCHEN_LINE, linesCost, marginOf,
+  addonCost, addonOf, addonQuestion, batchMakes, batchQuestion, checkAnswer, checkOwnLines, checkPrepName, KITCHEN_LINE, linesCost, marginOf,
   menuCost, newPrepId, ownPrepOf, ownPreps, prepOf, prepQuestion, questionKind, recipeOf, recipeQuestion, recipeUnit, sizesOf, STOCK_LINE, undefinedNames,
   UNITS, waitingOn, type Answer, type Cost, type CostContext, type OwnPrep, type Recipe,
 } from '../domain/costing.ts';
@@ -27,7 +27,7 @@ import { NumberInput } from './NumberInput.tsx';
  * in, with no PIN; each opening is in the audit trail (recipe.viewed). Each save is one audited
  * recipe.answer_set with an Undo; nothing is filled in for him.
  *
- * Semi-processed items (dough, sauces, the cheese blend) are items, not recipes: SemiView below
+ * Semi-processed items (dough, sauces, the cheese blend) are items, not recipes: SemiView.tsx
  * shows them to everyone; once added, one is offered in every recipe like his sheet's batches,
  * priced, and taken from stock through what goes in it.
  */
@@ -54,7 +54,7 @@ interface Entry {
 
 const sizeName = (item: MenuItem, size: string) => item.variants?.find((v) => v.id === size)?.label ?? '';
 
-function entriesOf(menu: readonly MenuItem[], ctx: CostContext): Entry[] {
+export function entriesOf(menu: readonly MenuItem[], ctx: CostContext): Entry[] {
   const out: Entry[] = [];
   for (const item of menu) {
     if (item.hidden) continue;
@@ -94,13 +94,13 @@ function entriesOf(menu: readonly MenuItem[], ctx: CostContext): Entry[] {
 }
 
 /** "stock:inv-0006" → "Mozzarella (Prabhat)", "kitchen:k…" → "Garlic Mayo"; his own names as they are. */
-const lineName = (name: string, ctx: CostContext) => {
+export const lineName = (name: string, ctx: CostContext) => {
   if (name.startsWith(STOCK_LINE)) return ctx.items.find((i) => i.id === name.slice(STOCK_LINE.length))?.name ?? 'An item no longer in stock';
   if (name.startsWith(KITCHEN_LINE)) return ownPrepOf(name, ctx.answers)?.name ?? 'An item no longer made';
   return name;
 };
 
-const amountText = (l: BookLine) => `${Number(l.qty.toFixed(3)).toLocaleString('en-US')} ${l.unit}`;
+export const amountText = (l: BookLine) => `${Number(l.qty.toFixed(3)).toLocaleString('en-US')} ${l.unit}`;
 
 const upper = (t: string) => `${t[0].toUpperCase()}${t.slice(1)}`;
 
@@ -239,83 +239,8 @@ function Book({ owner, focus }: { owner: Actor; focus?: string }) {
   );
 }
 
-const unitAmount = (qty: number, unit: string) => `${Number(qty.toFixed(3)).toLocaleString('en-US')} ${unit}`;
-
-/** What his kitchen makes for the dishes: the semi-processed items he added here, then his sheet's batches. */
-function Kitchen({ ctx, entries, editing, canEdit, onEdit, onSave, onDelete }: {
-  ctx: CostContext; entries: Entry[]; editing: string | null; canEdit: boolean; onEdit: (key: string | null) => void;
-  onSave: (question: string, answer: PrepAnswer | BatchAnswer, name: string) => void;
-  /** Takes away one of his own items, or his changes to a sheet batch. */
-  onDelete: (question: string, name: string, message: string) => void;
-}) {
-  const [open, setOpen] = useState<string | null>(null);
-  const own = ownPreps(ctx.answers);
-  const rows = [
-    ...own.map((p) => ({ key: p.id, name: p.name, own: p as OwnPrep | null })),
-    ...Object.keys(PREPS).sort((a, b) => a.localeCompare(b)).map((name) => ({ key: name, name, own: null as OwnPrep | null })),
-  ];
-  // Used by a dish: by its id, or by the name his sheet uses for it.
-  const usedIn = (row: { name: string; own: OwnPrep | null }) => entries.filter((e) => e.recipe?.lines.some((l) =>
-    l.name === row.name || (row.own && l.name === kitchenLine(row.own.id)))).length;
-  const editor = (p: OwnPrep | null, sheet?: string) => (
-    <PrepEditor key={p?.id ?? sheet ?? 'new'} item={p} sheet={sheet} ctx={ctx} onCancel={() => onEdit(null)} onSave={onSave} />
-  );
-
-  return (
-    <section className="vault__group" aria-label="Made in your kitchen">
-      <ul className="vault__list">
-        {editing === '' && <li>{editor(null)}</li>}
-        {rows.map((row) => {
-          if (editing === row.key) return <li key={row.key}>{editor(row.own, row.own ? undefined : row.name)}</li>;
-          const prep = row.own ?? prepOf(row.name, ctx.answers)!;
-          const edited = !row.own && batchEdit(row.name, ctx.answers) !== null;
-          const cost = linesCost(prep.lines, ctx);
-          const used = usedIn(row);
-          const makes = row.own ? row.own.makes : batchMakes(row.name, recipeUnit(row.name) ?? prep.makes?.unit ?? 'g', ctx.answers);
-          const status = [
-            makes ? `Makes ${unitAmount(makes.qty, makes.unit)}` : 'Batch size not known yet',
-            cost.complete ? `costs ${fmt(cost.cents)} a batch` : waitingOn(cost.missing, menuItems(), 2),
-          ].join(' · ');
-          const isOpen = open === row.key;
-          return (
-            <li key={row.key}>
-              <article className={`rcard rcard--${cost.complete && makes ? 'ok' : 'gap'}${isOpen ? ' rcard--open' : ''}`}>
-                <button type="button" className="rcard__head" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : row.key)}>
-                  <span className="rcard__name">{row.name}</span>
-                  <span className="rcard__status num">{status}</span>
-                </button>
-                <ul className="rcard__lines" aria-hidden={!isOpen}>
-                  {prep.lines.map((l, i) => (
-                    <li key={i}><span>{lineName(l.name, ctx)}</span><span className="rcard__amt num">{amountText(l)}</span></li>
-                  ))}
-                </ul>
-                {isOpen && (
-                  <div className="rcard__more">
-                    <div className="rcard__actions">
-                      {canEdit && <button type="button" className="chip" onClick={() => onEdit(row.key)}>Edit</button>}
-                      {canEdit && row.own && used === 0 && (
-                        <button type="button" className="linkbtn" onClick={() => onDelete(prepQuestion(row.own!.id), row.name, `${row.name}: deleted.`)}>Delete</button>
-                      )}
-                      {canEdit && edited && (
-                        <button type="button" className="linkbtn" onClick={() => onDelete(batchQuestion(row.name), row.name, `${row.name}: back to your sheet.`)}>Use your sheet's batch</button>
-                      )}
-                      <span className="rcard__from">
-                        {[row.own ? 'Added here' : edited ? 'Changed here, from your sheet' : 'From your sheet', used ? `in ${used} recipe${used === 1 ? '' : 's'}` : 'in no recipe yet'].join(' · ')}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </article>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
-type PrepAnswer = Extract<Answer, { kind: 'prep' }>;
-type BatchAnswer = Extract<Answer, { kind: 'batch' }>;
+export type PrepAnswer = Extract<Answer, { kind: 'prep' }>;
+export type BatchAnswer = Extract<Answer, { kind: 'batch' }>;
 
 /**
  * Writing a semi-processed item: its name, one batch's output, what goes in. A new one first
@@ -323,7 +248,7 @@ type BatchAnswer = Extract<Answer, { kind: 'batch' }>;
  * picking one completes every dish that names it; a new name only when none fits.
  * One of his sheet's batches (`sheet`) keeps its name and unit: his dishes use it by them.
  */
-function PrepEditor({ item, sheet, ctx, onSave, onCancel }: {
+export function PrepEditor({ item, sheet, ctx, onSave, onCancel }: {
   item: OwnPrep | null; sheet?: string; ctx: CostContext;
   onSave: (question: string, answer: PrepAnswer | BatchAnswer, name: string) => void; onCancel: () => void;
 }) {
@@ -557,51 +482,5 @@ function Editor({ entry, entries, ctx, onSave, onCancel }: {
         <button type="submit" className="cta">Save recipe</button>
       </div>
     </form>
-  );
-}
-
-/**
- * Items › Semi-processed: what the kitchen makes for the dishes (dough, sauces, the cheese blend).
- * Items, not recipes: everyone who sees Items sees them, with no PIN; what one batch makes, what it
- * costs, which dishes use it. The owner adds and changes them (the server checks it is the owner).
- * Once added, one is offered in every dish's recipe and taken from stock through what goes in it.
- */
-export function SemiView({ onRegister }: { onRegister?: () => void }) {
-  useMenu();
-  const ctx = useCostContext();
-  const entries = useMemo(() => entriesOf(menuItems(), ctx), [ctx]);
-  const owner = useOwner();
-  const canEdit = owner !== null;
-  const [editing, setEditing] = useState<string | null>(null);
-  const [last, setLast] = useState<{ message: string; undo: () => void } | null>(null);
-  return (
-    <div className="owner">
-      <OwnerNav current="items" onRegister={onRegister} />
-      <main className="owner__main semi" aria-label="Semi-processed">
-        <ItemsTabs current="semi" />
-        <div className="semi__top">
-          <h1 className="menuv__title">Semi-processed</h1>
-          {canEdit && <button type="button" className="chip chip--solid" onClick={() => setEditing('')}>New semi-processed item</button>}
-        </div>
-        <p className="menuv__lead">What your kitchen makes for the dishes: dough, sauces, blends. Each is taken from stock through what goes in it.</p>
-        {last && (
-          <p className="costq__saved" role="status">
-            {last.message}
-            <button type="button" className="linkbtn" onClick={() => { last.undo(); setLast(null); }}>Undo</button>
-          </p>
-        )}
-        <Kitchen
-          ctx={ctx} entries={entries} editing={editing} canEdit={canEdit} onEdit={setEditing}
-          onSave={(question, answer, name) => {
-            const message = answer.kind === 'prep' ? `${name}: saved. Your recipes can use it now.` : `${name}: saved. Your recipes use it as changed.`;
-            setLast({ message, undo: answerQuestion(question, answer, ctx.answers.get(question) ?? null, owner ?? undefined) });
-            setEditing(null);
-          }}
-          onDelete={(question, _name, message) => {
-            setLast({ message, undo: answerQuestion(question, null, ctx.answers.get(question) ?? null, owner ?? undefined) });
-          }}
-        />
-      </main>
-    </div>
   );
 }

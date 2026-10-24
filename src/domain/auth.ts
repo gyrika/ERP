@@ -47,6 +47,9 @@ export const OWNER_STOCK: ReadonlySet<string> = new Set(['stock.tier_set', 'stoc
 
 export const mayRecord = (role: Role, type: string): boolean => {
   if (type.startsWith('kitchen.')) return true;
+  // Sending prep to the kitchen: whoever is signed in (SCRUM-136); the "make more" amount is a manager's.
+  if (type === 'prep.ordered' || type === 'prep.order_undone') return true;
+  if (type === 'prep.limit_set') return managesRole(role);
   if (CASHIER_EVENTS.has(type)) return role !== 'kitchen';
   if (MANAGER_EVENTS.has(type)) return managesRole(role);
   // Which items are counted daily, weekly or monthly: the owner's choice (SCRUM-90).

@@ -39,9 +39,14 @@ export interface KitchenTicket {
   /** The cook tapped Start: from here to `doneAt` is the cooking time. */
   startedAt?: number;
   doneAt?: number;
+  /**
+   * A prep ticket (SCRUM-136): a semi-processed item to make, sent from low stock, not a
+   * customer's order (number 0, no lines). Done is the batch made (inventory.ts).
+   */
+  prep?: { prepId: string; name: string; qty: number; unit: string };
 }
 
-export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn' | 'online'>;
+export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn' | 'online' | 'prep'>;
 
 export type Urgency = 'ok' | 'warn' | 'bad';
 
@@ -144,11 +149,11 @@ export const unbump = (tickets: KitchenTicket[], id: string): KitchenTicket[] =>
     return open;
   });
 
-/** What to make next: open tickets, oldest first. */
+/** What to make next: open tickets, oldest first; customers' orders before prep. */
 export const queue = (tickets: KitchenTicket[]): KitchenTicket[] =>
   tickets
     .filter((t) => t.doneAt === undefined)
-    .sort((a, b) => a.firedAt - b.firedAt || a.number - b.number);
+    .sort((a, b) => Number(Boolean(a.prep)) - Number(Boolean(b.prep)) || a.firedAt - b.firedAt || a.number - b.number);
 
 /**
  * Kitchen state of a sent order, for the register: waiting until the cook taps
@@ -227,6 +232,10 @@ const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
         t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn, ...(e.online ? { online: e.online } : {}) });
         break;
       case 'order.send_undone': t = recall(t, e.ticketId); break;
+      case 'prep.ordered':
+        t = fire(t, { id: e.ticketId, shopId: e.shopId, number: 0, lines: [], firedAt: e.at, prep: { prepId: e.prepId, name: e.name, qty: e.qty, unit: e.unit } });
+        break;
+      case 'prep.order_undone': t = recall(t, e.ticketId); break;
       case 'order.item_changed':
       case 'order.item_cancelled': {
         const was = kitchenLine(t, e.lineId);
@@ -276,7 +285,7 @@ export interface CookRecord {
  */
 export const cookLog = (events: readonly SyncEvent[]): CookRecord[] =>
   foldTickets(events)
-    .filter((t) => t.doneAt !== undefined)
+    .filter((t) => t.doneAt !== undefined && !t.prep)
     .map((t): CookRecord => {
       const doneAt = t.doneAt as number;
       const startedAt = t.startedAt !== undefined && t.startedAt <= doneAt ? t.startedAt : null;
