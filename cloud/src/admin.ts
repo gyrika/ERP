@@ -105,6 +105,7 @@ export const isOnline = (row: ShopRow, now: number): boolean => row.lastSeenAt !
 const UPDATE_WORDS: Record<string, string> = {
   done: 'Updated', back: 'Went back', failed: 'Update failed', 'going-back': 'Going back', 'up-to-date': 'Up to date',
   checking: 'Checking', downloading: 'Downloading', backup: 'Backing up', installing: 'Installing', starting: 'Starting',
+  waiting: 'Ready to install',
 };
 
 const STYLE = `:root{--bg:#F2F1EF;--card:#FFF;--fg:#1C1C1E;--muted:#6E6D72;--line:#E3E1DE;--ok:#1E7A4F;--warn:#9A6514;--bad:#C8363B}

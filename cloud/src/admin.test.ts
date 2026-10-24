@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SyncEvent } from '../../src/domain/sync.ts';
-import { adminRoutes, ago, signedIn, startOfDayColombo } from './admin.ts';
+import { adminPage, adminRoutes, ago, signedIn, startOfDayColombo } from './admin.ts';
 import { createCloud, sha256Hex, updateStatus } from './cloud.ts';
 import { fakeD1 } from './fakeD1.ts';
 
@@ -59,6 +59,11 @@ test('each copy pass tells the cloud the version and the last update; the admin 
   assert.match(page, /Last sale 1 min ago · 1 events today/);
   assert.match(page, /Offline · never/, 'the test shop never checked in');
   assert.ok(page.indexOf('CheesyBeez Thalwila') < page.indexOf('Test shop'), 'online shops first');
+});
+
+test('a version downloaded and held back for the night reads "Ready to install"', () => {
+  const page = adminPage([{ id: 'a', name: 'CheesyBeez Thalwila', version: '1.0.4', update: { phase: 'waiting', percent: 100, version: '1.0.5', at: NOW - 2 * 60_000 }, lastSeenAt: NOW, lastSaleAt: null, eventsToday: 0 }], '1.0.5', NOW);
+  assert.match(page, /Ready to install 1\.0\.5 · 2 min ago/);
 });
 
 test('a shop server cannot store anything odd in its status', () => {
