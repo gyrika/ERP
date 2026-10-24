@@ -108,3 +108,63 @@ test('"make more when below": Automatic or a number, with Undo', async () => {
   await user.click(screen.getByRole('button', { name: 'Undo' }));
   expect(readAll().at(-1)).toMatchObject({ type: 'prep.limit_set', before: null, after: 3000 });
 });
+
+test('an item made from another names it, reads its share as a batch, and opens it with a tap (SCRUM-141)', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#items/semi');
+  render(<Root />);
+  expect(row('Pizza Dough Batch').getByText('In 10inch Dough Ball and 12inch Dough Ball')).toBeTruthy();
+
+  await user.click(semi().getByRole('button', { name: '12inch Dough Ball' }));
+  const sheet = () => within(screen.getByRole('dialog'));
+  expect(sheet().getByText('1/12 batch')).toBeTruthy();
+
+  await user.click(sheet().getByRole('button', { name: 'Open Pizza Dough Batch' }));
+  expect(sheet().getByRole('heading', { name: 'Pizza Dough Batch' })).toBeTruthy();
+  await user.click(sheet().getByRole('button', { name: 'Open 10inch Dough Ball' }));
+  expect(sheet().getByRole('heading', { name: '10inch Dough Ball' })).toBeTruthy();
+});
+
+test('the owner changes the ingredient chain in place: a yield, an amount, a new line, one taken out, each with Undo (SCRUM-146)', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#items/semi');
+  render(<Root />);
+  await user.click(semi().getByRole('button', { name: '12inch Dough Ball' }));
+  const sheet = () => within(screen.getByRole('dialog'));
+  const chain = () => within(sheet().getByRole('navigation', { name: 'How it is made' }));
+  expect(chain().getByRole('button', { name: 'Pizza Dough Culture' })).toBeTruthy();
+  expect(chain().getByText('12inch Dough Ball').getAttribute('aria-current')).toBe('page');
+
+  // One more ball from a batch: kept as 1/13 of the batch, the cost moves, and Undo puts it back.
+  await user.click(sheet().getByRole('button', { name: 'One more' }));
+  expect(readAll().at(-1)).toMatchObject({
+    type: 'recipe.answer_set', question: 'batch:12inch Dough Ball', actor: { role: 'owner' },
+    after: { kind: 'batch', makes: { qty: 1, unit: 'pcs' }, lines: [{ name: 'Pizza Dough Batch', qty: 0.076923, unit: 'pcs' }] },
+  });
+  expect(sheet().getByText('1/13 batch')).toBeTruthy();
+  expect(sheet().getByText(/^was Rs /)).toBeTruthy();
+  await user.click(sheet().getByRole('button', { name: 'Undo' }));
+  expect(readAll().at(-1)).toMatchObject({ question: 'batch:12inch Dough Ball', after: null });
+  expect(sheet().getByText('1/12 batch')).toBeTruthy();
+
+  // Up the chain: an amount typed over, then a new line; what is made from it is never offered.
+  await user.click(chain().getByRole('button', { name: 'Pizza Dough Batch' }));
+  const salt = sheet().getByRole('textbox', { name: 'Salt, how much' });
+  await user.clear(salt);
+  await user.type(salt, '40{Enter}');
+  expect(readAll().at(-1)).toMatchObject({ question: 'batch:Pizza Dough Batch', after: { lines: expect.arrayContaining([{ name: 'Salt', qty: 40, unit: 'g' }]) } });
+
+  await user.click(sheet().getByRole('button', { name: '+ Add an ingredient' }));
+  expect(sheet().getByText('10inch Dough Ball, 12inch Dough Ball are not shown: made from Pizza Dough Batch.')).toBeTruthy();
+  expect(sheet().queryByRole('button', { name: /12inch Dough Ball\s*Made in your kitchen/ })).toBeNull();
+  await user.type(sheet().getByRole('searchbox'), 'mozzarella bl');
+  await user.click(sheet().getByRole('button', { name: /Mozzarella Blend/ }));
+  await user.type(sheet().getByRole('textbox', { name: 'Mozzarella Blend, how much' }), '100');
+  await user.click(sheet().getByRole('button', { name: 'Add' }));
+  expect(readAll().at(-1)).toMatchObject({ after: { lines: expect.arrayContaining([{ name: 'Mozzarella Blend', qty: 100, unit: 'g' }]) } });
+  expect(sheet().getByText('Pizza Dough Batch: Mozzarella Blend added.')).toBeTruthy();
+
+  await user.click(sheet().getByRole('button', { name: 'Take Mozzarella Blend out' }));
+  const last = readAll().at(-1) as unknown as { after: { lines: { name: string }[] } };
+  expect(last.after.lines.map((l) => l.name)).not.toContain('Mozzarella Blend');
+});

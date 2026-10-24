@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import {
-  addonCost, addonOf, addonQuestion, batchMakes, batchQuestion, checkAnswer, checkOwnLines, checkPrepName, KITCHEN_LINE, linesCost, marginOf,
+  addonCost, addonOf, addonQuestion, batchMakes, batchQuestion, checkAnswer, checkOwnLines, checkPrepName, KITCHEN_LINE, linesCost, makesLoop, marginOf,
   menuCost, newPrepId, ownPrepOf, ownPreps, prepOf, prepQuestion, questionKind, recipeOf, recipeQuestion, recipeUnit, sizesOf, STOCK_LINE, undefinedNames,
   UNITS, waitingOn, type Answer, type Cost, type CostContext, type OwnPrep, type Recipe,
 } from '../domain/costing.ts';
@@ -10,6 +10,7 @@ import { fmt } from '../domain/money.ts';
 import { PREPS, type BookLine } from '../domain/recipeBook.ts';
 import { MENU_RECIPES } from '../domain/recipeMap.ts';
 import type { MenuItem, Option } from '../domain/types.ts';
+import { batchShare } from '../domain/prep.ts';
 import { answerQuestion, recipesViewed, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { Question } from './CostQuestions.tsx';
 import { useMenu } from './menuStore.ts';
@@ -239,6 +240,9 @@ function Book({ owner, focus }: { owner: Actor; focus?: string }) {
   );
 }
 
+/** Why a semi-processed item can't take a line: it is made from this one (SCRUM-146). */
+export const INSIDE_ITSELF = 'That is made from this one, so it can\'t go in it.';
+
 export type PrepAnswer = Extract<Answer, { kind: 'prep' }>;
 export type BatchAnswer = Extract<Answer, { kind: 'batch' }>;
 
@@ -293,7 +297,7 @@ export function PrepEditor({ item, sheet, ctx, onSave, onCancel }: {
       const lines = readRows(rows);
       if (typeof lines === 'string') return setError(lines);
       const answer: BatchAnswer = { kind: 'batch', makes: { qty: makes, unit }, lines };
-      const wrong = checkAnswer(batchQuestion(sheet), answer);
+      const wrong = checkAnswer(batchQuestion(sheet), answer) ?? (makesLoop(batchQuestion(sheet), answer, ctx.answers) ? INSIDE_ITSELF : null);
       return wrong ? setError(wrong) : onSave(batchQuestion(sheet), answer, sheet);
     }
     const taken = ownPreps(ctx.answers).some((p) => p.id !== item?.id && p.name.toLowerCase() === clean.toLowerCase());
@@ -305,7 +309,7 @@ export function PrepEditor({ item, sheet, ctx, onSave, onCancel }: {
     if (typeof lines === 'string') return setError(lines);
     const id = item?.id ?? newPrepId();
     const answer: PrepAnswer = { kind: 'prep', name: clean, makes: { qty: makes, unit }, lines };
-    const wrong = checkAnswer(prepQuestion(id), answer);
+    const wrong = checkAnswer(prepQuestion(id), answer) ?? (makesLoop(prepQuestion(id), answer, ctx.answers) ? INSIDE_ITSELF : null);
     if (wrong) return setError(wrong);
     onSave(prepQuestion(id), answer, clean);
   };
@@ -348,7 +352,7 @@ export function PrepEditor({ item, sheet, ctx, onSave, onCancel }: {
       )}
       {sheetUnit && !sheet && <p className="rcard__from">Your recipes already use {clean}: saving it gives them its cost and stock.</p>}
       <p className="rcard__from">What goes into one batch:</p>
-      <LinesEditor rows={rows} onChange={(r) => { setRows(r); setError(''); }} ctx={ctx} suppliers={suppliers} ownPrepsToo={false} />
+      <LinesEditor rows={rows} onChange={(r) => { setRows(r); setError(''); }} ctx={ctx} suppliers={suppliers} />
       {preview && (
         <p className="redit__cost num" aria-live="polite">
           {preview.complete
@@ -385,7 +389,7 @@ function Card({ entry: e, ctx, owner, open, asked, onToggle, onEdit, onSheet, on
           {e.recipe.lines.map((l, i) => (
             <li key={i}>
               <span>{lineName(l.name, ctx)}</span>
-              <span className="rcard__amt num">{amountText(l)}</span>
+              <span className="rcard__amt num">{batchShare(l, ctx.answers) ?? amountText(l)}</span>
             </li>
           ))}
         </ul>
