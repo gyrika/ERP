@@ -10,6 +10,11 @@ database_name = "cheesybeez-cloud"
 database_id = "02b0e2d7-482a-4039-8f74-009ed4209045"
 migrations_dir = "migrations"
 
+# The language model (SCRUM-144): Cloudflare Workers AI, free within its daily allowance. Only
+# ever suggests (picks one of the commands it is given, or turns a recording into words).
+[ai]
+binding = "AI"
+
 # The owner's phone page (the cloud build of the app; nothing else of the POS is served here).
 [assets]
 directory = "../dist-cloud"
@@ -41,6 +46,9 @@ binding = "DB"
 database_name = "cheesybeez-cloud-staging"
 database_id = "725a90a0-2357-4a6b-b85e-5e402d73d6fa"
 migrations_dir = "migrations"
+
+[env.staging.ai]
+binding = "AI"
 
 [env.staging.vars]
 ORDER_SHOP = "cheesybeez-staging-test-1c7f" # the laptop test shop

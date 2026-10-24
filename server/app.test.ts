@@ -394,3 +394,33 @@ test('photos at the counter: from the cloud the first time, then from this PC; n
   assert.equal((await s.call('/api/v1/photos', s.tokens.counter, { id, data: jpeg.toString('base64') })).status, 404, 'phones send photos to the cloud, not here');
   await s.stop();
 });
+
+// ----- voice at the counter (SCRUM-145) -----
+
+test("voice: the counter's request goes to the cloud as it is and the answer comes back; never from a kitchen tablet", async () => {
+  const asked: { tenantId: string; task: string; body: string; type: string }[] = [];
+  const cloudAi: AppOptions['cloudAi'] = async (tenantId, task, body, type) => {
+    asked.push({ tenantId, task, body: body.toString('utf8'), type });
+    return { status: 200, body: Buffer.from(task === 'command' ? '{"id":"stock","cached":false}' : '{"text":"open stock"}') };
+  };
+  const s = await start(memoryStore(), undefined, { cloudAi });
+  const pick = await s.call('/api/v1/ai/command', s.tokens.counter, { text: 'open stock', commands: [{ id: 'stock', label: 'Stock' }] });
+  assert.deepEqual(await pick.json(), { id: 'stock', cached: false });
+  assert.equal(asked[0].tenantId, SHOP);
+  assert.equal(asked[0].task, 'command');
+  assert.match(asked[0].body, /open stock/);
+  assert.equal((await s.call('/api/v1/ai/command', s.tokens.kitchen, { text: 'x', commands: [] })).status, 403);
+  assert.equal((await s.call('/api/v1/ai/command', null, { text: 'x', commands: [] })).status, 401);
+  await s.stop();
+});
+
+test('voice without the cloud answers 503, so the counter says it needs the internet', async () => {
+  const s = await start(memoryStore(), undefined, { cloudAi: async () => null });
+  const r = await s.call('/api/v1/ai/transcribe', s.tokens.counter, {});
+  assert.equal(r.status, 503);
+  assert.equal(((await r.json()) as { error: string }).error, 'unavailable');
+  const none = await start();
+  assert.equal((await none.call('/api/v1/ai/command', none.tokens.counter, {})).status, 503);
+  await s.stop();
+  await none.stop();
+});

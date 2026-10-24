@@ -23,6 +23,7 @@ import { setSoundOn, soundOn } from './sound.ts';
 import { useManagerMode } from './useManagerMode.ts';
 import { useRegister } from './useRegister.ts';
 import { BinIcon, WasteSheet } from './WasteSheet.tsx';
+import { MicIcon } from './VoiceKey.tsx';
 import { useMenu } from './menuStore.ts';
 import { THEME_LABEL, setTheme, themeChoice, type ThemeChoice } from './theme.ts';
 import { useFleet } from './ShopsView.tsx';
@@ -49,12 +50,15 @@ export function App({
   onOwner,
   onSwitch,
   canManageStock = true,
+  onVoice,
 }: {
   onKitchen?: () => void;
   /** Opens the Owner view (owners and managers; F3 does the same). */
   onOwner?: () => void;
   onSwitch?: () => void;
   canManageStock?: boolean;
+  /** Hold to say which page to open (SCRUM-145; F9 does the same). */
+  onVoice?: { start: () => void; stop: () => void };
 } = {}) {
   const reg = useRegister();
   useMenu();
@@ -292,6 +296,12 @@ export function App({
             <OnlineChip state={online} looking={sheet?.kind === 'online'} onOpen={() => setSheet({ kind: 'online' })} />
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
+            {onVoice && (
+              <button type="button" className="corner__key" aria-label="Hold and say which page to open"
+                onPointerDown={(e) => { e.preventDefault(); onVoice.start(); }} onPointerUp={onVoice.stop} onPointerLeave={onVoice.stop}>
+                <MicIcon /> Voice <kbd>F9</kbd>
+              </button>
+            )}
             {/* The owner and managers see their own screen without any shortcut. */}
             {onOwner && <button type="button" className="corner__key" onClick={onOwner}>Owner view <kbd>F3</kbd></button>}
             {onSwitch
