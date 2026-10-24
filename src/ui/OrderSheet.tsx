@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
 import { parsePacks } from '../domain/inventory.ts';
@@ -651,11 +651,13 @@ function SupplierSteps({ inline, step, supplierId, start, items, suppliers, purc
  * The item sheet's Order tab: only puts the item in a supplier's cart. What it is on order with
  * and which cart it is in are said in one line each; changing them is on the Order page.
  */
-export function ItemOrder({ item, items, suppliers, purchases }: {
+export function ItemOrder({ item, items, suppliers, purchases, price }: {
   item: InventoryRow;
   items: InventoryRow[];
   suppliers: Supplier[];
   purchases: PurchaseState;
+  /** The price per pack box (the item sheet's): first, with the packs on its right, Add to cart below. */
+  price?: ReactNode;
 }) {
   const sources = suppliers.filter((s) => item.supplierIds.includes(s.id));
   const last = purchases.lastSupplier.get(item.id);
@@ -666,7 +668,7 @@ export function ItemOrder({ item, items, suppliers, purchases }: {
   const carts = cartsNow(items, purchases);
   const inCart = cartOf(carts, item.id);
 
-  if (!supplierId) return <p className="flow-hint">No active supplier for {item.name}. Add one on <a href="#suppliers">Suppliers</a>.</p>;
+  if (!supplierId) return <><p className="flow-hint">No active supplier for {item.name}. Add one on <a href="#suppliers">Suppliers</a>.</p>{price}</>;
   return (
     <section className="flow__list item-order" aria-label={`Order ${item.name}`}>
       {open.map((o) => {
@@ -678,17 +680,25 @@ export function ItemOrder({ item, items, suppliers, purchases }: {
         );
       })}
       {said ? (
-        <p className="bill__said" role="status">
-          {said.message}
-          <button type="button" className="linkbtn" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
-          <a className="linkbtn" href={`#order/${said.to}`}>Open cart</a>
-        </p>
+        <>
+          <p className="bill__said" role="status">
+            {said.message}
+            <button type="button" className="linkbtn" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
+          </p>
+          {/* A big button, where Add to cart was. */}
+          <a className="cta item-order__open" href={`#order/${said.to}`}>Open cart</a>
+        </>
       ) : inCart ? (
-        <p className="item-order__line">
-          In {nameOf(suppliers, inCart)}'s cart · {carts.get(inCart)![item.id]} {word(carts.get(inCart)![item.id], 'pack', 'packs')}
-          {' '}<a className="linkbtn" href={`#order/${inCart}`}>Open cart</a>
-        </p>
-      ) : (
+        <>
+          <p className="item-order__line">
+            In {nameOf(suppliers, inCart)}'s cart · {carts.get(inCart)![item.id]} {word(carts.get(inCart)![item.id], 'pack', 'packs')}
+          </p>
+          <a className="cta item-order__open" href={`#order/${inCart}`}>Open cart</a>
+        </>
+      ) : null}
+      {/* Already in a cart (or just added): the price can still be changed, on its own. */}
+      {(said || inCart) && price}
+      {!said && !inCart && (
         <>
           {sources.length > 1 && (
             <div className="chips" role="group" aria-label="Supplier">
@@ -697,7 +707,7 @@ export function ItemOrder({ item, items, suppliers, purchases }: {
               ))}
             </div>
           )}
-          <AddToCart key={supplierId} item={item} supplierId={supplierId} name={nameOf(suppliers, supplierId)} start={carts.get(supplierId) ?? {}}
+          <AddToCart key={supplierId} item={item} supplierId={supplierId} name={nameOf(suppliers, supplierId)} start={carts.get(supplierId) ?? {}} price={price}
             onAdded={(message, undo) => setSaid({ message, to: supplierId, undo })} />
         </>
       )}
@@ -705,9 +715,9 @@ export function ItemOrder({ item, items, suppliers, purchases }: {
   );
 }
 
-/** This item's packs and "Add to cart", on one row. */
-function AddToCart({ item, supplierId, name, start, onAdded }: {
-  item: InventoryRow; supplierId: string; name: string; start: Packs; onAdded: (message: string, undo: () => void) => void;
+/** The price per pack with this item's packs on its right, then "Add to cart" below. */
+function AddToCart({ item, supplierId, name, start, price, onAdded }: {
+  item: InventoryRow; supplierId: string; name: string; start: Packs; price?: ReactNode; onAdded: (message: string, undo: () => void) => void;
 }) {
   const [text, setText] = useState(String(Math.max(1, item.suggestedSupplierId === supplierId ? item.suggestedPacks : 0)));
   const n = parsePacks(text) ?? 0;
@@ -718,9 +728,12 @@ function AddToCart({ item, supplierId, name, start, onAdded }: {
   };
   return (
     <div className="item-order__add">
-      <BigStepper compact value={text} unit={word(n, 'pack', 'packs')} label={`Packs of ${item.name}`}
-        lessLabel={`One pack less of ${item.name}`} moreLabel={`One pack more of ${item.name}`}
-        onText={setText} onBump={(by) => setText(String(Math.max(1, n + by)))} />
+      <div className="item-order__row">
+        {price}
+        <BigStepper compact value={text} unit={word(n, 'pack', 'packs')} label={`Packs of ${item.name}`}
+          lessLabel={`One pack less of ${item.name}`} moreLabel={`One pack more of ${item.name}`}
+          onText={setText} onBump={(by) => setText(String(Math.max(1, n + by)))} />
+      </div>
       <button type="button" className="cta" disabled={!(n > 0)} onClick={add}>Add to cart</button>
     </div>
   );

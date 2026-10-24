@@ -254,7 +254,10 @@ test("the item's Order tab only puts it in a supplier's cart; the Order page edi
   const prima = 'sup_prima';
   expect(drafts().get(prima)).toEqual({ 'inv-0001': 2 });
   expect(sheet.getByRole('status').textContent).toContain("Added to Prima / David Stores (Wholesale)'s cart · 1 item.");
-  expect(within(sheet.getByRole('status')).getByRole('link', { name: 'Open cart' }).getAttribute('href')).toBe(`#order/${prima}`);
+  // Open cart is a big button (where Add to cart was), not a link in the line.
+  const openCart = sheet.getByRole('link', { name: 'Open cart' });
+  expect(openCart.getAttribute('href')).toBe(`#order/${prima}`);
+  expect(openCart.classList.contains('cta')).toBe(true);
   await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
   expect(drafts().has(prima)).toBe(false);
   await user.click(sheet.getByRole('button', { name: 'One pack more of Pizza Flour' }));
@@ -266,6 +269,7 @@ test("the item's Order tab only puts it in a supplier's cart; the Order page edi
   await user.click(screen.getByRole('tab', { name: 'Order' }));
   expect(screen.getByText(/In Prima \/ David Stores \(Wholesale\)'s cart · 2 packs/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Add to cart' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'Open cart' }).classList.contains('cta')).toBe(true); // the big button instead
   await user.keyboard('{Escape}');
   expect(within(flourRow()).getByRole('link', { name: 'In cart · Prima / David Stores (Wholesale)' })).toBeTruthy();
   items.unmount();
@@ -632,6 +636,12 @@ test('an item opens on Order, needed or not; the tabs are Details, Order, Histor
   expect(sheet.getByRole('tab', { name: 'Order' }).getAttribute('aria-selected')).toBe('true');
   expect(sheet.queryByLabelText('About this item')).toBeNull();
   expect(sheet.queryByRole('button', { name: 'Change low stock below' })).toBeNull(); // the margin is on Details only
+  // Order: the price per pack first, the packs on its right, Add to cart below, then Pack settings.
+  const row = sheet.getByRole('textbox', { name: /^Price per pack/ }).closest('.item-order__row')!;
+  expect(within(row as HTMLElement).getByRole('textbox', { name: 'Packs of Pizza Flour' })).toBeTruthy();
+  const add = sheet.getByRole('button', { name: 'Add to cart' });
+  expect(row.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(add.compareDocumentPosition(sheet.getByText('Pack settings')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await user.click(sheet.getByRole('tab', { name: 'Details' }));
   expect(sheet.getByLabelText('About this item')).toBeTruthy(); // the story is on Details
   expect(sheet.getByRole('form', { name: 'Count Pizza Flour' })).toBeTruthy(); // and so is counting it

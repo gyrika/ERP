@@ -204,12 +204,22 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
 
         {tabState === 'order' && purchases && (
         <div role="tabpanel" id="panel-order" aria-labelledby="tab-order" className="sheet-panel">
-        <ItemOrder item={item} items={items} suppliers={suppliers} purchases={purchases} />
+        {/* First the price per pack with the packs on its right, then Add to cart, then the pack settings. */}
+        <ItemOrder item={item} items={items} suppliers={suppliers} purchases={purchases} price={(
+          <form className="receive-price" onSubmit={savePrice}>
+            <label className="inv-modal__field">
+              <span>Price per {name} (Rs) <small>What the supplier charges</small></span>
+              <NumberInput className="inv-modal__input" decimals={2} value={price} onText={(text) => { setPrice(text); setError(''); }} />
+            </label>
+            {price.trim() !== shownPrice && <button type="submit" className="insight__action">Save price</button>}
+            {error && <p className="inv-modal__error" role="alert">{error}</p>}
+          </form>
+        )} />
 
         <div className="receive-unit">
           {unitEdit === 'closed' && (
             <>
-              <span>Received in <b>{isPack ? `packs of ${formatQuantity(item.packQty, item.baseUnit)}` : name}</b></span>
+              <span>Pack settings <b>{isPack ? `packs of ${formatQuantity(item.packQty, item.baseUnit)}` : name}</b></span>
               {/* The owner's PIN is checked at the shop; the phone apps cannot (SCRUM-94). */}
               {!isManagerPhone() && <button type="button" className="linkbtn" onClick={() => setUnitEdit('pin')}>Change</button>}
             </>
@@ -225,14 +235,6 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
           )}
         </div>
 
-        <form className="receive-price" onSubmit={savePrice}>
-          <label className="inv-modal__field">
-            <span>Price per {name} (Rs) <small>What the supplier charges</small></span>
-            <NumberInput className="inv-modal__input" decimals={2} value={price} onText={(text) => { setPrice(text); setError(''); }} />
-          </label>
-          {price.trim() !== shownPrice && <button type="submit" className="insight__action">Save price</button>}
-          {error && <p className="inv-modal__error" role="alert">{error}</p>}
-        </form>
         </div>
         )}
 

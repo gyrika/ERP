@@ -1592,7 +1592,12 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 /* The item sheet's Order tab: one line per fact, then packs and Add to cart on one row. */
 .item-order { gap: 12px; }
 .item-order__line { margin: 0; font-size: 15px; color: var(--ink-2); }
-.item-order__add { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.item-order__add { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+/* The price per pack, and the packs on its right; Add to cart under both. */
+.item-order__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
+.item-order__row .receive-price { flex: 1 1 200px; }
+/* Open cart: the same big button as Add to cart, as a link to the cart. */
+.item-order__open { display: flex; align-items: center; justify-content: center; text-decoration: none; }
 .nowrap { white-space: nowrap; }
 
 /* A GRN as a document (GrnDocument.tsx): on screen in GRN history, and the page saved as a PDF. */
