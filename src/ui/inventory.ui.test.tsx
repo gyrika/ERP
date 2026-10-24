@@ -268,6 +268,8 @@ test("the item's Order tab only puts it in a supplier's cart; the Order page edi
   await openOrders(user);
   expect(within(screen.getByRole('group', { name: 'Suppliers that need ordering' })).getByRole('listitem').textContent).toContain('Cart · 1 item');
   await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  expect(screen.getByText('Step 2 of 4 · Items')).toBeTruthy(); // step 1 → step 2, never past it
+  await user.click(screen.getByRole('button', { name: /^Go to cart/ }));
   const bill = () => within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(bill().getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '2');
   await user.click(bill().getByRole('button', { name: 'One pack more of Pizza Flour' }));
@@ -276,6 +278,7 @@ test("the item's Order tab only puts it in a supplier's cart; the Order page edi
   expect(within(screen.getByRole('region', { name: /^Items from Prima/ })).getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
   await user.click(screen.getByRole('button', { name: 'Back' })); // Items → Who
   await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: /^Go to cart/ }));
   expect(bill().getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
 
   // Placing it makes the PO and empties the cart; Undo takes the PO back and the cart returns.
@@ -294,6 +297,7 @@ test("a line moves to the item's other supplier's cart, never comes back to the 
   act(() => shelfPacks(1)); // flour runs low: it is in Prima's cart by itself
   await openOrders(user);
   await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: /^Go to cart/ })); // step 1 opens Items; the cart is one step on
   const bill = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(bill.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
   await user.click(bill.getByRole('button', { name: "Move to Ajantha (Wholesale)'s cart" }));
@@ -312,6 +316,7 @@ test("a line moves to the item's other supplier's cart, never comes back to the 
 
   // Undo, from the bill it left: back in Prima's cart, out of Ajantha's.
   await user.click(screen.getByRole('button', { name: 'Order from Ajantha (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: /^Go to cart/ })); // step 1 opens Items; the cart is one step on
   await user.click(screen.getByRole('button', { name: "Move to Prima / David Stores (Wholesale)'s cart" }));
   await user.click(within(screen.getByText("Pizza Flour: moved to Prima / David Stores (Wholesale)'s cart.")).getByRole('button', { name: 'Undo' }));
   expect(drafts().get('sup_ajantha')).toEqual({ 'inv-0001': 3 });
@@ -403,6 +408,7 @@ test('Purchase orders: a cart per supplier from what runs low; Place order saves
   expect(needs.getAllByRole('button')).toHaveLength(1);
   expect(needs.getByRole('button').textContent).toContain('1 low item');
   await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: /^Go to cart/ })); // step 1 opens Items; the cart is one step on
   // Step 2: what. The suggested packs are in; the one main button is at the bottom.
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(card.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3'); // 10 days of use (79.5 kg) less 25 kg = 2.2 packs, rounded up
@@ -454,7 +460,9 @@ test('several suppliers to order from: one at a time, with how far along you are
   const cards = within(screen.getByRole('group', { name: 'Suppliers that need ordering' })).getAllByRole('button');
   expect(cards).toHaveLength(2);
 
-  await user.click(cards[0]); // it has a cart: straight to it
+  await user.click(cards[0]); // it has a cart, still step 2 first
+  expect(screen.getByText('Step 2 of 4 · Items')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: /^Go to cart/ }));
   expect(screen.getByText('Step 3 of 4 · Cart')).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Place order' }));
   expect(screen.getByText('Step 4 of 4 · Send')).toBeTruthy();
@@ -1191,6 +1199,7 @@ test('Step 3 with no phone: Add phone opens the supplier\'s Edit here; the numbe
   shelfPacks(1);
   await openOrders(user);
   await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: /^Go to cart/ })); // step 1 opens Items; the cart is one step on
   await user.click(screen.getByRole('button', { name: 'Place order' }));
   const placed = within(screen.getByRole('region', { name: /^PO-0001 / }));
   await user.type(placed.getByRole('textbox', { name: 'Message' }), '{Enter}Before 10.');

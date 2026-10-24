@@ -517,7 +517,9 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   const withItems = suppliers.filter((s) => items.some((i) => i.supplierIds.includes(s.id)));
   const waiting = withItems.filter((s) => suggested.has(s.id) && !finished.includes(s.id));
   const others = withItems.filter((s) => !suggested.has(s.id) || finished.includes(s.id));
-  const choose = (id: string) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(firstStep(id)); };
+  const choose = (id: string, to: Step = firstStep(id)) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(to); };
+  /** Tapped on step 1: always step 2 (Items), the next step, even when it has a cart. */
+  const pick = (id: string) => choose(id, 'items');
   const toWho = () => { setStep('who'); setSupplierId(null); setPlaced([]); };
 
   const total = waiting.length + finished.filter((id) => suggested.has(id)).length;
@@ -554,7 +556,7 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
               const n = Object.keys(cart).length;
               const cents = orderTotals(Object.entries(cart).map(([itemId, packs]) => ({ itemId, packs })), prices).cents;
               const line = `${purchases.drafts.has(s.id) ? `Cart · ${n} ${word(n, 'item', 'items')}` : `${n} low ${word(n, 'item', 'items')}`}${cents > 0 ? ` · ${rs(cents)}` : ''}`;
-              return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => choose(s.id)} />;
+              return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => pick(s.id)} />;
             })}
           </ul>
         </section>
@@ -563,7 +565,7 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
         <section className="flow__list">
           <p className="flow-hint">{waiting.length > 0 ? 'Other suppliers' : 'Suppliers'}: tap one to start a cart</p>
           <ul role="group" aria-label="Order from another supplier" className="rows flow__plain">
-            {others.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => choose(s.id)} />)}
+            {others.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => pick(s.id)} />)}
           </ul>
         </section>
       )}
