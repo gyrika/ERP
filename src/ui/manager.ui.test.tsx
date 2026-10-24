@@ -155,7 +155,7 @@ test('every change creates exactly one audit entry with the manager name and bef
   }
 });
 
-test('auto-return after 10 s idle, and any key press resets the timer', async () => {
+test('auto-return after 60 s idle, and any key press resets the timer', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
   render(<App />);
