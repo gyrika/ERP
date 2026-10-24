@@ -15,14 +15,16 @@ $always = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -A
 $server = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "{0}"' -f (Join-Path $app 'station.cmd')) -WorkingDirectory $app
 Register-ScheduledTask -TaskName 'CheesyBeez Station' -Action $server -Trigger (New-ScheduledTaskTrigger -AtStartup) -Principal $system -Settings $always -Force | Out-Null
 
-# A newer version from GitHub, minutes after it is released: every 5 minutes it looks, and installs
-# only when the counter has been quiet for 15 minutes (station-update.ps1). One at a time: a check
-# that comes round while an update is still running is skipped.
+# A newer version from GitHub: every 5 minutes, and a minute after Windows starts, it looks and
+# downloads; it installs only right after Windows starts or late at night when the counter is quiet
+# (station-update.ps1). One at a time: a check that comes round while an update is running is skipped.
 $updater = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f (Join-Path $app 'station-update.ps1')
 $update = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $updater
 $every5 = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
 $once = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName 'CheesyBeez Station update' -Action $update -Trigger $every5 -Principal $system -Settings $once -Force | Out-Null
+$atStart = New-ScheduledTaskTrigger -AtStartup
+$atStart.Delay = 'PT1M'
+Register-ScheduledTask -TaskName 'CheesyBeez Station update' -Action $update -Trigger @($every5, $atStart) -Principal $system -Settings $once -Force | Out-Null
 
 # The nightly backup of the shop's data, at 4 am when the shop is closed (and an update, if one is waiting).
 $nightly = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "$updater -Nightly"
@@ -30,6 +32,7 @@ Register-ScheduledTask -TaskName 'CheesyBeez Station nightly' -Action $nightly -
 
 # A counter PC that sleeps mid-service is no use (mains power only; battery settings untouched).
 & powercfg.exe /change standby-timeout-ac 0
+& powercfg.exe /change hibernate-timeout-ac 0
 & powercfg.exe /change monitor-timeout-ac 0
 
 # Kitchen tablets on the shop's Wi-Fi (private networks only, never public ones).
