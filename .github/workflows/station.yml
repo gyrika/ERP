@@ -1,6 +1,10 @@
-# Releases CheesyBeez on every merge to main, in the safe order:
-#   tests -> cloud staging -> cloud live -> Setup.exe (next version, e.g. 1.0.4 -> 1.0.5; a big change: raise
-#   deploy/station/release-line.txt) -> GitHub Release.
+# Releases CheesyBeez on every merge to main that changes what the shop installs:
+#   tests (Linux) -> cloud staging -> cloud live ┐
+#   tests (Windows)                              ├-> GitHub Release with Setup.exe (next version, e.g. 1.0.4 -> 1.0.5;
+#   Setup.exe build                              ┘   a big change: raise deploy/station/release-line.txt)
+# The three run side by side; only the release waits, so no Setup.exe is published before the cloud is live
+# and the Windows tests pass. A merge whose Setup.exe would install exactly what the last release installs
+# (deploy/station/content-hash.mjs) deploys the cloud and releases nothing.
 # Shop PCs look every 5 minutes, download it, and install it the next time the PC starts, or late at night when the counter is quiet.
 # - A pull request touching the Station, the server, the app or the cloud: built and tested on Windows
 #   (and the Setup.exe is downloadable from the run's page), nothing released.
@@ -25,8 +29,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The cloud goes first: an older cloud refuses event types it does not know, which would stop the
-  # shops' copy (docs/cloud.md). Staging, checked, then live.
+  # The cloud is live before any release: an older cloud refuses event types it does not know, which
+  # would stop the shops' copy (docs/cloud.md). Staging, checked, then live.
   cloud:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -61,11 +65,28 @@ jobs:
           npm run deploy --prefix cloud
           curl -fsS --retry 5 --retry-delay 3 https://cheesybeez-cloud.cheesybeez-cloud.workers.dev/api/v1/health
 
-  build:
-    needs: cloud
-    # Pull requests skip the cloud; a merge builds only once the cloud is live.
-    if: always() && (needs.cloud.result == 'success' || (github.event_name != 'push' && needs.cloud.result == 'skipped'))
+  test-windows:
     runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test (on Windows)
+        run: npm test
+
+  build:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      changed: ${{ steps.content.outputs.changed }}
+      hash: ${{ steps.content.outputs.hash }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,9 +99,6 @@ jobs:
 
       - name: Install
         run: npm ci
-
-      - name: Test (on Windows)
-        run: npm test
 
       - name: Build the app
         run: npm run build
@@ -101,9 +119,35 @@ jobs:
           } else { $v = "0.0.$env:GITHUB_RUN_NUMBER" }
           "value=$v" >> $env:GITHUB_OUTPUT
 
+      - name: Node.js for Windows (cached)
+        uses: actions/cache@v4
+        with:
+          path: C:\cb-cache
+          key: station-node-22.23.3
+
       - name: Stage
         shell: pwsh
-        run: ./deploy/station/stage.ps1 -NodeVersion 22.23.3 -AppVersion ${{ steps.version.outputs.value }}
+        run: ./deploy/station/stage.ps1 -NodeVersion 22.23.3 -AppVersion ${{ steps.version.outputs.value }} -Cache C:\cb-cache
+
+      - name: Anything new for the shop?
+        id: content
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The last release keeps its content hash in its notes. No release yet, or none with a hash: changed.
+          $hash = (node deploy/station/content-hash.mjs).Trim()
+          if ($LASTEXITCODE -or $hash -notmatch '^[0-9a-f]{64}$') { throw "content-hash failed: $hash" }
+          $last = gh release view --json body,tagName 2>$null | ConvertFrom-Json
+          $global:LASTEXITCODE = 0  # no release yet is fine
+          $tag = if ($last) { $last.tagName } else { 'no release' }
+          $m = [regex]::Match("$($last.body)", '<!-- content: ([0-9a-f]{64}) -->')
+          $changed = -not ($m.Success -and $m.Groups[1].Value -eq $hash)
+          "hash=$hash" >> $env:GITHUB_OUTPUT
+          "changed=$($changed.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+          if ($changed) { "Setup.exe content changed since ${tag}: a merge releases ${{ steps.version.outputs.value }}." >> $env:GITHUB_STEP_SUMMARY }
+          else { "Setup.exe would install exactly what ${tag} installs: a merge deploys the cloud and releases nothing." >> $env:GITHUB_STEP_SUMMARY }
+          "content $hash" | Write-Host
 
       - name: The nightly backup works with the Node.js inside Setup.exe
         shell: pwsh
@@ -117,9 +161,11 @@ jobs:
           if (-not (Get-ChildItem (Join-Path $data 'backups') -Filter 'pos-*-nightly.sqlite')) { throw 'No backup file' }
 
       - name: Build the counter app (CheesyBeez POS.exe)
+        if: steps.content.outputs.changed == 'true' || github.event_name != 'push'
         run: dotnet build deploy/station/pos-app/CheesyBeezPOS.csproj -c Release -o deploy/station/stage/pos-app
 
       - name: Check the counter app has everything it needs
+        if: steps.content.outputs.changed == 'true' || github.event_name != 'push'
         shell: pwsh
         run: |
           Get-ChildItem deploy/station/stage/pos-app -Recurse -File | ForEach-Object { $_.FullName.Replace((Resolve-Path deploy/station/stage/pos-app).Path, '') }
@@ -128,26 +174,42 @@ jobs:
           }
 
       - name: Build Setup.exe
+        if: steps.content.outputs.changed == 'true' || github.event_name != 'push'
         shell: pwsh
         run: |
-          choco install innosetup --no-progress -y
+          # The Windows runners come with Inno Setup; install it only if an image ever drops it.
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup --no-progress -y }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=${{ steps.version.outputs.value }}" deploy\station\CheesyBeez.iss
           if ($LASTEXITCODE) { throw "ISCC failed ($LASTEXITCODE)" }
           Get-ChildItem deploy\station\Output
 
       - uses: actions/upload-artifact@v4
+        if: steps.content.outputs.changed == 'true' || github.event_name != 'push'
         with:
           name: CheesyBeez-Setup-${{ steps.version.outputs.value }}
           path: deploy/station/Output/*.exe
 
+  # Only now, with the cloud live, the Windows tests green and something new to install.
+  release:
+    needs: [cloud, test-windows, build]
+    if: github.event_name == 'push' && needs.build.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CheesyBeez-Setup-${{ needs.build.outputs.version }}
+          path: out
+
       - name: Publish the release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.value }}
+          tag_name: v${{ needs.build.outputs.version }}
           target_commitish: ${{ github.sha }}
-          files: deploy/station/Output/*.exe
+          files: out/*.exe
+          # GitHub adds the merged pull requests since the last release under this text.
+          generate_release_notes: true
           body: |
-            CheesyBeez Station ${{ steps.version.outputs.value }}: download **CheesyBeez-Setup-${{ steps.version.outputs.value }}.exe** and double-click it.
+            CheesyBeez Station ${{ needs.build.outputs.version }}: download **CheesyBeez-Setup-${{ needs.build.outputs.version }}.exe** and double-click it.
             Windows may say "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
             Shop PCs that already have CheesyBeez download it within minutes and install it the next time the PC starts, or late at night when the counter is quiet.
+            <!-- content: ${{ needs.build.outputs.hash }} -->
