@@ -432,15 +432,17 @@ function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]
   );
 }
 
-/** A supplier in a list: the + at the end starts an order with them; the row itself is only text. */
+/** A supplier in a list: the whole row is one button that opens their cart; the + only shows it. */
 function SupplierRow({ name, line, tone, label, onAdd }: { name: string; line?: string; tone?: 'warn'; label: string; onAdd: () => void }) {
   return (
-    <li className={`row${tone ? ` row--${tone}` : ''}`}>
-      <span className="flow-card__text row__text">
-        <span className="row__name">{name}</span>
-        {line && <span className="flow-card__line">{line}</span>}
-      </span>
-      <button type="button" className="row__add" aria-label={label} onClick={onAdd}>+</button>
+    <li className={`row row--tap${tone ? ` row--${tone}` : ''}`}>
+      <button type="button" className="row__tap" aria-label={label} onClick={onAdd}>
+        <span className="flow-card__text row__text">
+          <span className="row__name">{name}</span>
+          {line && <span className="flow-card__line">{line}</span>}
+        </span>
+        <span className="row__add" aria-hidden="true">+</span>
+      </button>
     </li>
   );
 }
@@ -513,7 +515,7 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
       )}
       {others.length > 0 && (
         <section className="flow__list">
-          <p className="flow-hint">{waiting.length > 0 ? 'Other suppliers' : 'Suppliers'}: + to start a cart</p>
+          <p className="flow-hint">{waiting.length > 0 ? 'Other suppliers' : 'Suppliers'}: tap one to start a cart</p>
           <ul role="group" aria-label="Order from another supplier" className="rows flow__plain">
             {others.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => choose(s.id)} />)}
           </ul>

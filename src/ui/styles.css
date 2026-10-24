@@ -1516,6 +1516,13 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .row--stack { flex-direction: column; align-items: stretch; gap: 8px; }
 .row__name { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .row__text { flex: 1; }
+/* A row that is one button (a supplier: tap anywhere to open their cart). */
+.row--tap { padding: 0; }
+.row__tap { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 2px 16px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background 120ms var(--ease); }
+.row__tap:hover { background: var(--chip); }
+.row__tap:hover .row__add { color: var(--ink); }
+.row__tap:active .row__add { transform: scale(0.88); }
+.row__tap:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 /* Just the +, no background, at the right edge so every + lines up; 48px to tap. */
 .row__add { flex: none; width: 48px; height: 48px; margin-right: -8px; border-radius: 12px; background: none; color: var(--primary); font-size: 30px; font-weight: 400; line-height: 1; display: inline-grid; place-items: center; cursor: pointer; transition: transform 80ms var(--ease), color 120ms; }
 .row__add:hover { color: var(--ink); }

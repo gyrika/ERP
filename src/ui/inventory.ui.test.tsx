@@ -394,10 +394,11 @@ test('Purchase orders: a cart per supplier from what runs low; Place order saves
   sellPizzas(500);
   act(() => shelfPacks(1)); // 25 kg against 7.9 kg a day: 5 days need 39.7 kg, so it is low
   await openOrders(user);
-  // Step 1: who. The supplier that needs ordering is listed with how many; only its + starts the order.
+  // Step 1: who. The supplier that needs ordering is listed with how many; the whole row is the one button.
   const needs = within(screen.getByRole('group', { name: 'Suppliers that need ordering' }));
   expect(needs.getByRole('listitem').textContent).toContain('1 low item');
-  expect(needs.getAllByRole('button').map((b) => b.textContent)).toEqual(['+']);
+  expect(needs.getAllByRole('button')).toHaveLength(1);
+  expect(needs.getByRole('button').textContent).toContain('1 low item');
   await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
   // Step 2: what. The suggested packs are in; the one main button is at the bottom.
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
