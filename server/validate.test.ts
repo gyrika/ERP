@@ -278,3 +278,12 @@ test('prep sent to the kitchen (SCRUM-136): a ticket, an item, a unit and a real
   assert.ok(ok({ ...base, type: 'prep.limit_set', prepId: 'Mozzarella Blend', before: null, after: 3000 }));
   assert.ok(!ok({ ...base, type: 'prep.limit_set', prepId: 'Mozzarella Blend', before: null, after: -1 }));
 });
+
+test('a shorthand miss syncs with what was typed; a malformed one is refused', () => {
+  const miss = { ...base, actor: { id: 'cashier-1', name: 'Kasun', role: 'cashier' }, type: 'shorthand.missed', text: '2 l margherita, bbq chkn', unresolved: ['bbq chkn'], gaveUp: false };
+  assert.ok('events' in validatePush({ events: [miss] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...miss, unresolved: [] }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...miss, gaveUp: undefined }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...miss, orderNumber: 7 }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...miss, actor: undefined }] }, 'shop-1'));
+});
