@@ -247,7 +247,7 @@ test('stock: only a logged-in manager or owner may change it, and only from the 
   await s.login('1111');
   await s.login('2580');
   const stock = (id: string, actor: { id: string; name: string; role: string }) =>
-    ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor, type: 'stock.adjusted', itemId: 'inv-0001', deltaPacks: 1 });
+    ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor, type: 'stock.unit_set', itemId: 'inv-0001', name: 'Tray', base: 30 });
   const r = await (await s.push(s.tokens.counter, [
     stock('by-cashier', { id: s.cashier.id, name: 'Nimal', role: 'cashier' }),
     stock('by-manager', { id: s.manager.id, name: 'Ravi', role: 'manager' }),

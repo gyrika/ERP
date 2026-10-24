@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
-import { countDifference, inventoryFromEvents, isLowStock, isOutOfStock, itemById, parsePacks, loadSeed, summariseSuppliers, supplierById, suppliersFromEvents, validateSeed } from './inventory.ts';
+import { countDifference, inventoryFromEvents, isLowStock, isOutOfStock, itemById, parsePacks, loadSeed, stockStatus, summariseSuppliers, supplierById, suppliersFromEvents, validateSeed } from './inventory.ts';
 import { mayRecord } from './auth.ts';
 import type { UsageOf } from './stockUsage.ts';
 import { storageKey } from '../ui/storage.ts';
@@ -355,12 +355,30 @@ test('a GRN is its own stock movement: what it accepted goes in, its undo takes 
 
   const got = row([grn('g1', [{ itemId: flour, ordered: 3, received: 3, accepted: 2 }])]);
   assert.equal(got.onHandBaseUnits, 2 * SEED_INVENTORY[0].packQty, 'accepted, not received (1 pack was returned)');
-  assert.equal(got.counted, true, 'received counts as known');
+  assert.equal(got.counted, false, 'a delivery says what came, not what was on the shelf: still not counted');
   const undone = row([grn('g1', [{ itemId: flour, ordered: 2, received: 2, accepted: 2 }]), { ...base, id: 'u', type: 'stock.grn_undone', grnId: 'g1', reason: 'Entered by mistake', approvedBy: actor }]);
   assert.equal(undone.onHandBaseUnits, 0, 'exactly what that GRN added');
-  assert.equal(undone.counted, true);
+  assert.equal(undone.counted, false);
   assert.equal(row([grn('old', [{ itemId: flour, ordered: 2, received: 2 }])]).onHandBaseUnits, 0, 'a note from before has no accepted: its stock was separate movements');
   assert.equal(row([{ ...base, id: 'u2', type: 'stock.grn_undone', grnId: 'nope', reason: 'x', approvedBy: actor }]).onHandBaseUnits, 0);
+});
+
+test('never counted, then a delivery, then the first count: the count gives the real shelf and starts the reorder rule', () => {
+  const actor = { id: 'm', name: 'Ravi', role: 'manager' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor };
+  const mozz = SEED_INVENTORY.find((i) => i.id === 'inv-0006')!; // 2 kg packs
+  const pack = mozz.packQty;
+  const grn = { ...base, at: 1, id: 'g1', type: 'stock.grn' as const, grnNo: 'g1', orderId: 'po', supplierId: 's', lines: [{ itemId: mozz.id, ordered: 5, received: 5, accepted: 5 }], approvedBy: null };
+  const row = (events: Parameters<typeof inventoryFromEvents>[1]) => inventoryFromEvents(SEED_INVENTORY, events).find((r) => r.id === mozz.id)!;
+  const delivered = row([grn]);
+  assert.equal(delivered.counted, false, '4 packs were already there, unknown to the app: it does not pretend the shelf holds only the 5 that came');
+  assert.equal(stockStatus(delivered), 'unknown');
+  assert.equal(delivered.suggestedPacks, 0, 'no reorder from a guess');
+  // The first count: 9 packs on the shelf (the 4 that were there and the 5 that came).
+  const count = { ...base, at: 2, id: 'c1', type: 'stock.counted' as const, itemId: mozz.id, counted: 9 * pack, expected: delivered.onHandBaseUnits, entries: [], reason: null, valueCents: 0, tier: 'daily' as const };
+  const counted = row([grn, count]);
+  assert.equal(counted.counted, true);
+  assert.equal(counted.onHandBaseUnits, 9 * pack);
 });
 
 test('marking a count reviewed, or asking about it, never changes stock', () => {
