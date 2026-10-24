@@ -1504,7 +1504,7 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .grn-check :is(td, th):nth-child(n + 3) { width: 1%; }
 .grn-check td.bill__qty, .grn-check th.bill__qty { text-align: center; }
 .bill .grn-check__tick { padding-right: 12px; }
-.grn-check .grn-match { display: block; margin-top: 2px; }
+.grn-check__status { white-space: nowrap; }
 .grn-check .price__num { border-color: var(--line); background: var(--surface); }
 .grn-check--warn .qty__num { border-color: var(--warn); color: var(--warn); }
 .grn-check--ok .qty__num { border-color: var(--ok); }

@@ -771,7 +771,14 @@ test('GRN: a list ticked one by one; only open orders and only what was ordered;
   await user.click(sheet.getByRole('button', { name: '✓ Pizza Flour came' })); // the big button ticks the next item
   expect(sheet.getByRole('checkbox', { name: 'Pizza Flour came' })).toHaveProperty('ariaChecked', 'true');
   expect(sheet.getByText('1 of 1 checked')).toBeTruthy();
-  expect(sheet.getByLabelText('Pizza Flour: as ordered')).toBeTruthy();
+  // The status has its own column, so the row does not grow when it is ticked; the price is per pack.
+  const statusCell = sheet.getByLabelText('Pizza Flour: as ordered').closest('td')!;
+  expect(statusCell.classList.contains('grn-check__status')).toBe(true);
+  expect(sheet.getByRole('columnheader', { name: 'Status' })).toBeTruthy();
+  expect(sheet.getByRole('columnheader', { name: 'Price / pack' })).toBeTruthy();
+  // Nothing repeated on each row: no "Expected …" line, no "/ pack" after the price.
+  expect(sheet.queryByText(/^Expected /)).toBeNull();
+  expect(sheet.getByRole('textbox', { name: 'Delivered price per pack of Pizza Flour' }).closest('.price')!.textContent).not.toContain('/');
   // All checked: the bill under the list and Save GRN on the same step.
   expect(sheet.getByRole('table', { name: 'Delivery bill' })).toBeTruthy();
   expect(sheet.getByLabelText('Final total price').textContent).toBe('Rs 12,800');
@@ -1035,7 +1042,6 @@ test('short + wait: the rest stays on order; the next GRN expects only what is l
   // Next delivery: the order is Partly received; the rest (3) is what the next GRN expects.
   await user.click(screen.getByRole('button', { name: /PO-0001 · expected .* · partly received/ }));
   expect(screen.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
-  expect(screen.getByText('Expected 3 packs')).toBeTruthy();
   await toReview(user);
   await user.click(screen.getByRole('button', { name: 'Save GRN' }));
   expect(amount()).toContain('4 packs · 100 kg');

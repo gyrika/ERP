@@ -175,13 +175,13 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   }), lines.map((l) => ({ itemId: l.row.id, unitPriceCents: l.orderPriceCents })));
   const choiceReady = (!check.hasShort || decisions.short !== null) && (!check.hasOver || decisions.over !== null);
   const diff = (c: (typeof check.lines)[number], l: (typeof lines)[number]) => `${c.diff > 0 ? '+' : '−'}${roundForUnit(fromPacks(Math.abs(c.diff), l.unit, l.row.packQty))}${l.unit.id === 'pack' ? '' : ` ${unitName(l.unit)}`}`;
-  const word = (n: number, one: string, many: string) => (n === 1 ? one : many);
-  const priceInput = (l: (typeof lines)[number], onTyped?: () => void) => (
+  /** `perUnit`: "/ pack" after the box; step 2 leaves it to the column header. */
+  const priceInput = (l: (typeof lines)[number], onTyped?: () => void, perUnit = true) => (
     <span className="price">
       <span className="price__rs" aria-hidden="true">Rs</span>
       <NumberInput decimals={2} className="price__num" aria-label={`Delivered price per ${unitName(l.unit)} of ${l.row.name}`}
         value={typedPrice(l)} onFocus={(e) => e.currentTarget.select()} onText={(text) => { updatePrice(l.row.id, text); onTyped?.(); }} />
-      <span className="bill__sub">/ {unitName(l.unit)}</span>
+      {perUnit && <span className="bill__sub">/ {unitName(l.unit)}</span>}
     </span>
   );
   const updatePrice = (itemId: string, text: string) => {
@@ -411,8 +411,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           <table className="bill grn-bill grn-check" aria-label="Delivery bill">
             <thead>
               <tr>
-                <th scope="col"><span className="sr-only">Came</span></th><th scope="col">Item</th><th scope="col" className="bill__qty">Qty</th>
-                <th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th>
+                <th scope="col"><span className="sr-only">Came</span></th><th scope="col">Item</th><th scope="col">Status</th>
+                <th scope="col" className="bill__qty">Qty</th><th scope="col" className="bill__num">Price / pack</th><th scope="col" className="bill__num">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -420,7 +420,6 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
                 const c = check.lines[k];
                 const on = ticked.has(l.row.id);
                 const fine = c.match === 'ok' && !c.priceMismatch;
-                const unitWord = l.unit.id === 'pack' ? word(l.expectedInUnit, 'pack', 'packs') : unitName(l.unit);
                 return (
                   <tr key={l.row.id} className={on ? (fine ? 'grn-check--ok' : 'grn-check--warn') : undefined}>
                     <td className="grn-check__tick">
@@ -429,8 +428,10 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
                     </td>
                     <td>
                       <span className="bill__name">{l.row.name}</span>
-                      <span className="bill__sub num">Expected {l.expectedInUnit} {unitWord}</span>
                       <span className="bill__sub num">{l.orderPriceCents === undefined ? 'Order price not recorded' : <>Ordered at <span className="nowrap">Rs {fmt(unitPrice(l.orderPriceCents, l.unit, l.row.packQty))} / {unitName(l.unit)}</span></>}</span>
+                    </td>
+                    {/* Its own column, so a row keeps its height when it is ticked. */}
+                    <td className="grn-check__status">
                       {on && (
                         <span className={`grn-match grn-match--${fine ? 'ok' : 'warn'}`}
                           aria-label={`${l.row.name}: ${fine ? 'as ordered' : c.match === 'ok' ? 'price differs' : c.match}`}>
@@ -449,14 +450,14 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
                       </span>
                       {l.unit.id !== 'pack' && <span className="bill__sub">{unitName(l.unit)}</span>}
                     </td>
-                    <td className="bill__num">{priceInput(l, () => tick(l.row.id))}</td>
+                    <td className="bill__num">{priceInput(l, () => tick(l.row.id), false)}</td>
                     <td className="bill__num num">Rs {fmt(Math.round(billLines[k].quantityPacks * billLines[k].unitPriceCents))}</td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
-              <tr><th colSpan={4} scope="row" className="bill__sum">Final total</th><td className="bill__num bill__grand num" aria-label="Final total price">Rs {fmt(billTotalCents)}</td></tr>
+              <tr><th colSpan={5} scope="row" className="bill__sum">Final total</th><td className="bill__num bill__grand num" aria-label="Final total price">Rs {fmt(billTotalCents)}</td></tr>
             </tfoot>
           </table>
         </FlowSheet>
