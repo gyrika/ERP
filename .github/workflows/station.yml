@@ -1,6 +1,6 @@
 # Releases CheesyBeez on every merge to main, in the safe order:
 #   tests -> cloud staging -> cloud live -> Setup.exe (next version, e.g. 1.0.4 -> 1.0.5) -> GitHub Release.
-# Shop PCs look every 5 minutes and install it once their counter has been quiet for 15 minutes.
+# Shop PCs look every 5 minutes, download it, and install it the next time the PC starts, or late at night when the counter is quiet.
 # - A pull request touching the Station, the server, the app or the cloud: built and tested on Windows
 #   (and the Setup.exe is downloadable from the run's page), nothing released.
 # - Actions tab > Run workflow: a test build, nothing released.
@@ -145,4 +145,4 @@ jobs:
           body: |
             CheesyBeez Station ${{ steps.version.outputs.value }}: download **CheesyBeez-Setup-${{ steps.version.outputs.value }}.exe** and double-click it.
             Windows may say "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
-            Shop PCs that already have CheesyBeez update themselves within minutes, once the counter has been quiet for 15 minutes.
+            Shop PCs that already have CheesyBeez download it within minutes and install it the next time the PC starts, or late at night when the counter is quiet.
