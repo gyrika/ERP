@@ -27,7 +27,7 @@ import { formatLasts, formatQuantity } from './quantity.ts';
  * shelf amount stays hidden (a blind count), and the sheet says so.
  * Receiving is counted in what the owner chose for this item (SCRUM-96): packs, kg,
  * or a unit like Tray; the price is per that unit too. Changing it needs his PIN, and
- * so does "Order when below" (SCRUM-135).
+ * so does the low stock margin, "Order when below" (SCRUM-135), on Details.
  * Details · Order · History are tabs of this one sheet (SCRUM-97): counting
  * or ordering this item never leaves it, and what was just done shows here with its
  * Undo. History lists every count (with its gap, reason, photo and the owner's word),
@@ -167,6 +167,11 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
                 )}
               </dd>
             </div>
+            {/* The low stock margin: the one thing here that can be changed (the owner's PIN). */}
+            <div>
+              <dt>Low stock below</dt>
+              <dd><OrderBelow item={item} onDone={(message, undo) => setDone({ message, undo, tab: 'details' })} /></dd>
+            </div>
             <div>
               <dt>Used in</dt>
               <dd>
@@ -220,8 +225,6 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
           )}
         </div>
 
-        <OrderBelow item={item} onDone={(message, undo) => setDone({ message, undo, tab: 'order' })} />
-
         <form className="receive-price" onSubmit={savePrice}>
           <label className="inv-modal__field">
             <span>Price per {name} (Rs) <small>What the supplier charges</small></span>
@@ -242,9 +245,10 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
 }
 
 /**
- * "Order when below" (SCRUM-135): Automatic (the reorder rule decides from how fast it
- * sells) or an amount for this item, typed and shown in what it is bought in (packs, kg),
- * kept in packs. Two buttons, never an empty box that secretly means automatic
+ * The low stock margin, "Order when below" (SCRUM-135), on Details: Automatic (the reorder
+ * rule decides from how fast it sells) or an amount for this item, typed and shown in what it
+ * is bought in (packs, kg), kept in packs. Below it the item is Low: its supplier's cart, Low
+ * on Items, Orders. Two buttons, never an empty box that secretly means automatic
  * (SCRUM-137). The owner's PIN, then Undo.
  */
 function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: string, undo: () => void) => void }) {
@@ -267,7 +271,7 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
     setEdit('closed');
     if (packs === current) return;
     setOrderBelow(item.id, packs, owner);
-    onDone(packs === null ? `${item.name}: ordered automatically again.` : `${item.name}: order when below ${shown(packs)}.`,
+    onDone(packs === null ? `${item.name}: low stock worked out automatically again.` : `${item.name}: low stock below ${shown(packs)}.`,
       () => setOrderBelow(item.id, current, owner));
   };
   const submit = (event: FormEvent, owner: Actor) => {
@@ -282,8 +286,8 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
     <div className="receive-unit">
       {edit === 'closed' && (
         <>
-          <span>Order when below <b>{current === null ? 'automatic' : shown(current)}</b>{current === null && <small> · from how fast it sells</small>}</span>
-          {!isManagerPhone() && <button type="button" className="linkbtn" aria-label="Change order when below" onClick={() => setEdit('pin')}>Change</button>}
+          <span><b>{current === null ? 'automatic' : shown(current)}</b>{current === null && <small> · from how fast it sells</small>}</span>
+          {!isManagerPhone() && <button type="button" className="linkbtn" aria-label="Change low stock below" onClick={() => setEdit('pin')}>Change</button>}
         </>
       )}
       {edit === 'pin' && <OwnerPin onOpen={start} onCancel={() => setEdit('closed')} refusal="Only the owner sets when to order." />}
@@ -297,7 +301,7 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
             ? <p className="inv-modal__note">Ordered when it would not last until the next delivery, from how fast it sells.</p>
             : (
               <label className="inv-modal__field">
-                <span>Order when below</span>
+                <span>Low stock below</span>
                 <NumberInput className="inv-modal__input" unit={isPack ? 'packs' : unitName(unit)} autoFocus value={typed}
                   onText={(text) => { setTyped(text); setError(''); }} />
               </label>

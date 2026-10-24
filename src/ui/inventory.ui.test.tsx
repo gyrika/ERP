@@ -373,6 +373,7 @@ test('Count opens the blind count: the gap shows only after counting, then the s
   inventoryStore.adjustStock('inv-0001', 2);
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  await user.click(screen.getByRole('tab', { name: 'Details' })); // an item opens on Order
   const form = within(screen.getByRole('form', { name: 'Count Pizza Flour' }));
   expect(screen.queryByText(/expects/)).toBeNull();
   await user.type(form.getByRole('textbox', { name: 'Full packs' }), '1.5');
@@ -621,18 +622,19 @@ test('filter chips: All, Low, Out, On order show only what needs a look', async 
   expect(names().every((n) => /mozzarella/i.test(n ?? ''))).toBe(true);
 });
 
-test('an item opens on Details, or on Order when it needs ordering; the tabs are Details, Order, History', async () => {
+test('an item opens on Order, needed or not; the tabs are Details, Order, History', async () => {
   const user = userEvent.setup();
   sellPizzas(500);
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   let sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
   expect(sheet.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Details', 'Order', 'History']);
-  expect(sheet.getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true');
+  expect(sheet.getByRole('tab', { name: 'Order' }).getAttribute('aria-selected')).toBe('true');
+  expect(sheet.queryByLabelText('About this item')).toBeNull();
+  expect(sheet.queryByRole('button', { name: 'Change low stock below' })).toBeNull(); // the margin is on Details only
+  await user.click(sheet.getByRole('tab', { name: 'Details' }));
   expect(sheet.getByLabelText('About this item')).toBeTruthy(); // the story is on Details
   expect(sheet.getByRole('form', { name: 'Count Pizza Flour' })).toBeTruthy(); // and so is counting it
-  await user.click(sheet.getByRole('tab', { name: 'Order' }));
-  expect(sheet.queryByLabelText('About this item')).toBeNull();
   await user.keyboard('{Escape}');
 
   act(() => shelfPacks(1)); // low: it needs ordering
@@ -1136,6 +1138,7 @@ test("the sheet tells the item's whole story: shelf, last delivery, price change
   const user = userEvent.setup();
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  await user.click(screen.getByRole('tab', { name: 'Details' })); // an item opens on Order
   let story = within(screen.getByRole('dialog', { name: 'Pizza Flour' }).querySelector('dl')!);
   expect(story.getByText('Not counted yet: count it once to start')).toBeTruthy();
   expect(story.getByText('Never')).toBeTruthy();
@@ -1145,6 +1148,7 @@ test("the sheet tells the item's whole story: shelf, last delivery, price change
   await user.keyboard('{Escape}');
   act(() => { countFlourEmpty(); inventoryStore.adjustStock('inv-0001', 2, 'receive'); inventoryStore.setWorkingPrice('inv-0001', 655000); });
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  await user.click(screen.getByRole('tab', { name: 'Details' })); // an item opens on Order
   story = within(screen.getByRole('dialog', { name: 'Pizza Flour' }).querySelector('dl')!);
   expect(story.getByText('2 packs · 50 kg')).toBeTruthy();
   expect(story.getByText(/^today · 2 packs · /)).toBeTruthy();
@@ -1153,42 +1157,65 @@ test("the sheet tells the item's whole story: shelf, last delivery, price change
 
 // ----- "Order when below", the owner's number (SCRUM-135) -----
 
-test('the owner, with his PIN, sets flour to order when below 2 packs; Undo and Automatic hand it back', async () => {
+test('the low stock margin is on Details: the owner, with his PIN, sets flour low below 2 packs; Undo and Automatic hand it back', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   const sheet = () => within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
-  await user.click(sheet().getByRole('tab', { name: 'Order' }));
-  expect(sheet().getByText('automatic')).toBeTruthy();
+  await user.click(sheet().getByRole('tab', { name: 'Details' }));
+  const row = () => within(within(sheet().getByLabelText('About this item')).getByText('Low stock below').closest('div')!);
+  expect(row().getByText('automatic')).toBeTruthy();
 
-  await user.click(sheet().getByRole('button', { name: 'Change order when below' }));
+  await user.click(row().getByRole('button', { name: 'Change low stock below' }));
   await user.type(sheet().getByLabelText('Owner PIN'), '2580'); // the manager's: refused
   expect(sheet().getByRole('alert').textContent).toBe('Only the owner sets when to order.');
   await user.type(sheet().getByLabelText('Owner PIN'), '9999');
   // Two choices, never an empty box that secretly means automatic (SCRUM-137).
   expect(sheet().getByRole('button', { name: 'Automatic' }).getAttribute('aria-pressed')).toBe('true');
-  expect(sheet().queryByRole('textbox', { name: /Order when below/ })).toBeNull();
+  expect(sheet().queryByRole('textbox', { name: /Low stock below/ })).toBeNull();
   await user.click(sheet().getByRole('button', { name: 'Set a number' }));
-  const box = () => sheet().getByRole('textbox', { name: /Order when below/ });
+  const box = () => sheet().getByRole('textbox', { name: /Low stock below/ });
   await user.type(box(), 'none'); // letters never appear
   expect((box() as HTMLInputElement).value).toBe('');
   await user.click(sheet().getByRole('button', { name: 'Save' }));
   expect(sheet().getByRole('alert').textContent).toMatch(/Type how many packs/);
   await user.type(box(), '2 packs{Enter}');
   expect(lastEvent()).toMatchObject({ type: 'stock.limit_set', itemId: 'inv-0001', packs: 2, actor: { role: 'owner' } });
-  expect(sheet().getByRole('status').textContent).toMatch(/order when below 2 packs/);
+  expect(sheet().getByRole('status').textContent).toMatch(/low stock below 2 packs/);
+  expect(row().getByText('2 packs')).toBeTruthy();
 
   await user.click(within(sheet().getByRole('status')).getByRole('button', { name: 'Undo' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.limit_set', packs: null });
-  expect(sheet().getByText('automatic')).toBeTruthy();
+  expect(sheet().getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true'); // Undo stays on Details
+  expect(row().getByText('automatic')).toBeTruthy();
 
   act(() => inventoryStore.setOrderBelow('inv-0001', 3, { id: 'o', name: 'Owner', role: 'owner' }));
-  await user.click(sheet().getByRole('button', { name: 'Change order when below' }));
+  await user.click(row().getByRole('button', { name: 'Change low stock below' }));
   await user.type(sheet().getByLabelText('Owner PIN'), '9999');
   expect((box() as HTMLInputElement).value).toBe('3');
   await user.click(sheet().getByRole('button', { name: 'Automatic' }));
   await user.click(sheet().getByRole('button', { name: 'Save' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.limit_set', packs: null });
+});
+
+test("a low stock margin set on Details makes the item Low: Low on Items, and its supplier's cart", async () => {
+  const user = userEvent.setup();
+  countFlourEmpty();
+  inventoryStore.adjustStock('inv-0001', 2, 'receive'); // 2 packs on the shelf, nobody uses it: never low by itself
+  render(<InventoryView />);
+  expect(within(flourRow()).queryByRole('button', { name: /^\+ Cart/ })).toBeNull();
+  await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  await user.click(screen.getByRole('tab', { name: 'Details' }));
+  await user.click(screen.getByRole('button', { name: 'Change low stock below' }));
+  await user.type(screen.getByLabelText('Owner PIN'), '9999');
+  await user.click(screen.getByRole('button', { name: 'Set a number' }));
+  await user.type(screen.getByRole('textbox', { name: /Low stock below/ }), '3{Enter}');
+  await user.keyboard('{Escape}');
+
+  await user.click(within(screen.getByRole('group', { name: 'Show' })).getByRole('button', { name: 'Low' }));
+  expect(flourRow()).toBeTruthy(); // listed under Low
+  expect(drafts().get('sup_prima')).toBeUndefined(); // nothing saved by hand: the cart below comes from the rule
+  expect([...inventoryStore.readItems()].find((i) => i.id === 'inv-0001')!.suggestedPacks).toBeGreaterThan(0);
 });
 
 // ----- what receiving is counted in (SCRUM-96) -----
@@ -1242,6 +1269,7 @@ test('Count happens inside the item sheet, then History shows it with the delive
   inventoryStore.adjustStock('inv-0001', 2, 'receive');
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
+  await user.click(screen.getByRole('tab', { name: 'Details' })); // an item opens on Order
   const sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
   await user.type(sheet.getByRole('textbox', { name: 'Full packs' }), '1.5');
   await user.click(sheet.getByRole('button', { name: 'Next' }));

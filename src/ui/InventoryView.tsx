@@ -69,8 +69,6 @@ export function InventoryView({
     for (const o of purchases.open) for (const l of o.lines) po.set(l.itemId, o.poNo);
     return { packs, po };
   }, [purchases]);
-  /** Items that need ordering now: the badge, and a tap opens them on Order. */
-  const needed = useMemo(() => new Set([...draftsOf(items).values()].flatMap((d) => Object.keys(d))), [items]);
   /** Each supplier's cart: what runs low is in it by itself; + Cart puts in what is not. */
   const carts = useMemo(() => cartsOf(draftsOf(items), purchases.drafts), [items, purchases]);
   const toCart = (item: (typeof items)[number]) => {
@@ -81,7 +79,8 @@ export function InventoryView({
     const count = Object.keys(draft).length;
     setDone({ message: `${item.name}: added to ${supplierNames.get(to)}'s cart · ${count} ${count === 1 ? 'item' : 'items'}.`, undo, href: `#order/${to}` });
   };
-  const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'details'); setArchived(null); setError(''); };
+  // An item opens on Order (Details where there is no Order tab, the manager's phone).
+  const openItem = (id: string) => { setUpdating(id); setSheetTab('order'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const FILTERS = [['all', 'All'], ['low', 'Low'], ['out', 'Out'], ['order', 'On order']] as const;
   const matches = (item: (typeof items)[number], which: typeof filter) =>
