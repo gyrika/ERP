@@ -116,10 +116,10 @@ test('the shop\'s day: the work first, then Items, then Settings; every part kee
   const nav = () => within(screen.getByRole('navigation', { name: 'Owner sections' }));
   const names = () => nav().getAllByRole('link').map((a) => a.getAttribute('aria-label'));
   const current = () => nav().getAllByRole('link').filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.getAttribute('aria-label'));
-  const parts = ['Sell', 'Receive', 'Order', 'Count', 'Today', 'Items', 'Settings'];
+  const parts = ['Sell', 'Receive', 'Order', 'Count', 'Today', 'Items', 'Visual Flow', 'Settings'];
   expect(nav().getAllByRole('heading').map((h) => h.textContent)).toEqual(['Work', 'Things']);
 
-  for (const [link, main] of [['Receive', 'Receive'], ['Order', 'Order'], ['Count', 'Manager'], ['Today', 'Owner'], ['Settings', 'Shop setup'], ['Items', 'Inventory']]) {
+  for (const [link, main] of [['Receive', 'Receive'], ['Order', 'Order'], ['Count', 'Manager'], ['Today', 'Owner'], ['Settings', 'Shop setup'], ['Visual Flow', 'Visual Flow'], ['Items', 'Inventory']]) {
     await user.click(nav().getByRole('link', { name: link }));
     expect(await screen.findByRole('main', { name: main })).toBeTruthy();
     expect(names()).toEqual(parts);
@@ -151,7 +151,7 @@ test('a badge marks the part where a decision waits, without moving it; Ctrl K f
   const items = nav.getByRole('link', { name: 'Items' });
   expect(await within(items).findByText('Onion out')).toBeTruthy();
   expect(items.textContent).toBe('ItemsOnion out1');
-  expect(nav.getAllByRole('link').map((a) => a.getAttribute('aria-label'))).toEqual(['Sell', 'Receive', 'Order', 'Count', 'Today', 'Items', 'Settings']); // still in its place
+  expect(nav.getAllByRole('link').map((a) => a.getAttribute('aria-label'))).toEqual(['Sell', 'Receive', 'Order', 'Count', 'Today', 'Items', 'Visual Flow', 'Settings']); // still in its place
 
   await user.keyboard('{Control>}k{/Control}');
   const ask = screen.getByRole('dialog', { name: 'Commands' });

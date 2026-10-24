@@ -20,6 +20,7 @@ import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 import type { WasteChoice, WasteReason } from '../domain/waste.ts';
 import { prepItems, type PrepItem, type PrepStock } from '../domain/prep.ts';
+import { draftEvent, draftsFromEvents, type Draft, type PublishStep } from '../domain/recipeDrafts.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -595,6 +596,45 @@ export function useCostContext(): CostContext {
 export const answerQuestion = (question: string, after: Answer | null, before: Answer | null, actor: Actor = currentCashier()): (() => void) => {
   appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor, question, before, after });
   return () => appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor, question, before: after, after: before });
+};
+
+/**
+ * Visual Flow: the recipes as published, the owner's open drafts, and the history behind each
+ * recipe's versions, all from the whole history (drafts sync like his answers).
+ */
+export function useFlowData(): { ctx: CostContext; drafts: Map<string, Draft>; events: SyncEvent[] } {
+  const events = useShopHistory();
+  return useMemo(() => ({
+    ctx: { items: inventoryFromEvents(SEED_INVENTORY, events), answers: answersFromEvents(events) },
+    drafts: draftsFromEvents(events),
+    events,
+  }), [events]);
+}
+
+/** One draft change (null drops it), with the draft it replaces for the Undo. */
+export const saveDraft = (question: string, after: Answer | null, before: Answer | null, actor: Actor): (() => void) => {
+  appendEvent(draftEvent(question, after, actor));
+  return () => { appendEvent(draftEvent(question, before, actor)); };
+};
+
+/**
+ * Publish: each draft becomes his answer (a new version), which closes it. The Undo puts the
+ * versions before back and reopens the drafts, so nothing he worked on is lost.
+ */
+export const publishDrafts = (steps: readonly PublishStep[], actor: Actor): (() => void) => {
+  for (const s of steps) appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor, question: s.question, before: s.before, after: s.after });
+  return () => {
+    for (const s of steps) {
+      appendEvent({ type: 'recipe.answer_set', at: Date.now(), orderNumber: 0, actor, question: s.question, before: s.after, after: s.before });
+      appendEvent(draftEvent(s.question, s.after, actor));
+    }
+  };
+};
+
+/** Drop every open draft; the Undo brings them back. */
+export const discardDrafts = (drafts: readonly Draft[], actor: Actor): (() => void) => {
+  for (const d of drafts) appendEvent(draftEvent(d.question, null, actor));
+  return () => { for (const d of drafts) appendEvent(draftEvent(d.question, d.answer, actor)); };
 };
 
 /**

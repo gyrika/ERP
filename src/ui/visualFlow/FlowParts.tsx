@@ -1,0 +1,115 @@
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, Handle, Position, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react';
+import type { CSSProperties } from 'react';
+import { fmt } from '../../domain/money.ts';
+import type { FlowEdge, FlowNode, FlowView } from '../../domain/visualFlow.ts';
+
+/**
+ * What the canvas draws: one card per thing, one line per flow. A card says what it is, its
+ * name, and the one number the view is about (how much, what it costs, what it earns). Colour
+ * stays quiet: the accent marks the item in focus, amber marks a gap (no price, no batch size).
+ */
+export const KIND_LABEL: Record<FlowNode['kind'], string> = {
+  raw: 'Raw', semi: 'Semi-processed', finished: 'Finished', resource: 'Resource', revenue: 'Revenue', profit: 'Profit',
+};
+
+export const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
+export const amount = (qty: number, unit: string) => `${Number(qty.toFixed(qty < 10 ? 3 : 1)).toLocaleString('en-US')} ${unit}`;
+export const pct = (share: number) => `${Math.round(share * 100)}%`;
+
+export type NodeData = {
+  node: FlowNode;
+  view: FlowView;
+  focus: boolean;
+  /** The item in focus, by name ("Margherita Large"). */
+  focusName: string;
+  /** Takes new ingredients (a recipe that can change here). */
+  takes: boolean;
+  onToggle: (id: string) => void;
+};
+export type VfNode = Node<NodeData, 'vf'>;
+
+/** The card's one number, for this view. */
+export const nodeValue = (n: FlowNode, view: FlowView, focus: boolean): string => {
+  if (n.kind === 'revenue') return `${rs(n.cents)} each`;
+  if (n.kind === 'profit') return rs(n.cents);
+  if (view === 'material') {
+    if (focus) return n.kind === 'semi' ? 'One batch' : 'One';
+    if (n.kind === 'resource') return n.unit === 'Rs' ? rs(n.qty * 100) : amount(n.qty, n.unit);
+    return amount(n.qty, n.unit);
+  }
+  return focus ? rs(n.cents) : `${rs(n.cents)} · ${pct(n.share)}`;
+};
+
+export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
+  const { node: n, view, focus, takes, onToggle } = data;
+  const folds = n.recipe !== null && !focus && n.inputs > 0;
+  const gap = n.missing.length > 0;
+  return (
+    <div
+      className={`vf-node vf-node--${n.kind}${focus ? ' vf-node--focus' : ''}${selected ? ' vf-node--on' : ''}${gap ? ' vf-node--gap' : ''}`}
+      style={{ '--share': view === 'material' ? 0 : n.share } as CSSProperties}
+    >
+      {(takes || n.kind === 'profit') && <Handle type="target" position={Position.Left} className="vf-handle" isConnectable={takes} />}
+      <div className="vf-node__top">
+        <span className="vf-node__kind">{KIND_LABEL[n.kind]}</span>
+        {n.recipe?.draft && <span className="vf-node__draft">Draft</span>}
+        {gap && <span className="vf-node__gap" title="Waiting on a price or a batch size" aria-label="Waiting on a price or a batch size" />}
+      </div>
+      <div className="vf-node__name">{n.name}</div>
+      <div className="vf-node__value num">
+        {nodeValue(n, view, focus)}
+        {n.kind === 'profit' && n.qty > 0 && <span className="vf-node__sub"> · {amount(n.qty, 'sold')} in 28 days</span>}
+      </div>
+      {folds && (
+        <button
+          type="button" className="vf-node__fold nodrag"
+          aria-label={n.collapsed ? `Show what goes into ${n.name}` : `Hide what goes into ${n.name}`}
+          aria-expanded={!n.collapsed}
+          onClick={(e) => { e.stopPropagation(); onToggle(id); }}
+        >{n.collapsed ? `+${n.inputs}` : '−'}</button>
+      )}
+      {n.kind !== 'profit' && <Handle type="source" position={Position.Right} className="vf-handle" isConnectable={n.kind === 'raw' || n.kind === 'semi'} />}
+    </div>
+  );
+}
+
+export type EdgeData = { edge: FlowEdge; view: FlowView; total: number; onSelect: (id: string) => void };
+export type VfEdge = Edge<EdgeData, 'vf'>;
+
+const edgeLabel = (e: FlowEdge, view: FlowView): string => {
+  if (e.kind === 'money') return `${e.cents < 0 ? '−' : '+'}${rs(Math.abs(e.cents))}`;
+  if (view !== 'material') return rs(e.cents);
+  if (e.kind === 'resource') return e.unit === 'Rs' ? rs(e.qty * 100) : amount(e.qty, e.unit);
+  const waste = e.line?.waste ? ` · ${pct(e.line.waste)} waste` : '';
+  return `${amount(e.qty, e.unit)}${waste}`;
+};
+
+export function FlowLine({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected, markerEnd }: EdgeProps<VfEdge>) {
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  if (!data) return null;
+  const { edge: e, view, total } = data;
+  // In money views a line is as thick as what flows along it, like a river.
+  const share = view === 'material' || total <= 0 ? 0 : Math.min(1, Math.abs(e.cents) / total);
+  const width = 1.5 + share * 9;
+  return (
+    <>
+      <BaseEdge
+        id={id} path={path} markerEnd={markerEnd}
+        className={`vf-edge vf-edge--${e.kind}${selected ? ' vf-edge--on' : ''}${e.partial ? ' vf-edge--partial' : ''}`}
+        style={{ strokeWidth: selected ? width + 1.5 : width }}
+        interactionWidth={24}
+      />
+      <EdgeLabelRenderer>
+        <button
+          type="button"
+          className={`vf-chip nodrag nopan${selected ? ' vf-chip--on' : ''}${e.kind === 'money' && e.cents < 0 ? ' vf-chip--neg' : ''}`}
+          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
+          onClick={() => data.onSelect(id)}
+        >{edgeLabel(e, view)}</button>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+export const NODE_TYPES = { vf: FlowCard };
+export const EDGE_TYPES = { vf: FlowLine };

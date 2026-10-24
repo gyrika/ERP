@@ -8,6 +8,7 @@ import { effectiveMenu, menuStateFromEvents } from './menuEdits.ts';
 import { fmt } from './money.ts';
 import { expectedBy, purchasesFromEvents } from './purchaseOrders.ts';
 import { stockSettingsFromEvents } from './stockSettings.ts';
+import { draftsFromEvents } from './recipeDrafts.ts';
 import type { SyncEvent } from './sync.ts';
 
 /**
@@ -16,7 +17,7 @@ import type { SyncEvent } from './sync.ts';
  * and a badge only when something there needs a decision. Pure, like insights.ts: events in,
  * lines out. Nothing is a count for its own sake ("Onion out", not "60 items").
  */
-export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'items' | 'setup';
+export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'items' | 'flow' | 'setup';
 
 export interface PartLine {
   preview: string;
@@ -79,6 +80,11 @@ export const ownerParts = (events: readonly SyncEvent[], now: number): Record<Pa
             : counted.length < items.length ? `${counted.length} of ${items.length} counted` : 'All counted',
       badge: out.length + unrecipedSales,
     },
+    // Visual Flow: how each dish is made; unpublished changes are his to finish, not a decision waiting.
+    flow: (() => {
+      const drafts = draftsFromEvents(events).size;
+      return { preview: drafts ? `${plural(drafts, 'change')} in draft` : 'How each dish is made', badge: 0 };
+    })(),
     setup: { preview: 'Shop, staff, printer, stock rules', badge: 0 },
   };
 };

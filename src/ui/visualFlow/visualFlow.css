@@ -1,0 +1,113 @@
+/* ----- Visual Flow: how a dish is made, drawn (loaded with the page only) ----- */
+/* The design tokens of styles.css throughout, so it follows light and dark like every screen.
+   Quiet by default: the item in focus is the one dark card, amber is a gap, nothing else is coloured. */
+.vf-page { height: 100dvh; overflow: hidden; }
+.vf { height: 100%; display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+
+.vf-bar { display: flex; align-items: center; gap: 16px; padding: 0 24px 12px; flex-wrap: wrap; }
+.vf-focus { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 12px; margin-left: -12px; border-radius: 12px; color: var(--ink); font: inherit; font-size: 22px; font-weight: 600; letter-spacing: -0.5px; cursor: pointer; transition: background-color 150ms var(--ease); }
+.vf-focus:hover { background: var(--chip); }
+.vf-focus__name { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vf-views { display: inline-flex; gap: 2px; padding: 4px; border-radius: 980px; background: var(--chip); }
+.vf-views .pill { min-height: 40px; padding: 0 18px; }
+.vf-publish { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.vf-discard { min-height: 48px; align-self: center; }
+.vf-primary { min-height: 48px; padding: 0 24px; border-radius: 980px; background: var(--primary); color: var(--on-primary); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; animation: rise 200ms var(--ease); }
+.vf-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.vf-body { display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; border-top: 1px solid var(--line); }
+.vf-canvas { position: relative; min-height: 0; background: var(--ground); }
+.vf-canvas .react-flow { --xy-background-pattern-dots-color-default: var(--line); }
+.vf-canvas .react-flow__background { color: var(--line); }
+.vf-empty { position: absolute; left: 50%; top: 24px; transform: translateX(-50%); margin: 0; padding: 10px 18px; border-radius: 980px; background: var(--surface); color: var(--ink-2); font-size: 14px; box-shadow: var(--card-shadow); }
+
+/* Cards. */
+.vf-node { position: relative; width: 220px; box-sizing: border-box; padding: 12px 14px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--card-shadow); color: var(--ink); overflow: hidden; transition: box-shadow 150ms var(--ease), transform 150ms var(--ease); }
+.vf-node:hover { transform: translateY(-1px); }
+.vf-node--on { box-shadow: 0 0 0 2px var(--ink), var(--card-shadow); }
+.vf-node--focus { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.vf-node--focus .vf-node__kind, .vf-node--focus .vf-node__value { color: inherit; opacity: 0.75; }
+.vf-node--focus.vf-node--on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--primary); }
+.vf-node--resource { border-style: dashed; }
+.vf-node--profit { border-color: var(--ok); }
+.vf-node--revenue { border-color: var(--ink-3); }
+/* The cost views: a thin bar along the foot, as long as its share of the cost. */
+.vf-node::after { content: ''; position: absolute; left: 0; bottom: 0; height: 3px; width: calc(var(--share, 0) * 100%); background: var(--ink); opacity: 0.55; transition: width 250ms var(--ease); }
+.vf-node--focus::after { display: none; }
+.vf-node__top { display: flex; align-items: center; gap: 8px; min-height: 18px; }
+.vf-node__kind { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.vf-node__draft { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 980px; border: 1px dashed currentColor; opacity: 0.8; }
+.vf-node__gap { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); margin-left: auto; flex: none; display: inline-block; }
+.vf-node__name { margin-top: 4px; font-size: 15px; font-weight: 600; letter-spacing: -0.2px; line-height: 1.25; overflow-wrap: anywhere; }
+.vf-node__value { margin-top: 4px; font-size: 14px; color: var(--ink-2); }
+.vf-node__sub { font-size: 12px; }
+.vf-node__fold { position: absolute; right: 8px; bottom: 8px; min-width: 32px; height: 28px; padding: 0 8px; border-radius: 980px; background: var(--chip); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.vf-node--focus .vf-node__fold { background: rgba(127, 127, 127, 0.3); color: inherit; }
+.vf-handle.react-flow__handle { width: 12px; height: 12px; border: 2px solid var(--ink-3); background: var(--surface); }
+.vf-handle.react-flow__handle.connectingto, .vf-handle.react-flow__handle:hover { border-color: var(--ink); }
+.vf-handle.react-flow__handle.connectingfrom { background: var(--ink); }
+
+/* Lines. */
+.vf-edge { stroke: var(--ink-3); fill: none; transition: stroke 150ms var(--ease), stroke-width 250ms var(--ease); }
+.react-flow__edge:hover .vf-edge { stroke: var(--ink-2); }
+.vf-edge--on { stroke: var(--ink); }
+.vf-edge--resource { stroke-dasharray: 5 5; }
+.vf-edge--partial { stroke: var(--warn); stroke-dasharray: 2 6; }
+.vf-edge--money { stroke: var(--ok); }
+.vf-chip { position: absolute; pointer-events: all; padding: 3px 9px; border-radius: 980px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+.vf-chip:hover { color: var(--ink); border-color: var(--ink-3); }
+.vf-chip--on { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.vf-chip--neg { color: var(--bad); }
+.react-flow__connectionline path, .react-flow__connection-path { stroke: var(--ink); stroke-width: 2; }
+
+.vf-canvas .react-flow__controls { box-shadow: var(--card-shadow); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.vf-canvas .react-flow__controls-button { width: 40px; height: 40px; background: var(--surface); border-bottom: 1px solid var(--line); color: var(--ink); fill: var(--ink); }
+.vf-canvas .react-flow__controls-button:hover { background: var(--chip); }
+.vf-canvas .react-flow__controls-button svg { fill: currentColor; max-width: 14px; max-height: 14px; }
+
+/* The panel. */
+.vf-panel { min-height: 0; overflow-y: auto; padding: 20px 20px 96px; background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; }
+.vf-panel__head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.vf-panel__title { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.2; overflow-wrap: anywhere; }
+.vf-tag { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 980px; background: var(--chip); color: var(--ink-2); }
+.vf-muted { margin: 0; font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+.vf-gaps { margin: 0; display: flex; gap: 8px; align-items: baseline; font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+.vf-gaps .vf-node__gap { margin: 0; transform: translateY(-1px); }
+.vf-figures { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; font-size: 15px; }
+.vf-figures dt { color: var(--ink-2); }
+.vf-figures dd { margin: 0; text-align: right; }
+.vf-figures__total { padding-top: 8px; border-top: 1px solid var(--line); font-weight: 600; color: var(--ink) !important; }
+.vf-section { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; border-top: 1px solid var(--line); }
+.vf-section__title { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.vf-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.vf-line { display: flex; align-items: center; gap: 4px; }
+.vf-line__open { flex: 1; min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 10px; border-radius: 10px; color: var(--ink); font: inherit; font-size: 15px; text-align: left; cursor: pointer; transition: background-color 150ms var(--ease); }
+.vf-line__open:hover { background: var(--chip); }
+.vf-line__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vf-line__qty { flex: none; color: var(--ink-2); font-size: 14px; }
+.vf-x { flex: none; width: 48px; height: 48px; border-radius: 10px; color: var(--ink-3); font-size: 20px; cursor: pointer; }
+.vf-x:hover { background: var(--chip); color: var(--bad); }
+.vf-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vf-add { min-height: 44px; padding: 0 14px; border-radius: 980px; border: 1px dashed var(--line); color: var(--ink-2); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.vf-add:hover { border-color: var(--ink-3); color: var(--ink); }
+.vf-add--go { border-style: solid; background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.vf-stage { display: flex; flex-wrap: wrap; gap: 8px; }
+.vf-stage .vf-text { flex: 1; min-width: 160px; }
+.vf-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.vf-row { display: flex; gap: 8px; align-items: center; }
+.vf-text, .vf-num, .vf-select { min-height: 48px; box-sizing: border-box; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; }
+.vf-text:focus, .vf-num:focus, .vf-select:focus { outline: 2px solid var(--ink); outline-offset: -1px; }
+.vf-select { flex: none; width: 96px; }
+.vf-problem { margin: 0; width: 100%; font-size: 13px; color: var(--bad); }
+.vf-draft { display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; font-size: 14px; }
+
+@media (max-width: 900px) {
+  .vf-page { height: auto; overflow: visible; }
+  .vf-bar { padding: 4px 16px 12px; }
+  .vf-focus__name { max-width: 70vw; }
+  .vf-publish { margin-left: 0; width: 100%; justify-content: flex-end; }
+  .vf-body { grid-template-columns: 1fr; }
+  .vf-canvas { height: 62dvh; }
+  .vf-panel { border-left: 0; border-top: 1px solid var(--line); padding: 20px 16px 96px; }
+}
+@media (prefers-reduced-motion: reduce) { .vf-node, .vf-edge, .vf-node::after, .vf-primary { transition: none; animation: none; } }
