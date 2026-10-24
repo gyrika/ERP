@@ -29,12 +29,17 @@ export function UpdateScreen({ reload = () => location.reload(), idleMs = LOOK_I
     let stop = false;
     let timer: ReturnType<typeof setTimeout>;
     let prev: CounterUpdate = { kind: 'none' };
+    let looking = false;
     const look = async () => {
+      if (looking) return;
+      looking = true;
+      clearTimeout(timer);
       let seen: HealthSeen;
       try {
         const r = await fetch('/api/v1/health', { cache: 'no-store', signal: AbortSignal.timeout(4_000) });
         seen = r.ok ? ((await r.json()) as Exclude<HealthSeen, 'unreachable'>) : 'unreachable';
       } catch { seen = 'unreachable'; }
+      looking = false;
       if (stop) return;
       if (seen !== 'unreachable' && seen.version && page.current === null) page.current = seen.version;
       prev = nextCounterUpdate(prev, seen, page.current);
@@ -47,8 +52,11 @@ export function UpdateScreen({ reload = () => location.reload(), idleMs = LOOK_I
       }
       timer = setTimeout(() => void look(), prev.kind === 'none' ? idleMs : activeMs);
     };
+    // A minimised or hidden window has its timers slowed right down: look again the moment it is back.
+    const back = () => { if (document.visibilityState === 'visible') void look(); };
+    document.addEventListener('visibilitychange', back);
     void look();
-    return () => { stop = true; clearTimeout(timer); };
+    return () => { stop = true; clearTimeout(timer); document.removeEventListener('visibilitychange', back); };
   }, [reload, idleMs, activeMs]);
 
   useEffect(() => {

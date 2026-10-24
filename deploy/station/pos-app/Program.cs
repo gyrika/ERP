@@ -58,7 +58,10 @@ namespace CheesyBeez
         {
             // The app's own storage (the counter's pairing, its settings), apart from any browser.
             var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CheesyBeez", "pos-app");
-            var env = await CoreWebView2Environment.CreateAsync(null, data);
+            // Keep the page running at full speed when the window is minimised or covered: the update
+            // notice, the kitchen chime and the sync sign must not freeze until someone restores it.
+            var options = new CoreWebView2EnvironmentOptions("--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows");
+            var env = await CoreWebView2Environment.CreateAsync(null, data, options);
             await web.EnsureCoreWebView2Async(env);
             var core = web.CoreWebView2;
             core.Settings.AreDefaultContextMenusEnabled = false;   // no "Inspect", "Back", "Print"…
