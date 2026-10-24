@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { fmt, parseLKR } from '../domain/money.ts';
+import { fmt } from '../domain/money.ts';
 import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import type { Supplier } from '../domain/inventoryData.ts';
-import { formatInUnit, fromPacks, packPrice, reasonLabel, receiveUnitOf, roundForUnit, toPacks, unitName, unitPrice, unitsOf } from '../domain/counting.ts';
+import { formatInUnit, fromPacks, reasonLabel, receiveUnitOf, roundForUnit, toPacks, unitName, unitPrice, unitsOf } from '../domain/counting.ts';
 import type { Actor } from '../domain/auth.ts';
 import type { PurchaseState } from '../domain/purchaseOrders.ts';
-import { setOrderBelow, setReceiveUnit, setWorkingPrice, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
+import { setOrderBelow, setReceiveUnit, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
 import { parsePacks } from '../domain/inventory.ts';
 import { CountItem } from './CountFlow.tsx';
 import { ItemOrder } from './OrderSheet.tsx';
@@ -68,11 +68,8 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
   const isPack = unit.id === 'pack';
   const name = unitName(unit);
   const shownPrice = fmt(unitPrice(item.workingPriceCents, unit, item.packQty));
-  const [price, setPrice] = useState(shownPrice);
   /** Choosing the receiving unit: asking the owner's PIN, then the choice. */
   const [unitEdit, setUnitEdit] = useState<'closed' | 'pin' | Actor>('closed');
-  useEffect(() => setPrice(shownPrice), [shownPrice]);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
@@ -87,18 +84,6 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
   const tabs = TABS.filter((t) => t.id !== 'order' || purchases);
   /** Without purchase orders (the manager's phone), the sheet opens on Details. */
   const tabState: SheetTab = tab === 'order' && !purchases ? 'details' : tab;
-
-  /** A new price the supplier charges (audited), with Undo. */
-  const savePrice = (event: FormEvent) => {
-    event.preventDefault();
-    const typedCents = parseLKR(price);
-    if (typedCents === null) return setError(`Type the price per ${name} in rupees, like 6,400.`);
-    const before = item.workingPriceCents;
-    const cents = packPrice(typedCents, unit, item.packQty);
-    if (price.trim() === shownPrice || cents === before) return setError('That is the price already.');
-    setWorkingPrice(item.id, cents);
-    setDone({ message: `${item.name}: price now Rs ${fmt(unitPrice(cents, unit, item.packQty))} a ${name}.`, undo: () => setWorkingPrice(item.id, before), tab: 'order' });
-  };
 
   const counted = (gapCents: number, big: boolean, undo: () => void) => {
     setDone({ message: big ? `Counted: gap of Rs ${fmt(Math.abs(gapCents))} saved.` : 'Counted: it matches.', undo, tab: 'details' });
@@ -115,7 +100,7 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
         <div className="inv-mode sheet-tabs" role="tablist" aria-label={item.name}>
           {tabs.map((t) => (
             <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} className="pill" aria-selected={tabState === t.id} aria-controls={`panel-${t.id}`}
-              onClick={() => { setTab(t.id); setError(''); }}>{t.label}</button>
+              onClick={() => setTab(t.id)}>{t.label}</button>
           ))}
         </div>
 
@@ -205,16 +190,7 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
         {tabState === 'order' && purchases && (
         <div role="tabpanel" id="panel-order" aria-labelledby="tab-order" className="sheet-panel">
         {/* First the price per pack with the packs on its right, then Add to cart, then the pack settings. */}
-        <ItemOrder item={item} items={items} suppliers={suppliers} purchases={purchases} price={(
-          <form className="receive-price" onSubmit={savePrice}>
-            <label className="inv-modal__field">
-              <span>Price per {name} (Rs) <small>What the supplier charges</small></span>
-              <NumberInput className="inv-modal__input" decimals={2} value={price} onText={(text) => { setPrice(text); setError(''); }} />
-            </label>
-            {price.trim() !== shownPrice && <button type="submit" className="insight__action">Save price</button>}
-            {error && <p className="inv-modal__error" role="alert">{error}</p>}
-          </form>
-        )} />
+        <ItemOrder item={item} items={items} suppliers={suppliers} purchases={purchases} />
 
         <div className="receive-unit">
           {unitEdit === 'closed' && (

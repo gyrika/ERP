@@ -39,6 +39,8 @@ const openSupplier = (supplierId: string) => {
 
 /** The last thing the shop did: not the number the server gives it afterwards. */
 const lastEvent = () => readAll().filter((e) => e.type !== 'stock.numbered' && e.type !== 'stock.draft_set').at(-1);
+/** The last cart record (lastEvent leaves those out). */
+const lastDraft = () => readAll().filter((e) => e.type === 'stock.draft_set').at(-1);
 /** Each supplier's draft order as the events leave it. */
 const drafts = () => inventoryStore.readDrafts();
 const DAY = 24 * 60 * 60 * 1000;
@@ -357,19 +359,32 @@ test('+ Cart on a low row puts it in its supplier\'s cart, with Undo; #order/<su
   expect(within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' })).getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '1');
 });
 
-test('the price the supplier charges is changed on the Order tab, audited, with Undo', async () => {
+test("a price typed on the item's Order tab is for this order only: it goes in the cart and on the PO, never on the item", async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   const sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
-  await user.click(sheet.getByRole('tab', { name: 'Order' }));
-  const price = sheet.getByRole('textbox', { name: /Price per pack/ });
+  const price = sheet.getByRole('textbox', { name: /^Price per pack/ });
+  expect(price).toHaveProperty('value', '6,400');
+  expect(sheet.queryByRole('button', { name: 'Save price' })).toBeNull(); // no Save: Add to cart takes it
   await user.clear(price);
-  await user.type(price, '6,550{Enter}');
-  expect(lastEvent()).toMatchObject({ type: 'stock.price_set', before: 640000, after: 655000 });
-  expect(sheet.getByRole('status').textContent).toContain('Pizza Flour: price now Rs 6,550 a pack.');
-  await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(lastEvent()).toMatchObject({ type: 'stock.price_set', before: 655000, after: 640000 });
+  await user.type(price, '6550');
+  await user.click(sheet.getByRole('button', { name: 'Add to cart' }));
+
+  expect(lastDraft()).toMatchObject({ type: 'stock.draft_set', supplierId: 'sup_prima', lines: [{ itemId: 'inv-0001', packs: 1, unitPriceCents: 655000 }] });
+  expect(readAll().some((e) => e.type === 'stock.price_set')).toBe(false); // the item's own price is untouched
+  expect(inventoryStore.readItems().find((i) => i.id === 'inv-0001')!.workingPriceCents).toBe(640000);
+  expect(sheet.getByText('Price on this order: Rs 6,550 a pack')).toBeTruthy();
+  await user.keyboard('{Escape}');
+
+  // The cart and the purchase order carry it.
+  openSupplier('sup_prima'); // #order/<supplier> opens its cart
+  const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  expect(card.getByRole('textbox', { name: 'Price of one pack of Pizza Flour' })).toHaveProperty('value', '6,550');
+  expect(card.getByLabelText('Order total').textContent).toBe('Rs 6,550');
+  await user.click(screen.getByRole('button', { name: 'Place order' }));
+  expect(readAll().find((e) => e.type === 'stock.ordered')).toMatchObject({ lines: [{ itemId: 'inv-0001', packs: 1, unitPriceCents: 655000 }] });
+  expect(readAll().some((e) => e.type === 'stock.price_set')).toBe(false);
 });
 
 test('Count opens the blind count: the gap shows only after counting, then the shelf is what was counted', async () => {
@@ -688,18 +703,20 @@ test('Items lists all the supplier sells and only fills its cart; the cart is a 
   expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 19,200');
   expect(card.getByLabelText('Order total').textContent).toBe('Rs 19,200');
   expect(card.getByText('1 item · 3 packs')).toBeTruthy();
-  // The price is typed over on the line: the total follows; Enter saves the supplier's new price, audited, with Undo.
+  // The price is typed over on the line: the total follows; Enter keeps it for this order only, with Undo.
   const price = card.getByRole('textbox', { name: 'Price of one pack of Pizza Flour' });
   expect(price).toHaveProperty('value', '6,400');
   await user.clear(price);
   await user.type(price, '6550');
   expect(card.getByLabelText('Total for Pizza Flour').textContent).toBe('Rs 19,650');
   await user.keyboard('{Enter}');
-  expect(lastEvent()).toMatchObject({ type: 'stock.price_set', itemId: 'inv-0001', before: 640000, after: 655000 });
+  expect(lastDraft()).toMatchObject({ type: 'stock.draft_set', lines: [{ itemId: 'inv-0001', packs: 3, unitPriceCents: 655000 }] });
+  expect(readAll().some((e) => e.type === 'stock.price_set')).toBe(false); // the item's own price waits for the GRN
   expect(card.getByLabelText('Order total').textContent).toBe('Rs 19,650');
-  expect(card.getByRole('status').textContent).toContain('Pizza Flour: price now Rs 6,550 a pack.');
+  expect(card.getByRole('status').textContent).toContain('Pizza Flour: Rs 6,550 a pack on this order.');
   await user.click(within(card.getByRole('status')).getByRole('button', { name: 'Undo' }));
-  expect(lastEvent()).toMatchObject({ type: 'stock.price_set', before: 655000, after: 640000 });
+  expect(lastDraft()).toMatchObject({ type: 'stock.draft_set', lines: [{ itemId: 'inv-0001', packs: 3 }] });
+  expect((lastDraft() as { lines: { unitPriceCents?: number }[] }).lines[0].unitPriceCents).toBeUndefined();
   expect(card.getByLabelText('Order total').textContent).toBe('Rs 19,200');
   await user.click(card.getByRole('button', { name: 'Remove Pizza Flour' }));
   expect(card.getByLabelText('Order total').textContent).toBe('Rs 0');
@@ -1245,7 +1262,7 @@ test('the owner, with his PIN, makes flour received in kg; the sheet and the pri
   expect(lastEvent()).toMatchObject({ type: 'stock.receive_unit_set', unit: 'kg', actor: { role: 'owner' } });
 
   sheet = within(screen.getByRole('dialog', { name: 'Pizza Flour' }));
-  expect(sheet.getByRole('textbox', { name: /Price per kg/ })).toHaveProperty('value', '256');
+  expect(sheet.getByRole('textbox', { name: /^Price per kg/ })).toHaveProperty('value', '256');
   await user.keyboard('{Escape}');
 
   // The GRN takes flour in kg: 2 packs ordered is 50 kg; 12.5 kg came, short, approved.

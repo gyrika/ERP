@@ -154,7 +154,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     const packs = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1e6;
     const poLines = (lines: unknown): boolean => Array.isArray(lines) && lines.length > 0 && lines.length <= 200 &&
       lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.packs) && (l.packs as number) > 0 &&
-        (l.stockQty === undefined || (typeof l.stockQty === 'number' && Number.isFinite(l.stockQty) && l.stockQty > 0 && l.stockQty <= 1e9)));
+        (l.stockQty === undefined || (typeof l.stockQty === 'number' && Number.isFinite(l.stockQty) && l.stockQty > 0 && l.stockQty <= 1e9)) &&
+        (l.unitPriceCents === undefined || (typeof l.unitPriceCents === 'number' && Number.isFinite(l.unitPriceCents) && l.unitPriceCents >= 0 && l.unitPriceCents <= 1e9)));
     if (e.type === 'stock.ordered' && ((e.poNo !== undefined && !shortString(e.poNo, 20)) || !shortString(e.supplierId) || !poLines(e.lines))) {
       return { reason: `event ${e.id} has an invalid purchase order` };
     }

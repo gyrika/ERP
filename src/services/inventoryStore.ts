@@ -466,33 +466,46 @@ export const addToOrder = (order: PurchaseOrder, added: PoLine[]): (() => void) 
 
 /** Each supplier's draft order as it stands now. */
 export const readDrafts = (): Map<string, Record<string, number>> => purchasesFromEvents(readLive()).drafts;
+/** Prices typed for each supplier's draft only (cents a pack). */
+export const readDraftPrices = (): Map<string, Record<string, number>> => purchasesFromEvents(readLive()).draftPrices;
 
 const sameDraft = (a: Record<string, number>, b: Record<string, number>) =>
   Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([id, n]) => b[id] === n);
 
 /**
  * Saves one supplier's draft whole (packs per item; none clears it) and returns the Undo, which
- * puts the draft back as it was. Nothing is written when nothing changed.
+ * puts the draft back as it was. Nothing is written when nothing changed. `prices`: a price per pack
+ * for this order only (cents); left out, the draft keeps the prices it had for what stays in it.
  */
-export const setDraft = (supplierId: string, packs: Record<string, number>): (() => void) => {
+export const setDraft = (supplierId: string, packs: Record<string, number>, prices?: Record<string, number>): (() => void) => {
   const kept = Object.fromEntries(Object.entries(packs).filter(([, n]) => n > 0));
-  const before = readDrafts().get(supplierId) ?? {};
-  if (sameDraft(before, kept)) return () => {};
-  const write = (p: Record<string, number>) => appendEvent({
+  const now = purchasesFromEvents(readLive());
+  const before = now.drafts.get(supplierId) ?? {};
+  const beforePrices = now.draftPrices.get(supplierId) ?? {};
+  const keptPrices = Object.fromEntries(Object.entries(prices ?? beforePrices).filter(([id, c]) => id in kept && c > 0));
+  if (sameDraft(before, kept) && sameDraft(beforePrices, keptPrices)) return () => {};
+  const write = (p: Record<string, number>, c: Record<string, number>) => appendEvent({
     type: 'stock.draft_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), supplierId,
-    lines: Object.entries(p).map(([itemId, n]) => ({ itemId, packs: n })),
+    lines: Object.entries(p).map(([itemId, n]) => ({ itemId, packs: n, ...(c[itemId] ? { unitPriceCents: c[itemId] } : {}) })),
   });
-  write(kept);
-  return () => { if (!sameDraft(readDrafts().get(supplierId) ?? {}, before)) write(before); };
+  write(kept, keptPrices);
+  return () => {
+    const later = purchasesFromEvents(readLive());
+    if (!sameDraft(later.drafts.get(supplierId) ?? {}, before) || !sameDraft(later.draftPrices.get(supplierId) ?? {}, beforePrices)) write(before, beforePrices);
+  };
 };
 
 /**
  * Puts an item on its supplier's draft at so many packs. A supplier with no draft yet starts from
  * `start` (what the reorder rule suggests), so those suggestions are not lost. Returns the draft and its Undo.
  */
-export const addToDraft = (supplierId: string, itemId: string, packs: number, start: Record<string, number> = {}): { draft: Record<string, number>; undo: () => void } => {
+export const addToDraft = (
+  supplierId: string, itemId: string, packs: number, start: Record<string, number> = {}, priceCents?: number,
+): { draft: Record<string, number>; undo: () => void } => {
   const draft = { ...(readDrafts().get(supplierId) ?? start), [itemId]: packs };
-  return { draft, undo: setDraft(supplierId, draft) };
+  // A price typed for this order goes in the cart with it; the item's own price is not touched.
+  const prices = { ...(readDraftPrices().get(supplierId) ?? {}), ...(priceCents && priceCents > 0 ? { [itemId]: priceCents } : {}) };
+  return { draft, undo: setDraft(supplierId, draft, prices) };
 };
 
 /**

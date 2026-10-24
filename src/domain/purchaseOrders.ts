@@ -75,6 +75,11 @@ export interface PurchaseState {
   lastSupplier: Map<string, string>;
   /** Each supplier's draft order, not yet placed: packs per item. A supplier with none is not in the map. */
   drafts: Map<string, Record<string, number>>;
+  /**
+   * A price per pack typed for this order only (cents), per supplier and item. It goes on the
+   * purchase order; the item's own price changes only when a GRN is approved. None: the item's price.
+   */
+  draftPrices: Map<string, Record<string, number>>;
 }
 
 const DAY = 86_400_000;
@@ -129,6 +134,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
   /** A record that arrives twice (a sync retry, two routes) counts once. */
   const seen = new Set<string>();
   const drafts = new Map<string, Record<string, number>>();
+  const draftPrices = new Map<string, Record<string, number>>();
   for (const e of events) {
     if (seen.has(e.id)) continue;
     seen.add(e.id);
@@ -139,8 +145,11 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
       const d = docs.get(e.orderId);
       if (d && !d.cancelled && !live.get(e.orderId)?.size) d.lines = mergeLines(e.lines);
     } else if (e.type === 'stock.draft_set') {
-      if (e.lines.length === 0) drafts.delete(e.supplierId);
-      else drafts.set(e.supplierId, Object.fromEntries(mergeLines(e.lines).map((l) => [l.itemId, l.packs])));
+      const lines = mergeLines(e.lines);
+      if (lines.length === 0) { drafts.delete(e.supplierId); draftPrices.delete(e.supplierId); } else {
+        drafts.set(e.supplierId, Object.fromEntries(lines.map((l) => [l.itemId, l.packs])));
+        draftPrices.set(e.supplierId, Object.fromEntries(lines.flatMap((l) => (l.unitPriceCents === undefined ? [] : [[l.itemId, l.unitPriceCents]]))));
+      }
     } else if (e.type === 'stock.order_cancelled') {
       const d = docs.get(e.orderId);
       if (d && !live.get(e.orderId)?.size) d.cancelled = e.reason;
@@ -205,7 +214,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
     differs: differsFrom(g, docs.get(g.orderId)?.lines ?? []), note: g.note, undone: undone.get(g.id) ?? null,
   }));
 
-  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier, drafts };
+  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier, drafts, draftPrices };
 };
 
 /** Packs of each item still owed on open orders: they are already coming. */

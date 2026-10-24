@@ -1,8 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
 import { parsePacks } from '../domain/inventory.ts';
-import { receiveUnitOf } from '../domain/counting.ts';
+import { packPrice, receiveUnitOf, unitName, unitPrice } from '../domain/counting.ts';
 import { cartOf, cartsOf, draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
 import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
@@ -14,7 +14,7 @@ import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
 import { AddSupplierModal } from './AddSupplierModal.tsx';
-import { addToDraft, addToOrder, cancelOrder, editOrder, editSupplier, moveToCart, placeOrder, setDraft, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
+import { addToDraft, addToOrder, cancelOrder, editOrder, editSupplier, moveToCart, placeOrder, setDraft, type InventoryRow } from '../services/inventoryStore.ts';
 import { NumberInput } from './NumberInput.tsx';
 import { back, navigate } from './nav.ts';
 
@@ -52,13 +52,18 @@ const placedText = (p: Placed, suppliers: Supplier[]) => (p.added ? `Added to ${
  */
 function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], purchases: PurchaseState) {
   const [packs, setPacks] = useState<Packs>(initial);
+  /** Prices typed for this order only (cents a pack); an item without one is at its own price. */
+  const [prices, setPrices] = useState<Packs>(() => purchases.draftPrices.get(supplierId) ?? {});
   /** What is in each box while it is being typed (so "1." and an empty box are allowed). */
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
-  const lines: PoLine[] = Object.entries(packs).filter(([, n]) => n > 0).map(([itemId, n]) => ({ itemId, packs: n }));
+  const lines: PoLine[] = Object.entries(packs).filter(([, n]) => n > 0)
+    .map(([itemId, n]) => ({ itemId, packs: n, ...(prices[itemId] ? { unitPriceCents: prices[itemId] } : {}) }));
   const plan = planOrder(purchases.open, supplierId, lines);
   const blocked = new Map(plan.blocked.map((b) => [b.itemId, b.poNo]));
-  const totals = orderTotals(lines, new Map(items.map((i) => [i.id, i.workingPriceCents])));
+  /** What one pack costs on this order: the price typed for it, else the item's price. */
+  const priceOf = (row: InventoryRow) => prices[row.id] ?? row.workingPriceCents;
+  const totals = orderTotals(lines, new Map(items.map((i) => [i.id, priceOf(i)])));
   const mainLabel = plan.create.length > 0
     ? (plan.add.length > 0 ? `Place order and add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order')
     : plan.add.length > 0 ? `Add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order';
@@ -66,7 +71,15 @@ function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], pur
 
   const clearTyped = (id: string) => setTyped(({ [id]: _gone, ...rest }) => rest);
   /** Saves the cart; an item at 0 packs is out of it. */
-  const save = (next: Packs) => { const kept = Object.fromEntries(Object.entries(next).filter(([, n]) => n > 0)); setPacks(kept); setDraft(supplierId, kept); };
+  const save = (next: Packs) => { const kept = Object.fromEntries(Object.entries(next).filter(([, n]) => n > 0)); setPacks(kept); setDraft(supplierId, kept, prices); };
+  /** A price for this order only; returns its Undo. */
+  const setPrice = (id: string, cents: number) => {
+    const before = prices;
+    const next = { ...prices, [id]: cents };
+    setPrices(next);
+    const undo = setDraft(supplierId, packs, next);
+    return () => { undo(); setPrices(before); };
+  };
   const set = (id: string, n: number) => { save({ ...packs, [id]: Math.max(0, n) }); clearTyped(id); setError(''); };
   const setText = (id: string, text: string) => { setTyped({ ...typed, [id]: text }); setPacks({ ...packs, [id]: parsePacks(text) ?? 0 }); setError(''); };
   /** A typed number is saved when its box is left, not on every key. */
@@ -103,28 +116,29 @@ function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], pur
     placed.forEach(({ p, undo }, i) => onPlaced(p, () => { undo(); restore(); }, i === placed.length - 1 && Object.keys(rest).length === 0));
   };
 
-  return { packs, typed, error, setError, lines, plan, blocked, totals, mainLabel, canAct, set, setText, commit, remove, move, act };
+  return { packs, typed, error, setError, lines, plan, blocked, totals, mainLabel, canAct, priceOf, setPrice, set, setText, commit, remove, move, act };
 }
 type Draft = ReturnType<typeof useDraft>;
 
 const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
 
 /**
- * The price of one pack on a bill line, typed over in place. Enter or leaving the box saves it as
- * the supplier's new price (audited, the same as the item's Order tab); Esc puts it back.
+ * The price of one pack on a bill line, typed over in place. Enter or leaving the box keeps it for
+ * this order only: it goes on the purchase order, and the item's own price changes only when the
+ * delivery's GRN is approved. Esc puts it back.
  */
-function PriceCell({ row, onTyped, onSaved }: { row: InventoryRow; onTyped: (cents: number | null) => void; onSaved: (message: string, undo: () => void) => void }) {
-  const shown = row.workingPriceCents > 0 ? fmt(row.workingPriceCents) : '';
+function PriceCell({ row, cents: current, onTyped, onSave }: {
+  row: InventoryRow; cents: number; onTyped: (cents: number | null) => void; onSave: (cents: number) => void;
+}) {
+  const shown = current > 0 ? fmt(current) : '';
   const [text, setText] = useState<string | null>(null);
   const reset = () => { setText(null); onTyped(null); };
   const save = () => {
     if (text === null) return;
     const cents = parseLKR(text);
     reset();
-    if (cents === null || cents <= 0 || cents === row.workingPriceCents) return;
-    const before = row.workingPriceCents;
-    setWorkingPrice(row.id, cents);
-    onSaved(`${row.name}: price now ${rs(cents)} a pack.`, () => setWorkingPrice(row.id, before));
+    if (cents === null || cents <= 0 || cents === current) return;
+    onSave(cents);
   };
   return (
     <span className="price">
@@ -152,13 +166,14 @@ function PacksInput({ id, row, n, min, draft }: { id: string; row: InventoryRow;
   );
 }
 
-/** A price being typed (the line total follows it), and the last price saved, with Undo. */
-function usePricing() {
+/** A price being typed (the line total follows it), and the last price kept for this order, with Undo. */
+function usePricing(draft: Draft) {
   const [typing, setTyping] = useState<{ id: string; cents: number } | null>(null);
   const [priced, setPriced] = useState<{ message: string; undo: () => void } | null>(null);
-  const priceOf = (row: InventoryRow) => (typing?.id === row.id ? typing.cents : row.workingPriceCents);
+  const priceOf = (row: InventoryRow) => (typing?.id === row.id ? typing.cents : draft.priceOf(row));
   const cell = (row: InventoryRow) => (
-    <PriceCell row={row} onTyped={(cents) => setTyping(cents === null ? null : { id: row.id, cents })} onSaved={(message, undo) => setPriced({ message, undo })} />
+    <PriceCell row={row} cents={draft.priceOf(row)} onTyped={(cents) => setTyping(cents === null ? null : { id: row.id, cents })}
+      onSave={(cents) => setPriced({ message: `${row.name}: ${rs(cents)} a pack on this order.`, undo: draft.setPrice(row.id, cents) })} />
   );
   const said = priced && (
     <p className="bill__said" role="status">
@@ -193,7 +208,7 @@ function SupplierItems({ supplierId, draft, items, suppliers, open }: {
     .map((i) => i.id));
   const byId = new Map(items.map((i) => [i.id, i]));
   const rows = order.flatMap((id) => { const row = byId.get(id); return row ? [row] : []; });
-  const pricing = usePricing();
+  const pricing = usePricing(draft);
 
   return (
     <section className="flow__list" aria-label={`Items from ${name}`}>
@@ -244,7 +259,7 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
   const byId = new Map(items.map((i) => [i.id, i]));
   /** The line whose other suppliers are being shown, to move it to one of their carts. */
   const [moving, setMoving] = useState<string | null>(null);
-  const pricing = usePricing();
+  const pricing = usePricing(draft);
   const otherSuppliers = (row: InventoryRow) => suppliers.filter((s) => s.id !== supplierId && row.supplierIds.includes(s.id));
   const moveTo = (id: string, to: string) => {
     const undo = draft.move(id, to, carts.get(to) ?? {});
@@ -575,7 +590,8 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
             {waiting.map((s) => {
               const cart = suggested.get(s.id) ?? {};
               const n = Object.keys(cart).length;
-              const cents = orderTotals(Object.entries(cart).map(([itemId, packs]) => ({ itemId, packs })), prices).cents;
+              const cents = orderTotals(Object.entries(cart).map(([itemId, packs]) => ({ itemId, packs })),
+                new Map([...prices, ...Object.entries(purchases.draftPrices.get(s.id) ?? {})])).cents;
               const line = `${purchases.drafts.has(s.id) ? `Cart · ${n} ${word(n, 'item', 'items')}` : `${n} low ${word(n, 'item', 'items')}`}${cents > 0 ? ` · ${rs(cents)}` : ''}`;
               return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => pick(s.id)} />;
             })}
@@ -651,13 +667,11 @@ function SupplierSteps({ inline, step, supplierId, start, items, suppliers, purc
  * The item sheet's Order tab: only puts the item in a supplier's cart. What it is on order with
  * and which cart it is in are said in one line each; changing them is on the Order page.
  */
-export function ItemOrder({ item, items, suppliers, purchases, price }: {
+export function ItemOrder({ item, items, suppliers, purchases }: {
   item: InventoryRow;
   items: InventoryRow[];
   suppliers: Supplier[];
   purchases: PurchaseState;
-  /** The price per pack box (the item sheet's): first, with the packs on its right, Add to cart below. */
-  price?: ReactNode;
 }) {
   const sources = suppliers.filter((s) => item.supplierIds.includes(s.id));
   const last = purchases.lastSupplier.get(item.id);
@@ -668,7 +682,10 @@ export function ItemOrder({ item, items, suppliers, purchases, price }: {
   const carts = cartsNow(items, purchases);
   const inCart = cartOf(carts, item.id);
 
-  if (!supplierId) return <><p className="flow-hint">No active supplier for {item.name}. Add one on <a href="#suppliers">Suppliers</a>.</p>{price}</>;
+  if (!supplierId) return <p className="flow-hint">No active supplier for {item.name}. Add one on <a href="#suppliers">Suppliers</a>.</p>;
+  const unit = receiveUnitOf(item);
+  /** What one of its units costs on a supplier's cart: the price typed for that cart, else its own. */
+  const cartPrice = (id: string) => fmt(unitPrice(purchases.draftPrices.get(id)?.[item.id] ?? item.workingPriceCents, unit, item.packQty));
   return (
     <section className="flow__list item-order" aria-label={`Order ${item.name}`}>
       {open.map((o) => {
@@ -696,8 +713,8 @@ export function ItemOrder({ item, items, suppliers, purchases, price }: {
           <a className="cta item-order__open" href={`#order/${inCart}`}>Open cart</a>
         </>
       ) : null}
-      {/* Already in a cart (or just added): the price can still be changed, on its own. */}
-      {(said || inCart) && price}
+      {/* Already in a cart (or just added): the price it is on there; changed on the cart itself. */}
+      {(said || inCart) && <p className="item-order__line num">Price on this order: Rs {cartPrice(said ? said.to : inCart!)} a {unitName(unit)}</p>}
       {!said && !inCart && (
         <>
           {sources.length > 1 && (
@@ -707,29 +724,43 @@ export function ItemOrder({ item, items, suppliers, purchases, price }: {
               ))}
             </div>
           )}
-          <AddToCart key={supplierId} item={item} supplierId={supplierId} name={nameOf(suppliers, supplierId)} start={carts.get(supplierId) ?? {}} price={price}
-            onAdded={(message, undo) => setSaid({ message, to: supplierId, undo })} />
+          <AddToCart key={`${supplierId}:${unit.id}`} item={item} supplierId={supplierId} name={nameOf(suppliers, supplierId)} start={carts.get(supplierId) ?? {}}
+            price={cartPrice(supplierId)} onAdded={(message, undo) => setSaid({ message, to: supplierId, undo })} />
         </>
       )}
     </section>
   );
 }
 
-/** The price per pack with this item's packs on its right, then "Add to cart" below. */
-function AddToCart({ item, supplierId, name, start, price, onAdded }: {
-  item: InventoryRow; supplierId: string; name: string; start: Packs; price?: ReactNode; onAdded: (message: string, undo: () => void) => void;
+/**
+ * The price per pack with this item's packs on its right, then "Add to cart" below. The price is
+ * for this order only: it goes in the cart and on the purchase order; the item's own price changes
+ * only when the delivery's GRN is approved. No Save: Add to cart takes it.
+ */
+function AddToCart({ item, supplierId, name, start, price: startPrice, onAdded }: {
+  item: InventoryRow; supplierId: string; name: string; start: Packs;
+  /** The price of one unit now (typed, like "6,400"): the cart's, else the item's. */
+  price: string;
+  onAdded: (message: string, undo: () => void) => void;
 }) {
   const [text, setText] = useState(String(Math.max(1, item.suggestedSupplierId === supplierId ? item.suggestedPacks : 0)));
+  const [price, setPrice] = useState(startPrice);
   const n = parsePacks(text) ?? 0;
+  const unit = receiveUnitOf(item);
   const add = () => {
-    const { draft, undo } = addToDraft(supplierId, item.id, n, start);
+    const typed = parseLKR(price);
+    const cents = typed !== null && typed > 0 ? packPrice(typed, unit, item.packQty) : undefined;
+    const { draft, undo } = addToDraft(supplierId, item.id, n, start, cents);
     const count = Object.keys(draft).length;
     onAdded(`Added to ${name}'s cart · ${count} ${word(count, 'item', 'items')}.`, undo);
   };
   return (
     <div className="item-order__add">
       <div className="item-order__row">
-        {price}
+        <label className="inv-modal__field receive-price">
+          <span>Price per {unitName(unit)} (Rs) <small>For this order</small></span>
+          <NumberInput className="inv-modal__input" decimals={2} value={price} onText={setPrice} onFocus={(e) => e.currentTarget.select()} />
+        </label>
         <BigStepper compact value={text} unit={word(n, 'pack', 'packs')} label={`Packs of ${item.name}`}
           lessLabel={`One pack less of ${item.name}`} moreLabel={`One pack more of ${item.name}`}
           onText={setText} onBump={(by) => setText(String(Math.max(1, n + by)))} />

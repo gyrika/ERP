@@ -202,6 +202,10 @@ test('purchase orders and GRNs: a GRN that differs from its order needs a manage
   assert.ok('events' in validatePush({ events: [draft, { ...draft, id: 'event-4', lines: [] }] }, 'shop-1'), 'no lines clears the draft');
   assert.match(reason({ ...draft, lines: [{ itemId: 'inv-1', packs: 0 }] }), /invalid draft order/);
   assert.match(reason({ ...draft, supplierId: '' }), /invalid draft order/);
+  // A price typed for this order only rides on the draft's line; it must be a real amount.
+  assert.ok('events' in validatePush({ events: [{ ...draft, id: 'event-5', lines: [{ itemId: 'inv-1', packs: 2, unitPriceCents: 655000 }] }] }, 'shop-1'));
+  assert.match(reason({ ...draft, lines: [{ itemId: 'inv-1', packs: 2, unitPriceCents: -1 }] }), /invalid draft order/);
+  assert.match(reason({ ...draft, lines: [{ itemId: 'inv-1', packs: 2, unitPriceCents: 'free' }] }), /invalid draft order/);
 });
 
 test('an undone GRN names a manager and a reason', () => {
