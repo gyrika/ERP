@@ -186,6 +186,15 @@ test('a GRN is refused for a closed or cancelled order, an unknown item, a chang
   assert.match(grnProblem(owed(2), [], noDecision, null) ?? '', /nothing on this GRN/);
 });
 
+test('a GRN lists each item once, and every item still owed on the order', () => {
+  assert.match(grnProblem(owed(2), [...came(2, 2), ...came(2, 2)], noDecision, null) ?? '', /lists an item twice/, 'the same delivery twice would put it in twice');
+  const two = { ...owed(2), lines: [...owed(2).lines, { itemId: 'salt', packs: 1, stockQty: null, received: 0, remaining: 1 }] };
+  assert.match(grnProblem(two, came(2, 2), noDecision, null) ?? '', /leaves out something still owed on PO-0001/, 'it would close the order with salt still owed');
+  assert.equal(grnProblem(two, [...came(2, 2), { itemId: 'salt', ordered: 1, received: 1 }], noDecision, null), null);
+  const saltIn = { ...two, status: 'partly' as const, lines: [two.lines[0], { ...two.lines[1], received: 1, remaining: 0 }] };
+  assert.equal(grnProblem(saltIn, came(2, 2), noDecision, null), null, 'what already came is not owed');
+});
+
 test('stock in: extra accepted = what came; extra returned = what was owed, the rest recorded as returned; short = what came', () => {
   assert.deepEqual(settleGrn(came(2, 3), 'accept'), [{ itemId: 'flour', ordered: 2, received: 3, accepted: 3, returned: 0 }]);
   assert.deepEqual(settleGrn(came(2, 3), 'return'), [{ itemId: 'flour', ordered: 2, received: 3, accepted: 2, returned: 1 }]);
