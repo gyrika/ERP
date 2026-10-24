@@ -33,6 +33,7 @@ export function ReceiveView({ onRegister }: { onRegister?: () => void }) {
 export function OrderView({ supplierId, onRegister }: { supplierId?: string; onRegister?: () => void }) {
   const { items, suppliers } = useInventory();
   const purchases = usePurchases();
+  const settings = useStockSettings();
   const [round, setRound] = useState(0);
   const [said, setSaid] = useState<{ message: string; undo: () => void } | null>(null);
   return (
@@ -45,7 +46,7 @@ export function OrderView({ supplierId, onRegister }: { supplierId?: string; onR
             <button type="button" className="linkbtn" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
           </p>
         )}
-        <OrderSheet key={round} inline items={items} suppliers={suppliers} purchases={purchases} initialSupplier={round === 0 ? supplierId : undefined}
+        <OrderSheet key={round} inline items={items} suppliers={suppliers} purchases={purchases} defaultLeadDays={settings.defaultLeadDays} initialSupplier={round === 0 ? supplierId : undefined}
           onClose={() => setRound((r) => r + 1)} onDone={(message, undo) => setSaid({ message, undo })} />
       </main>
     </div>

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Actor } from './auth.ts';
 import type { SyncEvent } from './sync.ts';
-import { compareDelivery, grnLineCents, grnNumber, grnProblem, grnTotals, grnValueCents, mergeLines, orderTotals, onOrder, planOrder, poNumber, purchasesFromEvents, settleGrn, undoCheck, type PurchaseOrder } from './purchaseOrders.ts';
+import { compareDelivery, dueLabel, grnLineCents, grnNumber, grnProblem, grnTotals, grnValueCents, mergeLines, orderTotals, onOrder, planOrder, poNumber, purchasesFromEvents, settleGrn, undoCheck, type PurchaseOrder } from './purchaseOrders.ts';
 
 const actor: Actor = { id: 'm1', name: 'Ravi', role: 'manager' };
 const DAY = 86_400_000;
@@ -299,4 +299,15 @@ test('a GRN says who received it, which manager approved it and what, and who un
 
   [g] = purchasesFromEvents([priced, approved, { ...base, id: 'u', at: 2 * DAY, type: 'stock.grn_undone', grnId: 'g1', reason: 'Entered by mistake', approvedBy: actor }]).grns;
   assert.deepEqual(g.undone, { at: 2 * DAY, reason: 'Entered by mistake', by: 'Ravi' });
+});
+
+test('an open order says when it is due, and how late once the day has passed (SCRUM-148)', () => {
+  const now = new Date(2026, 9, 24, 15, 0).getTime(); // Sat 24 Oct, afternoon
+  const at = (d: number, h = 9) => new Date(2026, 9, d, h, 0).getTime();
+  assert.deepEqual(dueLabel(at(24, 8), now), { text: 'due today', late: false }); // earlier today is still today
+  assert.deepEqual(dueLabel(at(25), now), { text: 'due tomorrow', late: false });
+  assert.deepEqual(dueLabel(at(27), now), { text: 'due Tue', late: false });
+  assert.deepEqual(dueLabel(at(31 + 3), now), { text: 'due 3 Nov', late: false });
+  assert.deepEqual(dueLabel(at(23), now), { text: '1 day late', late: true });
+  assert.deepEqual(dueLabel(at(21), now), { text: '3 days late', late: true });
 });

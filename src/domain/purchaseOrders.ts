@@ -291,6 +291,24 @@ export const expectedBy = (order: Pick<PurchaseOrder, 'at' | 'supplierId'>, lead
   order.at + Math.ceil(leadDays.get(order.supplierId) ?? defaultLeadDays) * DAY;
 
 /**
+ * When an open order should come, as the Order page says it (SCRUM-148): "due today", "due
+ * tomorrow", "due Tue" within the week, "due 3 Nov" after; once the day has passed, "1 day late"
+ * (late: shown in the warning colour). Days are calendar days on this device.
+ */
+export const dueLabel = (expectedAt: number, now: number): { text: string; late: boolean } => {
+  const start = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const days = Math.round((start(expectedAt) - start(now)) / DAY);
+  if (days < 0) return { text: `${-days} ${days === -1 ? 'day' : 'days'} late`, late: true };
+  if (days === 0) return { text: 'due today', late: false };
+  if (days === 1) return { text: 'due tomorrow', late: false };
+  const d = new Date(expectedAt);
+  return {
+    text: days < 7 ? `due ${d.toLocaleDateString('en-GB', { weekday: 'short' })}` : `due ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
+    late: false,
+  };
+};
+
+/**
  * Can this GRN be undone now? null: yes. Otherwise why not, in plain words. Only the
  * latest GRN of an order, only within the allowed hours; once.
  */

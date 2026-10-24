@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cartOf, cartsOf, draftsOf, orderMessage, suggestions, whatsAppLink, whatsAppNumber, type SuggestRow } from './ordering.ts';
+import { cartOf, cartsOf, draftsOf, lowNotInCart, orderMessage, suggestions, supplierLabel, whatsAppLink, whatsAppNumber, type SuggestRow } from './ordering.ts';
 
 // Ordering from a supplier (SCRUM-92).
 
@@ -108,4 +108,22 @@ test("carts: a saved cart as saved; else the suggestions, less what sits in anot
   // A saved cart wins over the suggestions; an emptied one (no saved cart) falls back to them.
   assert.deepEqual(cartsOf(suggested, new Map([['a', { y: 4 }]])).get('a'), { y: 4 });
   assert.deepEqual(cartsOf(suggested, new Map()).get('a'), { x: 2, y: 1 });
+});
+
+// The Order page (SCRUM-148).
+
+test('an item that runs low after its supplier\'s cart was saved is offered on that cart, never one already in a cart', () => {
+  const suggested = new Map<string, Record<string, number>>([['a', { x: 2, y: 1 }], ['b', { z: 3 }], ['c', { w: 1 }]]);
+  // a: saved without y (x is in it) → y is offered. b: saved with z → nothing. c: not saved → its suggestions are its cart, nothing to offer.
+  const saved = new Map<string, Record<string, number>>([['a', { x: 2, salt: 1 }], ['b', { z: 3 }]]);
+  assert.deepEqual([...lowNotInCart(suggested, saved)], [['a', { y: 1 }]]);
+  // y moved to b's cart: it is in a cart, so a never offers it back.
+  assert.deepEqual([...lowNotInCart(suggested, new Map<string, Record<string, number>>([['a', { x: 2 }], ['b', { z: 3, y: 1 }]]))], []);
+  assert.deepEqual([...lowNotInCart(suggested, new Map())], []);
+});
+
+test('a supplier\'s kind in brackets becomes a tag; the name keeps the rest', () => {
+  assert.deepEqual(supplierLabel('Prima / David Stores (Wholesale)'), { name: 'Prima / David Stores', kind: 'Wholesale' });
+  assert.deepEqual(supplierLabel('Nimmi veg shop (Local Shop, Thalwila)'), { name: 'Nimmi veg shop', kind: 'Local Shop, Thalwila' });
+  assert.deepEqual(supplierLabel('Keells'), { name: 'Keells', kind: null });
 });
