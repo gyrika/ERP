@@ -3,7 +3,7 @@ import type { Actor } from '../domain/auth.ts';
 import { clunk } from './sound.ts';
 
 /** Manager mode ends after this long with no key press or tap. Never stay in it by accident. */
-export const MANAGER_IDLE_MS = 10_000;
+export const MANAGER_IDLE_MS = 60_000;
 
 /**
  * Manager mode session: who unlocked it, and the idle timer that ends it.
