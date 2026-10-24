@@ -174,7 +174,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received) && (l.accepted === undefined || packs(l.accepted)) && (l.returned === undefined || packs(l.returned))) ||
         !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) ||
         !(e.shortDecision === undefined || e.shortDecision === 'wait' || e.shortDecision === 'close') ||
-        !(e.overDecision === undefined || e.overDecision === 'accept' || e.overDecision === 'return')
+        !(e.overDecision === undefined || e.overDecision === 'accept' || e.overDecision === 'return') ||
+        !(e.note === undefined || shortString(e.note, 500))
       ) return { reason: `event ${e.id} has an invalid goods received note` };
       const rows = lines as { ordered: number; received: number; accepted?: number; returned?: number }[];
       // A delivery that differs from its order needs a manager's approval and the decisions.

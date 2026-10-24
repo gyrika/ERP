@@ -523,7 +523,7 @@ export const cancelOrder = (orderId: string, reason: string): (() => void) => {
  * prices it changed, or why it is not allowed (`grnProblem`).
  */
 export const receiveGoods = (
-  order: PurchaseOrder, lines: GrnLine[], decisions: GrnDecisions, approvedBy: Actor | null,
+  order: PurchaseOrder, lines: GrnLine[], decisions: GrnDecisions, approvedBy: Actor | null, note = '',
 ): { grnNo: string; id: string; prices: number } | string => {
   const why = grnProblem(order, lines, decisions, approvedBy);
   if (why) return why;
@@ -532,6 +532,8 @@ export const receiveGoods = (
     type: 'stock.grn', at: Date.now(), orderNumber: 0, actor: currentCashier(),
     orderId: order.id, supplierId: order.supplierId, lines: settled, approvedBy,
     ...(decisions.short ? { shortDecision: decisions.short } : {}), ...(decisions.over ? { overDecision: decisions.over } : {}),
+    // The approving manager's final note, if they wrote one.
+    ...(approvedBy && note.trim() ? { note: note.trim().slice(0, 500) } : {}),
   });
   const items = readItems();
   let prices = 0;

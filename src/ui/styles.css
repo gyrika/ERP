@@ -1646,3 +1646,10 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .chain-line .numfield > input, .chain-add__how .numfield > input { width: 100%; padding-right: 40px; }
 .chain-line .numfield__unit, .chain-add__how .numfield__unit { right: 10px; }
 .chain-add__how .numfield > input { border-color: var(--line); background: var(--surface); }
+
+/* GRN step 3: each decision's two choices side by side; the manager's optional note under them. */
+.grn-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 520px) { .grn-choices { grid-template-columns: 1fr; } }
+.grn-note { display: grid; gap: 8px; margin-top: 8px; }
+.grn-note__box { min-height: 96px; resize: vertical; font: inherit; }
+.grn-doc__note { margin: 12px 0 0; }

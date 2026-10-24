@@ -20,12 +20,13 @@ import { NumberInput } from './NumberInput.tsx';
 /**
  * GRN, goods received: a delivery came. Serves the person at the door with the supplier's
  * bill in hand, one step at a time (src/ui/flow):
- *   1 Which delivery?  big cards, newest first, with the day it is expected (one order: skipped, Back still
+ *   1 Which delivery?  big cards, the nearest expected day first (then the later ones) (one order: skipped, Back still
  *                      reaches it)
  *   2 Check and save   a list of what is still owed, ticked one by one; change a number or price where it
  *                      differs; the bill below; then Save GRN, or Manager approves when something differs
  *   3 Approve          (only if different) a manager's PIN, then what happens to the short lines (wait for
- *                      the rest, or close the order) and the extra (accept it, or return it), then Approve
+ *                      the rest, or close the order) and the extra (accept it, or return it), side by side,
+ *                      an optional final note (kept on the GRN and its document), then Approve
  *                      or Don't approve. The approver goes on the record, never on the screen.
  *   GRN history        every GRN, newest first; one opens as its document, with Export PDF and Undo.
  *   Done               a tick and what to do next. Undo (here or in history): only the latest GRN of an order,
@@ -102,8 +103,10 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
-  // Newest first: the delivery that just arrived is the one at the top.
-  const open = [...purchases.open].reverse();
+  // The nearest delivery first: by the day it is expected (overdue ones are the nearest),
+  // then the later ones; on the same day, the newest order first.
+  const due = (o: PurchaseOrder) => expectedBy(o, purchases.leadDays, settings.defaultLeadDays);
+  const open = [...purchases.open].reverse().sort((a, b) => due(a) - due(b));
   const [orderId, setOrderId] = useState<string | null>(open.length === 1 ? open[0].id : null);
   const [step, setStep] = useState<Step>(open.length === 1 ? 'check' : 'pick');
   /** The items ticked off the list (as the person checks them on the bill and in the boxes). */
@@ -115,6 +118,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   /** The manager whose PIN was accepted, deciding. */
   const [deciding, setDeciding] = useState<Actor | null>(null);
   const [decisions, setDecisions] = useState<GrnDecisions>({ short: null, over: null });
+  /** The manager's final note: optional, kept on the GRN. */
+  const [note, setNote] = useState('');
   /** The GRN just saved here. */
   const [saved, setSaved] = useState<{ grnId: string; no: string; line: string } | null>(null);
   /** Undoing a GRN: first the manager's PIN, then why. */
@@ -211,18 +216,18 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   };
 
   /** Back to the list of deliveries, fresh. */
-  const toList = () => { setOrderId(null); setStep('pick'); setTicked(new Set()); setAmounts({}); setPriceAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); };
+  const toList = () => { setOrderId(null); setStep('pick'); setTicked(new Set()); setAmounts({}); setPriceAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); setNote(''); };
   const pick = (id: string) => { setOrderId(id); setStep('check'); setTicked(new Set()); setAmounts({}); setPriceAmounts({}); setError(''); setSaved(null); };
 
   const finish = (approvedBy: Actor | null) => {
     const got = received();
     if (!got || !order) return;
-    const result = receiveGoods(order, got, decisions, approvedBy);
+    const result = receiveGoods(order, got, decisions, approvedBy, note);
     if (typeof result === 'string') { setDeciding(null); setStep('check'); setError(result); return; }
     const prices = result.prices > 0 ? ` ${result.prices} ${result.prices === 1 ? 'price' : 'prices'} updated to what it came at.` : '';
     onDone(`${result.grnNo} from ${supplierName(order.supplierId)} saved${approvedBy ? ', approved by a manager' : ''}.${prices}`);
     setSaved({ grnId: result.id, no: result.grnNo, line: `From ${supplierName(order.supplierId)}${approvedBy ? ' · approved by a manager' : ''}` });
-    setOrderId(null); setAmounts({}); setPriceAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null });
+    setOrderId(null); setAmounts({}); setPriceAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); setNote('');
     setStep('done');
   };
 
@@ -471,19 +476,25 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           <p className="flow-hint">This delivery differs from {order.poNo}:</p>
           <GrnBill lines={billLines} totalCents={billTotalCents} priceEntry={billPriceEntry} />
           {check.hasShort && (
-            <div role="group" aria-label="Short lines" className="flow__list">
+            <div role="group" aria-label="Short lines" className="flow__list grn-choices">
               {SHORT_CHOICES.map(([id, name, line]) => (
                 <ChoiceCard key={id} name={name} line={line} pressed={decisions.short === id} onClick={() => setDecisions({ ...decisions, short: id })} />
               ))}
             </div>
           )}
           {check.hasOver && (
-            <div role="group" aria-label="Extra lines" className="flow__list">
+            <div role="group" aria-label="Extra lines" className="flow__list grn-choices">
               {OVER_CHOICES.map(([id, name, line]) => (
                 <ChoiceCard key={id} name={name} line={line} pressed={decisions.over === id} onClick={() => setDecisions({ ...decisions, over: id })} />
               ))}
             </div>
           )}
+          {/* Optional: whatever the manager wants on the record, before Approve. */}
+          <label className="grn-note">
+            <span className="flow-hint">Final note (optional)</span>
+            <textarea className="inv-modal__input grn-note__box" rows={3} maxLength={500} value={note}
+              placeholder="e.g. The rest comes on Monday" onChange={(e) => setNote(e.target.value)} />
+          </label>
         </section>
       </FlowSheet>
       {pins}

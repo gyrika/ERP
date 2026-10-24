@@ -871,6 +871,20 @@ test('GRN shows the order and delivered prices; a changed price is reviewed and 
   expect(inventoryStore.readItems().find((i) => i.id === 'inv-0001')!.workingPriceCents).toBe(640000);
 });
 
+test('GRN: the nearest delivery is at the top, the later ones after it', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  const now = Date.now();
+  const at = vi.spyOn(Date, 'now').mockReturnValue(now - 2 * DAY); // Ajantha's was ordered two days ago: due first
+  act(() => { inventoryStore.placeOrder('sup_ajantha', [{ itemId: 'inv-0001', packs: 1 }]); });
+  at.mockReturnValue(now);
+  act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs: 1 }]); });
+  at.mockRestore();
+  await openGrn(user);
+  const cards = within(screen.getByRole('group', { name: 'Open orders' })).getAllByRole('button');
+  expect(cards.map((c) => c.getAttribute('aria-label')?.split(' · ')[0])).toEqual(['Ajantha (Wholesale)', 'Prima / David Stores (Wholesale)']);
+});
+
 test('GRN history is a button at the top right, beside the title, while deliveries wait', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
@@ -986,12 +1000,18 @@ test('short + wait: the rest stays on order; the next GRN expects only what is l
   await toReview(user);
   await user.click(screen.getByRole('button', { name: 'Manager approves' }));
   await user.type(screen.getByLabelText('Manager PIN', { selector: 'input' }), '2580');
+  // The two choices sit side by side; under them, the manager's optional final note.
+  expect(screen.getByRole('group', { name: 'Short lines' }).classList.contains('grn-choices')).toBe(true);
   await user.click(screen.getByRole('button', { name: /^Wait for the rest/ }));
+  await user.type(screen.getByRole('textbox', { name: 'Final note (optional)' }), '  The rest comes on Monday ');
   await user.click(screen.getByRole('button', { name: 'Approve' }));
-  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ shortDecision: 'wait', lines: [{ ordered: 4, received: 1, accepted: 1 }] });
+  expect(readAll().find((e) => e.type === 'stock.grn')).toMatchObject({ shortDecision: 'wait', note: 'The rest comes on Monday', lines: [{ ordered: 4, received: 1, accepted: 1 }] });
+  await user.click(screen.getByRole('button', { name: 'View GRN' })); // the note is on the GRN document
+  expect(screen.getByLabelText("Manager's note").textContent).toBe("Manager's note: The rest comes on Monday");
+  await user.click(screen.getByRole('button', { name: 'Back' })); // the document → GRN history
+  await user.click(screen.getByRole('button', { name: 'Back' })); // → the deliveries
 
   // Next delivery: the order is Partly received; the rest (3) is what the next GRN expects.
-  await user.click(screen.getByRole('button', { name: 'Next delivery' }));
   await user.click(screen.getByRole('button', { name: /PO-0001 · expected .* · partly received/ }));
   expect(screen.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
   expect(screen.getByText('Expected 3 packs')).toBeTruthy();
@@ -1009,7 +1029,7 @@ test('short + wait: the rest stays on order; the next GRN expects only what is l
   await user.click(screen.getByRole('button', { name: 'Back' }));
   await user.click(screen.getByRole('button', { name: 'Open GRN-0002' }));
   expect(screen.getByRole('button', { name: 'Undo GRN-0002' })).toBeTruthy();
-});
+}, 20000); // a long walk: two deliveries, the note, the documents
 
 test('over + return: only what was owed goes into stock, the extra is recorded as returned', async () => {
   const user = userEvent.setup();

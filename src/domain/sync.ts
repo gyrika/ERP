@@ -104,7 +104,7 @@ export type StockEvent =
    * 'receive' adjustments; this is the record, closing the order. approvedBy: the manager
    * whose PIN approved a quantity or price difference.
    */
-  | (StockBase & { type: 'stock.grn'; grnNo?: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null; shortDecision?: 'wait' | 'close'; overDecision?: 'accept' | 'return' })
+  | (StockBase & { type: 'stock.grn'; grnNo?: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null; shortDecision?: 'wait' | 'close'; overDecision?: 'accept' | 'return'; /** The approving manager's final note, if any. */ note?: string })
   /** A GRN taken back by a manager, with why: its stock comes off and its order goes back. The GRN stays, marked undone. */
   | (StockBase & { type: 'stock.grn_undone'; grnId: string; reason?: string; approvedBy?: Actor })
   /** One stock movement, in base units (g, ml, pcs, sheets); docId: the GRN or count it belongs to. */
