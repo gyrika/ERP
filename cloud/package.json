@@ -11,6 +11,8 @@
     "deploy:staging": "npm --prefix .. run build:cloud && wrangler deploy --env staging",
     "migrate:staging": "wrangler d1 migrations apply cheesybeez-cloud-staging --remote --env staging",
     "device": "node --experimental-strip-types --no-warnings addDevice.ts",
+    "ai-eval": "node --experimental-strip-types --no-warnings aiEval.ts",
+    "misses": "wrangler d1 execute cheesybeez-cloud --remote --json --command \"SELECT lower(trim(j.value)) AS phrase, COUNT(*) AS times, SUM(json_extract(e.body, '$.gaveUp')) AS gave_up FROM events e, json_each(json_extract(e.body, '$.unresolved')) j WHERE e.type = 'shorthand.missed' GROUP BY phrase ORDER BY times DESC LIMIT 50\"",
     "answers": "wrangler d1 execute cheesybeez-cloud --remote --json --command \"SELECT id, saved_at, body FROM owner_answers ORDER BY id DESC LIMIT 1\"",
     "admin-key": "node --experimental-strip-types --no-warnings adminKey.ts"
   },

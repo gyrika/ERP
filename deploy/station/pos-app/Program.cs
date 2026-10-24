@@ -76,6 +76,12 @@ namespace CheesyBeez
             core.NewWindowRequested += (s, e) => { e.Handled = true; OpenOutside(e.Uri); };
             core.NavigationStarting += (s, e) => { if (!IsPos(e.Uri) && !e.Uri.StartsWith("data:")) { e.Cancel = true; OpenOutside(e.Uri); } };
             core.NavigationCompleted += async (s, e) => { if (!e.IsSuccess && !waiting) await WaitForServerAsync(); };
+            // Voice (SCRUM-145): the POS page may use the microphone while F9 is held, nothing else may.
+            core.PermissionRequested += (s, e) =>
+            {
+                if (e.PermissionKind == CoreWebView2PermissionKind.Microphone)
+                    e.State = IsPos(e.Uri) ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
+            };
             await WaitForServerAsync();
         }
 

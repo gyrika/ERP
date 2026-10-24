@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactElement } from 'react';
 import { flushSync } from 'react-dom';
 import { managesStock, seesTakings } from '../domain/auth.ts';
+import { voicePages } from '../domain/voicePages.ts';
 import { usesLogin } from '../services/auth.ts';
 import { loadMe } from '../services/managerPhone.ts';
 import { adminShop, fleetShop, isCloudSite, isKitchenDevice, isManagerPhone, ownerToken, syncToken } from '../services/pairing.ts';
@@ -22,6 +23,7 @@ import { SemiView } from './SemiView.tsx';
 import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
 import { OrderView, ReceiveView } from './WorkViews.tsx';
+import { useVoice, VoiceNote } from './VoiceKey.tsx';
 
 const KITCHEN = '#kitchen';
 const OWNER = '#owner';
@@ -124,7 +126,7 @@ export function Root() {
   const inKitchen = hash === KITCHEN;
   /** The Owner view shows the takings: owners and managers only (SCRUM-41). */
   const seesOwner = !kitchenOnly && (!needsLogin || (staff !== null && seesTakings(staff.role)));
-  const go = useCallback((to: '' | typeof KITCHEN | typeof OWNER | '#shops') => withTransition(() => {
+  const go = useCallback((to: string) => withTransition(() => {
     // replaceState: flipping all day must not fill the browser history.
     history.replaceState(null, '', to || location.pathname + location.search);
     setHash(to);
@@ -149,6 +151,19 @@ export function Root() {
     return () => window.removeEventListener('keydown', onKey);
   }, [hash, inKitchen, show, go, seesOwner, kitchenOnly, needsLogin, staff]);
 
+  // Opening a page by voice (SCRUM-145): only the pages this person could open anyway.
+  const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
+  const isOwnerHere = !needsLogin || staff?.role === 'owner';
+  const pages = useMemo(() => voicePages({
+    seesOwner, managesStock: mayManageStock, owner: isOwnerHere, setup: !needsLogin || staff?.role === 'owner' || staff?.role === 'manager',
+  }), [seesOwner, mayManageStock, isOwnerHere, needsLogin, staff]);
+  const voiceOn = !isManagerPhone() && !isCloudSite() && (setup === 'none' || setup === 'done') && !kitchenOnly && (!needsLogin || staff !== null);
+  const voice = useVoice(voiceOn ? pages : [], hash, go);
+
+  const screen = renderScreen();
+  return voiceOn ? <>{screen}<VoiceNote voice={voice.voice} onBack={voice.back} /></> : screen;
+
+  function renderScreen(): ReactElement {
   // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
   // A manager's phone app (SCRUM-94): the counts and the stock, nothing else.
   if (isManagerPhone()) return <ManagerPhone hash={hash} />;
@@ -165,9 +180,8 @@ export function Root() {
   if (kitchenOnly) return <Kitchen onSwitch={staff ? lock : undefined} />;
   if (inKitchen) return <Kitchen onBack={fromRegister || needsLogin ? () => show(false) : undefined} />;
   if (needsLogin && !staff) return <LockScreen />;
-  // Managers and owners only (SCRUM-41); anyone else typing the address gets the Register.
-  // The server refuses a cashier's stock events anyway.
-  const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
+  // Managers and owners only (SCRUM-41, mayManageStock); anyone else typing the address gets the
+  // Register. The server refuses a cashier's stock events anyway.
   if (hash === OWNER && seesOwner) return <OwnerView onBack={() => go('')} />;
   // The developer's Shops screen (only answers on the developer's laptop: server/fleet.ts).
   if (hash === '#shops' && seesOwner) return <ShopsView onBack={() => go('')} />;
@@ -175,7 +189,6 @@ export function Root() {
   // The shop's day (Shop Day Navigation): Receive, Order and Count are places of their own;
   // Items holds raw materials, semi-processed and finished items. The older addresses
   // (#inventory, #manager, #menu, #recipes) still open the same places.
-  const isOwnerHere = !needsLogin || staff?.role === 'owner';
   if (hash === '#receive' && mayManageStock) return <ReceiveView onRegister={() => go('')} />;
   // #order/<supplier id> opens that supplier's cart.
   if ((hash === '#order' || hash.startsWith('#order/')) && mayManageStock) {
@@ -202,8 +215,10 @@ export function Root() {
   }
   return (
     <App onKitchen={() => show(true)} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}
-      onSwitch={needsLogin ? lock : undefined} canManageStock={mayManageStock} />
+      onSwitch={needsLogin ? lock : undefined} canManageStock={mayManageStock}
+      onVoice={voiceOn ? { start: () => void voice.start(), stop: voice.stop } : undefined} />
   );
+  }
 }
 
 /** The manager's phone app: who it belongs to comes from the cloud once, then the counts. */

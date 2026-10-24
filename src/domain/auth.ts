@@ -51,6 +51,8 @@ export const mayRecord = (role: Role, type: string): boolean => {
   if (type === 'prep.ordered' || type === 'prep.order_undone') return true;
   if (type === 'prep.limit_set') return managesRole(role);
   if (CASHIER_EVENTS.has(type)) return role !== 'kitchen';
+  // What the shorthand parser could not read (SCRUM-143): whoever types orders at the counter.
+  if (type === 'shorthand.missed') return role !== 'kitchen';
   if (MANAGER_EVENTS.has(type)) return managesRole(role);
   // Which items are counted daily, weekly or monthly: the owner's choice (SCRUM-90).
   if (OWNER_STOCK.has(type)) return role === 'owner';

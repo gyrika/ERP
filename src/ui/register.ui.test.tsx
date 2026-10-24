@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App.tsx';
+import { readAll } from './eventLog.ts';
 
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
@@ -91,6 +92,29 @@ test('typing shorthand builds the order after one Enter', async () => {
   expect(panel().getByText('Chicken Burger')).toBeTruthy();
   // 2 × 1990 + 450 = 4,430
   expect(panel().getAllByText('4,430').length).toBeGreaterThan(0);
+});
+
+test('what the parser cannot read is logged once: Enter keeps the rest for fixing, Esc on it adds nothing more', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.keyboard('2 l margherita, bbq chkn');
+  await screen.findByText('2 × Margherita · Large');
+  await screen.findByText('? bbq chkn');
+  await user.keyboard('{Enter}');
+  expect((screen.getByLabelText('Type an order') as HTMLInputElement).value).toBe('bbq chkn');
+  await user.keyboard('{Escape}');
+  const misses = readAll().filter((e) => e.type === 'shorthand.missed');
+  expect(misses).toHaveLength(1);
+  expect(misses[0]).toMatchObject({ text: '2 l margherita, bbq chkn', unresolved: ['bbq chkn'], gaveUp: false, orderNumber: 0 });
+});
+
+test('Esc on text the parser cannot read logs that the cashier gave up', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.keyboard('qwerty special');
+  await screen.findByText('? qwerty special');
+  await user.keyboard('{Escape}');
+  expect(readAll().filter((e) => e.type === 'shorthand.missed')).toMatchObject([{ text: 'qwerty special', unresolved: ['qwerty special'], gaveUp: true }]);
 });
 
 test('Undo removes the last add', async () => {

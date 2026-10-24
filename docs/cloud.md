@@ -133,6 +133,24 @@ the cloud address root.
 - **Privacy:** the customer's name and phone are kept only with the online order (the Register
   knows the order by its number), and are blanked after 30 days.
 
+## Language model (SCRUM-142/144)
+
+Cloudflare Workers AI, through the Worker's `AI` binding (`[ai]` in `cloud/wrangler.toml`, live and
+staging). Free within Cloudflare's daily allowance; no key. Rules in `cloud/src/ai.ts`. It only ever
+suggests, and selling never waits for it.
+
+- **`POST /api/v1/ai/command`** `{ text, commands: [{ id, label }] }` → `{ id, cached }`: one id
+  from the list it was sent, or `null`. The caller sends only what that person may already use, so
+  the model cannot reach anything else; a reply outside the list counts as `null`.
+- **`POST /api/v1/ai/transcribe`** (body: the recording, `audio/*`, at most 1 MB) → `{ text }`
+  (Whisper). The recording is used once and never stored.
+- **Who:** paired devices only (shop server, owner and manager phones).
+- **Cache:** the same question with the same list is answered from D1 (`ai_cache`), not the model.
+- **Daily cap:** 300 model calls per shop per Sri Lanka day (`ai_usage`; `AI_DAILY_CALLS` in
+  `[vars]` changes it); past it, `429 too_many`.
+- **No model or a model error:** `503 unavailable`, never a guess. The screens then work as before.
+- **Models:** `COMMAND_MODEL` and `SPEECH_MODEL` in `ai.ts`; change them there only.
+
 ## Changing the cloud
 
 | What | In `cloud/` |
@@ -140,6 +158,7 @@ the cloud address root.
 | Run it locally (simulated D1) | `npm run migrate:local` then `npm run dev` (port 8787) |
 | Deploy a new version (builds the owner's page too) | `npm run deploy` |
 | Apply a new schema file from `cloud/migrations/` | `npm run migrate` |
+| What the shorthand parser could not read (SCRUM-143), commonest first | `npm run misses` |
 | Look at the data | `npx wrangler d1 execute cheesybeez-cloud --remote --command "SELECT COUNT(*) FROM events"` |
 
 **Release order: cloud first, then the shop PCs.** The cloud checks every event with the same
