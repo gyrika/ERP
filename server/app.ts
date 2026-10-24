@@ -50,6 +50,11 @@ export interface AppOptions {
   cloudPhoto?: (tenantId: string, id: string) => Promise<Buffer | null>;
   /** The developer's Shops screen (only where CLOUD_ADMIN_KEY is set: the developer's laptop). */
   fleet?: Fleet | null;
+  /**
+   * The cloud's language model (SCRUM-144/145): passes a counter's request on with this server's
+   * cloud key and returns the cloud's answer as it is; null when there is no cloud or no answer.
+   */
+  cloudAi?: (tenantId: string, task: 'command' | 'transcribe', body: Buffer, contentType: string) => Promise<{ status: number; body: Buffer } | null>;
   now?: () => number;
 }
 
@@ -82,7 +87,7 @@ const json = (res: ServerResponse, status: number, body: unknown) => {
   res.end(JSON.stringify(body));
 };
 
-const readBody = (req: IncomingMessage): Promise<unknown> =>
+const readRaw = (req: IncomingMessage): Promise<Buffer> =>
   new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
@@ -91,12 +96,15 @@ const readBody = (req: IncomingMessage): Promise<unknown> =>
       if (size > MAX_BODY) { reject(new HttpError(400, 'invalid_event', 'body too large')); req.destroy(); return; }
       chunks.push(c);
     });
-    req.on('end', () => {
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-      catch { reject(new HttpError(400, 'invalid_event', 'body is not JSON')); }
-    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
+
+const readBody = async (req: IncomingMessage): Promise<unknown> => {
+  const raw = await readRaw(req);
+  try { return JSON.parse(raw.toString('utf8')); }
+  catch { throw new HttpError(400, 'invalid_event', 'body is not JSON'); }
+};
 
 const bearer = (req: IncomingMessage, url: URL): string | null => {
   const h = req.headers.authorization;
@@ -123,7 +131,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, cloudPhoto, now = Date.now }: AppOptions): Server & { ingest: Ingest } {
+export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, cloudPhoto, cloudAi, now = Date.now }: AppOptions): Server & { ingest: Ingest } {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -269,6 +277,19 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       if (!jpeg) throw new HttpError(404, 'server', 'no such photo');
       res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000, immutable' });
       res.end(jpeg);
+      return;
+    }
+    // Opening a page by voice (SCRUM-145): the words and the page pick come from the cloud's model.
+    if (url.pathname === '/api/v1/ai/command' || url.pathname === '/api/v1/ai/transcribe') {
+      const device = await authenticate(req, url);
+      if (device.kind !== 'counter') throw new HttpError(403, 'forbidden', 'voice is for the counter');
+      if (req.method !== 'POST') throw new HttpError(405, 'server', 'method not allowed');
+      const body = await readRaw(req);
+      const task = url.pathname === '/api/v1/ai/command' ? 'command' : 'transcribe';
+      const answer = cloudAi ? await cloudAi(device.tenantId, task, body, String(req.headers['content-type'] ?? 'application/json')) : null;
+      if (!answer) throw new HttpError(503, 'unavailable', 'voice needs the internet and the cloud connected');
+      res.writeHead(answer.status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(answer.body);
       return;
     }
     if (url.pathname === '/api/v1/online' || url.pathname.startsWith('/api/v1/online/')) {

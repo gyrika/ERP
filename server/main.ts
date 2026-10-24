@@ -116,6 +116,18 @@ const server = createApp({
     const r = await fetch(`${link.url}/api/v1/photos/${id}`, { headers: { authorization: `Bearer ${link.token}` }, signal: AbortSignal.timeout(15_000) });
     return r.ok ? Buffer.from(await r.arrayBuffer()) : null;
   },
+  // Voice at the counter (SCRUM-145): passed to the cloud's language model with this server's key.
+  cloudAi: async (tenantId, task, body, contentType) => {
+    const link = cloudLink();
+    if (!link || tenantId !== cloudShop()) return null;
+    try {
+      const r = await fetch(`${link.url}/api/v1/ai/${task}`, {
+        method: 'POST', headers: { authorization: `Bearer ${link.token}`, 'content-type': contentType }, body: new Uint8Array(body),
+        signal: AbortSignal.timeout(task === 'transcribe' ? 20_000 : 8_000),
+      });
+      return { status: r.status, body: Buffer.from(await r.arrayBuffer()) };
+    } catch { return null; }
+  },
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
   printer,
