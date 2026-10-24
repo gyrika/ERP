@@ -1516,14 +1516,31 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .row--stack { flex-direction: column; align-items: stretch; gap: 8px; }
 .row__name { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .row__text { flex: 1; }
+/* A row that is one button (a supplier: tap anywhere to open their cart). */
+.row--tap { padding: 0; }
+.row__tap { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 2px 16px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background 120ms var(--ease); }
+.row__tap:hover { background: var(--chip); }
+.row__tap:hover .row__add { color: var(--ink); }
+.row__tap:active .row__add { transform: scale(0.88); }
+.row__tap:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 /* Just the +, no background, at the right edge so every + lines up; 48px to tap. */
 .row__add { flex: none; width: 48px; height: 48px; margin-right: -8px; border-radius: 12px; background: none; color: var(--primary); font-size: 30px; font-weight: 400; line-height: 1; display: inline-grid; place-items: center; cursor: pointer; transition: transform 80ms var(--ease), color 120ms; }
 .row__add:hover { color: var(--ink); }
 .row__add:active { transform: scale(0.88); }
 .row__add:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.po-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
-.po-card .flow-card__tag { margin-top: 0; }
-.po-card__actions { display: flex; gap: 12px; flex: none; }
+/* An open order: the row is one button; tapped, the whole order opens under it. */
+.po { padding: 0; gap: 0; }
+.po__head { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 56px; padding: 6px 16px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.po__head:hover { background: var(--chip); }
+.po__head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.po__head .flow-card__tag { margin-top: 0; }
+.po__head .flow-card__text { flex: 1; min-width: 0; }
+.po__chev { flex: none; margin-left: auto; font-size: 22px; color: var(--ink-3); transition: transform 180ms var(--ease); }
+.po--open .po__chev { transform: rotate(90deg); }
+.po__body { display: flex; flex-direction: column; gap: 12px; padding: 4px 16px 16px; animation: po-open 180ms var(--ease); }
+.po__cancel { align-self: flex-start; min-height: 48px; color: var(--bad); }
+@keyframes po-open { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .po__body { animation: none; } .po__chev { transition: none; } }
 .po-why { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .po-why .flow-card { width: auto; min-height: 48px; padding: 8px 14px; border-left: 0; background: var(--surface); }
 /* A purchase order as a bill: item, qty, price of one pack, line total; the total at the bottom. */
@@ -1549,19 +1566,16 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .qty__btn--x { color: var(--ink-3); }
 .qty__num { width: 56px; height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 17px; font-weight: 600; text-align: center; }
 .qty__num:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
-.bill-add { display: flex; flex-direction: column; }
-.bill-add__btn { align-self: flex-start; }
-.bill__addrow td { padding-top: 4px; padding-bottom: 4px; }
-.bill-add__btn { min-height: 48px; padding: 0 4px; background: none; color: var(--ink); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; }
-.bill-add__btn:hover { text-decoration: underline; text-underline-offset: 3px; }
-.bill-add__menu { max-height: 288px; overflow: auto; margin: 4px 0 6px; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); animation: menu-in 150ms var(--ease) both; }
-.bill-add__item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px; border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 16px; text-align: left; cursor: pointer; }
-.bill-add__item:hover, .bill-add__item:focus-visible { background: var(--chip); outline: none; }
+.qty__btn:disabled { opacity: 0.35; cursor: default; }
+/* Items step: everything the supplier sells; what is not in the cart reads quieter. */
+.bill--items tbody tr:not(.bill__in) .bill__name { color: var(--ink-2); font-weight: 500; }
+.bill--items .bill__name .flow-card__tag { margin: 0 0 0 8px; vertical-align: middle; }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (max-width: 520px) { .bill__qty { width: auto; } .bill th, .bill td { padding-left: 4px; padding-right: 4px; } }
 /* The price of one pack, typed over in place on a bill line. */
 .price { display: inline-flex; align-items: center; gap: 4px; }
 .price__rs { font-size: 14px; color: var(--ink-3); }
+.bill .price__rs { padding-left: 12px; }
 .price__num { width: 84px; height: 44px; padding: 0 8px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 16px; text-align: right; }
 .price__num:hover { border-color: var(--line); }
 .price__num:focus { border-color: var(--line); background: var(--surface); outline: 2px solid var(--primary); outline-offset: 1px; }
