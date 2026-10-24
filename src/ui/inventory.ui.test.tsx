@@ -425,6 +425,7 @@ test('Purchase orders: a cart per supplier from what runs low; Place order saves
   await openOrders(user);
   // Open orders are first on the Order page, above the suppliers to order from.
   expect(screen.getByRole('region', { name: 'On order' }).compareDocumentPosition(screen.getByRole('group', { name: 'Order from another supplier' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: /^PO-0001 · Prima/ })); // the row opens the order
   await user.click(screen.getByRole('button', { name: 'Cancel PO-0001' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.ordered' }); // a reason first: nothing cancelled yet
   await user.click(within(screen.getByRole('group', { name: 'Why cancel PO-0001' })).getByRole('button', { name: 'Ordered by mistake' }));
@@ -484,18 +485,33 @@ test('an item already on an open order is added to it, not ordered twice; the ca
   expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 2, stockQty: 50000 }] });
 });
 
-test('an open order can be changed in its list until goods come; then it is locked', async () => {
+test('an open order is a short row; a tap opens it to change until goods come; then it is locked', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
   orderFlour(2);
   await openOrders(user);
-  await user.click(screen.getByRole('button', { name: 'Edit PO-0001' }));
-  await user.click(screen.getByRole('button', { name: 'One pack more of Pizza Flour on PO-0001' }));
-  await user.click(screen.getByRole('button', { name: 'Save PO-0001' }));
-  expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 3 }] });
   const onOrder = within(screen.getByRole('region', { name: 'On order' }));
-  expect(onOrder.getByText(/3 × Pizza Flour/)).toBeTruthy();
+  // Closed: number, supplier, status, when. No items, no Edit or Cancel.
+  const head = onOrder.getByRole('button', { name: /^PO-0001 · Prima/ });
+  expect(head.getAttribute('aria-expanded')).toBe('false');
+  expect(onOrder.queryByText(/Pizza Flour/)).toBeNull();
+  expect(onOrder.queryByRole('button', { name: 'Edit PO-0001' })).toBeNull();
+  expect(onOrder.queryByRole('button', { name: 'Cancel PO-0001' })).toBeNull();
+
+  await user.click(head);
+  expect(head.getAttribute('aria-expanded')).toBe('true');
+  const lines = within(onOrder.getByRole('table', { name: 'Lines of PO-0001' }));
+  expect(lines.getByText('Pizza Flour')).toBeTruthy();
+  expect(onOrder.queryByRole('button', { name: 'Save PO-0001' })).toBeNull(); // nothing changed yet
+  await user.click(onOrder.getByRole('button', { name: 'One pack more of Pizza Flour on PO-0001' }));
+  await user.click(onOrder.getByRole('button', { name: 'Save PO-0001' }));
+  expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 3 }] });
+  expect(lines.getByRole('textbox', { name: 'Packs of Pizza Flour on PO-0001' })).toHaveProperty('value', '3');
   expect(onOrder.getByText('Open')).toBeTruthy();
+  // Esc closes it.
+  await user.click(lines.getByRole('textbox', { name: 'Packs of Pizza Flour on PO-0001' }));
+  await user.keyboard('{Escape}');
+  expect(head.getAttribute('aria-expanded')).toBe('false');
 
   // Goods came (a GRN that waits for the rest): Partly received, and locked.
   const po = readAll().find((e) => e.type === 'stock.ordered')!;
@@ -506,9 +522,10 @@ test('an open order can be changed in its list until goods come; then it is lock
     });
   });
   expect(onOrder.getByText('Partly received')).toBeTruthy();
-  expect(onOrder.getByText(/3 × Pizza Flour \(1 received\)/)).toBeTruthy();
-  expect(onOrder.getByText('Goods came: finish it with GRN.')).toBeTruthy();
-  expect(onOrder.queryByRole('button', { name: 'Edit PO-0001' })).toBeNull();
+  await user.click(onOrder.getByRole('button', { name: /^PO-0001 · Prima/ }));
+  expect(onOrder.getByText('1 of 3 received')).toBeTruthy();
+  expect(onOrder.getByText(/Goods came: finish it with/)).toBeTruthy();
+  expect(onOrder.queryByRole('button', { name: 'One pack more of Pizza Flour on PO-0001' })).toBeNull();
   expect(onOrder.queryByRole('button', { name: 'Cancel PO-0001' })).toBeNull();
 });
 

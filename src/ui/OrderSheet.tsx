@@ -7,6 +7,7 @@ import { cartOf, cartsOf, draftsOf, orderMessage, whatsAppLink } from '../domain
 import { fmt, parseLKR } from '../domain/money.ts';
 import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { PoLine } from '../domain/sync.ts';
+import { daysAgo } from '../domain/itemStory.ts';
 import { formatLasts, formatQuantity } from './quantity.ts';
 import { BigStepper } from './flow/BigStepper.tsx';
 import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
@@ -304,81 +305,128 @@ export function PlacedOrder({ placed: { order, added }, items, suppliers }: { pl
 
 const STATUS_WORDS = { open: 'Open', partly: 'Partly received', closed: 'Closed', cancelled: 'Cancelled' } as const;
 
-/** One open order: its status and lines; Edit and Cancel (with a reason) until goods are received. */
-function OnOrderRow({ order, items, suppliers, onDone }: { order: PurchaseOrder; items: InventoryRow[]; suppliers: Supplier[]; onDone: Done }) {
+/**
+ * One open order: a short row (number, supplier, status, when) that opens in place. Open, it is
+ * the whole order as a bill (agreed price, what came so far, the total); until goods come the
+ * quantities change right there, Save appears once something changed, and Cancel takes a reason.
+ */
+function OnOrderRow({ order, items, suppliers, open, onToggle, onDone }: {
+  order: PurchaseOrder; items: InventoryRow[]; suppliers: Supplier[]; open: boolean; onToggle: () => void; onDone: Done;
+}) {
+  /** The changed quantities; null while nothing changed. */
   const [editing, setEditing] = useState<Packs | null>(null);
   const [why, setWhy] = useState(false);
   const [error, setError] = useState('');
-  const nameFor = (id: string) => items.find((i) => i.id === id)?.name ?? id;
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const nameFor = (id: string) => byId.get(id)?.name ?? id;
+  const packs: Packs = editing ?? Object.fromEntries(order.lines.map((l) => [l.itemId, l.packs]));
+  const lineOf = new Map(order.lines.map((l) => [l.itemId, l]));
+  const priceOf = (id: string) => lineOf.get(id)?.unitPriceCents ?? byId.get(id)?.workingPriceCents ?? 0;
+  const total = Object.entries(packs).reduce((sum, [id, n]) => sum + n * priceOf(id), 0);
+  const count = Object.keys(packs).length;
+  const panel = `po-${order.id}`;
+  const change = (next: Packs) => { setEditing(next); setError(''); };
+  const reset = () => { setEditing(null); setWhy(false); setError(''); };
 
   const save = () => {
     if (!editing) return;
-    const result = editOrder(order, Object.entries(editing).map(([itemId, packs]) => ({ itemId, packs })));
+    const result = editOrder(order, Object.entries(editing).map(([itemId, n]) => ({ itemId, packs: n })));
     if (typeof result === 'string') return setError(result);
-    setEditing(null);
-    setError('');
+    reset();
     onDone(`${order.poNo} changed.`, result);
   };
 
-  const actions = !order.editable ? null : editing ? null : why ? null : (
-    <span className="po-card__actions">
-      <button type="button" className="linkbtn" aria-label={`Edit ${order.poNo}`} onClick={() => setEditing(Object.fromEntries(order.lines.map((l) => [l.itemId, l.packs])))}>Edit</button>
-      <button type="button" className="linkbtn" aria-label={`Cancel ${order.poNo}`} onClick={() => setWhy(true)}>Cancel</button>
-    </span>
-  );
   return (
-    <li className={`row row--stack${order.status === 'partly' ? ' row--warn' : ''}`}>
-      <div className="po-card">
+    <li className={`row row--stack po${open ? ' po--open' : ''}${order.status === 'partly' ? ' row--warn' : ''}`}
+      onKeyDown={(e) => { if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); reset(); onToggle(); } }}>
+      <button type="button" className="po__head" aria-expanded={open} aria-controls={panel} onClick={() => { if (open) reset(); onToggle(); }}>
         <span className="flow-card__text">
           <span className="row__name">{order.poNo} · {nameOf(suppliers, order.supplierId)} <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span></span>
-          {!editing && <span className="flow-card__line">{order.lines.map((l) => `${l.packs} × ${nameFor(l.itemId)}${l.received > 0 ? ` (${l.received} received)` : ''}`).join(', ')}</span>}
-          {!order.editable && <span className="flow-card__line">Goods came: finish it with GRN.</span>}
+          <span className="flow-card__line">Placed {daysAgo(order.at, Date.now())}{open ? ` by ${order.actor.name}` : ''}</span>
         </span>
-        {actions}
-      </div>
-      {editing && (
-        <ul className="flow__list flow__plain" aria-label={`Change ${order.poNo}`}>
-          {Object.entries(editing).map(([id, n]) => (
-            <li key={id} className="flow-card flow-card--item">
-              <span className="flow-card__text">
-                <span className="flow-card__name">{nameFor(id)}</span>
-                <button type="button" className="linkbtn" aria-label={`Remove ${nameFor(id)} from ${order.poNo}`}
-                  onClick={() => { const { [id]: _gone, ...rest } = editing; setEditing(rest); }}>Remove</button>
-              </span>
-              <BigStepper compact value={String(n)} unit={word(n, 'pack', 'packs')} label={`Packs of ${nameFor(id)} on ${order.poNo}`}
-                lessLabel={`One pack less of ${nameFor(id)} on ${order.poNo}`} moreLabel={`One pack more of ${nameFor(id)} on ${order.poNo}`}
-                onText={(text) => setEditing({ ...editing, [id]: parsePacks(text) ?? 0 })} onBump={(by) => setEditing({ ...editing, [id]: Math.max(1, n + by) })} />
-            </li>
-          ))}
-        </ul>
-      )}
-      {error && <p className="reason-msg" role="alert">{error}</p>}
-      {editing && (
-        <div className="flow__row">
-          <button type="button" className="linkbtn" onClick={() => { setEditing(null); setError(''); }}>Keep as it was</button>
-          <button type="button" className="chip chip--solid" aria-label={`Save ${order.poNo}`} onClick={save}>Save changes</button>
-        </div>
-      )}
-      {why && !editing && (
-        <div role="group" aria-label={`Why cancel ${order.poNo}`} className="po-why">
-          {CANCEL_REASONS.map((r) => (
-            <ChoiceCard key={r} name={r} onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))} />
-          ))}
-          <button type="button" className="linkbtn" onClick={() => setWhy(false)}>Don't cancel</button>
+        <span className="po__chev" aria-hidden="true">›</span>
+      </button>
+      {open && (
+        <div id={panel} className="po__body">
+          <table className="bill" aria-label={`Lines of ${order.poNo}`}>
+            <thead>
+              <tr><th scope="col">Item</th><th scope="col" className="bill__qty">Qty</th><th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th>{order.editable && <th scope="col"><span className="sr-only">Remove</span></th>}</tr>
+            </thead>
+            <tbody>
+              {Object.entries(packs).map(([id, n]) => {
+                const received = lineOf.get(id)?.received ?? 0;
+                return (
+                  <tr key={id}>
+                    <td>
+                      <span className="bill__name">{nameFor(id)}</span>
+                      {received > 0 && <span className="bill__sub">{received} of {n} received</span>}
+                    </td>
+                    <td className="bill__qty">
+                      {order.editable ? (
+                        <span className="qty">
+                          <button type="button" className="qty__btn" aria-label={`One pack less of ${nameFor(id)} on ${order.poNo}`} onClick={() => change({ ...packs, [id]: Math.max(1, n - 1) })}>−</button>
+                          <NumberInput className="qty__num" aria-label={`Packs of ${nameFor(id)} on ${order.poNo}`} value={String(n)}
+                            onText={(text) => change({ ...packs, [id]: parsePacks(text) ?? 0 })} onFocus={(e) => e.currentTarget.select()} />
+                          <button type="button" className="qty__btn" aria-label={`One pack more of ${nameFor(id)} on ${order.poNo}`} onClick={() => change({ ...packs, [id]: n + 1 })}>+</button>
+                        </span>
+                      ) : <span className="num">{n}</span>}
+                    </td>
+                    <td className="bill__num num">{priceOf(id) > 0 ? rs(priceOf(id)) : '—'}</td>
+                    <td className="bill__num num">{priceOf(id) > 0 ? rs(n * priceOf(id)) : '—'}</td>
+                    {order.editable && (
+                      <td className="bill__x">
+                        <button type="button" className="qty__btn qty__btn--x" aria-label={`Remove ${nameFor(id)} from ${order.poNo}`}
+                          onClick={() => { const { [id]: _gone, ...rest } = packs; change(rest); }}>×</button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th scope="row" colSpan={2} className="bill__sum">{count} {word(count, 'item', 'items')}</th>
+                <td colSpan={order.editable ? 3 : 2} className="bill__num bill__grand num" aria-label={`${order.poNo} total`}>{rs(total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+          {error && <p className="reason-msg" role="alert">{error}</p>}
+          {!order.editable && <p className="flow-hint">Goods came: finish it with <a href="#receive">GRN</a>.</p>}
+          {order.editable && editing && (
+            <div className="flow__row">
+              <button type="button" className="linkbtn" onClick={() => { setEditing(null); setError(''); }}>Keep as it was</button>
+              <button type="button" className="chip chip--solid" aria-label={`Save ${order.poNo}`} onClick={save}>Save changes</button>
+            </div>
+          )}
+          {order.editable && !editing && !why && (
+            <button type="button" className="linkbtn po__cancel" aria-label={`Cancel ${order.poNo}`} onClick={() => setWhy(true)}>Cancel order</button>
+          )}
+          {order.editable && why && !editing && (
+            <div role="group" aria-label={`Why cancel ${order.poNo}`} className="po-why">
+              {CANCEL_REASONS.map((r) => (
+                <ChoiceCard key={r} name={r} onClick={() => onDone(`${order.poNo} cancelled.`, cancelOrder(order.id, r))} />
+              ))}
+              <button type="button" className="linkbtn" onClick={() => setWhy(false)}>Don't cancel</button>
+            </div>
+          )}
         </div>
       )}
     </li>
   );
 }
 
-/** Open orders, awaiting goods. */
+/** Open orders, awaiting goods: one open at a time. */
 function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]; items: InventoryRow[]; suppliers: Supplier[]; onDone: Done }) {
+  const [openId, setOpenId] = useState<string | null>(null);
   if (orders.length === 0) return null;
   return (
     <section aria-label="On order" className="flow__list">
       <p className="flow-hint">On order</p>
       <ul className="rows flow__plain">
-        {orders.map((o) => <OnOrderRow key={o.id} order={o} items={items} suppliers={suppliers} onDone={onDone} />)}
+        {orders.map((o) => (
+          <OnOrderRow key={o.id} order={o} items={items} suppliers={suppliers} open={openId === o.id}
+            onToggle={() => setOpenId(openId === o.id ? null : o.id)} onDone={onDone} />
+        ))}
       </ul>
     </section>
   );
