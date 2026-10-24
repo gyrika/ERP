@@ -148,6 +148,7 @@ test('supplier cards show the name only, no status dot or plus mark', () => {
   const outItem = { ...stocked(SEED_INVENTORY[1], 0), supplierIds: ['sup-out'] };
   const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
     items: [lowItem, outItem],
+    allItems: [lowItem, outItem],
     suppliers: [
       { id: 'sup-low', name: 'Low Supplier' },
       { id: 'sup-out', name: 'Out Supplier' },
@@ -171,6 +172,7 @@ test('inventory rows show available base quantity against the plan pack size', (
   const flour = { ...stocked(SEED_INVENTORY[0], 0), onHandPacks: 12400 / 25000, onHandBaseUnits: 12400 };
   const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
     items: [flour],
+    allItems: [flour],
     suppliers: [],
     untrackedSold: 0,
   });
@@ -185,7 +187,7 @@ test('inventory rows show available base quantity against the plan pack size', (
 
 test('an item with sales it could not take says Check shelf, and sales with no recipe are named once', () => {
   const flour = { ...stocked(SEED_INVENTORY[0], 3), missedSales: 4 };
-  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({ items: [flour], suppliers: [], untrackedSold: 2 });
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({ items: [flour], allItems: [flour], suppliers: [], untrackedSold: 2 });
   render(<InventoryView />);
 
   const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
@@ -200,7 +202,7 @@ test('an item with sales it could not take says Check shelf, and sales with no r
 
 test('a low item stays Low stock even with missed sales: the shelf can only be lower', () => {
   const flour = { ...stocked(SEED_INVENTORY[0], 1), missedSales: 4, suggestedPacks: 2 };
-  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({ items: [flour], suppliers: [], untrackedSold: 0 });
+  const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({ items: [flour], allItems: [flour], suppliers: [], untrackedSold: 0 });
   render(<InventoryView />);
   const row = screen.getByRole('heading', { name: 'Pizza Flour' }).closest('article')!;
   expect(within(row).getByText('Low stock')).toBeTruthy();
@@ -213,6 +215,7 @@ test('a low item stays Low stock even with missed sales: the shelf can only be l
 test('supplier cards render fallback message when phone is missing', () => {
   const spy = vi.spyOn(inventoryStore, 'useInventory').mockReturnValue({
     items: [],
+    allItems: [],
     suppliers: [{ id: 'sup_nophone', name: 'No Phone Store (Direct)' }],
     untrackedSold: 0,
   });
@@ -544,11 +547,11 @@ test('the shop server refused a GRN: it stops counting, the order is waiting aga
   // The notice shows on every page that is open (the Receive flow and Items), the same words on each.
   const notices = screen.getAllByRole('alert');
   for (const n of notices) expect(n.textContent).toBe('The GRN was not saved: PO-0001 is closed: nothing more can be received on it.OK');
-  expect(amount()).toContain('Not counted yet'); // its stock never happened
+  expect(amount()).toContain('Empty'); // its stock never happened: back to the count, an empty shelf
 
   await user.click(within(notices[0]).getByRole('button', { name: 'OK' }));
   expect(screen.queryByRole('alert')).toBeNull();
-  expect(amount()).toContain('Not counted yet'); // reading it does not bring it back
+  expect(amount()).toContain('Empty'); // reading it does not bring it back
   await openGrn(user);
   expect(screen.getByRole('region', { name: /PO-0001$/ })).toBeTruthy(); // the order is waiting again
 });
@@ -666,8 +669,20 @@ const addItem = async (user: ReturnType<typeof userEvent.setup>, card: ReturnTyp
   await user.type(qty, packs);
 };
 
-/** Orders 2 packs of flour from its first supplier. */
-const orderFlour = (packs = 2) => act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs }]); });
+/** Flour's opening count: an empty shelf (once). */
+const countFlourEmpty = () => {
+  if (readAll().some((e) => e.type === 'stock.counted' && e.itemId === 'inv-0001')) return;
+  appendEvent({ type: 'stock.counted', at: Date.now() - 1, orderNumber: 0, actor: { id: 'm', name: 'Ravi', role: 'manager' }, itemId: 'inv-0001', counted: 0, expected: 0, entries: [], reason: null, valueCents: 0, tier: 'weekly' });
+};
+
+/**
+ * Orders 2 packs of flour from its first supplier. Flour was counted first (an empty shelf): a delivery
+ * is not a count, so an item never counted stays "Not counted" whatever comes in.
+ */
+const orderFlour = (packs = 2) => act(() => {
+  countFlourEmpty();
+  inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs }]);
+});
 
 /** Ticks the GRN's items one by one, then reviews (the step with Save GRN / Manager approves). */
 const toReview = async (user: ReturnType<typeof userEvent.setup>) => {
@@ -1009,7 +1024,7 @@ test("the sheet tells the item's whole story: shelf, last delivery, price change
   expect(story.getByText(/^\d+ menu items: /)).toBeTruthy();
 
   await user.keyboard('{Escape}');
-  act(() => { inventoryStore.adjustStock('inv-0001', 2, 'receive'); inventoryStore.setWorkingPrice('inv-0001', 655000); });
+  act(() => { countFlourEmpty(); inventoryStore.adjustStock('inv-0001', 2, 'receive'); inventoryStore.setWorkingPrice('inv-0001', 655000); });
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
   story = within(screen.getByRole('dialog', { name: 'Pizza Flour' }).querySelector('dl')!);
   expect(story.getByText('2 packs · 50 kg')).toBeTruthy();
@@ -1104,6 +1119,7 @@ test('the owner, with his PIN, makes flour received in kg; the sheet and the pri
 
 test('Count happens inside the item sheet, then History shows it with the delivery before it', async () => {
   const user = userEvent.setup();
+  countFlourEmpty();
   inventoryStore.adjustStock('inv-0001', 2, 'receive');
   render(<InventoryView />);
   await user.click(within(flourRow()).getByRole('button', { name: 'Pizza Flour' }));
@@ -1120,12 +1136,13 @@ test('Count happens inside the item sheet, then History shows it with the delive
   expect(items.map((li) => li.textContent?.replace(/^today · [A-Z][a-z]+/, ''))).toEqual([
     'Counted 37.5 kg · expected 50 kg · 12.5 kg short (Rs 3,200) · Spoiled or expired',
     'Received 2 packs (50 kg)',
+    'Counted 0 g · first count',
   ]);
   // Undo the count: back on Details, and it leaves the history.
   await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
   expect(sheet.getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true');
   await user.click(sheet.getByRole('tab', { name: 'History' }));
-  expect(within(sheet.getByRole('list', { name: 'History of Pizza Flour' })).getAllByRole('listitem')).toHaveLength(1);
+  expect(within(sheet.getByRole('list', { name: 'History of Pizza Flour' })).getAllByRole('listitem')).toHaveLength(2); // the delivery and the opening count
 });
 
 test('Step 3 with no phone: Add phone opens the supplier\'s Edit here; the number is saved and WhatsApp appears, message kept', async () => {
