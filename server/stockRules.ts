@@ -94,6 +94,12 @@ export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now, it
       if (!e.reason?.trim()) return 'Say why the GRN is being undone.';
       return approverProblem(e.approvedBy, staff);
     }
+    case 'stock.price_set':
+      // A price a delivery set stands only with that delivery: a refused GRN takes its prices with it.
+      // A price typed by hand (no grnId) is not ours to check; an undone GRN's prices may still go back.
+      return e.grnId === undefined || state.grns.some((g) => g.id === e.grnId)
+        ? null
+        : 'That price came with a delivery that was not saved. Receive the delivery again.';
     case 'stock.counted': {
       // A gap beyond the owner's allowance must say why: the device is not trusted to have asked. As on the
       // count screen, an item's first count (its opening stock) needs no reason; a shelf below zero still does.

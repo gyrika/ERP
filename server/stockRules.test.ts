@@ -191,6 +191,21 @@ test('a failed store does not leave the checker believing something that was not
   await assert.rejects(() => (async () => { const check = createStockRules({ ...s.store, push: async () => { throw new Error('disk'); } }, () => 5 * HOUR); await check({ id: 'd', tenantId: 'shop-a', kind: 'counter' }, [by(grn('g1', 'p1', [line(2, 2)]), s.by)], (ok) => s.store.push({ id: 'd', tenantId: 'shop-a', kind: 'counter' }, ok, 1).then(() => { throw new Error('disk'); })); })(), /disk/);
 });
 
+test('a price a GRN set stands only with that GRN; a price typed by hand passes', async () => {
+  const s = await shop();
+  const price = (id: string, grnId?: string): SyncEvent =>
+    ({ ...base, actor: s.by, id, at: 2, type: 'stock.price_set', itemId: 'flour', before: 640000, after: 680000, ...(grnId ? { grnId } : {}) });
+  await s.push([by(po('p1', 2), s.by), by(grn('g1', 'p1', [line(2, 2)]), s.by)]);
+  // The PO is now closed: a second GRN on it is refused, and so is the price it set.
+  const out = await s.push([by(grn('g2', 'p1', [line(2, 2)]), s.by), price('x2', 'g2')]);
+  assert.deepEqual(out.rejected.map((r) => r.id), ['g2', 'x2']);
+  assert.match(out.rejected[1].reason, /delivery that was not saved/);
+  // The GRN and its price in one batch, a price going back after an undo, and a hand-typed price all pass.
+  const ok = await s.push([by(po('p2', 2), s.by), by(grn('g3', 'p2', [line(2, 2)]), s.by), price('x3', 'g3'), price('x1', 'g1'), price('x4')]);
+  assert.deepEqual(ok.rejected, []);
+  assert.deepEqual(await s.stored(), ['p1', 'g1', 'p2', 'g3', 'x3', 'x1', 'x4']);
+});
+
 test('records that are not purchasing rules are passed through untouched', async () => {
   const s = await shop();
   const adjust: SyncEvent = { ...base, actor: s.by, id: 'a1', at: 1, type: 'stock.unit_set', itemId: 'flour', name: 'Tray', base: 30 };
