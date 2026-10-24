@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
 import { parsePacks } from '../domain/inventory.ts';
 import { receiveUnitOf } from '../domain/counting.ts';
-import { cartOf, cartsOf, draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
+import { cartOf, cartsOf, draftsOf, lowNotInCart, orderMessage, supplierLabel, whatsAppLink } from '../domain/ordering.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
-import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import { CANCEL_REASONS, dueLabel, expectedBy, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { PoLine } from '../domain/sync.ts';
 import { daysAgo } from '../domain/itemStory.ts';
 import { formatLasts, formatQuantity } from './quantity.ts';
@@ -350,8 +350,11 @@ const STATUS_WORDS = { open: 'Open', partly: 'Partly received', closed: 'Closed'
  * the whole order as a bill (agreed price, what came so far, the total); until goods come the
  * quantities change right there, Save appears once something changed, and Cancel takes a reason.
  */
-function OnOrderRow({ order, items, suppliers, open, onToggle, onDone }: {
-  order: PurchaseOrder; items: InventoryRow[]; suppliers: Supplier[]; open: boolean; onToggle: () => void; onDone: Done;
+function OnOrderRow({ order, items, suppliers, due, open, onToggle, onDone }: {
+  order: PurchaseOrder; items: InventoryRow[]; suppliers: Supplier[];
+  /** When it should come ("due Tue", "1 day late"). */
+  due: { text: string; late: boolean };
+  open: boolean; onToggle: () => void; onDone: Done;
 }) {
   /** The changed quantities; null while nothing changed. */
   const [editing, setEditing] = useState<Packs | null>(null);
@@ -363,6 +366,7 @@ function OnOrderRow({ order, items, suppliers, open, onToggle, onDone }: {
   const lineOf = new Map(order.lines.map((l) => [l.itemId, l]));
   const priceOf = (id: string) => lineOf.get(id)?.unitPriceCents ?? byId.get(id)?.workingPriceCents ?? 0;
   const total = Object.entries(packs).reduce((sum, [id, n]) => sum + n * priceOf(id), 0);
+  const placedTotal = order.lines.reduce((sum, l) => sum + l.packs * priceOf(l.itemId), 0);
   const count = Object.keys(packs).length;
   const panel = `po-${order.id}`;
   const change = (next: Packs) => { setEditing(next); setError(''); };
@@ -381,13 +385,16 @@ function OnOrderRow({ order, items, suppliers, open, onToggle, onDone }: {
       onKeyDown={(e) => { if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); reset(); onToggle(); } }}>
       <button type="button" className="po__head" aria-expanded={open} aria-controls={panel} onClick={() => { if (open) reset(); onToggle(); }}>
         <span className="flow-card__text">
-          <span className="row__name">{order.poNo} · {nameOf(suppliers, order.supplierId)} <span className="flow-card__tag">{STATUS_WORDS[order.status]}</span></span>
-          <span className="flow-card__line">Placed {daysAgo(order.at, Date.now())}{open ? ` by ${order.actor.name}` : ''}</span>
+          <span className="row__name">{order.poNo} · {supplierLabel(nameOf(suppliers, order.supplierId)).name}
+            {order.status === 'partly' && <span className="flow-card__tag">{STATUS_WORDS.partly}</span>}</span>
         </span>
+        {placedTotal > 0 && <span className="po__total num">{rs(placedTotal)}</span>}
+        <span className={`po__due${due.late ? ' po__due--late' : ''}`}>{due.text}</span>
         <span className="po__chev" aria-hidden="true">›</span>
       </button>
       {open && (
         <div id={panel} className="po__body">
+          <p className="po__placed">{STATUS_WORDS[order.status]} · placed {daysAgo(order.at, Date.now())} by {order.actor.name}</p>
           <table className="bill" aria-label={`Lines of ${order.poNo}`}>
             <thead>
               <tr><th scope="col">Item</th><th scope="col" className="bill__qty">Qty</th><th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th>{order.editable && <th scope="col"><span className="sr-only">Remove</span></th>}</tr>
@@ -455,16 +462,20 @@ function OnOrderRow({ order, items, suppliers, open, onToggle, onDone }: {
   );
 }
 
-/** Open orders, awaiting goods: one open at a time. */
-function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]; items: InventoryRow[]; suppliers: Supplier[]; onDone: Done }) {
+/** Open orders, awaiting goods, with when each should come: one open at a time. */
+function OnOrder({ orders, items, suppliers, dueOf, onDone }: {
+  orders: PurchaseOrder[]; items: InventoryRow[]; suppliers: Supplier[];
+  dueOf: (order: PurchaseOrder) => { text: string; late: boolean };
+  onDone: Done;
+}) {
   const [openId, setOpenId] = useState<string | null>(null);
   if (orders.length === 0) return null;
   return (
-    <section aria-label="On order" className="flow__list">
-      <p className="flow-hint">On order</p>
+    <section aria-labelledby="order-coming" className="flow__list">
+      <h2 id="order-coming" className="order__h">Coming</h2>
       <ul className="rows flow__plain">
         {orders.map((o) => (
-          <OnOrderRow key={o.id} order={o} items={items} suppliers={suppliers} open={openId === o.id}
+          <OnOrderRow key={o.id} order={o} items={items} suppliers={suppliers} due={dueOf(o)} open={openId === o.id}
             onToggle={() => setOpenId(openId === o.id ? null : o.id)} onDone={onDone} />
         ))}
       </ul>
@@ -472,13 +483,72 @@ function OnOrder({ orders, items, suppliers, onDone }: { orders: PurchaseOrder[]
   );
 }
 
-/** A supplier in a list: the whole row is one button that opens their cart; the + only shows it. */
-function SupplierRow({ name, line, tone, label, onAdd }: { name: string; line?: string; tone?: 'warn'; label: string; onAdd: () => void }) {
+/** "Mozzarella", "Mozzarella and Basil", "Mozzarella and 2 more". */
+const namesText = (names: string[]) =>
+  names.length <= 1 ? names[0] ?? '' : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]} and ${names.length - 1} more`;
+
+/**
+ * One supplier's cart on the Order page: what it holds and comes to, why each item is in it
+ * (low, or added by you), and Review cart. When something ran low after the cart was saved
+ * (`lowNotInCart`), a quiet line offers it: Add puts it in, with Undo.
+ */
+function CartCard({ supplier, cart, missing, items, prices, onOpen }: {
+  supplier: Supplier; cart: Packs; missing: Packs | undefined; items: InventoryRow[]; prices: Map<string, number>; onOpen: () => void;
+}) {
+  const [added, setAdded] = useState<{ text: string; undo: () => void } | null>(null);
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const lines = Object.entries(cart).flatMap(([id, n]) => { const row = byId.get(id); return row ? [{ row, n }] : []; });
+  const cents = orderTotals(Object.entries(cart).map(([itemId, packs]) => ({ itemId, packs })), prices).cents;
+  const low = lines.filter((l) => l.row.suggestedPacks > 0).length;
+  const mine = lines.length - low;
+  const shown = lines.slice(0, 4).map((l) => `${l.row.name} ${l.n}`).join(' · ') + (lines.length > 4 ? ` · +${lines.length - 4} more` : '');
+  const miss = Object.entries(missing ?? {}).flatMap(([id, n]) => { const row = byId.get(id); return row ? [{ id, row, n }] : []; });
+  const missNames = namesText(miss.map((m) => m.row.name));
+  const { name, kind } = supplierLabel(supplier.name);
+  const add = () => {
+    const undo = setDraft(supplier.id, { ...cart, ...Object.fromEntries(miss.map((m) => [m.id, m.n])) });
+    setAdded({ text: `${missNames} added.`, undo });
+  };
+
   return (
-    <li className={`row row--tap${tone ? ` row--${tone}` : ''}`}>
+    <li className="cart-card">
+      <div className="cart-card__top">
+        <h3 className="cart-card__name">{name}{kind && <span className="tag">{kind}</span>}</h3>
+        <span className="cart-card__count">{lines.length} {word(lines.length, 'item', 'items')}</span>
+        {cents > 0 && <span className="cart-card__total num">{rs(cents)}</span>}
+      </div>
+      {shown && <p className="cart-card__lines">{shown}</p>}
+      {miss.length > 0 && (
+        <div className="cart-card__nudge">
+          <span>{missNames} {miss.length === 1 ? 'is' : 'are'} low too. Not in this cart yet.</span>
+          <button type="button" className="cart-card__add" aria-label={`Add ${missNames} to ${name}'s cart`} onClick={add}>Add</button>
+        </div>
+      )}
+      {added && (
+        <p className="bill__said" role="status">
+          {added.text}
+          <button type="button" className="linkbtn" onClick={() => { added.undo(); setAdded(null); }}>Undo</button>
+        </p>
+      )}
+      <div className="cart-card__foot">
+        {low > 0 && <span className="tag tag--warn">{low} low</span>}
+        {mine > 0 && <span className="tag">{mine} added by you</span>}
+        <button type="button" className="cart-card__go" aria-label={`Review cart: ${supplier.name}`} onClick={onOpen}>
+          Review cart <span aria-hidden="true">›</span>
+        </button>
+      </div>
+    </li>
+  );
+}
+
+/** A supplier in a list: the whole row is one button that opens their cart; the + only shows it. */
+function SupplierRow({ name, line, inCart, label, onAdd }: { name: string; line?: string; inCart?: boolean; label: string; onAdd: () => void }) {
+  const shown = supplierLabel(name);
+  return (
+    <li className="row row--tap">
       <button type="button" className="row__tap" aria-label={label} onClick={onAdd}>
         <span className="flow-card__text row__text">
-          <span className="row__name">{name}</span>
+          <span className="row__name">{shown.name}{shown.kind && <span className="tag">{shown.kind}</span>}{inCart && <span className="tag tag--warn">In cart</span>}</span>
           {line && <span className="flow-card__line">{line}</span>}
         </span>
         <span className="row__add" aria-hidden="true">+</span>
@@ -487,13 +557,94 @@ function SupplierRow({ name, line, tone, label, onAdd }: { name: string; line?: 
   );
 }
 
+/**
+ * Start a cart: a search over suppliers and what they sell ("flour" finds who sells flour; "/"
+ * jumps here, Enter opens the first match, Esc clears it), else the five suppliers ordered from
+ * most recently, with every supplier one tap away. With no orders yet, every supplier shows.
+ */
+function StartCart({ suppliers, items, carted, lastOrdered, onChoose }: {
+  suppliers: Supplier[]; items: InventoryRow[];
+  /** Suppliers with a cart: left out of Recent (their card is above), tagged in a search. */
+  carted: ReadonlySet<string>;
+  lastOrdered: ReadonlyMap<string, number>;
+  onChoose: (supplierId: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [all, setAll] = useState(false);
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== '/' || e.defaultPrevented || t?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      e.preventDefault();
+      box.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const now = Date.now();
+  const sells = (id: string) => items.filter((i) => i.supplierIds.includes(id));
+  const lineOf = (s: Supplier) => {
+    const n = sells(s.id).length;
+    const last = lastOrdered.get(s.id);
+    return `${n} ${word(n, 'item', 'items')} · ${last === undefined ? 'no orders yet' : `last order ${daysAgo(last, now)}`}`;
+  };
+  const byRecent = (a: Supplier, b: Supplier) => (lastOrdered.get(b.id) ?? -1) - (lastOrdered.get(a.id) ?? -1) || a.name.localeCompare(b.name);
+  const q = query.trim().toLowerCase();
+  const free = suppliers.filter((s) => !carted.has(s.id)).sort(byRecent);
+  const recent = free.filter((s) => lastOrdered.has(s.id)).slice(0, 5);
+  const showAll = all || recent.length === 0;
+  const rows = q
+    ? suppliers.flatMap((s) => {
+      const list = sells(s.id);
+      const hit = list.find((i) => i.name.toLowerCase().includes(q));
+      if (!s.name.toLowerCase().includes(q) && !hit) return [];
+      return [{ s, line: hit ? `Sells ${hit.name} · ${list.length} ${word(list.length, 'item', 'items')}` : lineOf(s) }];
+    })
+    : (showAll ? free : recent).map((s) => ({ s, line: lineOf(s) }));
+  const label = q
+    ? (rows.length === 0 ? '' : rows.length === 1 ? '1 match · Enter opens it' : `${rows.length} matches · Enter opens the first`)
+    : showAll ? (recent.length === 0 ? '' : 'All suppliers, most recent first') : 'Recent';
+
+  return (
+    <section aria-labelledby="order-start" className="flow__list">
+      <h2 id="order-start" className="order__h">Start a cart</h2>
+      <label className="order-search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+        <span className="sr-only">Find a supplier or an item</span>
+        <input ref={box} type="search" value={query} placeholder="Find a supplier or an item…"
+          // Never the browser's saved logins.
+          name="order-supplier-search" autoComplete="off" spellCheck={false}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && rows[0]) { e.preventDefault(); onChoose(rows[0].s.id); }
+            if (e.key === 'Escape' && query) { e.preventDefault(); setQuery(''); }
+          }} />
+        <kbd aria-hidden="true">/</kbd>
+      </label>
+      {label && <p className="flow-hint">{label}</p>}
+      {q && rows.length === 0 && <p className="order-none">No supplier or item matches “{query.trim()}”. Add one on <a href="#suppliers">Suppliers</a>.</p>}
+      {rows.length > 0 && (
+        <ul role="group" aria-label="Order from another supplier" className="rows flow__plain">
+          {rows.map(({ s, line }) => <SupplierRow key={s.id} name={s.name} line={line} inCart={carted.has(s.id)} label={`+ ${s.name}`} onAdd={() => onChoose(s.id)} />)}
+        </ul>
+      )}
+      {!q && recent.length > 0 && recent.length < free.length && (
+        <button type="button" className="linkbtn order-all" onClick={() => setAll(!all)}>{all ? 'Show recent only' : `All suppliers (${free.length}) ›`}</button>
+      )}
+    </section>
+  );
+}
+
 type Step = 'who' | 'items' | 'cart' | 'send';
 const STEPS = 4;
 
-export function OrderSheet({ items, suppliers, purchases, inline = false, initialSupplier, onClose, onDone }: {
+export function OrderSheet({ items, suppliers, purchases, defaultLeadDays = 3, inline = false, initialSupplier, onClose, onDone }: {
   items: InventoryRow[];
   suppliers: Supplier[];
   purchases: PurchaseState;
+  /** Days a supplier with no delivery history takes (Stock rules), for when an order is due. */
+  defaultLeadDays?: number;
   /** In the Order page itself, not a sheet over it. */
   inline?: boolean;
   /** Opens straight on this supplier (#order/<supplier id>): its cart, or its items when it has none. */
@@ -516,11 +667,17 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
 
   const withItems = suppliers.filter((s) => items.some((i) => i.supplierIds.includes(s.id)));
   const waiting = withItems.filter((s) => suggested.has(s.id) && !finished.includes(s.id));
-  const others = withItems.filter((s) => !suggested.has(s.id) || finished.includes(s.id));
   const choose = (id: string) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(firstStep(id)); };
   const toWho = () => { setStep('who'); setSupplierId(null); setPlaced([]); };
 
-  const total = waiting.length + finished.filter((id) => suggested.has(id)).length;
+  /** What ran low after a supplier's cart was saved: offered on its card. */
+  const missing = useMemo(() => lowNotInCart(draftsOf(items), purchases.drafts), [items, purchases]);
+  /** When each supplier was last ordered from (cancelled orders do not count). */
+  const lastOrdered = useMemo(() => {
+    const last = new Map<string, number>();
+    for (const o of purchases.orders) if (o.status !== 'cancelled' && o.at > (last.get(o.supplierId) ?? -1)) last.set(o.supplierId, o.at);
+    return last;
+  }, [purchases]);
 
   if (step !== 'who' && supplierId) {
     return (
@@ -537,36 +694,43 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
     );
   }
 
+  // The page's one line: what waits, what it comes to, what is coming.
+  const cartsCents = waiting.reduce((sum, s) => sum + orderTotals(Object.entries(suggested.get(s.id) ?? {}).map(([itemId, packs]) => ({ itemId, packs })), prices).cents, 0);
+  const coming = purchases.open.length;
+  const summary = [
+    waiting.length > 0 ? `${waiting.length} ${word(waiting.length, 'cart', 'carts')}${cartsCents > 0 ? ` · ${rs(cartsCents)}` : ''}` : 'Nothing to order',
+    coming > 0 ? `${coming} ${word(coming, 'delivery', 'deliveries')} coming` : '',
+  ].filter(Boolean).join(' · ');
+  // Nothing waits: what runs out first, so the calm is not blind.
+  const next = items.filter((i) => i.counted && i.usedPerDay > 0 && i.lastsDays !== null && i.suggestedPacks === 0)
+    .sort((a, b) => (a.lastsDays ?? 0) - (b.lastsDays ?? 0))[0];
+
   return (
-    <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
-      step={total > 1 ? { index: 1, of: STEPS, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: STEPS, label: 'Who?' }}
-      >
+    <FlowSheet title="Order" sub={summary} inline={inline} onClose={onClose} className="order-home">
       <RejectionNotices />
-      {/* What is already on order comes first: the person sees it before ordering more. */}
-      <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
-      {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
-      {waiting.length > 0 && (
-        <section className="flow__list">
-          <p className="flow-hint">Carts</p>
-          <ul role="group" aria-label="Suppliers that need ordering" className="rows flow__plain">
-            {waiting.map((s) => {
-              const cart = suggested.get(s.id) ?? {};
-              const n = Object.keys(cart).length;
-              const cents = orderTotals(Object.entries(cart).map(([itemId, packs]) => ({ itemId, packs })), prices).cents;
-              const line = `${purchases.drafts.has(s.id) ? `Cart · ${n} ${word(n, 'item', 'items')}` : `${n} low ${word(n, 'item', 'items')}`}${cents > 0 ? ` · ${rs(cents)}` : ''}`;
-              return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => choose(s.id)} />;
-            })}
+      <section aria-labelledby="order-carts" className="flow__list">
+        <h2 id="order-carts" className="order__h">Carts</h2>
+        {waiting.length === 0 ? (
+          <div className="cart-calm">
+            <span className="cart-calm__icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+            </span>
+            <span className="flow-card__text">
+              <span className="cart-calm__title">{finished.length > 0 ? 'All done. Every cart is ordered.' : 'No carts. Nothing is running low.'}</span>
+              {next && <span className="flow-card__line">Runs out first: {next.name}, in about {Math.max(1, Math.round(next.lastsDays ?? 0))} {word(Math.max(1, Math.round(next.lastsDays ?? 0)), 'day', 'days')}.</span>}
+            </span>
+          </div>
+        ) : (
+          <ul role="group" aria-label="Suppliers that need ordering" className="cart-cards flow__plain">
+            {waiting.map((s) => (
+              <CartCard key={s.id} supplier={s} cart={suggested.get(s.id) ?? {}} missing={missing.get(s.id)} items={items} prices={prices} onOpen={() => choose(s.id)} />
+            ))}
           </ul>
-        </section>
-      )}
-      {others.length > 0 && (
-        <section className="flow__list">
-          <p className="flow-hint">{waiting.length > 0 ? 'Other suppliers' : 'Suppliers'}: tap one to start a cart</p>
-          <ul role="group" aria-label="Order from another supplier" className="rows flow__plain">
-            {others.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => choose(s.id)} />)}
-          </ul>
-        </section>
-      )}
+        )}
+      </section>
+      <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone}
+        dueOf={(o) => dueLabel(expectedBy(o, purchases.leadDays, defaultLeadDays), Date.now())} />
+      <StartCart suppliers={withItems} items={items} carted={new Set(waiting.map((s) => s.id))} lastOrdered={lastOrdered} onChoose={choose} />
     </FlowSheet>
   );
 }

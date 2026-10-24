@@ -266,8 +266,8 @@ test("the item's Order tab only puts it in a supplier's cart; the Order page edi
 
   // The Order page: the cart is listed, its bill holds the item; a change is kept on leaving.
   await openOrders(user);
-  expect(within(screen.getByRole('group', { name: 'Suppliers that need ordering' })).getByRole('listitem').textContent).toContain('Cart · 1 item');
-  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  expect(within(screen.getByRole('group', { name: 'Suppliers that need ordering' })).getByRole('listitem').textContent).toMatch(/1 item.*1 added by you/);
+  await user.click(screen.getByRole('button', { name: 'Review cart: Prima / David Stores (Wholesale)' }));
   const bill = () => within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(bill().getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '2');
   await user.click(bill().getByRole('button', { name: 'One pack more of Pizza Flour' }));
@@ -275,7 +275,7 @@ test("the item's Order tab only puts it in a supplier's cart; the Order page edi
   await user.click(screen.getByRole('button', { name: 'Back' })); // Cart → Items: the same amount
   expect(within(screen.getByRole('region', { name: /^Items from Prima/ })).getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
   await user.click(screen.getByRole('button', { name: 'Back' })); // Items → Who
-  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: 'Review cart: Prima / David Stores (Wholesale)' }));
   expect(bill().getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
 
   // Placing it makes the PO and empties the cart; Undo takes the PO back and the cart returns.
@@ -293,7 +293,7 @@ test("a line moves to the item's other supplier's cart, never comes back to the 
   render(<InventoryView />);
   act(() => shelfPacks(1)); // flour runs low: it is in Prima's cart by itself
   await openOrders(user);
-  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: 'Review cart: Prima / David Stores (Wholesale)' }));
   const bill = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(bill.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3');
   await user.click(bill.getByRole('button', { name: "Move to Ajantha (Wholesale)'s cart" }));
@@ -311,7 +311,7 @@ test("a line moves to the item's other supplier's cart, never comes back to the 
   expect(carts.getAllByRole('listitem').map((li) => li.textContent)).toEqual([expect.stringContaining('Ajantha')]);
 
   // Undo, from the bill it left: back in Prima's cart, out of Ajantha's.
-  await user.click(screen.getByRole('button', { name: 'Order from Ajantha (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: 'Review cart: Ajantha (Wholesale)' }));
   await user.click(screen.getByRole('button', { name: "Move to Prima / David Stores (Wholesale)'s cart" }));
   await user.click(within(screen.getByText("Pizza Flour: moved to Prima / David Stores (Wholesale)'s cart.")).getByRole('button', { name: 'Undo' }));
   expect(drafts().get('sup_ajantha')).toEqual({ 'inv-0001': 3 });
@@ -397,12 +397,12 @@ test('Purchase orders: a cart per supplier from what runs low; Place order saves
   sellPizzas(500);
   act(() => shelfPacks(1)); // 25 kg against 7.9 kg a day: 5 days need 39.7 kg, so it is low
   await openOrders(user);
-  // Step 1: who. The supplier that needs ordering is listed with how many; the whole row is the one button.
+  // Step 1: the cart is a card: what is in it, why (low), what it comes to; Review cart is its one button.
   const needs = within(screen.getByRole('group', { name: 'Suppliers that need ordering' }));
-  expect(needs.getByRole('listitem').textContent).toContain('1 low item');
+  expect(needs.getByRole('listitem').textContent).toMatch(/1 item.*Pizza Flour 3.*1 low/);
   expect(needs.getAllByRole('button')).toHaveLength(1);
-  expect(needs.getByRole('button').textContent).toContain('1 low item');
-  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  expect(needs.getByRole('button').textContent).toContain('Review cart');
+  await user.click(screen.getByRole('button', { name: 'Review cart: Prima / David Stores (Wholesale)' }));
   // Step 2: what. The suggested packs are in; the one main button is at the bottom.
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
   expect(card.getByRole('textbox', { name: 'Packs of Pizza Flour' })).toHaveProperty('value', '3'); // 10 days of use (79.5 kg) less 25 kg = 2.2 packs, rounded up
@@ -428,7 +428,7 @@ test('Purchase orders: a cart per supplier from what runs low; Place order saves
   // On order: cancel it, with a reason.
   await openOrders(user);
   // Open orders are first on the Order page, above the suppliers to order from.
-  expect(screen.getByRole('region', { name: 'On order' }).compareDocumentPosition(screen.getByRole('group', { name: 'Order from another supplier' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByRole('region', { name: 'Coming' }).compareDocumentPosition(screen.getByRole('group', { name: 'Order from another supplier' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await user.click(screen.getByRole('button', { name: /^PO-0001 · Prima/ })); // the row opens the order
   await user.click(screen.getByRole('button', { name: 'Cancel PO-0001' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.ordered' }); // a reason first: nothing cancelled yet
@@ -450,7 +450,7 @@ test('several suppliers to order from: one at a time, with how far along you are
     inventoryStore.addStockMovement('COUNT_ADJUST', oil.id, -oil.onHandBaseUnits, 'test'); // counted, and empty
   });
   await openOrders(user);
-  expect(screen.getByText('Step 1 of 4 · 0 of 2 suppliers done')).toBeTruthy();
+  expect(screen.getByText(/^2 carts · Rs /)).toBeTruthy(); // the page's one line
   const cards = within(screen.getByRole('group', { name: 'Suppliers that need ordering' })).getAllByRole('button');
   expect(cards).toHaveLength(2);
 
@@ -465,8 +465,8 @@ test('several suppliers to order from: one at a time, with how far along you are
   expect(screen.getByRole('button', { name: 'Done' })).toBeTruthy(); // nobody left
   await user.keyboard('{Enter}');
   // Done starts the page over: everything ordered, nothing waits.
-  expect(await screen.findByText('Nothing needs ordering now.')).toBeTruthy();
-  expect(screen.getByText('Step 1 of 4 · Who?')).toBeTruthy();
+  expect(await screen.findByText('No carts. Nothing is running low.')).toBeTruthy();
+  expect(screen.getByText('Nothing to order · 2 deliveries coming')).toBeTruthy(); // the page's one line
 });
 
 test('an item already on an open order is added to it, not ordered twice; the card shows the amount too', async () => {
@@ -495,7 +495,7 @@ test('an open order is a short row; a tap opens it to change until goods come; t
   render(<InventoryView />);
   orderFlour(2);
   await openOrders(user);
-  const onOrder = within(screen.getByRole('region', { name: 'On order' }));
+  const onOrder = within(screen.getByRole('region', { name: 'Coming' }));
   // Closed: number, supplier, status, when. No items, no Edit or Cancel.
   const head = onOrder.getByRole('button', { name: /^PO-0001 · Prima/ });
   expect(head.getAttribute('aria-expanded')).toBe('false');
@@ -512,7 +512,7 @@ test('an open order is a short row; a tap opens it to change until goods come; t
   await user.click(onOrder.getByRole('button', { name: 'Save PO-0001' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.order_edited', lines: [{ itemId: 'inv-0001', packs: 3 }] });
   expect(lines.getByRole('textbox', { name: 'Packs of Pizza Flour on PO-0001' })).toHaveProperty('value', '3');
-  expect(onOrder.getByText('Open')).toBeTruthy();
+  expect(onOrder.getByText(/^Open · placed today by /)).toBeTruthy();
   // Esc closes it.
   await user.click(lines.getByRole('textbox', { name: 'Packs of Pizza Flour on PO-0001' }));
   await user.keyboard('{Escape}');
@@ -540,7 +540,7 @@ test('a paired device shows "PO (pending)" until the shop server numbers it, the
   render(<InventoryView />);
   act(() => { inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs: 2 }]); });
   await openOrders(user);
-  const onOrder = within(screen.getByRole('region', { name: 'On order' }));
+  const onOrder = within(screen.getByRole('region', { name: 'Coming' }));
   expect(onOrder.getByText(/^PO \(pending\) · Prima/)).toBeTruthy();
   expect(readAll().some((e) => e.type === 'stock.numbered')).toBe(false);
 
@@ -1190,7 +1190,7 @@ test('Step 3 with no phone: Add phone opens the supplier\'s Edit here; the numbe
   sellPizzas(500);
   shelfPacks(1);
   await openOrders(user);
-  await user.click(screen.getByRole('button', { name: 'Order from Prima / David Stores (Wholesale)' }));
+  await user.click(screen.getByRole('button', { name: 'Review cart: Prima / David Stores (Wholesale)' }));
   await user.click(screen.getByRole('button', { name: 'Place order' }));
   const placed = within(screen.getByRole('region', { name: /^PO-0001 / }));
   await user.type(placed.getByRole('textbox', { name: 'Message' }), '{Enter}Before 10.');
@@ -1209,3 +1209,50 @@ test('Step 3 with no phone: Add phone opens the supplier\'s Edit here; the numbe
   expect(placed.getByRole('link', { name: /Send on WhatsApp/ }).textContent).toContain('0771234567');
   expect(placed.getByRole('textbox', { name: 'Message' })).toHaveProperty('value', expect.stringContaining('Before 10.'));
 }, 15_000);
+
+test('a cart saved before something ran low offers it on its card: Add puts it in, Undo takes it out (SCRUM-148)', async () => {
+  const user = userEvent.setup();
+  sellPizzas(500); // sunflower oil has a rate of use
+  act(() => { inventoryStore.setDraft('sup_bestbuy', { 'inv-0002': 1 }); }); // Best Buy's cart, saved by hand: A/P Flour
+  act(() => {
+    const oil = inventoryStore.readItems().find((i) => i.id === 'inv-0022')!;
+    inventoryStore.addStockMovement('COUNT_ADJUST', oil.id, -oil.onHandBaseUnits, 'test'); // then the oil runs out
+  });
+  await openOrders(user);
+  const card = within(screen.getByRole('group', { name: 'Suppliers that need ordering' })).getByRole('listitem');
+  // The saved cart stays as it was: the oil is not in it, but the card says so.
+  expect(card.textContent).toMatch(/1 item.*A\/P Flour 1.*1 added by you/);
+  expect(within(card).getByText(/^Sunflower Oil is low too/)).toBeTruthy();
+  await user.click(within(card).getByRole('button', { name: /^Add Sunflower Oil to Best Buy/ }));
+  expect(drafts().get('sup_bestbuy')).toEqual({ 'inv-0002': 1, 'inv-0022': expect.any(Number) });
+  expect(card.textContent).toMatch(/2 items.*1 low.*1 added by you/);
+  expect(within(card).queryByText(/is low too/)).toBeNull();
+  await user.click(within(within(card).getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(drafts().get('sup_bestbuy')).toEqual({ 'inv-0002': 1 });
+  expect(within(card).getByText(/^Sunflower Oil is low too/)).toBeTruthy();
+});
+
+test('Start a cart finds a supplier by name or by what it sells; Enter opens the first; an open order says when it is due (SCRUM-148)', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour(2);
+  await openOrders(user);
+  // Coming: the order and when it should come (3 days by default).
+  const coming = within(screen.getByRole('region', { name: 'Coming' }));
+  expect(coming.getByText(/^due /)).toBeTruthy();
+  // Recent: the supplier ordered from; everyone else one tap away.
+  const start = within(screen.getByRole('region', { name: 'Start a cart' }));
+  expect(start.getByText('Recent')).toBeTruthy();
+  expect(start.getAllByRole('button', { name: /^\+ / }).map((b) => b.getAttribute('aria-label'))).toEqual(['+ Prima / David Stores (Wholesale)']);
+  expect(start.getByText(/^1 item · last order today$/)).toBeTruthy();
+  const search = start.getByRole('searchbox', { name: 'Find a supplier or an item' });
+  await user.type(search, 'sunflower');
+  expect(start.getByText(/^Sells Sunflower Oil/)).toBeTruthy();
+  expect(start.getAllByRole('button', { name: /^\+ / }).map((b) => b.getAttribute('aria-label'))).toEqual(['+ Best Buy / SMM (Wholesale)']);
+  await user.keyboard('{Enter}');
+  expect(screen.getByRole('region', { name: 'Items from Best Buy / SMM (Wholesale)' })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Back' }));
+  // Nothing matches: it says so.
+  await user.type(screen.getByRole('searchbox', { name: 'Find a supplier or an item' }), 'zzz');
+  expect(screen.getByText(/No supplier or item matches “zzz”/)).toBeTruthy();
+});

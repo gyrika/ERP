@@ -118,6 +118,35 @@ export const cartsOf = (
   return carts;
 };
 
+/**
+ * What runs low for a supplier whose cart was already saved without it (SCRUM-148). A saved cart
+ * stays as it was saved (`cartsOf`), so an item that runs low later never joins it by itself:
+ * the Order page offers it on that cart's card instead. An item already in any saved cart is left
+ * out, so a line moved to another supplier is never offered back.
+ */
+export const lowNotInCart = (
+  suggested: ReadonlyMap<string, Record<string, number>>,
+  saved: ReadonlyMap<string, Record<string, number>>,
+): Map<string, Record<string, number>> => {
+  const inCart = new Set([...saved.values()].flatMap((c) => Object.keys(c)));
+  const missing = new Map<string, Record<string, number>>();
+  for (const [supplierId, packs] of suggested) {
+    if (!saved.has(supplierId)) continue;
+    const left = Object.fromEntries(Object.entries(packs).filter(([id]) => !inCart.has(id)));
+    if (Object.keys(left).length > 0) missing.set(supplierId, left);
+  }
+  return missing;
+};
+
+/**
+ * A supplier's name as the lists show it: the kind in brackets at the end ("Ajantha
+ * (Wholesale)") comes off the name and is shown as a small tag. The stored name is unchanged.
+ */
+export const supplierLabel = (full: string): { name: string; kind: string | null } => {
+  const m = /^(.*\S)\s*\(([^()]+)\)\s*$/.exec(full);
+  return m ? { name: m[1], kind: m[2].trim() } : { name: full.trim(), kind: null };
+};
+
 /** The supplier whose cart holds this item, if any. */
 export const cartOf = (carts: ReadonlyMap<string, Record<string, number>>, itemId: string): string | null =>
   [...carts].find(([, c]) => itemId in c)?.[0] ?? null;
