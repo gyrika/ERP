@@ -5,6 +5,7 @@ import {
 import { chime, useSoundBlocked } from './chime.ts';
 import { recordKitchen, useKitchenTickets } from './kitchenStore.ts';
 import { SyncSign } from './SyncSign.tsx';
+import { prepAmount } from '../domain/prep.ts';
 
 /**
  * Kitchen display. Serves the cook: knows the menu, hands busy, standing back
@@ -14,6 +15,8 @@ import { SyncSign } from './SyncSign.tsx';
  * cooking (cookLog in the domain) for later analysis.
  * It is the kitchen's ONLY channel (no printed tickets), so arrivals, changes
  * and cancellations chime and flash until someone taps the ticket.
+ * Prep tickets (SCRUM-136: a semi-processed item sent from low stock) queue after the
+ * customers' orders, labelled PREP on a quieter card; Done on one is the batch made.
  */
 
 export const useNow = (everyMs: number): number => {
@@ -83,7 +86,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
   const tickets = useKitchenTickets();
   const now = useNow(1000);
   // The last Start or Done, for Undo.
-  const [last, setLast] = useState<{ id: string; number: number; step: 'started' | 'done' } | null>(null);
+  const [last, setLast] = useState<{ id: string; number: number; label: string; step: 'started' | 'done' } | null>(null);
   const soundBlocked = useSoundBlocked();
   const lastAlert = useRef(0);
   useDarkTheme();
@@ -102,7 +105,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
   const step = (t: KitchenTicket) => {
     const started = t.startedAt === undefined;
     recordKitchen(started ? 'kitchen.started' : 'kitchen.bumped', t);
-    setLast({ id: t.id, number: t.number, step: started ? 'started' : 'done' });
+    setLast({ id: t.id, number: t.number, label: t.prep ? `Prep ${t.prep.name}` : String(t.number), step: started ? 'started' : 'done' });
     if (navigator.vibrate) navigator.vibrate(8);
   };
 
@@ -161,6 +164,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
         {open.length === 0 && <p className="kitchen__empty">No orders waiting</p>}
         {open.map((t) => {
           const elapsed = now - t.firedAt;
+          if (t.prep) return <PrepTicket key={t.id} t={t} prep={t.prep} elapsed={elapsed} onStep={() => step(t)} />;
           const name = `Order ${t.number}${t.addOn ? ', added items' : ''}${t.changed ? ', changed' : ''}`;
           const alerting = needsAttention(t);
           return (
@@ -230,10 +234,41 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
 
       {last !== null && (
         <div className="toast" role="status" key={`${last.id}-${last.step}`}>
-          <span className="num">{last.number} {last.step}</span>
+          <span className="num">{last.label} {last.step}</span>
           <button type="button" onClick={undo}>Undo</button>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * A prep ticket: what to make for the dishes (dough, sauce), not a customer's order. Labelled
+ * PREP where an order has its number, on a quieter card with a dashed edge; it has no cook time,
+ * so its edge stays neutral (colour on this screen means a customer is waiting). Start, then Done.
+ */
+function PrepTicket({ t, prep, elapsed, onStep }: {
+  t: KitchenTicket; prep: NonNullable<KitchenTicket['prep']>; elapsed: number; onStep: () => void;
+}) {
+  const name = `Prep: ${prep.name}`;
+  const alerting = needsAttention(t);
+  return (
+    <article className={`ticket ticket--prep${alerting ? ' ticket--alert' : ''}`} aria-label={name}>
+      {alerting && <button type="button" className="ticket__ack" aria-label={`Seen: ${name}`} onClick={() => recordKitchen('kitchen.seen', t)} />}
+      <div className="ticket__meta">
+        <span className="ticket__prep">Prep</span>
+        {t.startedAt !== undefined && <span className="ticket__tag">Making</span>}
+        <span className="ticket__time num" aria-label={`Waiting ${elapsedLabel(elapsed)}`}>{elapsedLabel(elapsed)}</span>
+      </div>
+      <ul className="ticket__items">
+        <li>
+          <span className="ticket__name">{prep.name}</span>
+          <span className="ticket__detail num">Make {prepAmount(prep.qty, prep.unit)}</span>
+        </li>
+      </ul>
+      {t.startedAt === undefined
+        ? <button type="button" className="ticket__start" aria-label={`Start: ${name}`} onClick={onStep}>Start</button>
+        : <button type="button" className="ticket__done" aria-label={`Done: ${name}`} onClick={onStep}>Done</button>}
+    </article>
   );
 }

@@ -19,6 +19,7 @@ import { grnProblem, mergeLines, purchasesFromEvents, settleGrn, undoCheck, type
 import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 import type { WasteChoice, WasteReason } from '../domain/waste.ts';
+import { prepItems, type PrepItem, type PrepStock } from '../domain/prep.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -327,6 +328,39 @@ export function useInventory(): { items: InventoryRow[]; suppliers: Supplier[]; 
     };
   }, [events]);
 }
+
+/** A semi-processed item with its stock (SCRUM-136): untracked until its first batch. */
+export type PrepRow = PrepItem & Omit<PrepStock, 'key' | 'unit'>;
+
+/** Every semi-processed item, his own then his sheet's, with what is on hand (from the whole history). */
+export function usePreps(): PrepRow[] {
+  const events = useShopHistory();
+  return useMemo(() => {
+    const stock = new Map(stockFromEvents(SEED_INVENTORY, events).preps.map((p) => [p.key, p]));
+    return prepItems(answersFromEvents(events)).map((item) => {
+      const p = stock.get(item.key);
+      // Once made, the stock is counted in the unit its batches were recorded in.
+      const unit = p?.tracked ? p.unit : item.unit;
+      return { ...item, unit, tracked: p?.tracked ?? false, onHand: p?.onHand ?? 0, usedPerDay: p?.usedPerDay ?? 0, makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, inKitchen: p?.inKitchen ?? 0 };
+    });
+  }, [events]);
+}
+
+/**
+ * Sends a semi-processed item to the kitchen (anyone signed in): a prep ticket the cook Starts and
+ * marks Done, and Done makes the batch (SCRUM-136). Returns the Undo, which takes the ticket back.
+ */
+export const sendPrep = (item: Pick<PrepItem, 'key' | 'name' | 'unit'>, qty: number, actor: Actor = currentCashier()): (() => void) => {
+  const ticketId = newLineId();
+  appendEvent({ type: 'prep.ordered', at: Date.now(), orderNumber: 0, actor, ticketId, prepId: item.key, name: item.name, qty, unit: item.unit });
+  return () => { appendEvent({ type: 'prep.order_undone', at: Date.now(), orderNumber: 0, actor, ticketId }); };
+};
+
+/** "Make more when below" (managers and the owner; audited). null: automatic. Returns the Undo. */
+export const setMakeBelow = (key: string, before: number | null, after: number | null, actor: Actor): (() => void) => {
+  appendEvent({ type: 'prep.limit_set', at: Date.now(), orderNumber: 0, actor, prepId: key, before, after });
+  return () => { appendEvent({ type: 'prep.limit_set', at: Date.now(), orderNumber: 0, actor, prepId: key, before: after, after: before }); };
+};
 
 /** The stock rules' numbers: the defaults with the owner's changes. */
 export function useStockSettings(): StockSettings {
