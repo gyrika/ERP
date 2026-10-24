@@ -1,5 +1,6 @@
 # Releases CheesyBeez on every merge to main, in the safe order:
-#   tests -> cloud staging -> cloud live -> Setup.exe (next version, e.g. 1.0.4 -> 1.0.5) -> GitHub Release.
+#   tests -> cloud staging -> cloud live -> Setup.exe (next version, e.g. 1.0.4 -> 1.0.5; a big change: raise
+#   deploy/station/release-line.txt) -> GitHub Release.
 # Shop PCs look every 5 minutes, download it, and install it the next time the PC starts, or late at night when the counter is quiet.
 # - A pull request touching the Station, the server, the app or the cloud: built and tested on Windows
 #   (and the Setup.exe is downloadable from the run's page), nothing released.
@@ -88,11 +89,15 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          # A merge to main: the newest v* tag, one more (1.0.9 -> 1.0.10). Anything else: a test number.
+          # A merge to main: the newest v* tag, one more (1.0.9 -> 1.0.10). A big change raises the
+          # release line in deploy/station/release-line.txt (1.0 -> 1.1): the next merge is 1.1.0.
+          # Anything else: a test number.
           if ($env:GITHUB_EVENT_NAME -eq 'push') {
             $last = git tag --list 'v*' --sort=-v:refname | Select-Object -First 1
             $p = [version]($last.TrimStart('v'))
-            $v = "$($p.Major).$($p.Minor).$($p.Build + 1)"
+            $line = [version]("$((Get-Content deploy/station/release-line.txt -Raw).Trim()).0")
+            if ($line -gt [version]"$($p.Major).$($p.Minor).0") { $v = "$($line.Major).$($line.Minor).0" }
+            else { $v = "$($p.Major).$($p.Minor).$($p.Build + 1)" }
           } else { $v = "0.0.$env:GITHUB_RUN_NUMBER" }
           "value=$v" >> $env:GITHUB_OUTPUT
 
