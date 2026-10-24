@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { suppliedItemIds, useCatalog } from '../services/inventoryStore.ts';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { newLineId } from '../domain/order.ts';
@@ -66,7 +67,8 @@ export function AddSupplierModal({
     }
   };
 
-  return (
+  /* On <body>, so a sheet it is opened from (transform, overflow) can neither clip nor stack over it. */
+  return createPortal(
     <div className="inv-modal-backdrop">
       <section className="inv-modal" role="dialog" aria-modal="true" aria-labelledby="add-supplier-title">
         <h2 id="add-supplier-title">{supplier ? 'Edit Supplier' : 'Add Supplier'}</h2>
@@ -115,6 +117,7 @@ export function AddSupplierModal({
           </button>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
