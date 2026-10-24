@@ -1,6 +1,7 @@
 import type { Actor } from '../../src/domain/auth.ts';
 import { PULL_LIMIT, PUSH_BATCH, type ApiError, type PullResponse, type SyncedEvent } from '../../src/domain/sync.ts';
 import { validatePush } from '../../server/validate.ts';
+import { aiRoutes, type AiLike } from './ai.ts';
 import { HttpError, json, sha256Hex } from './http.ts';
 import { managerRoutes, parseActor } from './manager.ts';
 import { onlineRoutes } from './online.ts';
@@ -80,10 +81,14 @@ export interface CloudOptions {
   /** Its phone / WhatsApp number and address for the page's pickup card; unset = not shown. */
   orderPhone?: string;
   orderAddress?: string;
+  /** Cloudflare Workers AI (the Worker's AI binding, SCRUM-144); null = the AI endpoints answer 503. */
+  ai?: AiLike | null;
+  /** Model calls per shop per day (wrangler.toml AI_DAILY_CALLS); unset = ai.ts AI_DAILY_CALLS. */
+  aiDailyCalls?: number;
 }
 
 export function createCloud(db: D1Like, options: CloudOptions | (() => number) = {}) {
-  const { now = Date.now, enrolCode, ...order } = typeof options === 'function' ? { now: options } as CloudOptions : options;
+  const { now = Date.now, enrolCode, ai = null, aiDailyCalls, ...order } = typeof options === 'function' ? { now: options } as CloudOptions : options;
   const authenticate = async (req: Request, allowed: Kind[]): Promise<CloudDevice> => {
     const h = req.headers.get('authorization');
     const token = h?.startsWith('Bearer ') ? h.slice(7) : null;
@@ -119,6 +124,8 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
     if (online) return online;
     const manager = await managerRoutes(req, url, { db, now, authenticate });
     if (manager) return manager;
+    const answered = await aiRoutes(req, url, { db, now, ai, dailyCalls: aiDailyCalls, authenticate });
+    if (answered) return answered;
 
     if (url.pathname === '/api/v1/replica') {
       const device = await authenticate(req, ['shop_server']);
