@@ -543,13 +543,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
     const t = setTimeout(() => setToast(null), 6000);
     return () => clearTimeout(t);
   }, [toast]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !editing && !adding && !writing) onBack();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [editing, adding, writing, onBack]);
+  // Esc goes back one step like on every place (nav.ts); its sheets close themselves first.
 
   const said = (message: string, undo: () => void) => setToast({ id: Date.now(), message, undo });
 

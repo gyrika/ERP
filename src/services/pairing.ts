@@ -22,14 +22,14 @@ export const pairFromUrl = (): void => {
   if (owner) {
     set(OWNER, owner);
     url.searchParams.delete('owner');
-    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
   }
   // A manager's phone: `?manager=<token>` from Shop setup → Devices (SCRUM-94).
   const manager = url.searchParams.get('manager');
   if (manager) {
     set(MANAGER, manager);
     url.searchParams.delete('manager');
-    history.replaceState(null, '', url.pathname + url.search + url.hash);
+    history.replaceState(history.state, '', url.pathname + url.search + url.hash);
   }
   const token = url.searchParams.get('pair');
   if (!token) return;
@@ -40,7 +40,7 @@ export const pairFromUrl = (): void => {
   url.searchParams.delete('pair');
   url.searchParams.delete('as');
   url.searchParams.delete('shop');
-  history.replaceState(null, '', url.pathname + url.search + url.hash);
+  history.replaceState(history.state, '', url.pathname + url.search + url.hash);
 };
 
 export const syncToken = (): string | null => (isDemo() ? null : get(TOKEN));
