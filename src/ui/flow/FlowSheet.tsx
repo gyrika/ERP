@@ -12,20 +12,22 @@ export interface FlowPrimary {
   disabled?: boolean;
 }
 
-export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, error, keys = true, inline = false, className, children }: {
+export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, corner, error, keys = true, inline = false, className, children }: {
   /** The dialog's name: also what screen readers announce. */
   title: string;
   /** A quiet line after the title (a supplier, a PO). */
   sub?: string;
   /** Where the person is: "Step 2 of 4 · Check each item". Omit for a single screen. */
   step?: { index: number; of: number; label?: string };
-  /** Back one step. Without it, Back is not shown and Esc closes. */
+  /** Back one step: a button at the top right. Without it, Back is not shown and Esc closes. */
   onBack?: () => void;
   onClose: () => void;
   /** The one main button. Omit on a screen that only informs. */
   primary?: FlowPrimary;
   /** A quiet extra at the foot, left of the main button (a link, not another big button). */
   extra?: ReactNode;
+  /** A small button at the top right, beside the title (GRN history): a place to go, not a step. */
+  corner?: ReactNode;
   error?: string;
   /** Turn the keys off while something sits on top (the PIN sheet). */
   keys?: boolean;
@@ -77,6 +79,9 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
           <div className="sheet__title">
             <h1 id={titleId}>{title}</h1>
             {sub && <span>{sub}</span>}
+            {corner && <div className="flow__corner">{corner}</div>}
+            {/* Back is always in the same place, top right, on every step that has one. */}
+            {onBack && <button type="button" className="pill flow__backbtn" onClick={onBack}><span aria-hidden="true">←</span> Back</button>}
             {!inline && <button type="button" className="linkbtn" onClick={onClose}>Close</button>}
           </div>
           {step && (
@@ -91,9 +96,8 @@ export function FlowSheet({ title, sub, step, onBack, onClose, primary, extra, e
           <div className="flow__content" key={stepKey}>{children}</div>
           {error && <p className="reason-msg" role="alert">{error}</p>}
         </div>
-        {(primary || onBack || extra) && (
+        {(primary || extra) && (
           <div className="sheet__foot flow__foot">
-            {onBack && <button type="button" className="linkbtn flow__back" onClick={onBack}>Back</button>}
             {extra}
             {primary && <button type="button" className="cta flow__cta" disabled={primary.disabled} onClick={primary.onClick}>{primary.label}</button>}
           </div>

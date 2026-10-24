@@ -18,8 +18,7 @@ test("the owner changes a price and a name: the counter shows it at once; an ord
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
 
-  history.replaceState(null, '', '/#menu');
-  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  location.hash = '#menu'; // one step from the Register, so Esc comes back to it
   await user.click(await screen.findByRole('button', { name: 'Change Margherita' }));
   const sheet = within(screen.getByRole('dialog', { name: 'Change Margherita' }));
   await user.clear(sheet.getByLabelText('Medium price'));
@@ -34,7 +33,7 @@ test("the owner changes a price and a name: the counter shows it at once; an ord
   expect(e).toMatchObject({ itemId: 'margherita', before: {}, after: { prices: { M: 160000 }, name: { si: 'මාගරීටා' } } });
 
   await user.keyboard('{Escape}');
-  expect(screen.getAllByRole('button', { name: 'M 1600' }).length).toBeGreaterThan(0);
+  expect((await screen.findAllByRole('button', { name: 'M 1600' })).length).toBeGreaterThan(0);
   expect(within(panel().getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ }).textContent).toContain('1,450');
 });
 

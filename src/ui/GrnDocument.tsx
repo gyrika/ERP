@@ -76,6 +76,7 @@ export function GrnDocument({ grn, supplier, itemName, unitOf }: {
         </tfoot>
       </table>
       {notes.length > 0 && <ul className="grn-doc__notes">{notes.map((n) => <li key={n}>{n}</li>)}</ul>}
+      {grn.note && <p className="grn-doc__note" aria-label="Manager's note">Manager's note: {grn.note}</p>}
     </article>
   );
 }

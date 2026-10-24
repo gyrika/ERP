@@ -56,6 +56,8 @@ export interface PurchaseGrn {
   approvedBy: { name: string; role: string } | null;
   /** What that manager approved, in plain words: "short", "extra", "price changed". */
   differs: string[];
+  /** The manager's final note when approving, if they wrote one. */
+  note: string | null;
   /** Taken back: when, why, and by which manager. */
   undone: { at: number; reason: string; by: string | null } | null;
 }
@@ -73,6 +75,11 @@ export interface PurchaseState {
   lastSupplier: Map<string, string>;
   /** Each supplier's draft order, not yet placed: packs per item. A supplier with none is not in the map. */
   drafts: Map<string, Record<string, number>>;
+  /**
+   * A price per pack typed for this order only (cents), per supplier and item. It goes on the
+   * purchase order; the item's own price changes only when a GRN is approved. None: the item's price.
+   */
+  draftPrices: Map<string, Record<string, number>>;
 }
 
 const DAY = 86_400_000;
@@ -117,7 +124,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
   const docs = new Map<string, Doc>();
   const grns = new Map<string, {
     id: string; grnNo: string | undefined; orderId: string; supplierId: string; at: number; lines: GrnLine[]; closes: boolean;
-    shortDecision: 'wait' | 'close' | null; overDecision: 'accept' | 'return' | null; receivedBy: string; approvedBy: { name: string; role: string } | null;
+    shortDecision: 'wait' | 'close' | null; overDecision: 'accept' | 'return' | null; receivedBy: string; approvedBy: { name: string; role: string } | null; note: string | null;
   }>();
   const undone = new Map<string, { at: number; reason: string; by: string | null }>();
   /** Live GRNs per order, as the events arrive: an edit or cancel after one is ignored. */
@@ -127,6 +134,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
   /** A record that arrives twice (a sync retry, two routes) counts once. */
   const seen = new Set<string>();
   const drafts = new Map<string, Record<string, number>>();
+  const draftPrices = new Map<string, Record<string, number>>();
   for (const e of events) {
     if (seen.has(e.id)) continue;
     seen.add(e.id);
@@ -137,8 +145,11 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
       const d = docs.get(e.orderId);
       if (d && !d.cancelled && !live.get(e.orderId)?.size) d.lines = mergeLines(e.lines);
     } else if (e.type === 'stock.draft_set') {
-      if (e.lines.length === 0) drafts.delete(e.supplierId);
-      else drafts.set(e.supplierId, Object.fromEntries(mergeLines(e.lines).map((l) => [l.itemId, l.packs])));
+      const lines = mergeLines(e.lines);
+      if (lines.length === 0) { drafts.delete(e.supplierId); draftPrices.delete(e.supplierId); } else {
+        drafts.set(e.supplierId, Object.fromEntries(lines.map((l) => [l.itemId, l.packs])));
+        draftPrices.set(e.supplierId, Object.fromEntries(lines.flatMap((l) => (l.unitPriceCents === undefined ? [] : [[l.itemId, l.unitPriceCents]]))));
+      }
     } else if (e.type === 'stock.order_cancelled') {
       const d = docs.get(e.orderId);
       if (d && !live.get(e.orderId)?.size) d.cancelled = e.reason;
@@ -147,7 +158,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
       if (d) d.cancelled = null;
     } else if (e.type === 'stock.grn') {
       grns.set(e.id, { id: e.id, grnNo: e.grnNo, orderId: e.orderId, supplierId: e.supplierId, at: e.at, lines: e.lines, closes: e.shortDecision !== 'wait', shortDecision: e.shortDecision ?? null, overDecision: e.overDecision ?? null,
-        receivedBy: e.actor.name, approvedBy: e.approvedBy ? { name: e.approvedBy.name, role: e.approvedBy.role } : null });
+        receivedBy: e.actor.name, approvedBy: e.approvedBy ? { name: e.approvedBy.name, role: e.approvedBy.role } : null, note: e.note ?? null });
       live.set(e.orderId, (live.get(e.orderId) ?? new Set()).add(e.id));
     } else if (e.type === 'stock.grn_undone') {
       undone.set(e.grnId, { at: e.at, reason: e.reason ?? '', by: e.approvedBy?.name ?? null });
@@ -200,10 +211,10 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
   const grnList = [...grns.values()].sort((a, b) => b.at - a.at).map((g): PurchaseGrn => ({
     id: g.id, grnNo: numbers.get(g.id) ?? g.grnNo ?? pendingNumber('GRN'), orderId: g.orderId, poNo: poNoOf.get(g.orderId) ?? pendingNumber('PO'), supplierId: g.supplierId, at: g.at, lines: g.lines,
     shortDecision: g.shortDecision, overDecision: g.overDecision, receivedBy: g.receivedBy, approvedBy: g.approvedBy,
-    differs: differsFrom(g, docs.get(g.orderId)?.lines ?? []), undone: undone.get(g.id) ?? null,
+    differs: differsFrom(g, docs.get(g.orderId)?.lines ?? []), note: g.note, undone: undone.get(g.id) ?? null,
   }));
 
-  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier, drafts };
+  return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier, drafts, draftPrices };
 };
 
 /** Packs of each item still owed on open orders: they are already coming. */

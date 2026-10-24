@@ -88,7 +88,8 @@ function Studio({ owner }: { owner: Actor }) {
     setSel(null);
     setMoved({});
     setCollapsed(new Set());
-    history.replaceState(null, '', `#flow/${encodeURIComponent(id)}`);
+    // The same place drawn for another item: its history entry (and its depth for Back) stays.
+    history.replaceState(history.state, '', `#flow/${encodeURIComponent(id)}`);
   }, []);
 
   const sold = useMemo(() => soldUnits(events, current, Date.now()), [events, current]);
@@ -215,11 +216,11 @@ function Studio({ owner }: { owner: Actor }) {
       const v = VIEWS[Number(e.key) - 1];
       if (v) { setView(v.id); return; }
       if (e.key.toLowerCase() === 'f') void flow.fitView({ duration: 200, padding: 0.15 });
-      if (e.key === 'Escape') setSel(null);
+      if (e.key === 'Escape' && sel) { e.preventDefault(); setSel(null); } // lets go first; the next Esc goes back
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toast, flow]);
+  }, [toast, flow, sel]);
 
   const pickCommands = useMemo(() => {
     if (picking === 'focus') return options.map((o) => ({ id: o.id, label: `${o.group} · ${o.label}`, run: () => setFocus(o.id) }));

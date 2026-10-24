@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { fmt, parseLKR } from '../domain/money.ts';
+import { fmt } from '../domain/money.ts';
 import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import type { Supplier } from '../domain/inventoryData.ts';
-import { formatInUnit, fromPacks, packPrice, reasonLabel, receiveUnitOf, roundForUnit, toPacks, unitName, unitPrice, unitsOf } from '../domain/counting.ts';
+import { formatInUnit, fromPacks, reasonLabel, receiveUnitOf, roundForUnit, toPacks, unitName, unitPrice, unitsOf } from '../domain/counting.ts';
 import type { Actor } from '../domain/auth.ts';
 import type { PurchaseState } from '../domain/purchaseOrders.ts';
-import { setOrderBelow, setReceiveUnit, setWorkingPrice, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
+import { setOrderBelow, setReceiveUnit, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
 import { parsePacks } from '../domain/inventory.ts';
 import { CountItem } from './CountFlow.tsx';
 import { ItemOrder } from './OrderSheet.tsx';
@@ -27,7 +27,7 @@ import { formatLasts, formatQuantity } from './quantity.ts';
  * shelf amount stays hidden (a blind count), and the sheet says so.
  * Receiving is counted in what the owner chose for this item (SCRUM-96): packs, kg,
  * or a unit like Tray; the price is per that unit too. Changing it needs his PIN, and
- * so does "Order when below" (SCRUM-135).
+ * so does the low stock margin, "Order when below" (SCRUM-135), on Details.
  * Details · Order · History are tabs of this one sheet (SCRUM-97): counting
  * or ordering this item never leaves it, and what was just done shows here with its
  * Undo. History lists every count (with its gap, reason, photo and the owner's word),
@@ -68,11 +68,8 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
   const isPack = unit.id === 'pack';
   const name = unitName(unit);
   const shownPrice = fmt(unitPrice(item.workingPriceCents, unit, item.packQty));
-  const [price, setPrice] = useState(shownPrice);
   /** Choosing the receiving unit: asking the owner's PIN, then the choice. */
   const [unitEdit, setUnitEdit] = useState<'closed' | 'pin' | Actor>('closed');
-  useEffect(() => setPrice(shownPrice), [shownPrice]);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
@@ -87,18 +84,6 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
   const tabs = TABS.filter((t) => t.id !== 'order' || purchases);
   /** Without purchase orders (the manager's phone), the sheet opens on Details. */
   const tabState: SheetTab = tab === 'order' && !purchases ? 'details' : tab;
-
-  /** A new price the supplier charges (audited), with Undo. */
-  const savePrice = (event: FormEvent) => {
-    event.preventDefault();
-    const typedCents = parseLKR(price);
-    if (typedCents === null) return setError(`Type the price per ${name} in rupees, like 6,400.`);
-    const before = item.workingPriceCents;
-    const cents = packPrice(typedCents, unit, item.packQty);
-    if (price.trim() === shownPrice || cents === before) return setError('That is the price already.');
-    setWorkingPrice(item.id, cents);
-    setDone({ message: `${item.name}: price now Rs ${fmt(unitPrice(cents, unit, item.packQty))} a ${name}.`, undo: () => setWorkingPrice(item.id, before), tab: 'order' });
-  };
 
   const counted = (gapCents: number, big: boolean, undo: () => void) => {
     setDone({ message: big ? `Counted: gap of Rs ${fmt(Math.abs(gapCents))} saved.` : 'Counted: it matches.', undo, tab: 'details' });
@@ -115,7 +100,7 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
         <div className="inv-mode sheet-tabs" role="tablist" aria-label={item.name}>
           {tabs.map((t) => (
             <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} className="pill" aria-selected={tabState === t.id} aria-controls={`panel-${t.id}`}
-              onClick={() => { setTab(t.id); setError(''); }}>{t.label}</button>
+              onClick={() => setTab(t.id)}>{t.label}</button>
           ))}
         </div>
 
@@ -167,6 +152,11 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
                 )}
               </dd>
             </div>
+            {/* The low stock margin: the one thing here that can be changed (the owner's PIN). */}
+            <div>
+              <dt>Low stock below</dt>
+              <dd><OrderBelow item={item} onDone={(message, undo) => setDone({ message, undo, tab: 'details' })} /></dd>
+            </div>
             <div>
               <dt>Used in</dt>
               <dd>
@@ -199,12 +189,13 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
 
         {tabState === 'order' && purchases && (
         <div role="tabpanel" id="panel-order" aria-labelledby="tab-order" className="sheet-panel">
+        {/* First the price per pack with the packs on its right, then Add to cart, then the pack settings. */}
         <ItemOrder item={item} items={items} suppliers={suppliers} purchases={purchases} />
 
         <div className="receive-unit">
           {unitEdit === 'closed' && (
             <>
-              <span>Received in <b>{isPack ? `packs of ${formatQuantity(item.packQty, item.baseUnit)}` : name}</b></span>
+              <span>Pack settings <b>{isPack ? `packs of ${formatQuantity(item.packQty, item.baseUnit)}` : name}</b></span>
               {/* The owner's PIN is checked at the shop; the phone apps cannot (SCRUM-94). */}
               {!isManagerPhone() && <button type="button" className="linkbtn" onClick={() => setUnitEdit('pin')}>Change</button>}
             </>
@@ -220,16 +211,6 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
           )}
         </div>
 
-        <OrderBelow item={item} onDone={(message, undo) => setDone({ message, undo, tab: 'order' })} />
-
-        <form className="receive-price" onSubmit={savePrice}>
-          <label className="inv-modal__field">
-            <span>Price per {name} (Rs) <small>What the supplier charges</small></span>
-            <NumberInput className="inv-modal__input" decimals={2} value={price} onText={(text) => { setPrice(text); setError(''); }} />
-          </label>
-          {price.trim() !== shownPrice && <button type="submit" className="insight__action">Save price</button>}
-          {error && <p className="inv-modal__error" role="alert">{error}</p>}
-        </form>
         </div>
         )}
 
@@ -242,9 +223,10 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
 }
 
 /**
- * "Order when below" (SCRUM-135): Automatic (the reorder rule decides from how fast it
- * sells) or an amount for this item, typed and shown in what it is bought in (packs, kg),
- * kept in packs. Two buttons, never an empty box that secretly means automatic
+ * The low stock margin, "Order when below" (SCRUM-135), on Details: Automatic (the reorder
+ * rule decides from how fast it sells) or an amount for this item, typed and shown in what it
+ * is bought in (packs, kg), kept in packs. Below it the item is Low: its supplier's cart, Low
+ * on Items, Orders. Two buttons, never an empty box that secretly means automatic
  * (SCRUM-137). The owner's PIN, then Undo.
  */
 function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: string, undo: () => void) => void }) {
@@ -267,7 +249,7 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
     setEdit('closed');
     if (packs === current) return;
     setOrderBelow(item.id, packs, owner);
-    onDone(packs === null ? `${item.name}: ordered automatically again.` : `${item.name}: order when below ${shown(packs)}.`,
+    onDone(packs === null ? `${item.name}: low stock worked out automatically again.` : `${item.name}: low stock below ${shown(packs)}.`,
       () => setOrderBelow(item.id, current, owner));
   };
   const submit = (event: FormEvent, owner: Actor) => {
@@ -282,8 +264,8 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
     <div className="receive-unit">
       {edit === 'closed' && (
         <>
-          <span>Order when below <b>{current === null ? 'automatic' : shown(current)}</b>{current === null && <small> · from how fast it sells</small>}</span>
-          {!isManagerPhone() && <button type="button" className="linkbtn" aria-label="Change order when below" onClick={() => setEdit('pin')}>Change</button>}
+          <span><b>{current === null ? 'automatic' : shown(current)}</b>{current === null && <small> · from how fast it sells</small>}</span>
+          {!isManagerPhone() && <button type="button" className="linkbtn" aria-label="Change low stock below" onClick={() => setEdit('pin')}>Change</button>}
         </>
       )}
       {edit === 'pin' && <OwnerPin onOpen={start} onCancel={() => setEdit('closed')} refusal="Only the owner sets when to order." />}
@@ -297,7 +279,7 @@ function OrderBelow({ item, onDone }: { item: InventoryRow; onDone: (message: st
             ? <p className="inv-modal__note">Ordered when it would not last until the next delivery, from how fast it sells.</p>
             : (
               <label className="inv-modal__field">
-                <span>Order when below</span>
+                <span>Low stock below</span>
                 <NumberInput className="inv-modal__input" unit={isPack ? 'packs' : unitName(unit)} autoFocus value={typed}
                   onText={(text) => { setTyped(text); setError(''); }} />
               </label>

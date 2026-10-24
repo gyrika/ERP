@@ -42,9 +42,12 @@ const missedText = (n: number) => `${n} sold since the last count not taken off`
 export function InventoryView({
   onFindSupplier,
   onRegister,
+  lowFirst = false,
 }: {
   onFindSupplier?: (id: string) => void;
   onRegister?: () => void;
+  /** Opened to order (#items/low, from Orders' Order by item): out first, then low, then the rest. */
+  lowFirst?: boolean;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);
   const [archived, setArchived] = useState<{ id: string; name: string } | null>(null);
@@ -66,8 +69,6 @@ export function InventoryView({
     for (const o of purchases.open) for (const l of o.lines) po.set(l.itemId, o.poNo);
     return { packs, po };
   }, [purchases]);
-  /** Items that need ordering now: the badge, and a tap opens them on Order. */
-  const needed = useMemo(() => new Set([...draftsOf(items).values()].flatMap((d) => Object.keys(d))), [items]);
   /** Each supplier's cart: what runs low is in it by itself; + Cart puts in what is not. */
   const carts = useMemo(() => cartsOf(draftsOf(items), purchases.drafts), [items, purchases]);
   const toCart = (item: (typeof items)[number]) => {
@@ -78,7 +79,8 @@ export function InventoryView({
     const count = Object.keys(draft).length;
     setDone({ message: `${item.name}: added to ${supplierNames.get(to)}'s cart · ${count} ${count === 1 ? 'item' : 'items'}.`, undo, href: `#order/${to}` });
   };
-  const openItem = (id: string) => { setUpdating(id); setSheetTab(needed.has(id) ? 'order' : 'details'); setArchived(null); setError(''); };
+  // An item opens on Order (Details where there is no Order tab, the manager's phone).
+  const openItem = (id: string) => { setUpdating(id); setSheetTab('order'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const FILTERS = [['all', 'All'], ['low', 'Low'], ['out', 'Out'], ['order', 'On order']] as const;
   const matches = (item: (typeof items)[number], which: typeof filter) =>
@@ -87,9 +89,12 @@ export function InventoryView({
     const q = query.trim().toLowerCase();
     const byText = !q ? items : items.filter((item) => [item.name, item.category, ...item.supplierIds.map((id) => supplierNames.get(id) ?? '')]
       .some((text) => text.toLowerCase().includes(q)));
-    return byText.filter((item) => matches(item, filter));
+    const found = byText.filter((item) => matches(item, filter));
+    if (!lowFirst) return found;
+    const rank = (item: (typeof items)[number]) => ({ out: 0, low: 1 } as Record<string, number>)[stockStatus(item)] ?? 2;
+    return [...found].sort((a, b) => rank(a) - rank(b)); // stable: the usual order within each
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, query, supplierNames, filter, coming]);
+  }, [items, query, supplierNames, filter, coming, lowFirst]);
   const updatingItem = items.find((item) => item.id === updating) ?? null;
   // Today's count: what the money says to count, and since when.
   const tiers = useMemo(() => tiersOf(items), [items]);

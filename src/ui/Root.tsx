@@ -24,6 +24,7 @@ import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
 import { OrderView, ReceiveView } from './WorkViews.tsx';
 import { useVoice, VoiceNote } from './VoiceKey.tsx';
+import { navData, navigate, onNavigate, startNav, useBackKeys } from './nav.ts';
 
 /** Visual Flow carries its own drawing library: loaded when it is opened, so the Register stays light. */
 const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
@@ -107,40 +108,33 @@ function NotConnected() {
  */
 export function Root() {
   useMenu();
-  const [hash, setHash] = useState(location.hash);
+  const [hash, setHash] = useState(() => { startNav(); return location.hash; });
   /** Came here from the Register, so the Kitchen offers a way back. */
   const [fromRegister, setFromRegister] = useState(false);
-  const [filterIngredientId, setFilterIngredientId] = useState<string | null>(null);
+  /** Suppliers found for one ingredient: kept in the place's history entry, so Back and Forward keep it. */
+  const [filterIngredientId, setFilterIngredientId] = useState<string | null>(() => navData()?.ingredient ?? null);
   const needsLogin = usesLogin();
   const staff = useSyncExternalStore(subscribeAuth, signedIn);
   const kitchenOnly = isKitchenDevice() || staff?.role === 'kitchen';
   const setup = useSetupCheck();
   useIdleLock(needsLogin && staff !== null);
 
-  useEffect(() => {
-    const onHash = () => {
-      setHash(location.hash);
-      setFilterIngredientId(null);
-    };
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
+  useEffect(() => onNavigate(() => {
+    setHash(location.hash);
+    setFilterIngredientId(navData()?.ingredient ?? null);
+  }), []);
 
   const inKitchen = hash === KITCHEN;
   /** The Owner view shows the takings: owners and managers only (SCRUM-41). */
   const seesOwner = !kitchenOnly && (!needsLogin || (staff !== null && seesTakings(staff.role)));
+  // Every move is one step (nav.ts), the Register too, so Back is always "where I just was".
   const go = useCallback((to: string) => withTransition(() => {
-    // replaceState: flipping all day must not fill the browser history.
-    history.replaceState(null, '', to || location.pathname + location.search);
-    setHash(to);
-    setFilterIngredientId(null);
+    navigate(to);
     if (to === KITCHEN) setFromRegister(true);
   }), []);
   const show = useCallback((kitchen: boolean) => go(kitchen ? KITCHEN : ''), [go]);
   const findSupplier = useCallback((ingredientId: string) => withTransition(() => {
-    setFilterIngredientId(ingredientId);
-    history.replaceState(null, '', '#suppliers');
-    setHash('#suppliers');
+    navigate('#suppliers', { ingredient: ingredientId });
   }), []);
 
   useEffect(() => {
@@ -164,6 +158,12 @@ export function Root() {
   const voice = useVoice(voiceOn ? pages : [], hash, go);
 
   const screen = renderScreen();
+  // Back (Esc, the mouse's back button, Alt+←) may leave a place, never the Register, the lock,
+  // setup or a kitchen screen with no Register to go back to.
+  const atPlace = hash !== '' && !kitchenOnly && !isCloudSite() && (setup === 'none' || setup === 'done')
+    && screen.type !== App && screen.type !== LockScreen && screen.type !== NotConnected
+    && !(screen.type === SetupWizard && hash !== '#setup') && !(inKitchen && !fromRegister && !needsLogin);
+  useBackKeys(atPlace);
   return voiceOn ? <>{screen}<VoiceNote voice={voice.voice} onBack={voice.back} /></> : screen;
 
   function renderScreen(): ReactElement {
@@ -193,13 +193,15 @@ export function Root() {
   // Items holds raw materials, semi-processed and finished items. The older addresses
   // (#inventory, #manager, #menu, #recipes) still open the same places.
   if (hash === '#receive' && mayManageStock) return <ReceiveView onRegister={() => go('')} />;
-  // #order/<supplier id> opens that supplier's cart.
+  // #order/suppliers: ordering by supplier, a place of its own. #order/<supplier id> opens that supplier's cart.
+  if (hash === '#order/suppliers' && mayManageStock) return <OrderView key={hash} bySupplier onRegister={() => go('')} />;
   if ((hash === '#order' || hash.startsWith('#order/')) && mayManageStock) {
     return <OrderView key={hash} supplierId={hash.startsWith('#order/') ? decodeURIComponent(hash.slice('#order/'.length)) : undefined} onRegister={() => go('')} />;
   }
   if ((hash === '#count' || hash === '#manager') && mayManageStock) return <ManagerView onRegister={() => go('')} />;
-  if ((hash === '#items' || hash === '#items/raw' || hash === '#inventory') && mayManageStock) {
-    return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;
+  // #items/low: opened to order (Orders' Order by item), out and low first.
+  if ((hash === '#items' || hash === '#items/raw' || hash === '#items/low' || hash === '#inventory') && mayManageStock) {
+    return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} lowFirst={hash === '#items/low'} />;
   }
   // The owner changes the menu; managers can mark items sold out during service.
   if ((hash === '#items/finished' || hash === '#menu') && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {

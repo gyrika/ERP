@@ -154,7 +154,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     const packs = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= 1e6;
     const poLines = (lines: unknown): boolean => Array.isArray(lines) && lines.length > 0 && lines.length <= 200 &&
       lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.packs) && (l.packs as number) > 0 &&
-        (l.stockQty === undefined || (typeof l.stockQty === 'number' && Number.isFinite(l.stockQty) && l.stockQty > 0 && l.stockQty <= 1e9)));
+        (l.stockQty === undefined || (typeof l.stockQty === 'number' && Number.isFinite(l.stockQty) && l.stockQty > 0 && l.stockQty <= 1e9)) &&
+        (l.unitPriceCents === undefined || (typeof l.unitPriceCents === 'number' && Number.isFinite(l.unitPriceCents) && l.unitPriceCents >= 0 && l.unitPriceCents <= 1e9)));
     if (e.type === 'stock.ordered' && ((e.poNo !== undefined && !shortString(e.poNo, 20)) || !shortString(e.supplierId) || !poLines(e.lines))) {
       return { reason: `event ${e.id} has an invalid purchase order` };
     }
@@ -174,7 +175,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received) && (l.accepted === undefined || packs(l.accepted)) && (l.returned === undefined || packs(l.returned))) ||
         !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) ||
         !(e.shortDecision === undefined || e.shortDecision === 'wait' || e.shortDecision === 'close') ||
-        !(e.overDecision === undefined || e.overDecision === 'accept' || e.overDecision === 'return')
+        !(e.overDecision === undefined || e.overDecision === 'accept' || e.overDecision === 'return') ||
+        !(e.note === undefined || shortString(e.note, 500))
       ) return { reason: `event ${e.id} has an invalid goods received note` };
       const rows = lines as { ordered: number; received: number; accepted?: number; returned?: number }[];
       // A delivery that differs from its order needs a manager's approval and the decisions.

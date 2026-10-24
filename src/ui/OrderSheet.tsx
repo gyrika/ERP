@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Supplier } from '../domain/inventoryData.ts';
 import { isPending } from '../domain/docNumbers.ts';
 import { parsePacks } from '../domain/inventory.ts';
-import { receiveUnitOf } from '../domain/counting.ts';
+import { packPrice, receiveUnitOf, unitName, unitPrice } from '../domain/counting.ts';
 import { cartOf, cartsOf, draftsOf, orderMessage, whatsAppLink } from '../domain/ordering.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
 import { CANCEL_REASONS, orderTotals, planOrder, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
@@ -14,21 +14,24 @@ import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
 import { AddSupplierModal } from './AddSupplierModal.tsx';
-import { addToDraft, addToOrder, cancelOrder, editOrder, editSupplier, moveToCart, placeOrder, setDraft, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
+import { addToDraft, addToOrder, cancelOrder, editOrder, editSupplier, moveToCart, placeOrder, setDraft, type InventoryRow } from '../services/inventoryStore.ts';
 import { NumberInput } from './NumberInput.tsx';
+import { back, navigate } from './nav.ts';
 
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
- *   0 On order, at the top: the open orders, each opening in place to change or cancel
- *   1 Who?   the suppliers with a cart ("Prima · Cart · 3 items · Rs 12,400"), then the others
+ *   1 Who?   the carts first ("Prima · Cart · 3 items · Rs 12,400"), then On order (the open
+ *            orders, each opening in place to change or cancel); two buttons: Order by item
+ *            (Items, out and low first) and Order by supplier (#order/suppliers, a place of its
+ *            own: every supplier, and the one tapped opens on Items)
  *   2 Items  everything that supplier sells, one row each (qty, price, total): an amount puts it in
  *            the supplier's cart, 0 takes it out. Nothing is ordered here; the button goes to the cart
  *   3 Cart   the cart as a bill, and one main button: Place order (or Add to PO-0003, which
  *            `planOrder` chooses so an item is never on two orders)
  *   4 Send   the message, WhatsApp as the big thing to do; then the next supplier, or Done
  * Each supplier has one cart (a draft underneath), saved as it changes: what runs low is in it by
- * itself (`cartsOf`), and a line moves to another supplier of the item. A supplier with a cart
- * opens on Cart, others on Items. The item sheet's Order tab (ItemOrder) only adds to a cart.
+ * itself (`cartsOf`), and a line moves to another supplier of the item. A supplier tapped on step 1
+ * opens on Items; Next supplier and #order/<supplier> open its cart when it has one. The item sheet's Order tab (ItemOrder) only adds to a cart.
  */
 type Packs = Record<string, number>;
 type Done = (message: string, undo: () => void) => void;
@@ -49,13 +52,18 @@ const placedText = (p: Placed, suppliers: Supplier[]) => (p.added ? `Added to ${
  */
 function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], purchases: PurchaseState) {
   const [packs, setPacks] = useState<Packs>(initial);
+  /** Prices typed for this order only (cents a pack); an item without one is at its own price. */
+  const [prices, setPrices] = useState<Packs>(() => purchases.draftPrices.get(supplierId) ?? {});
   /** What is in each box while it is being typed (so "1." and an empty box are allowed). */
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
-  const lines: PoLine[] = Object.entries(packs).filter(([, n]) => n > 0).map(([itemId, n]) => ({ itemId, packs: n }));
+  const lines: PoLine[] = Object.entries(packs).filter(([, n]) => n > 0)
+    .map(([itemId, n]) => ({ itemId, packs: n, ...(prices[itemId] ? { unitPriceCents: prices[itemId] } : {}) }));
   const plan = planOrder(purchases.open, supplierId, lines);
   const blocked = new Map(plan.blocked.map((b) => [b.itemId, b.poNo]));
-  const totals = orderTotals(lines, new Map(items.map((i) => [i.id, i.workingPriceCents])));
+  /** What one pack costs on this order: the price typed for it, else the item's price. */
+  const priceOf = (row: InventoryRow) => prices[row.id] ?? row.workingPriceCents;
+  const totals = orderTotals(lines, new Map(items.map((i) => [i.id, priceOf(i)])));
   const mainLabel = plan.create.length > 0
     ? (plan.add.length > 0 ? `Place order and add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order')
     : plan.add.length > 0 ? `Add to ${plan.add.map((a) => a.order.poNo).join(', ')}` : 'Place order';
@@ -63,7 +71,15 @@ function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], pur
 
   const clearTyped = (id: string) => setTyped(({ [id]: _gone, ...rest }) => rest);
   /** Saves the cart; an item at 0 packs is out of it. */
-  const save = (next: Packs) => { const kept = Object.fromEntries(Object.entries(next).filter(([, n]) => n > 0)); setPacks(kept); setDraft(supplierId, kept); };
+  const save = (next: Packs) => { const kept = Object.fromEntries(Object.entries(next).filter(([, n]) => n > 0)); setPacks(kept); setDraft(supplierId, kept, prices); };
+  /** A price for this order only; returns its Undo. */
+  const setPrice = (id: string, cents: number) => {
+    const before = prices;
+    const next = { ...prices, [id]: cents };
+    setPrices(next);
+    const undo = setDraft(supplierId, packs, next);
+    return () => { undo(); setPrices(before); };
+  };
   const set = (id: string, n: number) => { save({ ...packs, [id]: Math.max(0, n) }); clearTyped(id); setError(''); };
   const setText = (id: string, text: string) => { setTyped({ ...typed, [id]: text }); setPacks({ ...packs, [id]: parsePacks(text) ?? 0 }); setError(''); };
   /** A typed number is saved when its box is left, not on every key. */
@@ -100,28 +116,29 @@ function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], pur
     placed.forEach(({ p, undo }, i) => onPlaced(p, () => { undo(); restore(); }, i === placed.length - 1 && Object.keys(rest).length === 0));
   };
 
-  return { packs, typed, error, setError, lines, plan, blocked, totals, mainLabel, canAct, set, setText, commit, remove, move, act };
+  return { packs, typed, error, setError, lines, plan, blocked, totals, mainLabel, canAct, priceOf, setPrice, set, setText, commit, remove, move, act };
 }
 type Draft = ReturnType<typeof useDraft>;
 
 const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
 
 /**
- * The price of one pack on a bill line, typed over in place. Enter or leaving the box saves it as
- * the supplier's new price (audited, the same as the item's Order tab); Esc puts it back.
+ * The price of one pack on a bill line, typed over in place. Enter or leaving the box keeps it for
+ * this order only: it goes on the purchase order, and the item's own price changes only when the
+ * delivery's GRN is approved. Esc puts it back.
  */
-function PriceCell({ row, onTyped, onSaved }: { row: InventoryRow; onTyped: (cents: number | null) => void; onSaved: (message: string, undo: () => void) => void }) {
-  const shown = row.workingPriceCents > 0 ? fmt(row.workingPriceCents) : '';
+function PriceCell({ row, cents: current, onTyped, onSave }: {
+  row: InventoryRow; cents: number; onTyped: (cents: number | null) => void; onSave: (cents: number) => void;
+}) {
+  const shown = current > 0 ? fmt(current) : '';
   const [text, setText] = useState<string | null>(null);
   const reset = () => { setText(null); onTyped(null); };
   const save = () => {
     if (text === null) return;
     const cents = parseLKR(text);
     reset();
-    if (cents === null || cents <= 0 || cents === row.workingPriceCents) return;
-    const before = row.workingPriceCents;
-    setWorkingPrice(row.id, cents);
-    onSaved(`${row.name}: price now ${rs(cents)} a pack.`, () => setWorkingPrice(row.id, before));
+    if (cents === null || cents <= 0 || cents === current) return;
+    onSave(cents);
   };
   return (
     <span className="price">
@@ -149,13 +166,14 @@ function PacksInput({ id, row, n, min, draft }: { id: string; row: InventoryRow;
   );
 }
 
-/** A price being typed (the line total follows it), and the last price saved, with Undo. */
-function usePricing() {
+/** A price being typed (the line total follows it), and the last price kept for this order, with Undo. */
+function usePricing(draft: Draft) {
   const [typing, setTyping] = useState<{ id: string; cents: number } | null>(null);
   const [priced, setPriced] = useState<{ message: string; undo: () => void } | null>(null);
-  const priceOf = (row: InventoryRow) => (typing?.id === row.id ? typing.cents : row.workingPriceCents);
+  const priceOf = (row: InventoryRow) => (typing?.id === row.id ? typing.cents : draft.priceOf(row));
   const cell = (row: InventoryRow) => (
-    <PriceCell row={row} onTyped={(cents) => setTyping(cents === null ? null : { id: row.id, cents })} onSaved={(message, undo) => setPriced({ message, undo })} />
+    <PriceCell row={row} cents={draft.priceOf(row)} onTyped={(cents) => setTyping(cents === null ? null : { id: row.id, cents })}
+      onSave={(cents) => setPriced({ message: `${row.name}: ${rs(cents)} a pack on this order.`, undo: draft.setPrice(row.id, cents) })} />
   );
   const said = priced && (
     <p className="bill__said" role="status">
@@ -190,7 +208,7 @@ function SupplierItems({ supplierId, draft, items, suppliers, open }: {
     .map((i) => i.id));
   const byId = new Map(items.map((i) => [i.id, i]));
   const rows = order.flatMap((id) => { const row = byId.get(id); return row ? [row] : []; });
-  const pricing = usePricing();
+  const pricing = usePricing(draft);
 
   return (
     <section className="flow__list" aria-label={`Items from ${name}`}>
@@ -241,7 +259,7 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
   const byId = new Map(items.map((i) => [i.id, i]));
   /** The line whose other suppliers are being shown, to move it to one of their carts. */
   const [moving, setMoving] = useState<string | null>(null);
-  const pricing = usePricing();
+  const pricing = usePricing(draft);
   const otherSuppliers = (row: InventoryRow) => suppliers.filter((s) => s.id !== supplierId && row.supplierIds.includes(s.id));
   const moveTo = (id: string, to: string) => {
     const undo = draft.move(id, to, carts.get(to) ?? {});
@@ -490,7 +508,7 @@ function SupplierRow({ name, line, tone, label, onAdd }: { name: string; line?: 
 type Step = 'who' | 'items' | 'cart' | 'send';
 const STEPS = 4;
 
-export function OrderSheet({ items, suppliers, purchases, inline = false, initialSupplier, onClose, onDone }: {
+export function OrderSheet({ items, suppliers, purchases, inline = false, initialSupplier, bySupplier = false, onClose, onDone }: {
   items: InventoryRow[];
   suppliers: Supplier[];
   purchases: PurchaseState;
@@ -498,6 +516,8 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   inline?: boolean;
   /** Opens straight on this supplier (#order/<supplier id>): its cart, or its items when it has none. */
   initialSupplier?: string;
+  /** Order by supplier (#order/suppliers): the list of every supplier instead of the carts. */
+  bySupplier?: boolean;
   onClose: () => void;
   onDone: Done;
 }) {
@@ -516,8 +536,9 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
 
   const withItems = suppliers.filter((s) => items.some((i) => i.supplierIds.includes(s.id)));
   const waiting = withItems.filter((s) => suggested.has(s.id) && !finished.includes(s.id));
-  const others = withItems.filter((s) => !suggested.has(s.id) || finished.includes(s.id));
-  const choose = (id: string) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(firstStep(id)); };
+  const choose = (id: string, to: Step = firstStep(id)) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(to); };
+  /** Tapped on step 1: always step 2 (Items), the next step, even when it has a cart. */
+  const pick = (id: string) => choose(id, 'items');
   const toWho = () => { setStep('who'); setSupplierId(null); setPlaced([]); };
 
   const total = waiting.length + finished.filter((id) => suggested.has(id)).length;
@@ -537,13 +558,30 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
     );
   }
 
+  // Ordering by supplier is a place of its own (#order/suppliers): every supplier, then the one
+  // tapped opens on its Items. Back returns to the Order page.
+  if (bySupplier) {
+    return (
+      <FlowSheet title="Order by supplier" inline={inline} onClose={onClose} step={{ index: 1, of: STEPS, label: 'Which supplier?' }} onBack={back}>
+        <section className="flow__list">
+          <ul role="group" aria-label="Order from a supplier" className="rows flow__plain">
+            {withItems.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => pick(s.id)} />)}
+          </ul>
+        </section>
+      </FlowSheet>
+    );
+  }
+
+  // Step 1: the carts come first (what to order now), then what is already on order. Anything
+  // else starts from the two buttons: by item (Items, out and low first) or by supplier.
   return (
     <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
       step={total > 1 ? { index: 1, of: STEPS, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: STEPS, label: 'Who?' }}
+      extra={<>
+        <button type="button" className="cta flow__cta" onClick={() => navigate('#items/low')}>Order by item</button>
+        <button type="button" className="cta flow__cta" onClick={() => navigate('#order/suppliers')}>Order by supplier</button>
+      </>}
       >
-      <RejectionNotices />
-      {/* What is already on order comes first: the person sees it before ordering more. */}
-      <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
       {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
       {waiting.length > 0 && (
         <section className="flow__list">
@@ -552,21 +590,15 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
             {waiting.map((s) => {
               const cart = suggested.get(s.id) ?? {};
               const n = Object.keys(cart).length;
-              const cents = orderTotals(Object.entries(cart).map(([itemId, packs]) => ({ itemId, packs })), prices).cents;
+              const cents = orderTotals(Object.entries(cart).map(([itemId, packs]) => ({ itemId, packs })),
+                new Map([...prices, ...Object.entries(purchases.draftPrices.get(s.id) ?? {})])).cents;
               const line = `${purchases.drafts.has(s.id) ? `Cart · ${n} ${word(n, 'item', 'items')}` : `${n} low ${word(n, 'item', 'items')}`}${cents > 0 ? ` · ${rs(cents)}` : ''}`;
-              return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => choose(s.id)} />;
+              return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => pick(s.id)} />;
             })}
           </ul>
         </section>
       )}
-      {others.length > 0 && (
-        <section className="flow__list">
-          <p className="flow-hint">{waiting.length > 0 ? 'Other suppliers' : 'Suppliers'}: tap one to start a cart</p>
-          <ul role="group" aria-label="Order from another supplier" className="rows flow__plain">
-            {others.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => choose(s.id)} />)}
-          </ul>
-        </section>
-      )}
+      <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
     </FlowSheet>
   );
 }
@@ -651,6 +683,9 @@ export function ItemOrder({ item, items, suppliers, purchases }: {
   const inCart = cartOf(carts, item.id);
 
   if (!supplierId) return <p className="flow-hint">No active supplier for {item.name}. Add one on <a href="#suppliers">Suppliers</a>.</p>;
+  const unit = receiveUnitOf(item);
+  /** What one of its units costs on a supplier's cart: the price typed for that cart, else its own. */
+  const cartPrice = (id: string) => fmt(unitPrice(purchases.draftPrices.get(id)?.[item.id] ?? item.workingPriceCents, unit, item.packQty));
   return (
     <section className="flow__list item-order" aria-label={`Order ${item.name}`}>
       {open.map((o) => {
@@ -662,17 +697,25 @@ export function ItemOrder({ item, items, suppliers, purchases }: {
         );
       })}
       {said ? (
-        <p className="bill__said" role="status">
-          {said.message}
-          <button type="button" className="linkbtn" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
-          <a className="linkbtn" href={`#order/${said.to}`}>Open cart</a>
-        </p>
+        <>
+          <p className="bill__said" role="status">
+            {said.message}
+            <button type="button" className="linkbtn" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
+          </p>
+          {/* A big button, where Add to cart was. */}
+          <a className="cta item-order__open" href={`#order/${said.to}`}>Open cart</a>
+        </>
       ) : inCart ? (
-        <p className="item-order__line">
-          In {nameOf(suppliers, inCart)}'s cart · {carts.get(inCart)![item.id]} {word(carts.get(inCart)![item.id], 'pack', 'packs')}
-          {' '}<a className="linkbtn" href={`#order/${inCart}`}>Open cart</a>
-        </p>
-      ) : (
+        <>
+          <p className="item-order__line">
+            In {nameOf(suppliers, inCart)}'s cart · {carts.get(inCart)![item.id]} {word(carts.get(inCart)![item.id], 'pack', 'packs')}
+          </p>
+          <a className="cta item-order__open" href={`#order/${inCart}`}>Open cart</a>
+        </>
+      ) : null}
+      {/* Already in a cart (or just added): the price it is on there; changed on the cart itself. */}
+      {(said || inCart) && <p className="item-order__line num">Price on this order: Rs {cartPrice(said ? said.to : inCart!)} a {unitName(unit)}</p>}
+      {!said && !inCart && (
         <>
           {sources.length > 1 && (
             <div className="chips" role="group" aria-label="Supplier">
@@ -681,30 +724,47 @@ export function ItemOrder({ item, items, suppliers, purchases }: {
               ))}
             </div>
           )}
-          <AddToCart key={supplierId} item={item} supplierId={supplierId} name={nameOf(suppliers, supplierId)} start={carts.get(supplierId) ?? {}}
-            onAdded={(message, undo) => setSaid({ message, to: supplierId, undo })} />
+          <AddToCart key={`${supplierId}:${unit.id}`} item={item} supplierId={supplierId} name={nameOf(suppliers, supplierId)} start={carts.get(supplierId) ?? {}}
+            price={cartPrice(supplierId)} onAdded={(message, undo) => setSaid({ message, to: supplierId, undo })} />
         </>
       )}
     </section>
   );
 }
 
-/** This item's packs and "Add to cart", on one row. */
-function AddToCart({ item, supplierId, name, start, onAdded }: {
-  item: InventoryRow; supplierId: string; name: string; start: Packs; onAdded: (message: string, undo: () => void) => void;
+/**
+ * The price per pack with this item's packs on its right, then "Add to cart" below. The price is
+ * for this order only: it goes in the cart and on the purchase order; the item's own price changes
+ * only when the delivery's GRN is approved. No Save: Add to cart takes it.
+ */
+function AddToCart({ item, supplierId, name, start, price: startPrice, onAdded }: {
+  item: InventoryRow; supplierId: string; name: string; start: Packs;
+  /** The price of one unit now (typed, like "6,400"): the cart's, else the item's. */
+  price: string;
+  onAdded: (message: string, undo: () => void) => void;
 }) {
   const [text, setText] = useState(String(Math.max(1, item.suggestedSupplierId === supplierId ? item.suggestedPacks : 0)));
+  const [price, setPrice] = useState(startPrice);
   const n = parsePacks(text) ?? 0;
+  const unit = receiveUnitOf(item);
   const add = () => {
-    const { draft, undo } = addToDraft(supplierId, item.id, n, start);
+    const typed = parseLKR(price);
+    const cents = typed !== null && typed > 0 ? packPrice(typed, unit, item.packQty) : undefined;
+    const { draft, undo } = addToDraft(supplierId, item.id, n, start, cents);
     const count = Object.keys(draft).length;
     onAdded(`Added to ${name}'s cart · ${count} ${word(count, 'item', 'items')}.`, undo);
   };
   return (
     <div className="item-order__add">
-      <BigStepper compact value={text} unit={word(n, 'pack', 'packs')} label={`Packs of ${item.name}`}
-        lessLabel={`One pack less of ${item.name}`} moreLabel={`One pack more of ${item.name}`}
-        onText={setText} onBump={(by) => setText(String(Math.max(1, n + by)))} />
+      <div className="item-order__row">
+        <label className="inv-modal__field receive-price">
+          <span>Price per {unitName(unit)} (Rs) <small>For this order</small></span>
+          <NumberInput className="inv-modal__input" decimals={2} value={price} onText={setPrice} onFocus={(e) => e.currentTarget.select()} />
+        </label>
+        <BigStepper compact value={text} unit={word(n, 'pack', 'packs')} label={`Packs of ${item.name}`}
+          lessLabel={`One pack less of ${item.name}`} moreLabel={`One pack more of ${item.name}`}
+          onText={setText} onBump={(by) => setText(String(Math.max(1, n + by)))} />
+      </div>
       <button type="button" className="cta" disabled={!(n > 0)} onClick={add}>Add to cart</button>
     </div>
   );

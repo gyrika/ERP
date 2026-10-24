@@ -184,6 +184,10 @@ test('purchase orders and GRNs: a GRN that differs from its order needs a manage
   assert.match(reason(short), /without a manager's approval/);
   assert.match(reason({ ...short, approvedBy: base.actor }), /short but does not say wait or close/);
   assert.ok('events' in validatePush({ events: [{ ...short, approvedBy: base.actor, shortDecision: 'wait' }] }, 'shop-1'));
+  // The approving manager's final note: optional, plain text, at most 500 characters.
+  assert.ok('events' in validatePush({ events: [{ ...short, approvedBy: base.actor, shortDecision: 'wait', note: 'The rest comes on Monday' }] }, 'shop-1'));
+  assert.match(reason({ ...short, approvedBy: base.actor, shortDecision: 'wait', note: 'x'.repeat(501) }), /invalid goods received note/);
+  assert.match(reason({ ...short, approvedBy: base.actor, shortDecision: 'wait', note: 42 }), /invalid goods received note/);
   assert.match(reason({ ...short, approvedBy: { id: 'c', name: 'Nimal', role: 'cashier' }, shortDecision: 'close' }), /invalid goods received note/);
 
   const over = { ...grn, lines: line(3), approvedBy: base.actor };
@@ -198,6 +202,10 @@ test('purchase orders and GRNs: a GRN that differs from its order needs a manage
   assert.ok('events' in validatePush({ events: [draft, { ...draft, id: 'event-4', lines: [] }] }, 'shop-1'), 'no lines clears the draft');
   assert.match(reason({ ...draft, lines: [{ itemId: 'inv-1', packs: 0 }] }), /invalid draft order/);
   assert.match(reason({ ...draft, supplierId: '' }), /invalid draft order/);
+  // A price typed for this order only rides on the draft's line; it must be a real amount.
+  assert.ok('events' in validatePush({ events: [{ ...draft, id: 'event-5', lines: [{ itemId: 'inv-1', packs: 2, unitPriceCents: 655000 }] }] }, 'shop-1'));
+  assert.match(reason({ ...draft, lines: [{ itemId: 'inv-1', packs: 2, unitPriceCents: -1 }] }), /invalid draft order/);
+  assert.match(reason({ ...draft, lines: [{ itemId: 'inv-1', packs: 2, unitPriceCents: 'free' }] }), /invalid draft order/);
 });
 
 test('an undone GRN names a manager and a reason', () => {

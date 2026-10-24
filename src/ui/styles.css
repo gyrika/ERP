@@ -1254,6 +1254,12 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .flow .sheet__foot { max-width: 640px; width: 100%; margin: 0 auto; padding: 14px 24px 24px; }
 .flow__foot .cta { height: 60px; }
 .flow__back { align-self: center; min-height: 48px; }
+/* A place beside the title, top right (GRN history): a button, quieter than the main one. */
+.flow__corner { margin-left: auto; align-self: center; }
+.flow__corner + .flow__backbtn { margin-left: 0; }
+/* Back, top right of every flow step that has one: the same place each time. */
+.flow__backbtn { margin-left: auto; align-self: center; min-height: 48px; background: var(--chip); color: var(--ink); white-space: nowrap; }
+.flow__corner-btn { min-height: 48px; background: var(--chip); color: var(--ink); }
 .flow__where { display: flex; flex-direction: column; gap: 8px; }
 .flow__progress { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
 .flow__progress span { display: block; height: 100%; border-radius: 3px; background: var(--primary); transition: width 220ms var(--ease); }
@@ -1498,7 +1504,7 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .grn-check :is(td, th):nth-child(n + 3) { width: 1%; }
 .grn-check td.bill__qty, .grn-check th.bill__qty { text-align: center; }
 .bill .grn-check__tick { padding-right: 12px; }
-.grn-check .grn-match { display: block; margin-top: 2px; }
+.grn-check__status { white-space: nowrap; }
 .grn-check .price__num { border-color: var(--line); background: var(--surface); }
 .grn-check--warn .qty__num { border-color: var(--warn); color: var(--warn); }
 .grn-check--ok .qty__num { border-color: var(--ok); }
@@ -1586,7 +1592,12 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 /* The item sheet's Order tab: one line per fact, then packs and Add to cart on one row. */
 .item-order { gap: 12px; }
 .item-order__line { margin: 0; font-size: 15px; color: var(--ink-2); }
-.item-order__add { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.item-order__add { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+/* The price per pack, and the packs on its right; Add to cart under both. */
+.item-order__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
+.item-order__row .receive-price { flex: 1 1 200px; }
+/* Open cart: the same big button as Add to cart, as a link to the cart. */
+.item-order__open { display: flex; align-items: center; justify-content: center; text-decoration: none; }
 .nowrap { white-space: nowrap; }
 
 /* A GRN as a document (GrnDocument.tsx): on screen in GRN history, and the page saved as a PDF. */
@@ -1640,3 +1651,10 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .chain-line .numfield > input, .chain-add__how .numfield > input { width: 100%; padding-right: 40px; }
 .chain-line .numfield__unit, .chain-add__how .numfield__unit { right: 10px; }
 .chain-add__how .numfield > input { border-color: var(--line); background: var(--surface); }
+
+/* GRN step 3: each decision's two choices side by side; the manager's optional note under them. */
+.grn-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 520px) { .grn-choices { grid-template-columns: 1fr; } }
+.grn-note { display: grid; gap: 8px; margin-top: 8px; }
+.grn-note__box { min-height: 96px; resize: vertical; font: inherit; }
+.grn-doc__note { margin: 12px 0 0; }

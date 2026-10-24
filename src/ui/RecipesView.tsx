@@ -148,7 +148,7 @@ function Book({ owner, focus }: { owner: Actor; focus?: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || editing) return;
-      if (open) setOpen(null);
+      if (open) { e.preventDefault(); setOpen(null); } // closes the open recipe, not the page
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
