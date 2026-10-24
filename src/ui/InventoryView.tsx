@@ -42,9 +42,12 @@ const missedText = (n: number) => `${n} sold since the last count not taken off`
 export function InventoryView({
   onFindSupplier,
   onRegister,
+  lowFirst = false,
 }: {
   onFindSupplier?: (id: string) => void;
   onRegister?: () => void;
+  /** Opened to order (#items/low, from Orders' Place an order): out first, then low, then the rest. */
+  lowFirst?: boolean;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);
   const [archived, setArchived] = useState<{ id: string; name: string } | null>(null);
@@ -87,9 +90,12 @@ export function InventoryView({
     const q = query.trim().toLowerCase();
     const byText = !q ? items : items.filter((item) => [item.name, item.category, ...item.supplierIds.map((id) => supplierNames.get(id) ?? '')]
       .some((text) => text.toLowerCase().includes(q)));
-    return byText.filter((item) => matches(item, filter));
+    const found = byText.filter((item) => matches(item, filter));
+    if (!lowFirst) return found;
+    const rank = (item: (typeof items)[number]) => ({ out: 0, low: 1 } as Record<string, number>)[stockStatus(item)] ?? 2;
+    return [...found].sort((a, b) => rank(a) - rank(b)); // stable: the usual order within each
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, query, supplierNames, filter, coming]);
+  }, [items, query, supplierNames, filter, coming, lowFirst]);
   const updatingItem = items.find((item) => item.id === updating) ?? null;
   // Today's count: what the money says to count, and since when.
   const tiers = useMemo(() => tiersOf(items), [items]);

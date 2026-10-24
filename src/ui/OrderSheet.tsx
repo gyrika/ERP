@@ -16,19 +16,21 @@ import { RejectionNotices } from './Rejections.tsx';
 import { AddSupplierModal } from './AddSupplierModal.tsx';
 import { addToDraft, addToOrder, cancelOrder, editOrder, editSupplier, moveToCart, placeOrder, setDraft, setWorkingPrice, type InventoryRow } from '../services/inventoryStore.ts';
 import { NumberInput } from './NumberInput.tsx';
+import { navigate } from './nav.ts';
 
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
- *   0 On order, at the top: the open orders, each opening in place to change or cancel
- *   1 Who?   the suppliers with a cart ("Prima · Cart · 3 items · Rs 12,400"), then the others
+ *   1 Who?   the carts first ("Prima · Cart · 3 items · Rs 12,400"), then On order (the open
+ *            orders, each opening in place to change or cancel); Place an order opens Items, out
+ *            and low first, where anything is put in its supplier's cart
  *   2 Items  everything that supplier sells, one row each (qty, price, total): an amount puts it in
  *            the supplier's cart, 0 takes it out. Nothing is ordered here; the button goes to the cart
  *   3 Cart   the cart as a bill, and one main button: Place order (or Add to PO-0003, which
  *            `planOrder` chooses so an item is never on two orders)
  *   4 Send   the message, WhatsApp as the big thing to do; then the next supplier, or Done
  * Each supplier has one cart (a draft underneath), saved as it changes: what runs low is in it by
- * itself (`cartsOf`), and a line moves to another supplier of the item. A supplier with a cart
- * opens on Cart, others on Items. The item sheet's Order tab (ItemOrder) only adds to a cart.
+ * itself (`cartsOf`), and a line moves to another supplier of the item. A supplier tapped on step 1
+ * opens on Items; Next supplier and #order/<supplier> open its cart when it has one. The item sheet's Order tab (ItemOrder) only adds to a cart.
  */
 type Packs = Record<string, number>;
 type Done = (message: string, undo: () => void) => void;
@@ -516,7 +518,6 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
 
   const withItems = suppliers.filter((s) => items.some((i) => i.supplierIds.includes(s.id)));
   const waiting = withItems.filter((s) => suggested.has(s.id) && !finished.includes(s.id));
-  const others = withItems.filter((s) => !suggested.has(s.id) || finished.includes(s.id));
   const choose = (id: string, to: Step = firstStep(id)) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(to); };
   /** Tapped on step 1: always step 2 (Items), the next step, even when it has a cart. */
   const pick = (id: string) => choose(id, 'items');
@@ -539,13 +540,13 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
     );
   }
 
+  // Step 1: the carts come first (what to order now), then what is already on order. Anything
+  // else is ordered from Items, low and out first: one button, no list of every supplier.
   return (
     <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
       step={total > 1 ? { index: 1, of: STEPS, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: STEPS, label: 'Who?' }}
+      primary={{ label: 'Place an order', onClick: () => navigate('#items/low') }}
       >
-      <RejectionNotices />
-      {/* What is already on order comes first: the person sees it before ordering more. */}
-      <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
       {waiting.length === 0 && <p className="flow-hint">{finished.length > 0 ? 'All done. Everything that needed ordering has been ordered.' : 'Nothing needs ordering now.'}</p>}
       {waiting.length > 0 && (
         <section className="flow__list">
@@ -561,14 +562,7 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
           </ul>
         </section>
       )}
-      {others.length > 0 && (
-        <section className="flow__list">
-          <p className="flow-hint">{waiting.length > 0 ? 'Other suppliers' : 'Suppliers'}: tap one to start a cart</p>
-          <ul role="group" aria-label="Order from another supplier" className="rows flow__plain">
-            {others.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => pick(s.id)} />)}
-          </ul>
-        </section>
-      )}
+      <OnOrder orders={purchases.open} items={items} suppliers={suppliers} onDone={onDone} />
     </FlowSheet>
   );
 }

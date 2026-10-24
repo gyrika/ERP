@@ -198,8 +198,9 @@ export function Root() {
     return <OrderView key={hash} supplierId={hash.startsWith('#order/') ? decodeURIComponent(hash.slice('#order/'.length)) : undefined} onRegister={() => go('')} />;
   }
   if ((hash === '#count' || hash === '#manager') && mayManageStock) return <ManagerView onRegister={() => go('')} />;
-  if ((hash === '#items' || hash === '#items/raw' || hash === '#inventory') && mayManageStock) {
-    return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} />;
+  // #items/low: opened to order (Orders' Place an order), out and low first.
+  if ((hash === '#items' || hash === '#items/raw' || hash === '#items/low' || hash === '#inventory') && mayManageStock) {
+    return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} lowFirst={hash === '#items/low'} />;
   }
   // The owner changes the menu; managers can mark items sold out during service.
   if ((hash === '#items/finished' || hash === '#menu') && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {

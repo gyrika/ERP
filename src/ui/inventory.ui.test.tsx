@@ -31,6 +31,12 @@ const openOrders = async (_user: ReturnType<typeof userEvent.setup>) => {
   orderPage = render(<OrderView />);
 };
 
+/** The Order page opened on one supplier (#order/<supplier id>). */
+const openSupplier = (supplierId: string) => {
+  orderPage?.unmount();
+  orderPage = render(<OrderView supplierId={supplierId} />);
+};
+
 /** The last thing the shop did: not the number the server gives it afterwards. */
 const lastEvent = () => readAll().filter((e) => e.type !== 'stock.numbered' && e.type !== 'stock.draft_set').at(-1);
 /** Each supplier's draft order as the events leave it. */
@@ -433,8 +439,9 @@ test('Purchase orders: a cart per supplier from what runs low; Place order saves
   await user.click(screen.getByRole('button', { name: 'Done' }));
   // On order: cancel it, with a reason.
   await openOrders(user);
-  // Open orders are first on the Order page, above the suppliers to order from.
-  expect(screen.getByRole('region', { name: 'On order' }).compareDocumentPosition(screen.getByRole('group', { name: 'Order from another supplier' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // Step 1 holds the carts and what is on order; no list of every supplier.
+  expect(screen.getByRole('region', { name: 'On order' })).toBeTruthy();
+  expect(screen.queryByRole('group', { name: 'Order from another supplier' })).toBeNull();
   await user.click(screen.getByRole('button', { name: /^PO-0001 · Prima/ })); // the row opens the order
   await user.click(screen.getByRole('button', { name: 'Cancel PO-0001' }));
   expect(lastEvent()).toMatchObject({ type: 'stock.ordered' }); // a reason first: nothing cancelled yet
@@ -481,8 +488,7 @@ test('an item already on an open order is added to it, not ordered twice; the ca
   const user = userEvent.setup();
   render(<InventoryView />);
   orderFlour(2);
-  await openOrders(user);
-  await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
+  openSupplier('sup_prima'); // it opens on Items
   expect(within(screen.getByRole('region', { name: /^Items from Prima/ })).getByText('On order · PO-0001')).toBeTruthy();
   await addItem(user, 'Pizza Flour', '1');
   const card = within(screen.getByRole('region', { name: 'Order from Prima / David Stores (Wholesale)' }));
@@ -638,9 +644,8 @@ test('an item opens on Details, or on Order when it needs ordering; the tabs are
 test('Items lists all the supplier sells and only fills its cart; the cart is a bill (qty, price, totals) and the GRN steps have big − / + buttons', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);
-  await openOrders(user);
   // No cart yet: the supplier opens on Items, everything it sells, all at 0.
-  await user.click(screen.getByRole('button', { name: '+ Prima / David Stores (Wholesale)' }));
+  openSupplier('sup_prima');
   expect(screen.getByText('Step 2 of 4 · Items')).toBeTruthy();
   const list = within(screen.getByRole('region', { name: 'Items from Prima / David Stores (Wholesale)' }));
   const sells = inventoryStore.readItems().filter((i) => i.supplierIds.includes('sup_prima'));
@@ -1218,3 +1223,23 @@ test('Step 3 with no phone: Add phone opens the supplier\'s Edit here; the numbe
   expect(placed.getByRole('link', { name: /Send on WhatsApp/ }).textContent).toContain('0771234567');
   expect(placed.getByRole('textbox', { name: 'Message' })).toHaveProperty('value', expect.stringContaining('Before 10.'));
 }, 15_000);
+
+test("step 1 of Orders: the carts come first; Place an order opens Items with what is out, then low, first", async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#order');
+  sellPizzas(500); // flour has a rate of use
+  shelfPacks(1); // and runs low
+  const oil = inventoryStore.readItems().find((i) => i.id === 'inv-0022')!;
+  inventoryStore.addStockMovement('COUNT_ADJUST', oil.id, -oil.onHandBaseUnits, 'test'); // and the oil is out
+  await openOrders(user);
+  expect(screen.getByRole('group', { name: 'Suppliers that need ordering' })).toBeTruthy();
+  expect(screen.queryByRole('group', { name: 'Order from another supplier' })).toBeNull();
+
+  await user.click(screen.getByRole('button', { name: 'Place an order' }));
+  expect(location.hash).toBe('#items/low');
+
+  orderPage?.unmount();
+  render(<InventoryView lowFirst />);
+  const names = within(screen.getByRole('main', { name: 'Inventory' })).getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+  expect(names.slice(0, 2)).toEqual([oil.name, 'Pizza Flour']);
+});
