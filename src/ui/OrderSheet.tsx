@@ -19,15 +19,16 @@ import { NumberInput } from './NumberInput.tsx';
 
 /**
  * Purchase orders: the one way to order, one step at a time (src/ui/flow):
- *   0 On order, at the top: the open orders, to edit or cancel with a reason until goods come
- *   1 Who?   a big card per supplier with how many items need ordering ("Prima · 3 to order")
- *   2 What?  that supplier's items as a bill (item, qty, price, total), the suggested packs already
- *            in, "+ Add item" to add more, the total at the bottom, and one main button: Place order (or Add to PO-0003, which
+ *   0 On order, at the top: the open orders, each opening in place to change or cancel
+ *   1 Who?   the suppliers with a cart ("Prima · Cart · 3 items · Rs 12,400"), then the others
+ *   2 Items  everything that supplier sells, one row each (qty, price, total): an amount puts it in
+ *            the supplier's cart, 0 takes it out. Nothing is ordered here; the button goes to the cart
+ *   3 Cart   the cart as a bill, and one main button: Place order (or Add to PO-0003, which
  *            `planOrder` chooses so an item is never on two orders)
- *   3 Send   the message, WhatsApp as the big thing to do; then the next supplier, or Done
- * Each supplier's bill is its cart (a draft underneath), saved as it changes: what runs low is in
- * it by itself (`cartsOf`), a line moves to another supplier of the item, and the bill is changed
- * freely before it is placed. The item sheet's Order tab (ItemOrder) only adds the item to a cart.
+ *   4 Send   the message, WhatsApp as the big thing to do; then the next supplier, or Done
+ * Each supplier has one cart (a draft underneath), saved as it changes: what runs low is in it by
+ * itself (`cartsOf`), and a line moves to another supplier of the item. A supplier with a cart
+ * opens on Cart, others on Items. The item sheet's Order tab (ItemOrder) only adds to a cart.
  */
 type Packs = Record<string, number>;
 type Done = (message: string, undo: () => void) => void;
@@ -61,11 +62,12 @@ function useDraft(supplierId: string, initial: Packs, items: InventoryRow[], pur
   const canAct = plan.add.length > 0 || plan.create.length > 0;
 
   const clearTyped = (id: string) => setTyped(({ [id]: _gone, ...rest }) => rest);
-  const save = (next: Packs) => { setPacks(next); setDraft(supplierId, next); };
+  /** Saves the cart; an item at 0 packs is out of it. */
+  const save = (next: Packs) => { const kept = Object.fromEntries(Object.entries(next).filter(([, n]) => n > 0)); setPacks(kept); setDraft(supplierId, kept); };
   const set = (id: string, n: number) => { save({ ...packs, [id]: Math.max(0, n) }); clearTyped(id); setError(''); };
   const setText = (id: string, text: string) => { setTyped({ ...typed, [id]: text }); setPacks({ ...packs, [id]: parsePacks(text) ?? 0 }); setError(''); };
   /** A typed number is saved when its box is left, not on every key. */
-  const commit = (id: string) => { if (id in typed) setDraft(supplierId, packs); };
+  const commit = (id: string) => { if (id in typed) { save(packs); clearTyped(id); } };
   const remove = (id: string) => { const { [id]: _gone, ...rest } = packs; save(rest); clearTyped(id); setError(''); };
   /** Moves a line to another supplier's cart (which starts from its suggestions); the Undo brings it back here. */
   const move = (id: string, to: string, toStart: Packs) => {
@@ -135,10 +137,98 @@ function PriceCell({ row, onTyped, onSaved }: { row: InventoryRow; onTyped: (cen
   );
 }
 
+/** The packs of an item: − / typed number / +; − stops at `min`. */
+function PacksInput({ id, row, n, min, draft }: { id: string; row: InventoryRow; n: number; min: number; draft: Draft }) {
+  return (
+    <span className="qty">
+      <button type="button" className="qty__btn" aria-label={`One pack less of ${row.name}`} disabled={n <= min} onClick={() => draft.set(id, Math.max(min, n - 1))}>−</button>
+      <NumberInput className="qty__num" aria-label={`Packs of ${row.name}`} value={draft.typed[id] ?? String(n)}
+        onText={(text) => draft.setText(id, text)} onBlur={() => draft.commit(id)} onFocus={(e) => e.currentTarget.select()} />
+      <button type="button" className="qty__btn" aria-label={`One pack more of ${row.name}`} onClick={() => draft.set(id, n + 1)}>+</button>
+    </span>
+  );
+}
+
+/** A price being typed (the line total follows it), and the last price saved, with Undo. */
+function usePricing() {
+  const [typing, setTyping] = useState<{ id: string; cents: number } | null>(null);
+  const [priced, setPriced] = useState<{ message: string; undo: () => void } | null>(null);
+  const priceOf = (row: InventoryRow) => (typing?.id === row.id ? typing.cents : row.workingPriceCents);
+  const cell = (row: InventoryRow) => (
+    <PriceCell row={row} onTyped={(cents) => setTyping(cents === null ? null : { id: row.id, cents })} onSaved={(message, undo) => setPriced({ message, undo })} />
+  );
+  const said = priced && (
+    <p className="bill__said" role="status">
+      {priced.message}
+      <button type="button" className="linkbtn" onClick={() => { priced.undo(); setPriced(null); }}>Undo</button>
+    </p>
+  );
+  return { priceOf, cell, said, setPriced };
+}
+
+/** Why an item is suggested: how long it lasts and what it uses a day. */
+const whyText = (row: InventoryRow) => (row.suggestedPacks > 0 && row.usedPerDay > 0
+  ? `${formatLasts(row.lastsDays) ? `${formatLasts(row.lastsDays)} · ` : ''}uses about ${formatQuantity(Math.round(row.usedPerDay), row.baseUnit)} a day` : '');
+
 /**
- * The draft as a bill: one line per item (name, quantity, price of one pack, line total) and the
- * total at the bottom. "+ Add item" opens the supplier's other items; a tap puts one on the bill
- * at 1 pack (change the qty on its line), and the list stays open for the next.
+ * Step 2, Items: everything this supplier sells, one row each (packs, price of one pack, total).
+ * An amount above 0 puts the item in the supplier's cart at once, 0 takes it out; nothing is
+ * ordered here. What runs low comes first, then what is in the cart, then the rest A to Z; the
+ * order is fixed when the step opens, so a row never jumps while it is being changed.
+ */
+function SupplierItems({ supplierId, draft, items, suppliers, open }: {
+  supplierId: string; draft: Draft; items: InventoryRow[]; suppliers: Supplier[];
+  /** Open orders: an item already on one of this supplier's says so, in the cart or not. */
+  open: readonly PurchaseOrder[];
+}) {
+  const { packs } = draft;
+  const name = nameOf(suppliers, supplierId);
+  const onOrder = new Map(open.filter((o) => o.supplierId === supplierId).flatMap((o) => o.lines.map((l) => [l.itemId, o] as const)));
+  const low = (i: InventoryRow) => i.suggestedPacks > 0 && i.suggestedSupplierId === supplierId;
+  const [order] = useState(() => items.filter((i) => i.supplierIds.includes(supplierId))
+    .sort((a, b) => Number(low(b)) - Number(low(a)) || Number(b.id in packs) - Number(a.id in packs) || a.name.localeCompare(b.name))
+    .map((i) => i.id));
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const rows = order.flatMap((id) => { const row = byId.get(id); return row ? [row] : []; });
+  const pricing = usePricing();
+
+  return (
+    <section className="flow__list" aria-label={`Items from ${name}`}>
+      <table className="bill bill--items" aria-label={`Everything ${name} sells`}>
+        <thead>
+          <tr><th scope="col">Item</th><th scope="col" className="bill__qty">Qty</th><th scope="col" className="bill__num">Price</th><th scope="col" className="bill__num">Total</th></tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={4} className="bill__empty">{name} has no items yet. Add them on <a href="#suppliers">Suppliers</a>.</td></tr>
+          )}
+          {rows.map((row) => {
+            const n = packs[row.id] ?? 0;
+            const on = onOrder.get(row.id);
+            const why = whyText(row);
+            return (
+              <tr key={row.id} className={n > 0 ? 'bill__in' : undefined}>
+                <td>
+                  <span className="bill__name">{row.name}{low(row) && <span className="flow-card__tag">Suggested</span>}</span>
+                  <span className="bill__sub">{formatQuantity(row.packQty, row.baseUnit)} a pack{why ? ` · ${why}` : ''}</span>
+                  {on && <span className="flow-card__tag">On order · {on.poNo}{on.editable ? '' : ': partly received'}</span>}
+                </td>
+                <td className="bill__qty"><PacksInput id={row.id} row={row} n={n} min={0} draft={draft} /></td>
+                <td className="bill__num">{pricing.cell(row)}</td>
+                <td className="bill__num num" aria-label={`Total for ${row.name}`}>{n > 0 && pricing.priceOf(row) > 0 ? rs(n * pricing.priceOf(row)) : '—'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {pricing.said}
+    </section>
+  );
+}
+
+/**
+ * Step 3, Cart: what is in the supplier's cart as a bill (item, qty, price of one pack, line
+ * total) and the total at the bottom. A line can move to another supplier of the item.
  */
 function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
   supplierId: string; draft: Draft; items: InventoryRow[]; suppliers: Supplier[];
@@ -146,28 +236,19 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
   carts: Map<string, Packs>;
   onMoved: (to: string) => void;
 }) {
-  const { packs, typed, plan, blocked, totals } = draft;
+  const { packs, plan, blocked, totals } = draft;
   const name = nameOf(suppliers, supplierId);
   const byId = new Map(items.map((i) => [i.id, i]));
-  // What runs low first (at its suggested packs), then the rest of what this supplier sells.
-  const low = (i: InventoryRow) => i.suggestedPacks > 0 && i.suggestedSupplierId === supplierId;
-  const extra = items.filter((i) => i.supplierIds.includes(supplierId) && !(i.id in packs))
-    .sort((a, b) => Number(low(b)) - Number(low(a)));
   /** The line whose other suppliers are being shown, to move it to one of their carts. */
   const [moving, setMoving] = useState<string | null>(null);
+  const pricing = usePricing();
   const otherSuppliers = (row: InventoryRow) => suppliers.filter((s) => s.id !== supplierId && row.supplierIds.includes(s.id));
   const moveTo = (id: string, to: string) => {
     const undo = draft.move(id, to, carts.get(to) ?? {});
     setMoving(null);
-    setPriced({ message: `${byId.get(id)?.name ?? 'It'}: moved to ${nameOf(suppliers, to)}'s cart.`, undo });
+    pricing.setPriced({ message: `${byId.get(id)?.name ?? 'It'}: moved to ${nameOf(suppliers, to)}'s cart.`, undo });
     onMoved(to);
   };
-  /** The add-item list is open. It stays open, so several items go on one after another. */
-  const [picking, setPicking] = useState(false);
-  /** A price being typed (the line total follows it), and the last price saved, with Undo. */
-  const [typing, setTyping] = useState<{ id: string; cents: number } | null>(null);
-  const [priced, setPriced] = useState<{ message: string; undo: () => void } | null>(null);
-  const priceOf = (row: InventoryRow) => (typing?.id === row.id ? typing.cents : row.workingPriceCents);
   const lines = Object.entries(packs).flatMap(([id, n]) => { const row = byId.get(id); return row ? [{ id, n, row }] : []; });
 
   return (
@@ -178,13 +259,12 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
         </thead>
         <tbody>
           {lines.length === 0 && (
-            <tr><td colSpan={5} className="bill__empty">Nothing on it yet. Add what you need from {name}.</td></tr>
+            <tr><td colSpan={5} className="bill__empty">The cart is empty. Go back to Items to add what you need from {name}.</td></tr>
           )}
           {lines.map(({ id, n, row }) => {
             const on = plan.onOrder.get(id);
             const others = otherSuppliers(row);
-            const why = row.suggestedPacks > 0 && row.usedPerDay > 0
-              ? `${formatLasts(row.lastsDays) ? `${formatLasts(row.lastsDays)} · ` : ''}uses about ${formatQuantity(Math.round(row.usedPerDay), row.baseUnit)} a day` : '';
+            const why = whyText(row);
             return (
               <tr key={id}>
                 <td>
@@ -203,48 +283,13 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
                     <button type="button" className="linkbtn bill__move" onClick={() => setMoving(id)}>Move to another cart</button>
                   ))}
                 </td>
-                <td className="bill__qty">
-                  <span className="qty">
-                    <button type="button" className="qty__btn" aria-label={`One pack less of ${row.name}`} onClick={() => draft.set(id, Math.max(1, n - 1))}>−</button>
-                    <NumberInput className="qty__num" aria-label={`Packs of ${row.name}`} value={typed[id] ?? String(n)}
-                      onText={(text) => draft.setText(id, text)} onBlur={() => draft.commit(id)} onFocus={(e) => e.currentTarget.select()} />
-                    <button type="button" className="qty__btn" aria-label={`One pack more of ${row.name}`} onClick={() => draft.set(id, n + 1)}>+</button>
-                  </span>
-                </td>
-                <td className="bill__num">
-                  <PriceCell row={row} onTyped={(cents) => setTyping(cents === null ? null : { id, cents })} onSaved={(message, undo) => setPriced({ message, undo })} />
-                </td>
-                <td className="bill__num num" aria-label={`Total for ${row.name}`}>{priceOf(row) > 0 ? rs(n * priceOf(row)) : '—'}</td>
+                <td className="bill__qty"><PacksInput id={id} row={row} n={n} min={1} draft={draft} /></td>
+                <td className="bill__num">{pricing.cell(row)}</td>
+                <td className="bill__num num" aria-label={`Total for ${row.name}`}>{pricing.priceOf(row) > 0 ? rs(n * pricing.priceOf(row)) : '—'}</td>
                 <td className="bill__x"><button type="button" className="qty__btn qty__btn--x" aria-label={`Remove ${row.name}`} onClick={() => draft.remove(id)}>×</button></td>
               </tr>
             );
           })}
-          {/* Add the next line right under the last one; the list opens in place, so nothing covers the total. */}
-          {(extra.length > 0 || lines.length > 0) && (
-            <tr className="bill__addrow">
-              <td colSpan={5}>
-                {extra.length === 0 ? <span className="bill__sub">Everything {name} sells is on it.</span> : (
-                  <div className="bill-add" onKeyDown={(e) => { if (e.key === 'Escape' && picking) { e.preventDefault(); setPicking(false); } }}>
-                    <button type="button" className="bill-add__btn" aria-expanded={picking} aria-label={`Add an item from ${name}`} onClick={() => setPicking(!picking)}>+ Add item</button>
-                    {picking && (
-                      <ul className="bill-add__menu" aria-label={`Items from ${name}`}>
-                        {extra.map((i) => (
-                          <li key={i.id}>
-                            <button type="button" className="bill-add__item" onClick={() => draft.set(i.id, low(i) ? i.suggestedPacks : 1)}>
-                              <span>{i.name}</span>
-                              <span className="bill__sub num">
-                                {low(i) ? `Low · ${i.suggestedPacks} suggested` : i.workingPriceCents > 0 ? `${rs(i.workingPriceCents)} a pack` : formatQuantity(i.packQty, i.baseUnit)}
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-              </td>
-            </tr>
-          )}
         </tbody>
         <tfoot>
           <tr>
@@ -253,12 +298,7 @@ function DraftItems({ supplierId, draft, items, suppliers, carts, onMoved }: {
           </tr>
         </tfoot>
       </table>
-      {priced && (
-        <p className="bill__said" role="status">
-          {priced.message}
-          <button type="button" className="linkbtn" onClick={() => { priced.undo(); setPriced(null); }}>Undo</button>
-        </p>
-      )}
+      {pricing.said}
     </section>
   );
 }
@@ -447,7 +487,8 @@ function SupplierRow({ name, line, tone, label, onAdd }: { name: string; line?: 
   );
 }
 
-type Step = 'who' | 'what' | 'send';
+type Step = 'who' | 'items' | 'cart' | 'send';
+const STEPS = 4;
 
 export function OrderSheet({ items, suppliers, purchases, inline = false, initialSupplier, onClose, onDone }: {
   items: InventoryRow[];
@@ -455,14 +496,17 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   purchases: PurchaseState;
   /** In the Order page itself, not a sheet over it. */
   inline?: boolean;
-  /** Opens straight on this supplier's cart (#order/<supplier id>). */
+  /** Opens straight on this supplier (#order/<supplier id>): its cart, or its items when it has none. */
   initialSupplier?: string;
   onClose: () => void;
   onDone: Done;
 }) {
   const suggested = useMemo(() => cartsNow(items, purchases), [items, purchases]);
+  const prices = useMemo(() => new Map(items.map((i) => [i.id, i.workingPriceCents])), [items]);
+  /** A supplier with something in its cart opens on Cart; any other on Items. */
+  const firstStep = (id: string): Step => (Object.keys(suggested.get(id) ?? {}).length > 0 ? 'cart' : 'items');
   const opening = initialSupplier && suppliers.some((s) => s.id === initialSupplier) ? initialSupplier : null;
-  const [step, setStep] = useState<Step>(opening ? 'what' : 'who');
+  const [step, setStep] = useState<Step>(opening ? firstStep(opening) : 'who');
   /** The supplier being ordered from, and the cart the person starts from. */
   const [supplierId, setSupplierId] = useState<string | null>(opening);
   const [start, setStart] = useState<Packs>(() => (opening ? suggested.get(opening) ?? {} : {}));
@@ -473,15 +517,15 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   const withItems = suppliers.filter((s) => items.some((i) => i.supplierIds.includes(s.id)));
   const waiting = withItems.filter((s) => suggested.has(s.id) && !finished.includes(s.id));
   const others = withItems.filter((s) => !suggested.has(s.id) || finished.includes(s.id));
-  const choose = (id: string) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep('what'); };
+  const choose = (id: string) => { setSupplierId(id); setStart(suggested.get(id) ?? {}); setPlaced([]); setStep(firstStep(id)); };
   const toWho = () => { setStep('who'); setSupplierId(null); setPlaced([]); };
 
   const total = waiting.length + finished.filter((id) => suggested.has(id)).length;
 
-  if ((step === 'what' || step === 'send') && supplierId) {
+  if (step !== 'who' && supplierId) {
     return (
-      <WhatStep key={supplierId} inline={inline} step={step} supplierId={supplierId} start={start} items={items} suppliers={suppliers} purchases={purchases}
-        placed={placed} moreSuppliers={waiting.filter((s) => s.id !== supplierId).length} onClose={onClose} onBack={toWho}
+      <SupplierSteps key={supplierId} inline={inline} step={step} supplierId={supplierId} start={start} items={items} suppliers={suppliers} purchases={purchases}
+        placed={placed} moreSuppliers={waiting.filter((s) => s.id !== supplierId).length} onClose={onClose} onWho={toWho} onStep={setStep}
         onPlaced={(p, undo, done) => {
           setPlaced((all) => [...all, p]);
           onDone(placedText(p, suppliers), undo);
@@ -495,7 +539,7 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
 
   return (
     <FlowSheet title="Purchase orders" inline={inline} onClose={onClose}
-      step={total > 1 ? { index: 1, of: 3, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: 3, label: 'Who?' }}
+      step={total > 1 ? { index: 1, of: STEPS, label: `${finished.filter((id) => suggested.has(id)).length} of ${total} suppliers done` } : { index: 1, of: STEPS, label: 'Who?' }}
       >
       <RejectionNotices />
       {/* What is already on order comes first: the person sees it before ordering more. */}
@@ -506,8 +550,10 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
           <p className="flow-hint">Carts</p>
           <ul role="group" aria-label="Suppliers that need ordering" className="rows flow__plain">
             {waiting.map((s) => {
-              const n = Object.keys(suggested.get(s.id) ?? {}).length;
-              const line = purchases.drafts.has(s.id) ? `Cart · ${n} ${word(n, 'item', 'items')}` : `${n} low ${word(n, 'item', 'items')}`;
+              const cart = suggested.get(s.id) ?? {};
+              const n = Object.keys(cart).length;
+              const cents = orderTotals(Object.entries(cart).map(([itemId, packs]) => ({ itemId, packs })), prices).cents;
+              const line = `${purchases.drafts.has(s.id) ? `Cart · ${n} ${word(n, 'item', 'items')}` : `${n} low ${word(n, 'item', 'items')}`}${cents > 0 ? ` · ${rs(cents)}` : ''}`;
               return <SupplierRow key={s.id} name={s.name} line={line} tone="warn" label={`Order from ${s.name}`} onAdd={() => choose(s.id)} />;
             })}
           </ul>
@@ -525,10 +571,10 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
   );
 }
 
-/** Steps 2 and 3 for one supplier: what to order, then sending it. */
-function WhatStep({ inline, step, supplierId, start, items, suppliers, purchases, placed, moreSuppliers, onClose, onBack, onPlaced, onNext, onOpen }: {
+/** Steps 2 to 4 for one supplier: its items, its cart, then sending what was placed. */
+function SupplierSteps({ inline, step, supplierId, start, items, suppliers, purchases, placed, moreSuppliers, onClose, onWho, onStep, onPlaced, onNext, onOpen }: {
   inline: boolean;
-  step: 'what' | 'send';
+  step: Exclude<Step, 'who'>;
   supplierId: string;
   start: Packs;
   items: InventoryRow[];
@@ -537,28 +583,44 @@ function WhatStep({ inline, step, supplierId, start, items, suppliers, purchases
   placed: Placed[];
   moreSuppliers: number;
   onClose: () => void;
-  onBack: () => void;
+  /** Back to step 1. */
+  onWho: () => void;
+  onStep: (step: Step) => void;
   onPlaced: (p: Placed, undo: () => void, done: boolean) => void;
   onNext: () => void;
   /** Opens another supplier's cart (after a line was moved there). */
   onOpen: (supplierId: string) => void;
 }) {
+  // One cart for both steps: what is set on Items is what the Cart shows.
   const draft = useDraft(supplierId, start, items, purchases);
   const carts = cartsNow(items, purchases);
   const [movedTo, setMovedTo] = useState<string | null>(null);
   const name = nameOf(suppliers, supplierId);
+  const { totals } = draft;
 
   if (step === 'send') {
     return (
-      <FlowSheet title="Purchase orders" sub={name} inline={inline} step={{ index: 3, of: 3, label: 'Send' }} onClose={onClose}
+      <FlowSheet title="Purchase orders" sub={name} inline={inline} step={{ index: 4, of: STEPS, label: 'Send' }} onClose={onClose}
         primary={{ label: moreSuppliers > 0 ? 'Next supplier' : 'Done', onClick: moreSuppliers > 0 ? onNext : onClose }}>
         <RejectionNotices />
         {placed.map((p, i) => <PlacedOrder key={`${p.order.id}-${i}`} placed={p} items={items} suppliers={suppliers} />)}
       </FlowSheet>
     );
   }
+  if (step === 'items') {
+    return (
+      <FlowSheet title="Purchase orders" sub={name} inline={inline} step={{ index: 2, of: STEPS, label: 'Items' }} onClose={onClose} onBack={onWho} error={draft.error}
+        primary={{
+          label: totals.items > 0 ? `Go to cart · ${totals.items} ${word(totals.items, 'item', 'items')} · ${rs(totals.cents)}` : 'Go to cart',
+          onClick: () => onStep('cart'), disabled: totals.items === 0,
+        }}>
+        <RejectionNotices />
+        <SupplierItems supplierId={supplierId} draft={draft} items={items} suppliers={suppliers} open={purchases.open} />
+      </FlowSheet>
+    );
+  }
   return (
-    <FlowSheet title="Purchase orders" sub={name} inline={inline} step={{ index: 2, of: 3, label: 'What to order' }} onClose={onClose} onBack={onBack} error={draft.error}
+    <FlowSheet title="Purchase orders" sub={`${name}'s cart`} inline={inline} step={{ index: 3, of: STEPS, label: 'Cart' }} onClose={onClose} onBack={() => onStep('items')} error={draft.error}
       primary={{ label: draft.mainLabel, onClick: () => draft.act(onPlaced), disabled: !draft.canAct }}>
       <RejectionNotices />
       <DraftItems supplierId={supplierId} draft={draft} items={items} suppliers={suppliers} carts={carts} onMoved={setMovedTo} />

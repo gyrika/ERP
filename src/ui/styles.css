@@ -1566,14 +1566,10 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .qty__btn--x { color: var(--ink-3); }
 .qty__num { width: 56px; height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 17px; font-weight: 600; text-align: center; }
 .qty__num:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
-.bill-add { display: flex; flex-direction: column; }
-.bill-add__btn { align-self: flex-start; }
-.bill__addrow td { padding-top: 4px; padding-bottom: 4px; }
-.bill-add__btn { min-height: 48px; padding: 0 4px; background: none; color: var(--ink); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; }
-.bill-add__btn:hover { text-decoration: underline; text-underline-offset: 3px; }
-.bill-add__menu { max-height: 288px; overflow: auto; margin: 4px 0 6px; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); animation: menu-in 150ms var(--ease) both; }
-.bill-add__item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px; border-radius: 10px; background: none; color: var(--ink); font: inherit; font-size: 16px; text-align: left; cursor: pointer; }
-.bill-add__item:hover, .bill-add__item:focus-visible { background: var(--chip); outline: none; }
+.qty__btn:disabled { opacity: 0.35; cursor: default; }
+/* Items step: everything the supplier sells; what is not in the cart reads quieter. */
+.bill--items tbody tr:not(.bill__in) .bill__name { color: var(--ink-2); font-weight: 500; }
+.bill--items .bill__name .flow-card__tag { margin: 0 0 0 8px; vertical-align: middle; }
 @keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
 @media (max-width: 520px) { .bill__qty { width: auto; } .bill th, .bill td { padding-left: 4px; padding-right: 4px; } }
 /* The price of one pack, typed over in place on a bill line. */
