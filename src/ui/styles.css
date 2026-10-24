@@ -1254,6 +1254,12 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .flow .sheet__foot { max-width: 640px; width: 100%; margin: 0 auto; padding: 14px 24px 24px; }
 .flow__foot .cta { height: 60px; }
 .flow__back { align-self: center; min-height: 48px; }
+/* A place beside the title, top right (GRN history): a button, quieter than the main one. */
+.flow__corner { margin-left: auto; align-self: center; }
+.flow__corner + .flow__backbtn { margin-left: 0; }
+/* Back, top right of every flow step that has one: the same place each time. */
+.flow__backbtn { margin-left: auto; align-self: center; min-height: 48px; background: var(--chip); color: var(--ink); white-space: nowrap; }
+.flow__corner-btn { min-height: 48px; background: var(--chip); color: var(--ink); }
 .flow__where { display: flex; flex-direction: column; gap: 8px; }
 .flow__progress { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
 .flow__progress span { display: block; height: 100%; border-radius: 3px; background: var(--primary); transition: width 220ms var(--ease); }

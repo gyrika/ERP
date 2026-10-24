@@ -132,6 +132,10 @@ test("a step's own Back wins: Esc on Order by supplier goes back to Orders, once
   await user.click(await screen.findByRole('button', { name: 'Order by supplier' }));
   expect(location.hash).toBe('#order/suppliers');
   await user.click(screen.getByRole('button', { name: '+ Ajantha (Wholesale)' }));
+  // Back is a button in the title row (top right), never in the foot.
+  const backKey = screen.getByRole('button', { name: 'Back' });
+  expect(backKey.closest('.sheet__title')).toBeTruthy();
+  expect(backKey.closest('.flow__foot')).toBeNull();
 
   await user.keyboard('{Escape}'); // Items → the supplier list, on the same page
   expect(await screen.findByRole('group', { name: 'Order from a supplier' })).toBeTruthy();

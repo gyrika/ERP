@@ -871,6 +871,25 @@ test('GRN shows the order and delivered prices; a changed price is reviewed and 
   expect(inventoryStore.readItems().find((i) => i.id === 'inv-0001')!.workingPriceCents).toBe(640000);
 });
 
+test('GRN history is a button at the top right, beside the title, while deliveries wait', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  orderFlour();
+  await openGrn(user);
+  await toReview(user);
+  await user.click(screen.getByRole('button', { name: 'Save GRN' }));
+  act(() => { // two more deliveries wait, so the sheet opens on the list
+    inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs: 1 }]);
+    inventoryStore.placeOrder('sup_ajantha', [{ itemId: 'inv-0001', packs: 1 }]);
+  });
+  await openGrn(user);
+  const history = screen.getByRole('button', { name: 'GRN history' });
+  expect(history.closest('.sheet__title')).toBe(screen.getByRole('heading', { name: 'GRN' }).parentElement);
+  expect(history.closest('.flow__foot')).toBeNull();
+  await user.click(history);
+  expect(within(screen.getByRole('region', { name: 'GRN history' })).getByRole('button', { name: 'Open GRN-0001' })).toBeTruthy();
+});
+
 test('GRN history: every GRN opens as its document, and Export PDF prints only that document, named after it', async () => {
   const user = userEvent.setup();
   const print = vi.spyOn(window, 'print').mockImplementation(() => {

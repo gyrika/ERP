@@ -359,7 +359,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
     return (
       <>
         <FlowSheet title="GRN" {...shared}
-          extra={open.length > 0 && purchases.grns.length > 0 ? <button type="button" className="linkbtn flow__back" onClick={() => setStep('history')}>GRN history</button> : undefined}>
+          corner={open.length > 0 && purchases.grns.length > 0 ? <button type="button" className="pill flow__corner-btn" onClick={() => setStep('history')}>GRN history</button> : undefined}>
           <RejectionNotices />
           {open.length === 0 ? (
             <>
