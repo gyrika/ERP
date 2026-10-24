@@ -15,6 +15,7 @@ import { useShopEvents } from '../services/ownerData.ts';
 import { isManagerPhone } from '../services/pairing.ts';
 import { signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { CommandPalette } from './CommandPalette.tsx';
+import { restartHere } from './nav.ts';
 
 export type Section = PartId;
 
@@ -96,7 +97,12 @@ export function OwnerNav({ current, onRegister }: {
         <a
           href={p.id === 'sell' ? '#' : `#${p.id}`} className={`side__part side__part--${p.id}`} aria-current={p.id === current ? 'page' : undefined}
           aria-label={p.label} aria-describedby={`side-${p.id}`}
-          onClick={(e) => { setDrawer(false); if (p.id === 'sell') { e.preventDefault(); sell(); } }}
+          onClick={(e) => {
+            setDrawer(false);
+            if (p.id === 'sell') { e.preventDefault(); sell(); }
+            // Already here (Receive on GRN's Done): the part starts over instead of doing nothing.
+            else if (location.hash === `#${p.id}`) { e.preventDefault(); restartHere(); }
+          }}
         >
           <span className="side__icon" aria-hidden="true">{ICONS[p.id]}</span>
           <span className="side__text">

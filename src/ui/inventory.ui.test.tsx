@@ -885,6 +885,27 @@ test('GRN: the nearest delivery is at the top, the later ones after it', async (
   expect(cards.map((c) => c.getAttribute('aria-label')?.split(' · ')[0])).toEqual(['Ajantha (Wholesale)', 'Prima / David Stores (Wholesale)']);
 });
 
+test('GRN Done: tapping Receive in the menu starts GRN over, with what still waits', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#receive');
+  render(<InventoryView />);
+  act(() => {
+    inventoryStore.placeOrder('sup_prima', [{ itemId: 'inv-0001', packs: 1 }]);
+    inventoryStore.placeOrder('sup_ajantha', [{ itemId: 'inv-0001', packs: 1 }]);
+  });
+  await openGrn(user);
+  await user.click(within(screen.getByRole('group', { name: 'Open orders' })).getAllByRole('button')[0]);
+  await toReview(user);
+  await user.click(screen.getByRole('button', { name: 'Save GRN' }));
+  expect(screen.getByText(/^GRN-0001 saved/)).toBeTruthy();
+
+  await user.click(within(receivePage!.container).getByRole('link', { name: 'Receive' }));
+  expect(location.hash).toBe('#receive');
+  // GRN again, with what still waits: one delivery left, so it opens on it (Back reaches the list).
+  expect(screen.queryByText(/^GRN-0001 saved/)).toBeNull();
+  expect(screen.getByRole('heading', { name: /^Goods from / })).toBeTruthy();
+});
+
 test('GRN history is a button at the top right, beside the title, while deliveries wait', async () => {
   const user = userEvent.setup();
   render(<InventoryView />);

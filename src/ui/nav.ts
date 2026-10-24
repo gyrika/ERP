@@ -71,6 +71,19 @@ export function back() {
   else if (location.hash) replace(parentOf(location.hash));
 }
 
+const RESTART = 'cb-restart';
+
+/** The sidebar's part for the place already open was tapped: the place starts over (GRN Done → the deliveries). */
+export const restartHere = () => window.dispatchEvent(new Event(RESTART));
+
+/** Starts this place over when its sidebar part is tapped again. */
+export function useRestart(cb: () => void) {
+  useEffect(() => {
+    window.addEventListener(RESTART, cb);
+    return () => window.removeEventListener(RESTART, cb);
+  }, [cb]);
+}
+
 /** Calls `cb` whenever the place changes, however it changed. */
 export function onNavigate(cb: () => void) {
   window.addEventListener(EVENT, cb);
