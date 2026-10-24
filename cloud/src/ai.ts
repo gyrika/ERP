@@ -14,14 +14,16 @@ export interface AiLike {
 }
 
 /**
- * Change a model here; nothing else depends on which one it is. Chosen 2026-10-24 on real calls:
- * llama-3.1-8b-instruct-fp8 picked 12 of 14 test requests right in ~0.2 s; llama-3.2-3b and
- * granite-4.0-micro mostly answered nothing; mistral-small-3.1 was as right but 3x slower; the
- * "thinking" models (glm-4.7-flash, gemma-4) are too slow for a page pick. Whisper: ~1 s for a
- * spoken command. Workers AI retires models (llama-3.1-8b-instruct went 2026-05-30): a retired
- * model makes the endpoints answer 503, and the screens work as before.
+ * Change a model here; nothing else depends on which one it is. Measure first with
+ * `npm run ai-eval` in cloud/ (24 spoken requests against the POS's real page list).
+ * 2026-10-24, with example phrases in the page labels: mistral-small-3.1-24b 23/24 right and
+ * never a wrong page (~0.5 s); llama-3.3-70b 21/24; llama-3.1-8b-instruct-fp8 20/24 with three
+ * wrong pages (~0.2 s); llama-3.2-3b and granite mostly answered nothing; the "thinking"
+ * models (glm-4.7-flash, gemma-4) are too slow. A wrong page is worse than none. Whisper: ~1 s.
+ * Workers AI retires models (llama-3.1-8b-instruct went 2026-05-30): a retired model makes the
+ * endpoints answer 503, and the screens work as before.
  */
-export const COMMAND_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+export const COMMAND_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
 export const SPEECH_MODEL = '@cf/openai/whisper';
 
 /** Model calls per shop per day (cache hits are free). A bug cannot burn the free allowance. */
@@ -30,7 +32,8 @@ export const AI_DAILY_CALLS = 300;
 export const MAX_AUDIO_BYTES = 1_000_000;
 const MAX_COMMANDS = 80;
 const TEXT_MAX = 200;
-const LABEL_MAX = 80;
+/** A page's description with an example of how staff ask for it. */
+const LABEL_MAX = 160;
 const COMMAND_ID = /^[\w:.-]{1,64}$/;
 
 export interface AiContext {
@@ -66,12 +69,19 @@ export const readCommandAsk = (body: unknown): { text: string; commands: PageCom
   return { text: tidy(text), commands: list };
 };
 
+/** Part of the cache key: a changed prompt never reuses answers to the old one. */
+const PROMPT_VERSION = 3;
+
 /** What the model is asked: one id from the list, or "none". */
 export const commandPrompt = (text: string, commands: readonly PageCommand[]) => ({
   messages: [
     {
       role: 'system',
-      content: "You open screens in a pizza shop's till. The user says what they want. Reply with exactly one id from the list, or none if nothing fits. Reply with the id only, no other words.",
+      content: [
+        "You open screens in a pizza shop's till. The user says what they want; reply with the id of the one screen that does it.",
+        'If no screen does exactly that, reply none. Never pick a screen just because it is the main one.',
+        'Reply with the id only, no other words.',
+      ].join(' '),
     },
     { role: 'user', content: `Screens:\n${commands.map((c) => `${c.id}: ${c.label}`).join('\n')}\n\nThe user says: ${text}` },
   ],
@@ -138,7 +148,7 @@ export async function aiRoutes(req: Request, url: URL, c: AiContext): Promise<Re
     const ask = readCommandAsk(body);
     if (typeof ask === 'string') throw new HttpError(400, 'invalid_event', ask);
     // The model is part of the question: changing it never reuses an older model's answers.
-    const key = await sha256Hex(`command\n${COMMAND_MODEL}\n${ask.text.toLowerCase()}\n${ask.commands.map((x) => `${x.id}:${x.label}`).join('\n')}`);
+    const key = await sha256Hex(`command\n${COMMAND_MODEL}\n${PROMPT_VERSION}\n${ask.text.toLowerCase()}\n${ask.commands.map((x) => `${x.id}:${x.label}`).join('\n')}`);
     const hit = await db.prepare('SELECT answer FROM ai_cache WHERE tenant_id = ? AND key = ?').bind(device.tenantId, key).first<{ answer: string }>();
     if (hit) return json(200, { id: (JSON.parse(hit.answer) as { id: string | null }).id, cached: true });
     const id = pickCommand(await model(COMMAND_MODEL, commandPrompt(ask.text, ask.commands)), ask.commands);
