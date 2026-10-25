@@ -3,7 +3,8 @@ import type { CSSProperties } from 'react';
 import { fmt } from '../../domain/money.ts';
 import type { ItemStock } from '../../domain/itemStock.ts';
 import { andList } from '../../domain/production.ts';
-import { prepAmount } from '../../domain/prep.ts';
+import { batchShare, prepAmount } from '../../domain/prep.ts';
+import type { Answer } from '../../domain/costing.ts';
 import { formatQuantity } from '../../domain/quantity.ts';
 import type { BaseUnit } from '../../domain/inventoryData.ts';
 import type { FlowEdge, FlowNode, FlowView } from '../../domain/visualFlow.ts';
@@ -34,17 +35,26 @@ export type NodeData = {
   stock: ItemStock | null;
   /** Left out by the filter: drawn faintly, so the flow stays whole. */
   dim: boolean;
+  /** Its amount as a share of a batch ("1/12 batch"), when it is one. */
+  share: string | null;
 };
 export type VfNode = Node<NodeData, 'vf'>;
 
+/**
+ * A semi-processed item taken as part of a batch counted in batches reads as that share,
+ * "1/12 batch", never "0.083 pcs"; null: read the amount as it is.
+ */
+export const nodeShare = (n: Pick<FlowNode, 'id' | 'qty' | 'unit'>, answers: ReadonlyMap<string, Answer>): string | null =>
+  n.id.startsWith('semi:') ? batchShare({ name: n.id.slice('semi:'.length), qty: n.qty, unit: n.unit }, answers) : null;
+
 /** The card's one number, for this view. */
-export const nodeValue = (n: FlowNode, view: FlowView, focus: boolean): string => {
+export const nodeValue = (n: FlowNode, view: FlowView, focus: boolean, share: string | null = null): string => {
   if (n.kind === 'revenue') return `${rs(n.cents)} each`;
   if (n.kind === 'profit') return rs(n.cents);
   if (view === 'material') {
     if (focus) return n.kind === 'semi' ? 'One batch' : 'One';
     if (n.kind === 'resource') return n.unit === 'Rs' ? rs(n.qty * 100) : amount(n.qty, n.unit);
-    return amount(n.qty, n.unit);
+    return share ?? amount(n.qty, n.unit);
   }
   return focus ? rs(n.cents) : `${rs(n.cents)} · ${pct(n.share)}`;
 };
@@ -71,7 +81,7 @@ export const stockNote = (s: ItemStock): string | null => {
 };
 
 export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
-  const { node: n, view, focus, takes, onToggle, stock, dim } = data;
+  const { node: n, view, focus, takes, onToggle, stock, dim, share } = data;
   const folds = n.recipe !== null && !focus && n.inputs > 0;
   const gap = n.missing.length > 0;
   // Being made or waiting is in hand (blue); red only when it is short and nothing is coming.
@@ -92,7 +102,7 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
       </div>
       <div className="vf-node__name">{n.name}</div>
       <div className="vf-node__value num">
-        {nodeValue(n, view, focus)}
+        {nodeValue(n, view, focus, share)}
         {n.kind === 'profit' && n.qty > 0 && <span className="vf-node__sub"> · {amount(n.qty, 'sold')} in 28 days</span>}
       </div>
       {stock && <div className="vf-node__stock num">{stockLine(stock)}</div>}
@@ -110,15 +120,16 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
   );
 }
 
-export type EdgeData = { edge: FlowEdge; view: FlowView; total: number; onSelect: (id: string) => void };
+/** share: the line as a share of a batch ("1/12 batch"), when it is one. */
+export type EdgeData = { edge: FlowEdge; view: FlowView; total: number; onSelect: (id: string) => void; share: string | null };
 export type VfEdge = Edge<EdgeData, 'vf'>;
 
-const edgeLabel = (e: FlowEdge, view: FlowView): string => {
+const edgeLabel = (e: FlowEdge, view: FlowView, share: string | null): string => {
   if (e.kind === 'money') return `${e.cents < 0 ? '−' : '+'}${rs(Math.abs(e.cents))}`;
   if (view !== 'material') return rs(e.cents);
   if (e.kind === 'resource') return e.unit === 'Rs' ? rs(e.qty * 100) : amount(e.qty, e.unit);
   const waste = e.line?.waste ? ` · ${pct(e.line.waste)} waste` : '';
-  return `${amount(e.qty, e.unit)}${waste}`;
+  return `${share ?? amount(e.qty, e.unit)}${waste}`;
 };
 
 export function FlowLine({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected, markerEnd }: EdgeProps<VfEdge>) {
@@ -142,7 +153,7 @@ export function FlowLine({ id, sourceX, sourceY, targetX, targetY, sourcePositio
           className={`vf-chip nodrag nopan${selected ? ' vf-chip--on' : ''}${e.kind === 'money' && e.cents < 0 ? ' vf-chip--neg' : ''}`}
           style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           onClick={() => data.onSelect(id)}
-        >{edgeLabel(e, view)}</button>
+        >{edgeLabel(e, view, data.share)}</button>
       </EdgeLabelRenderer>
     </>
   );

@@ -20,6 +20,9 @@
   --ok-ink: #1E7A4F;
   --warn: #E8A94B;
   --bad: #E5484D;
+  /* The small status screen (Visual Flow): black in both themes, like a kitchen display. */
+  --screen: #0B0B0C;
+  --on-screen: #ECECEE;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* Spring for the manager unlock: a little overshoot, settles in ~240ms. */
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);

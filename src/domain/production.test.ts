@@ -130,6 +130,7 @@ test('no duplicate orders: culture already coming and not spoken for is counted 
   const events = [...base, ...one];
   const two = plan(events, DOUGH, 10000, 'g');
   assert.deepEqual(two.batches.map((b) => [b.name, b.waitFor]), [['Dough', ['Culture']]], 'waits for the culture already in the kitchen');
+  assert.equal(planNotice(two, (q, u) => `${q} ${u}`), 'Dough is waiting for Culture, already being made. It goes to the kitchen automatically when ready.');
   const all = [...events, ...send(two), done(one[0].ticketId)];
   const rel = release(all);
   assert.equal(rel.length, 2, 'both doughs go once the 5 kg is made');
@@ -163,6 +164,7 @@ test('raw material short: it is to be bought and the batch waits; stock goes up 
   const big = plan(base, DOUGH, 10000, 'g');
   assert.deepEqual(big.batches.map((b) => [b.name, b.waitFor]), [['Culture', []], ['Dough', ['Culture', 'Flour']]]);
   assert.equal(big.buy.get(FLOUR), 6000, '1 kg for the culture leaves 2 kg; the dough needs 8 kg');
+  assert.equal(planNotice(big, (q, u) => `${q} ${u}`), 'Culture sent to the kitchen first. Dough will be sent automatically when ready. Waiting for Flour to be received.');
   const sent = send(big);
   let events = [...base, ...sent, done(sent[0].ticketId)];
   assert.deepEqual(release(events), [], 'the culture is there, the flour is not');

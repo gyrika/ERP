@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { gapName, MAX_WASTE, RATES_QUESTION, UNITS, type Answer, type CostContext } from '../../domain/costing.ts';
 import type { BookLine } from '../../domain/recipeBook.ts';
 import { versionsOf, type Draft, type PublishStep } from '../../domain/recipeDrafts.ts';
@@ -7,9 +7,10 @@ import type { MenuItem } from '../../domain/types.ts';
 import { holderOf, lineNode, moneyOf, ratesOf, resourcesOf, SALES_DAYS, type FlowEdge, type FlowGraph, type FlowNode, type FlowView, type Holder } from '../../domain/visualFlow.ts';
 import { NumberInput } from '../NumberInput.tsx';
 import { lineName } from '../RecipesView.tsx';
-import { amount, KIND_LABEL, pct, rs, stockAmount, stockLine, stockNote } from './FlowParts.tsx';
+import { amount, KIND_LABEL, nodeShare, pct, rs, stockAmount, stockLine, stockNote } from './FlowParts.tsx';
 import { needsAttention, type ItemStock } from '../../domain/itemStock.ts';
-import { prepAmount } from '../../domain/prep.ts';
+import { batchShare, prepAmount } from '../../domain/prep.ts';
+import { TypeOut } from '../TypeOut.tsx';
 
 /**
  * The side panel: what the selected card or line is, in plain words, and the one place to change
@@ -47,6 +48,8 @@ interface Props {
   stocks: ReadonlyMap<string, ItemStock>;
   /** What one batch of a semi-processed item makes; null: not known. */
   makesOf: (key: string) => { qty: number; unit: string } | null;
+  /** The last Send to kitchen from the panel: its card and what it said. */
+  sent: { id: string; text: string; at: number } | null;
 }
 
 const dateText = (at: number) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -92,7 +95,7 @@ export function FlowPanel(p: Props) {
   );
 }
 
-function Figures({ node: n, graph, view, focusName }: Props & { node: FlowNode }) {
+function Figures({ node: n, graph, view, focusName, ctx }: Props & { node: FlowNode }) {
   const focus = n.id === graph.focus;
   const money = moneyOf(graph);
   const b = graph.breakdown;
@@ -127,7 +130,7 @@ function Figures({ node: n, graph, view, focusName }: Props & { node: FlowNode }
   if (focus) return null;
   return (
     <dl className="vf-figures">
-      <dt>Each {focusName} takes</dt><dd className="num">{n.kind === 'resource' && n.unit === 'Rs' ? rs(n.qty * 100) : amount(n.qty, n.unit)}</dd>
+      <dt>Each {focusName} takes</dt><dd className="num">{n.kind === 'resource' && n.unit === 'Rs' ? rs(n.qty * 100) : nodeShare(n, ctx.answers) ?? amount(n.qty, n.unit)}</dd>
       <dt>Adds to its cost</dt><dd className="num">{rs(n.cents)} · {pct(n.share)}</dd>
     </dl>
   );
@@ -185,7 +188,7 @@ function StockAction({ node, st, actions, makesOf }: Props & { node: FlowNode; s
     <form className="vf-send" onSubmit={(e) => { e.preventDefault(); if (n > 0) actions.sendToKitchen(key, n); }}>
       <NumberInput className="vf-num" aria-label={`Batches of ${node.name}`} value={batches} onText={setBatches} decimals={1} unit={n === 1 ? 'batch' : 'batches'} />
       <button type="submit" className="vf-add vf-add--go" disabled={!(n > 0)}>Send to kitchen</button>
-      {n > 0 && <p className="vf-muted">{prepAmount(n * makes.qty, makes.unit)}; what it is made from goes first if it is not there.</p>}
+      {n > 0 && <p className="vf-muted">= {prepAmount(n * makes.qty, makes.unit)}</p>}
     </form>
   );
 }
@@ -195,12 +198,18 @@ function StockDetails(p: Props & { node: FlowNode }) {
   const st = p.stocks.get(p.node.id);
   if (!st) return null;
   const note = stockNote(st);
+  // What is going on with it, in one short message: the last send from here, else its state.
+  const sent = p.sent?.id === p.node.id ? p.sent : null;
+  const said = sent ? sent.text : [
+    st.kind === 'finished'
+      ? (st.canMake !== null ? `${stockLine(st)} now. Dishes are made to order, from the Register.` : 'Not known: its recipe takes nothing counted yet.')
+      : !st.known ? (st.kind === 'raw' ? 'Not counted yet. Count it under Items.' : 'None made yet. Its first batch starts its stock.') : '',
+    note ? `${note}.${st.waiting > 0 ? ' It goes to the kitchen by itself when ready.' : ''}` : '',
+  ].filter(Boolean).join('\n');
   return (
     <section className="vf-section" aria-label="Stock">
       <h3 className="vf-section__title">Stock · <span className={`vf-stock__status--${st.status}`}>{STATUS_TEXT[st.status]}</span></h3>
-      {st.kind === 'finished' ? (
-        <p className="vf-muted">{stockLine(st)}{st.canMake !== null ? ' now, from what is on hand. Dishes are made to order: they reach the kitchen from the Register.' : ': its recipe takes nothing counted yet.'}</p>
-      ) : st.known ? (
+      {st.kind !== 'finished' && st.known && (
         <dl className="vf-figures">
           <dt>On hand</dt><dd className="num">{stockAmount(st, st.onHand)}</dd>
           {st.reserved > 0 && <><dt>Held for the kitchen</dt><dd className="num">{stockAmount(st, st.reserved)}</dd></>}
@@ -208,10 +217,12 @@ function StockDetails(p: Props & { node: FlowNode }) {
           {st.inKitchen > 0 && <><dt>Being made</dt><dd className="num">{stockAmount(st, st.inKitchen)}</dd></>}
           {st.waiting > 0 && <><dt>Waiting</dt><dd className="num">{stockAmount(st, st.waiting)}</dd></>}
         </dl>
-      ) : (
-        <p className="vf-muted">{st.kind === 'raw' ? 'Not counted yet: count it under Items to know what is there.' : 'None made yet: its first batch from the kitchen starts its stock.'}</p>
       )}
-      {note && <p className={st.status === 'out' || st.short > 0 ? 'vf-problem' : 'vf-muted'}>{note}{st.waiting > 0 ? '. It goes to the kitchen by itself when ready.' : ''}</p>}
+      {said && (
+        <div className={`vf-screen${!sent && (st.status === 'out' || st.short > 0) ? ' vf-screen--alert' : ''}`} role="status">
+          <TypeOut key={sent?.at ?? 0} text={said} className="vf-screen__text" />
+        </div>
+      )}
       <StockAction {...p} st={st} />
     </section>
   );
@@ -244,11 +255,47 @@ function Attention(p: Props) {
   );
 }
 
+/** Which lists are folded away; remembered on this screen only, and closed until opened. */
+const FOLD_KEY = 'vf-folds';
+const readFolds = (): Record<string, boolean> => {
+  try { return JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}') as Record<string, boolean>; } catch { return {}; }
+};
+let foldState = readFolds();
+const foldListeners = new Set<() => void>();
+/** foldState holds which lists are open. */
+const folded = (id: string) => foldState[id] !== true;
+const toggleFold = (id: string) => {
+  foldState = { ...foldState, [id]: folded(id) };
+  try { localStorage.setItem(FOLD_KEY, JSON.stringify(foldState)); } catch { /* a convenience only */ }
+  foldListeners.forEach((f) => f());
+};
+
+/** Whether a list is folded away, kept in step on every panel that shows it. */
+const useFolded = (id: string): boolean => {
+  const [, rerender] = useState(0);
+  useEffect(() => { const f = () => rerender((n) => n + 1); foldListeners.add(f); return () => { foldListeners.delete(f); }; }, []);
+  return folded(id);
+};
+
+/** A list's title that shows or hides it: "What goes in · 6". */
+function FoldTitle({ id, count, open, children }: { id: string; count: number; open: boolean; children: ReactNode }) {
+  return (
+    <h3 className="vf-section__title">
+      <button type="button" className="vf-fold" aria-expanded={open} onClick={() => toggleFold(id)}>
+        <span>{children}{count > 0 ? ` · ${count}` : ''}</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+    </h3>
+  );
+}
+
 function RecipeEditor({ h, node, ctx, actions }: Props & { h: Holder; node: FlowNode }) {
   const [stage, setStage] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const isBatch = !h.question.startsWith('recipe:') && !h.question.startsWith('addon:');
   const resources = resourcesOf(h.key, ctx.answers);
+  const linesFolded = useFolded('ingredients');
+  const resourcesFolded = useFolded('resources');
   const addStage = (e: FormEvent) => {
     e.preventDefault();
     const why = actions.addStage(h, stage ?? '');
@@ -273,20 +320,24 @@ function RecipeEditor({ h, node, ctx, actions }: Props & { h: Holder; node: Flow
         </section>
       )}
       <section className="vf-section">
-        <h3 className="vf-section__title">What goes in{isBatch ? ', per batch' : ''}</h3>
-        {h.lines.length === 0 && <p className="vf-muted">Nothing yet. Drag a line from an item into it, or add one.</p>}
-        <ul className="vf-lines">
-          {h.lines.map((l, i) => (
-            <li key={`${l.name}-${i}`} className="vf-line">
-              <button type="button" className="vf-line__open" onClick={() => actions.select({ kind: 'edge', id: `${lineNode(l.name, ctx.answers)}>${node.id}#${i}` })}>
-                <span className="vf-line__name">{lineName(l.name, ctx)}</span>
-                <span className="vf-line__qty num">{amount(l.qty, l.unit)}{l.waste ? ` · ${pct(l.waste)} waste` : ''}</span>
-              </button>
-              <button type="button" className="vf-x" aria-label={`Take ${lineName(l.name, ctx)} out`}
-                onClick={() => actions.setLines(h, h.lines.filter((_, j) => j !== i), `Took ${lineName(l.name, ctx)} out of ${h.name}`)}>×</button>
-            </li>
-          ))}
-        </ul>
+        <FoldTitle id="ingredients" count={h.lines.length} open={!linesFolded}>What goes in{isBatch ? ', per batch' : ''}</FoldTitle>
+        {linesFolded ? null : (
+          <>
+            {h.lines.length === 0 && <p className="vf-muted">Nothing yet. Drag a line from an item into it, or add one.</p>}
+            <ul className="vf-lines">
+              {h.lines.map((l, i) => (
+                <li key={`${l.name}-${i}`} className="vf-line">
+                  <button type="button" className="vf-line__open" onClick={() => actions.select({ kind: 'edge', id: `${lineNode(l.name, ctx.answers)}>${node.id}#${i}` })}>
+                    <span className="vf-line__name">{lineName(l.name, ctx)}</span>
+                    <span className="vf-line__qty num">{batchShare(l, ctx.answers) ?? amount(l.qty, l.unit)}{l.waste ? ` · ${pct(l.waste)} waste` : ''}</span>
+                  </button>
+                  <button type="button" className="vf-x" aria-label={`Take ${lineName(l.name, ctx)} out`}
+                    onClick={() => actions.setLines(h, h.lines.filter((_, j) => j !== i), `Took ${lineName(l.name, ctx)} out of ${h.name}`)}>×</button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
         <div className="vf-actions">
           <button type="button" className="vf-add" onClick={() => actions.pickIngredient(h)}>Add an ingredient</button>
           {stage === null && <button type="button" className="vf-add" onClick={() => { setStage(''); setProblem(null); }}>Add a stage</button>}
@@ -301,8 +352,8 @@ function RecipeEditor({ h, node, ctx, actions }: Props & { h: Holder; node: Flow
         )}
       </section>
       <section className="vf-section">
-        <h3 className="vf-section__title">Also takes{isBatch ? ', per batch' : ''}</h3>
-        <ul className="vf-lines">
+        <FoldTitle id="resources" count={resources.length} open={!resourcesFolded}>Also takes{isBatch ? ', per batch' : ''}</FoldTitle>
+        <ul className="vf-lines" hidden={resourcesFolded}>
           {resources.map((r, i) => (
             <li key={i} className="vf-line">
               <button type="button" className="vf-line__open" onClick={() => actions.select({ kind: 'edge', id: `res:${r.kind}>${node.id}#${i}` })}>
@@ -335,7 +386,7 @@ function EdgeDetails(p: Props & { edge: FlowEdge }) {
   );
   const flows = (
     <dl className="vf-figures">
-      <dt>Each {p.focusName} takes</dt><dd className="num">{e.unit === 'Rs' ? rs(e.qty * 100) : amount(e.qty, e.unit)}</dd>
+      <dt>Each {p.focusName} takes</dt><dd className="num">{e.unit === 'Rs' ? rs(e.qty * 100) : (e.line && batchShare({ ...e.line, qty: e.qty }, ctx.answers)) ?? amount(e.qty, e.unit)}</dd>
       <dt>Costs</dt><dd className="num">{rs(e.cents)}</dd>
     </dl>
   );

@@ -134,6 +134,8 @@ export interface Plan {
   batches: PlannedBatch[];
   /** Price-list items short for them, in base units: what to buy (by inventory id). */
   buy: Map<string, number>;
+  /** Their names, as the batches' waitFor says them. */
+  buyNames: string[];
   problem: string | null;
 }
 
@@ -150,6 +152,7 @@ export const planProduction = (
   const ready = new Map(ledger.ready);
   const batches: PlannedBatch[] = [];
   const buy = new Map<string, number>();
+  const buyNames = new Set<string>();
 
   const visit = (key: string, name: string, qty: number, unit: string, path: readonly string[]): string | null => {
     if (path.includes(key)) return `${name} is made from itself: change its recipe first.`;
@@ -163,6 +166,7 @@ export const planProduction = (
           const itemId = n.id.slice('stock:'.length);
           buy.set(itemId, (buy.get(itemId) ?? 0) + n.qty - Math.max(0, f));
           waitFor.push(nameOf(n.id));
+          buyNames.add(nameOf(n.id));
         }
         free.set(n.id, f - n.qty);
         continue;
@@ -190,7 +194,7 @@ export const planProduction = (
     return null;
   };
   const problem = visit(target.key, target.name, target.qty, target.unit, []);
-  return problem ? { batches: [], buy: new Map(), problem } : { batches, buy, problem: null };
+  return problem ? { batches: [], buy: new Map(), buyNames: [], problem } : { batches, buy, buyNames: [...buyNames], problem: null };
 };
 
 /**
@@ -224,9 +228,11 @@ export const planNotice = (plan: Plan, amount: (qty: number, unit: string) => st
   const now = plan.batches.filter((b) => !b.waitFor.length);
   const later = plan.batches.filter((b) => b.waitFor.length);
   if (!later.length) return `${target.name}: sent to the kitchen · ${amount(target.qty, target.unit)}.`;
-  const raw = [...new Set(later.flatMap((b) => b.waitFor).filter((n) => !plan.batches.some((x) => x.name === n)))];
-  const plural = later.length > 1 ? 'are' : 'is';
-  if (!now.length) return `${andList(later.map((b) => b.name))} ${plural} waiting for ${andList(raw)}. It goes to the kitchen automatically once received.`;
-  const buy = raw.length ? ` Waiting for ${andList(raw)} to be received.` : '';
-  return `${andList(now.map((b) => b.name))} sent to the kitchen first. ${andList(later.map((b) => b.name))} will be sent automatically when ready.${buy}`;
+  const names = andList(later.map((b) => b.name));
+  const is = later.length > 1 ? 'are' : 'is';
+  const buy = plan.buyNames.length ? `${andList(plan.buyNames)} to be received` : '';
+  if (now.length) return `${andList(now.map((b) => b.name))} sent to the kitchen first. ${names} will be sent automatically when ready.${buy ? ` Waiting for ${buy}.` : ''}`;
+  if (buy) return `${names} ${is} waiting for ${buy}. It goes to the kitchen automatically then.`;
+  const making = [...new Set(later.flatMap((b) => b.waitFor))];
+  return `${names} ${is} waiting for ${andList(making)}, already being made. It goes to the kitchen automatically when ready.`;
 };

@@ -16,14 +16,14 @@ import {
 import { cartShortages, discardDrafts, publishDrafts, recipesViewed, saveDraft, sendPlan, useCatalog, useFlowData, usePurchases } from '../../services/inventoryStore.ts';
 import { itemStockOf, needsAttention, type ItemStock } from '../../domain/itemStock.ts';
 import { andList, planNotice, planProduction } from '../../domain/production.ts';
-import { prepAmount } from '../../domain/prep.ts';
+import { batchShare, prepAmount } from '../../domain/prep.ts';
 import { ReleaseNotices } from '../ProductionNotices.tsx';
 import { CommandPalette } from '../CommandPalette.tsx';
 import { useMenu } from '../menuStore.ts';
 import { OwnerNav } from '../OwnerNav.tsx';
 import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
-import { EDGE_TYPES, NODE_TYPES, type VfEdge, type VfNode } from './FlowParts.tsx';
+import { EDGE_TYPES, NODE_TYPES, nodeShare, type VfEdge, type VfNode } from './FlowParts.tsx';
 import './visualFlow.css';
 
 /**
@@ -82,6 +82,8 @@ function Studio({ owner }: { owner: Actor }) {
   const purchases = usePurchases();
   const { suppliers } = useCatalog();
   const [filter, setFilter] = useState<Filter>('all');
+  /** The last Send to kitchen, typed out on that card's panel. */
+  const [sent, setSent] = useState<{ id: string; text: string; at: number } | null>(null);
   // What the canvas shows: his recipes with his drafts on top.
   const answers = useMemo(() => withDrafts(published.answers, drafts), [published.answers, drafts]);
   const ctx = useMemo(() => ({ items: published.items, answers }), [published.items, answers]);
@@ -175,7 +177,11 @@ function Studio({ owner }: { owner: Actor }) {
       const plan = planProduction({ key, name: item.name, qty: batches * item.makes.qty, unit: item.makes.unit }, stock.ledger, nameOf);
       if (plan.problem) { say(plan.problem); return; }
       const undo = sendPlan(plan, owner);
-      say(planNotice(plan, prepAmount), undo, plan.buy.size ? { label: 'Add to cart', run: () => toCart(plan.buy) } : undefined);
+      const text = planNotice(plan, prepAmount);
+      // Told on the item's own panel when it is open there; the toast keeps the Undo.
+      const open = sel ? sel.kind === 'node' && sel.id === `semi:${key}` : current === `semi:${key}`;
+      setSent({ id: `semi:${key}`, text, at: Date.now() });
+      say(open ? `${item.name}: sent` : text, () => { undo(); setSent(null); }, plan.buy.size ? { label: 'Add to cart', run: () => toCart(plan.buy) } : undefined);
     },
     addToCart: (itemId) => {
       const row = stock.rows.find((r) => r.id === itemId);
@@ -185,7 +191,7 @@ function Studio({ owner }: { owner: Actor }) {
     },
     select: setSel,
     toggle: (id) => setCollapsed((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; }),
-  }), [draft, answers, drafts, owner, say, published.answers, stock, nameOf, toCart]);
+  }), [draft, answers, drafts, owner, say, published.answers, stock, nameOf, toCart, sel, current]);
 
   /** Put `sourceId` into the recipe `targetId`, or say why it can't go there. */
   const connect = useCallback((sourceId: string, targetId: string) => {
@@ -231,14 +237,17 @@ function Studio({ owner }: { owner: Actor }) {
     data: {
       node: n, view, focus: n.id === current, focusName,
       takes: !!n.recipe?.editable, onToggle: actions.toggle,
-      stock: stocks.get(n.id) ?? null, dim: !matches(n.id, n.kind),
+      stock: stocks.get(n.id) ?? null, dim: !matches(n.id, n.kind), share: nodeShare(n, answers),
     },
-  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches]);
+  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers]);
   const edges: VfEdge[] = useMemo(() => graph.edges.map((e) => ({
     id: e.id, source: e.source, target: e.target, type: 'vf', selected: sel?.kind === 'edge' && sel.id === e.id,
     deletable: e.kind !== 'money',
-    data: { edge: e, view, total: graph.breakdown.total, onSelect: (id: string) => setSel({ kind: 'edge', id }) },
-  })), [graph.edges, graph.breakdown.total, sel, view]);
+    data: {
+      edge: e, view, total: graph.breakdown.total, onSelect: (id: string) => setSel({ kind: 'edge', id }),
+      share: e.line ? batchShare({ ...e.line, qty: e.qty }, answers) : null,
+    },
+  })), [graph.edges, graph.breakdown.total, sel, view, answers]);
 
   const onNodesChange = useCallback((changes: NodeChange<VfNode>[]) => {
     // Kept: where he drags a card to, and each card's size; selection is ours (sel), the rest is drawn from the graph.
@@ -345,7 +354,7 @@ function Studio({ owner }: { owner: Actor }) {
         </div>
         <FlowPanel
           graph={graph} view={view} sel={sel} ctx={ctx} menu={menu} events={events} drafts={drafts} plan={plan}
-          focusName={focusName} actions={actions} stocks={stocks} makesOf={(key) => prepItems(published.answers).find((p) => p.key === key)?.makes ?? null}
+          focusName={focusName} actions={actions} stocks={stocks} makesOf={(key) => prepItems(published.answers).find((p) => p.key === key)?.makes ?? null} sent={sent}
         />
       </div>
       {picking && (
