@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setMenuState } from '../domain/menu.ts';
 import { EMPTY_MENU_STATE } from '../domain/menuEdits.ts';
@@ -67,4 +67,23 @@ test('three views of the same drawing: 2 for cost, 3 for what it earns', async (
   await user.keyboard('3');
   expect(panel().getByText('Profit each')).toBeTruthy();
   expect(await screen.findByText('Profit', { selector: '.vf-node__name' }, { timeout: 5000 })).toBeTruthy();
+});
+
+test('ordering a raw material from its card asks who from, at what price and how many packs, then fills that cart', async () => {
+  const user = userEvent.setup();
+  render(<Root />);
+  await screen.findByRole('main', { name: 'Visual Flow' });
+  // A plain click: a full mouse press starts React Flow's drag, which jsdom cannot run.
+  fireEvent.click(await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 }));
+  await user.click(panel().getByRole('button', { name: 'Order from supplier' }));
+  // Nothing is in a cart until Add to cart.
+  expect(readAll().some((e) => e.type === 'stock.draft_set')).toBe(false);
+
+  const order = within(panel().getByRole('region', { name: 'Order Pizza Flour' }));
+  const packs = order.getByRole('textbox', { name: 'Packs of Pizza Flour' });
+  await user.clear(packs);
+  await user.type(packs, '3');
+  await user.click(order.getByRole('button', { name: 'Add to cart' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.draft_set', lines: [expect.objectContaining({ itemId: 'inv-0001', packs: 3 })] });
+  expect(order.getByRole('link', { name: 'Open cart' })).toBeTruthy();
 });

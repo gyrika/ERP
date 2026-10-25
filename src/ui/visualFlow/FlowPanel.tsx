@@ -11,6 +11,10 @@ import { amount, KIND_LABEL, nodeShare, pct, rs, stockAmount, stockLine, stockNo
 import { needsAttention, type ItemStock } from '../../domain/itemStock.ts';
 import { batchShare, prepAmount } from '../../domain/prep.ts';
 import { TypeOut } from '../TypeOut.tsx';
+import { ItemOrder } from '../OrderSheet.tsx';
+import type { InventoryRow } from '../../domain/inventory.ts';
+import type { Supplier } from '../../domain/inventoryData.ts';
+import type { PurchaseState } from '../../domain/purchaseOrders.ts';
 
 /**
  * The side panel: what the selected card or line is, in plain words, and the one place to change
@@ -27,8 +31,8 @@ export interface PanelActions {
   pickIngredient: (h: Holder) => void;
   /** Sends batches of a semi-processed item with what it is made from (production.ts). */
   sendToKitchen: (key: string, batches: number) => void;
-  /** Puts a raw material in its supplier's cart: what the reorder rule says, or what the kitchen waits for. */
-  addToCart: (itemId: string) => void;
+  /** Opens a raw material's order step (supplier, price, packs) on its card's panel. */
+  order: (nodeId: string) => void;
   select: (s: Selection) => void;
   toggle: (id: string) => void;
 }
@@ -50,6 +54,10 @@ interface Props {
   makesOf: (key: string) => { qty: number; unit: string } | null;
   /** The last Send to kitchen from the panel: its card and what it said. */
   sent: { id: string; text: string; at: number } | null;
+  /** The raw material whose order step is open, by card id. */
+  ordering: string | null;
+  /** What the order step needs: the price list with stock, the active suppliers, their carts and orders. */
+  buying: { items: InventoryRow[]; suppliers: Supplier[]; purchases: PurchaseState };
 }
 
 const dateText = (at: number) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -174,10 +182,13 @@ function NodeDetails(p: Props & { node: FlowNode }) {
 const STATUS_TEXT: Record<ItemStock['status'], string> = { out: 'Out of stock', low: 'Low', unsure: 'Check the shelf', ok: 'In stock', unknown: 'Not known yet' };
 
 /** The one action that fits: a raw material is ordered, a semi-processed item is made; a dish is made to order. */
-function StockAction({ node, st, actions, makesOf }: Props & { node: FlowNode; st: ItemStock }) {
+function StockAction({ node, st, actions, makesOf, ordering, buying }: Props & { node: FlowNode; st: ItemStock }) {
   const [batches, setBatches] = useState('1');
   if (st.kind === 'raw') {
-    return <button type="button" className="vf-add vf-add--go" onClick={() => actions.addToCart(node.id.slice('stock:'.length))}>Order from supplier</button>;
+    // Who it comes from, at what price, how many packs: the same step as Items › Order.
+    const row = buying.items.find((r) => `stock:${r.id}` === node.id);
+    if (row && ordering === node.id) return <ItemOrder item={row} items={buying.items} suppliers={buying.suppliers} purchases={buying.purchases} />;
+    return <button type="button" className="vf-add vf-add--go" onClick={() => actions.order(node.id)}>Order from supplier</button>;
   }
   if (st.kind !== 'semi') return null;
   const key = node.id.slice('semi:'.length);
@@ -244,7 +255,7 @@ function Attention(p: Props) {
             <button type="button" className="vf-line__open" onClick={() => p.actions.select({ kind: 'node', id: n.id })}>
               <span className="vf-attention__name">{n.name}<span className="vf-attention__note">{stockNote(st) ?? stockLine(st)}</span></span>
             </button>
-            {st.kind === 'raw' && <button type="button" className="vf-add" onClick={() => p.actions.addToCart(n.id.slice('stock:'.length))}>Order</button>}
+            {st.kind === 'raw' && <button type="button" className="vf-add" onClick={() => p.actions.order(n.id)}>Order</button>}
             {st.kind === 'semi' && st.waiting === 0 && st.inKitchen === 0 && p.makesOf(n.id.slice('semi:'.length)) && (
               <button type="button" className="vf-add" onClick={() => p.actions.sendToKitchen(n.id.slice('semi:'.length), 1)}>Make 1 batch</button>
             )}
