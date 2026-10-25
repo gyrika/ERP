@@ -20,6 +20,6 @@ An older cloud refuses unknown event types and stops the shop's copy, so no Setu
 4. If released: the Release has `CheesyBeez-Setup-*.exe` and lists the merged PRs; `/admin` in the cloud shows each shop moving to it.
 
 Needs repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (without them the cloud job fails and nothing ships).
-Shop PCs check every 5 min (`CheesyBeez Station update` task), download ahead, install in the first minutes after Windows starts or 23:00–06:00 once quiet for an hour, back up first and roll back by themselves. "Update now" in Shop setup → Updates forces it.
+Shop PCs check every 5 min (`CheesyBeez Station update` task), download ahead, install in the first minutes after Windows starts or 23:00–06:00 once quiet for an hour, back up first and roll back by themselves. "Update now" in Shop setup → Updates leaves `update-now.txt` and starts that task, which installs at once.
 Rules: never move or delete a published tag; fix forward with a new merge. Docs-only changes do not run the workflow.
 Report: version (or "no release: content unchanged") · cloud deployed (y/n) · run link · Release link.

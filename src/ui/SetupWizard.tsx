@@ -237,6 +237,9 @@ function UpdateProgress({ percent, label }: { percent: number; label: string }) 
   );
 }
 
+/** How long "Update now" waits for the updater's first word before saying it did not start. */
+const UPDATER_SILENT_MS = 45_000;
+
 /** Eases from `from` towards `to`: quick at first, slower as it gets close (never quite there). */
 const ease = (from: number, to: number, ms: number, over: number) => from + (to - from) * (1 - Math.exp(-ms / over));
 
@@ -271,7 +274,7 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
     let downAt = 0;
     let shown = 2;
     let label = STEP_LABEL.checking;
-    let heard = false; // this updater reports its steps (versions before 1.0.3 do not)
+    let heard = false; // the updater has said where it is
     const show = (percent: number, text: string, allowBack = false) => {
       shown = allowBack ? percent : Math.max(shown, percent);
       label = text;
@@ -295,7 +298,8 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
       }
       if (up) {
         const s = (await setupClient.updateStatus(ownerPin).catch(() => ({ status: null }))).status;
-        if (s && s.at >= started - 5_000) {
+        // 'waiting' is a 5-minute check that ran just before the note: not an answer to Update now.
+        if (s && s.phase !== 'waiting' && s.at >= started - 5_000) {
           heard = true;
           if (s.phase === 'failed') { setError('The update did not work. Nothing changed: the POS is as it was.'); setPhase('idle'); return; }
           if (s.phase === 'back') { setPhase('back'); return; }
@@ -303,7 +307,9 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
           const text = s.phase === 'downloading' ? `Downloading version ${s.version}` : STEP_LABEL[s.phase] ?? label;
           show(s.percent, text, s.phase === 'going-back');
         } else if (!heard) {
-          show(ease(2, 60, now - started, 40_000), 'Downloading the new version'); // an older updater: by time
+          // The updater says where it is within seconds of starting: silence means it never ran.
+          if (now - started > UPDATER_SILENT_MS) { setError('The update did not start. Nothing changed: the POS is as it was. Try again, or restart the PC: it updates as it starts.'); setPhase('idle'); return; }
+          show(ease(2, 10, now - started, 20_000), STEP_LABEL.checking);
         }
       } else {
         // The server is restarting while the installer works: keep moving, a little slower near the end.

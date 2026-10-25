@@ -10,7 +10,7 @@ vi.mock('./restart.ts', () => ({ restartApp: vi.fn() }));
 interface Person { id: string; name: string; role: string; pin: string; active: boolean }
 
 /** The shop server's setup endpoints, remembering what they are told (and refusing as the real one does). */
-function fakeShopServer({ done = false, status = 200, newFails = false, waiting = false } = {}) {
+function fakeShopServer({ done = false, status = 200, newFails = false, waiting = false, silent = false } = {}) {
   const s = { version: '1.0.0', down: false, installedAt: 0, done, cloud: false, shop: null as null | { id: string; name: string; place: string }, printer: null as string | null, staff: [] as Person[] };
   const pub = () => s.staff.map(({ pin: _p, ...m }) => m);
   const ownerOk = (pin: unknown) => !s.done || s.staff.some((m) => m.active && m.role === 'owner' && m.pin === pin);
@@ -40,11 +40,13 @@ function fakeShopServer({ done = false, status = 200, newFails = false, waiting 
     if (step === '/update/status') {
       const t = Date.now() - s.installedAt;
       if (!s.installedAt) return ok({ status: waiting ? { phase: 'waiting', percent: 100, version: '1.0.1', at: Date.now() } : null });
+      if (silent) return ok({ status: null }); // (silent) the updater never runs
       return ok({ status: { phase: t < 1500 ? 'downloading' : 'backup', percent: t < 1500 ? 30 : 61, version: '1.0.1', at: Date.now() } });
     }
     if (step === '/update/install') {
       // The installer stops the server; the new version starts, or (newFails) the updater puts the old one back.
       s.installedAt = Date.now();
+      if (silent) return ok({ started: true, from: s.version }); // (silent) the updater never runs
       setTimeout(() => { s.down = true; }, 2500);
       setTimeout(() => { s.down = false; if (!newFails) s.version = '1.0.1'; }, 5000);
       return ok({ started: true, from: s.version });
@@ -179,4 +181,26 @@ test('Update now, and the new version does not start: the owner is told it went 
   const alert = await screen.findByRole('alert', {}, { timeout: 12_000 });
   expect(alert.textContent).toBe('Version 1.0.1 did not start on this PC, so CheesyBeez went back to 1.0.0. All sales are safe. Tell whoever looks after your POS.');
   expect(restartApp).not.toHaveBeenCalled();
+}, 20_000);
+
+test("Update now, and the updater never starts: the owner is told within a minute, not left at a bar that crawls", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const server = fakeShopServer({ done: true, silent: true });
+    server.staff.push({ id: 'o', name: 'Nisal Vimukthi', role: 'owner', pin: '1234', active: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<SetupWizard mode="manage" />);
+    await user.type(await screen.findByLabelText("The owner's PIN"), '1234{Enter}');
+    await user.click(await screen.findByRole('button', { name: 'Updates' }));
+    await user.click(await screen.findByRole('button', { name: 'Update now' }));
+    const bar = await screen.findByRole('progressbar', { name: 'Update progress' });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(Number(bar.getAttribute('aria-valuenow'))).toBeLessThanOrEqual(10); // getting ready, not a pretend download
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect((await screen.findByRole('alert')).textContent).toContain('The update did not start. Nothing changed');
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Update now' })).toBeTruthy(); // try again
+  } finally {
+    vi.useRealTimers();
+  }
 }, 20_000);

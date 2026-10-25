@@ -65,6 +65,7 @@ const updates = updatesApi({
   versionFile: fileURLToPath(new URL('../../version.txt', import.meta.url)),
   updaterScript: fileURLToPath(new URL('../../station-update.ps1', import.meta.url)),
   statusFile: `${dataDir}/update-status.json`,
+  nowFile: `${dataDir}/update-now.txt`,
 });
 let replicator: ReturnType<typeof startReplicator> | null = null;
 let online: Online | null = null;

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { UpdateStep } from '../src/domain/updating.ts';
 import { isNewer } from '../src/domain/version.ts';
 
@@ -7,12 +7,17 @@ export { isNewer };
 
 /**
  * "Update now" in Shop setup. CheesyBeez Station keeps its version beside the
- * program (version.txt) and an updater script (station-update.ps1, also run
- * every 5 minutes). This asks GitHub for the latest release and, when the
- * owner says so, runs that updater straight away. In development there is no
- * Station, so there is nothing to update.
+ * program (version.txt) and an updater script (station-update.ps1, run every
+ * 5 minutes by the "CheesyBeez Station update" task). This asks GitHub for the
+ * latest release and, when the owner says so, leaves a note (update-now.txt)
+ * and starts that task straight away: the updater then runs in its own process,
+ * which the installer does not stop along with this server. (Started from here
+ * it would not run at all: a detached Windows PowerShell has no console and
+ * quits at once.) In development there is no Station, so there is nothing to update.
  */
 const LATEST = 'https://api.github.com/repos/gyrika/ERP/releases/latest';
+/** The scheduled task that runs station-update.ps1 (station-install.ps1 registers it). */
+const UPDATE_TASK = 'CheesyBeez Station update';
 
 export interface UpdateCheck {
   current: string;
@@ -28,6 +33,8 @@ export interface UpdatesOptions {
   updaterScript: string;
   /** update-status.json beside the shop's data. */
   statusFile?: string;
+  /** update-now.txt beside the shop's data: the updater installs at once when it finds it. */
+  nowFile?: string;
   fetch?: typeof fetch;
   platform?: NodeJS.Platform;
   run?: (command: string, args: string[]) => void;
@@ -37,14 +44,15 @@ export function updatesApi(o: UpdatesOptions) {
   const http = o.fetch ?? fetch;
   const platform = o.platform ?? process.platform;
   const run = o.run ?? ((command, args) => {
-    // Detached: the installer stops this very server while it replaces the files.
-    spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    // schtasks only asks Task Scheduler to start the task and is done in a moment. A failure shows
+    // on the screen anyway: the updater never says anything.
+    spawn(command, args, { stdio: 'ignore', windowsHide: true }).on('error', () => {}).unref();
   });
   const current = (): string => {
     try { return existsSync(o.versionFile) ? readFileSync(o.versionFile, 'utf8').trim() || 'development' : 'development'; }
     catch { return 'development'; }
   };
-  const installable = () => platform === 'win32' && existsSync(o.updaterScript) && current() !== 'development';
+  const installable = () => platform === 'win32' && !!o.nowFile && existsSync(o.updaterScript) && current() !== 'development';
 
   return {
     current,
@@ -71,8 +79,8 @@ export function updatesApi(o: UpdatesOptions) {
     /** Starts the updater now (it downloads the latest release and installs it quietly). */
     install(): void {
       if (!installable()) throw new Error('updates are installed by CheesyBeez Station on Windows');
-      // A moment later, so the reply reaches the screen before the installer stops this server.
-      setTimeout(() => run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', o.updaterScript, '-Force']), 500);
+      writeFileSync(o.nowFile!, new Date().toISOString());
+      run('schtasks.exe', ['/Run', '/TN', UPDATE_TASK]);
     },
   };
 }
