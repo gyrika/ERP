@@ -117,6 +117,8 @@ try {
   $justStarted = ($now - $boot).TotalMinutes -lt 20 -and $lastWrite -lt $boot.AddMinutes(2)
   $night = ($now.Hour -ge 23 -or $now.Hour -lt 6) -and $lastWrite -lt $now.AddMinutes(-60)
   if (-not ($Force -or $justStarted -or $night)) {
+    # Shop setup > Updates and the admin page say it is downloaded and when it installs.
+    Status 'waiting' 100
     # Said once per version, not every 5 minutes.
     $waitFile = Join-Path $data 'update-waiting.txt'
     if (-not ((Test-Path $waitFile) -and (Get-Content $waitFile -Raw).Trim() -eq $latest)) {

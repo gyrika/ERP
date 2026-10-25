@@ -21,6 +21,7 @@ type State = { state: 'loading' } | { state: 'ready'; shops: ShopRow[]; latest: 
 const UPDATE_WORDS: Record<string, string> = {
   done: 'Updated', back: 'Went back', failed: 'Update failed', 'going-back': 'Going back', 'up-to-date': 'Up to date',
   checking: 'Checking', downloading: 'Downloading', backup: 'Backing up', installing: 'Installing', starting: 'Starting',
+  waiting: 'Ready to install',
 };
 
 /** "just now", "4 min ago", "3 h ago", "2 days ago". */

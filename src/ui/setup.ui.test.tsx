@@ -10,7 +10,7 @@ vi.mock('./restart.ts', () => ({ restartApp: vi.fn() }));
 interface Person { id: string; name: string; role: string; pin: string; active: boolean }
 
 /** The shop server's setup endpoints, remembering what they are told (and refusing as the real one does). */
-function fakeShopServer({ done = false, status = 200, newFails = false } = {}) {
+function fakeShopServer({ done = false, status = 200, newFails = false, waiting = false } = {}) {
   const s = { version: '1.0.0', down: false, installedAt: 0, done, cloud: false, shop: null as null | { id: string; name: string; place: string }, printer: null as string | null, staff: [] as Person[] };
   const pub = () => s.staff.map(({ pin: _p, ...m }) => m);
   const ownerOk = (pin: unknown) => !s.done || s.staff.some((m) => m.active && m.role === 'owner' && m.pin === pin);
@@ -39,7 +39,8 @@ function fakeShopServer({ done = false, status = 200, newFails = false } = {}) {
     // What station-update.ps1 writes as it goes: downloading (real %), then backing up.
     if (step === '/update/status') {
       const t = Date.now() - s.installedAt;
-      return ok({ status: s.installedAt ? { phase: t < 1500 ? 'downloading' : 'backup', percent: t < 1500 ? 30 : 61, version: '1.0.1', at: Date.now() } : null });
+      if (!s.installedAt) return ok({ status: waiting ? { phase: 'waiting', percent: 100, version: '1.0.1', at: Date.now() } : null });
+      return ok({ status: { phase: t < 1500 ? 'downloading' : 'backup', percent: t < 1500 ? 30 : 61, version: '1.0.1', at: Date.now() } });
     }
     if (step === '/update/install') {
       // The installer stops the server; the new version starts, or (newFails) the updater puts the old one back.
@@ -154,6 +155,18 @@ test("Shop setup → Updates: the owner's PIN, a newer version, Update now, back
   expect(screen.getByText('Done: opening the new version')).toBeTruthy();
   await vi.waitFor(() => expect(restartApp).toHaveBeenCalled(), { timeout: 3000 }); // the new version answered
 }, 25_000);
+
+test('Shop setup → Updates: a version downloaded and held back says when it installs by itself', async () => {
+  const server = fakeShopServer({ done: true, waiting: true });
+  server.staff.push({ id: 'o', name: 'Nisal Vimukthi', role: 'owner', pin: '1234', active: true });
+  const user = userEvent.setup();
+  render(<SetupWizard mode="manage" />);
+  await user.type(await screen.findByLabelText("The owner's PIN"), '1234{Enter}');
+  await user.click(await screen.findByRole('button', { name: 'Updates' }));
+  expect((await screen.findByText(/is downloaded/)).textContent)
+    .toBe('Version 1.0.1 is downloaded. It installs by itself the next time the PC is switched on, or tonight after 11 pm.');
+  expect(screen.getByRole('button', { name: 'Update now' })).toBeTruthy();
+});
 
 test('Update now, and the new version does not start: the owner is told it went back, and that the sales are safe', async () => {
   const server = fakeShopServer({ done: true, newFails: true });

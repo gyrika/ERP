@@ -245,10 +245,19 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
   const [phase, setPhase] = useState<'checking' | 'idle' | 'updating' | 'slow' | 'back'>('checking');
   const [progress, setProgress] = useState({ percent: 0, label: STEP_LABEL.checking });
   const [error, setError] = useState('');
+  /** The updater has the new version downloaded and is holding it for the next start or the night. */
+  const [downloaded, setDownloaded] = useState(false);
   const check = useCallback(async () => {
     setPhase('checking');
     setError('');
-    try { setInfo(await setupClient.checkUpdate(ownerPin)); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    try {
+      const [found, { status }] = await Promise.all([
+        setupClient.checkUpdate(ownerPin),
+        setupClient.updateStatus(ownerPin).catch(() => ({ status: null })),
+      ]);
+      setInfo(found);
+      setDownloaded(status?.phase === 'waiting' && status.version === found.latest);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     setPhase('idle');
   }, [ownerPin]);
   useEffect(() => { void check(); }, [check]);
@@ -310,7 +319,7 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
 
   return (
     <div className="setup__form">
-      <p className="setup__lead">Installed: <b>{info?.current ?? '…'}</b>. New versions install by themselves within minutes, once the counter has been quiet for 15 minutes.</p>
+      <p className="setup__lead">Installed: <b>{info?.current ?? '…'}</b>. New versions download by themselves and install the next time the PC is switched on, or late at night when the counter is quiet.</p>
       {phase === 'updating' && <UpdateProgress percent={progress.percent} label={progress.label} />}
       {phase === 'back' && (
         <p className="setup__error" role="alert">Version {info?.latest} did not start on this PC, so CheesyBeez went back to {info?.current}. All sales are safe. Tell whoever looks after your POS.</p>
@@ -321,8 +330,13 @@ function UpdatesTab({ ownerPin }: { ownerPin?: string }) {
       {phase === 'idle' && info && !info.newer && <p className="setup__done" role="status">You have the latest version.</p>}
       {phase === 'idle' && info?.newer && (
         <>
-          <p className="setup__lead" role="status">Version <b>{info.latest}</b> is ready.</p>
+          <p className="setup__lead" role="status">
+            {downloaded
+              ? <>Version <b>{info.latest}</b> is downloaded. It installs by itself the next time the PC is switched on, or tonight after 11 pm.</>
+              : <>Version <b>{info.latest}</b> is ready.</>}
+          </p>
           <p className="setup__row"><button type="button" className="cta" onClick={() => void updateNow()}>Update now</button></p>
+          <p className="setup__lead">Update now installs it straight away: the POS restarts for about 2 minutes.</p>
         </>
       )}
       {error && <p className="setup__error" role="alert">{error}</p>}
