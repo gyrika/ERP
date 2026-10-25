@@ -743,7 +743,9 @@ function AddToCart({ item, supplierId, name, start, price: startPrice, onAdded }
   price: string;
   onAdded: (message: string, undo: () => void) => void;
 }) {
-  const [text, setText] = useState(String(Math.max(1, item.suggestedSupplierId === supplierId ? item.suggestedPacks : 0)));
+  // Enough for what the reorder rule says, and for batches the kitchen waits on (production).
+  const forBatches = Math.ceil(item.shortBaseUnits / item.packQty - 1e-9);
+  const [text, setText] = useState(String(Math.max(1, item.suggestedSupplierId === supplierId ? item.suggestedPacks : 0, forBatches)));
   const [price, setPrice] = useState(startPrice);
   const n = parsePacks(text) ?? 0;
   const unit = receiveUnitOf(item);

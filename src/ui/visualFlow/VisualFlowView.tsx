@@ -84,6 +84,8 @@ function Studio({ owner }: { owner: Actor }) {
   const [filter, setFilter] = useState<Filter>('all');
   /** The last Send to kitchen, typed out on that card's panel. */
   const [sent, setSent] = useState<{ id: string; text: string; at: number } | null>(null);
+  /** The raw material whose order step is open on its panel. */
+  const [ordering, setOrdering] = useState<string | null>(null);
   // What the canvas shows: his recipes with his drafts on top.
   const answers = useMemo(() => withDrafts(published.answers, drafts), [published.answers, drafts]);
   const ctx = useMemo(() => ({ items: published.items, answers }), [published.items, answers]);
@@ -140,6 +142,7 @@ function Studio({ owner }: { owner: Actor }) {
     ?? (id.startsWith('stock:') ? stock.rows.find((r) => `stock:${r.id}` === id)?.name : prepItems(published.answers).find((p) => `semi:${p.key}` === id)?.name)
     ?? id.slice(id.indexOf(':') + 1), [graph.nodes, stock.rows, published.answers]);
   const active = useMemo(() => new Set(suppliers.map((x) => x.id)), [suppliers]);
+  const buying = useMemo(() => ({ items: stock.rows, suppliers, purchases }), [stock.rows, suppliers, purchases]);
 
   /** Puts base units of price-list items into their suppliers' carts; says what happened. */
   const toCart = useCallback((buy: ReadonlyMap<string, number>) => {
@@ -183,12 +186,7 @@ function Studio({ owner }: { owner: Actor }) {
       setSent({ id: `semi:${key}`, text, at: Date.now() });
       say(open ? `${item.name}: sent` : text, () => { undo(); setSent(null); }, plan.buy.size ? { label: 'Add to cart', run: () => toCart(plan.buy) } : undefined);
     },
-    addToCart: (itemId) => {
-      const row = stock.rows.find((r) => r.id === itemId);
-      if (!row) return;
-      const packs = Math.max(1, row.suggestedPacks, Math.ceil(row.shortBaseUnits / row.packQty - 1e-9));
-      toCart(new Map([[itemId, packs * row.packQty]]));
-    },
+    order: (nodeId) => { setSel({ kind: 'node', id: nodeId }); setOrdering(nodeId); },
     select: setSel,
     toggle: (id) => setCollapsed((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; }),
   }), [draft, answers, drafts, owner, say, published.answers, stock, nameOf, toCart, sel, current]);
@@ -355,6 +353,7 @@ function Studio({ owner }: { owner: Actor }) {
         <FlowPanel
           graph={graph} view={view} sel={sel} ctx={ctx} menu={menu} events={events} drafts={drafts} plan={plan}
           focusName={focusName} actions={actions} stocks={stocks} makesOf={(key) => prepItems(published.answers).find((p) => p.key === key)?.makes ?? null} sent={sent}
+          ordering={ordering} buying={buying}
         />
       </div>
       {picking && (
