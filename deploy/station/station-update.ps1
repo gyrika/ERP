@@ -3,7 +3,8 @@
 # (C:\ProgramData\CheesyBeez) and restarts the POS.
 # Never during service: it installs only in the first minutes after Windows starts (before the
 # first sale), or late at night (23:00-06:00) once the counter has been quiet for an hour, or when
-# the owner pressed "Update now" in Shop setup (-Force). A PC switched off every night therefore
+# the owner pressed "Update now" in Shop setup (the shop server leaves update-now.txt and starts
+# this task; -Force does the same by hand). A PC switched off every night therefore
 # updates the next time it is switched on. At 4 am (-Nightly, or at the next start if the PC was
 # off) it first makes the nightly backup of the shop's data.
 # Safe: another backup right before installing, and if the new version does not answer within
@@ -21,6 +22,17 @@ $script:installing = $false
 function Status([string]$phase, [int]$percent) {
   $s = @{ phase = $phase; percent = $percent; version = $script:target; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
   try { [IO.File]::WriteAllText($statusFile, ($s | ConvertTo-Json -Compress)) } catch { }
+}
+
+# "Update now": the note counts for 15 minutes only, so one nobody picked up (the task was off)
+# never installs in the middle of service later. Taken once, so it is not done twice.
+$nowFile = Join-Path $data 'update-now.txt'
+function UpdateNow {
+  $f = Get-Item $nowFile -ErrorAction SilentlyContinue
+  if (-not $f) { return $false }
+  $fresh = ((Get-Date) - $f.LastWriteTime).TotalMinutes -lt 15  # read before the file is gone
+  Remove-Item $nowFile -Force -ErrorAction SilentlyContinue
+  return $fresh
 }
 
 function Backup([string]$label) {
@@ -52,7 +64,8 @@ function Answers([string]$version) {
   return $false
 }
 
-# Downloads with real progress: 5% to 60% of the bar.
+# Downloads with real progress: 5% to 60% of the bar. A quiet download (the 5-minute check) starts
+# showing it, and becomes "Update now", if the owner presses it meanwhile.
 function Download([string]$url, [string]$file, [bool]$show) {
   $req = [Net.HttpWebRequest]::Create($url)
   $req.UserAgent = 'CheesyBeez-Station'
@@ -62,10 +75,14 @@ function Download([string]$url, [string]$file, [bool]$show) {
   $out = [IO.File]::Create($file)
   try {
     $buf = New-Object byte[] 262144
-    $done = 0; $shown = -1
+    $done = 0; $shown = -1; $look = 0
     while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
       $out.Write($buf, 0, $n)
       $done += $n
+      if (-not $show -and -not $script:installing -and $done -ge $look) {
+        $look = $done + 1MB
+        if (UpdateNow) { $script:Force = $true; $show = $true }
+      }
       if ($show -and $total -gt 0) {
         $pct = 5 + [int](55 * $done / $total)
         if ($pct -ne $shown) { Status 'downloading' $pct; $shown = $pct }
@@ -80,6 +97,7 @@ function Install([string]$file) {
 }
 
 try {
+  if (UpdateNow) { $Force = $true }
   if ($Force) { Status 'checking' 2 }
   if ($Nightly) { [void](Backup 'nightly') }
 
@@ -91,10 +109,10 @@ try {
   # Checked every 5 minutes: only the nightly run and "Update now" say so in the log.
   if ([version]$latest -le [version]$current) { if ($Nightly -or $Force) { Note "Up to date ($current)." }; if ($Force) { Status 'up-to-date' 100 }; exit 0 }
   $skipFile = Join-Path $data 'update-skip.txt'
-  if ((Test-Path $skipFile) -and (Get-Content $skipFile -Raw).Trim() -eq $latest) { if ($Nightly) { Note "Version $latest did not start here before: waiting for a newer one." }; exit 0 }
+  if ((Test-Path $skipFile) -and (Get-Content $skipFile -Raw).Trim() -eq $latest) { if ($Nightly -or $Force) { Note "Version $latest did not start here before: waiting for a newer one." }; if ($Force) { Status 'failed' 100 }; exit 0 }
 
   $asset = $release.assets | Where-Object { $_.name -like 'CheesyBeez-Setup-*.exe' } | Select-Object -First 1
-  if (-not $asset) { Note "Release $latest has no installer."; exit 0 }
+  if (-not $asset) { Note "Release $latest has no installer."; if ($Force) { Status 'failed' 100 }; exit 0 }
 
   # Downloaded ahead, silently (no notice at the counter), so installing later takes only seconds.
   $cache = Join-Path $data 'updates'
@@ -107,6 +125,9 @@ try {
     if ((Get-Item "$file.part").Length -ne $asset.size) { throw "the download of $latest stopped part-way" }
     Move-Item "$file.part" $file
   }
+
+  # "Update now" pressed while this run was already going (the task runs one at a time).
+  if (-not $Force -and (UpdateNow)) { $Force = $true; Status 'checking' 2 }
 
   # When nobody can feel it. The shop server writes as it starts, so a write in the first 2 minutes
   # after Windows started is not a sale.

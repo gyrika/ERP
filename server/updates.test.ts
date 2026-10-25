@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isNewer, updatesApi } from './updates.ts';
@@ -12,7 +12,7 @@ function station(version: string | null) {
   const dir = mkdtempSync(join(tmpdir(), 'cb-station-'));
   if (version !== null) writeFileSync(join(dir, 'version.txt'), version);
   writeFileSync(join(dir, 'station-update.ps1'), '# updater');
-  return { dir, versionFile: join(dir, 'version.txt'), updaterScript: join(dir, 'station-update.ps1'), done: () => rmSync(dir, { recursive: true, force: true }) };
+  return { dir, versionFile: join(dir, 'version.txt'), updaterScript: join(dir, 'station-update.ps1'), nowFile: join(dir, 'update-now.txt'), done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 test('versions compare part by part', () => {
@@ -34,14 +34,16 @@ test("check: the installed version and GitHub's latest", async () => {
   s.done();
 });
 
-test('install: runs the Station updater (forced), only on Windows inside a Station', async () => {
+test("install: leaves the 'update now' note and starts the update task, only on Windows inside a Station", () => {
   const s = station('1.0.0');
   const ran: string[][] = [];
   const run = (command: string, args: string[]) => ran.push([command, ...args]);
   assert.throws(() => updatesApi({ ...s, platform: 'linux', run }).install(), /on Windows/);
+  assert.equal(existsSync(s.nowFile), false);
   updatesApi({ ...s, platform: 'win32', run }).install();
-  await new Promise((r) => setTimeout(r, 600)); // it starts a moment later, after the reply
-  assert.deepEqual(ran, [['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', s.updaterScript, '-Force']]);
+  assert.equal(existsSync(s.nowFile), true, 'the updater installs at once when it finds the note');
+  // Its own process under Task Scheduler: the installer stops this server, never the updater.
+  assert.deepEqual(ran, [['schtasks.exe', '/Run', '/TN', 'CheesyBeez Station update']]);
   s.done();
 
   const dev = station(null);
