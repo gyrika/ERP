@@ -20,6 +20,9 @@
   --ok-ink: #1E7A4F;
   --warn: #E8A94B;
   --bad: #E5484D;
+  /* The small status screen (Visual Flow): black in both themes, like a kitchen display. */
+  --screen: #0B0B0C;
+  --on-screen: #ECECEE;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* Spring for the manager unlock: a little overshoot, settles in ~240ms. */
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1238,6 +1241,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .inv-row__quantity .inv-row__status--ok { color: var(--ok); }
 .inv-row__quantity .inv-row__status--unknown { color: var(--ink-3); }
 .inv-row__onorder { color: var(--info); }
+.inv-row__onorder--wait { color: var(--warn-ink, var(--ink-2)); }
+.inv-row__short { color: var(--bad); }
 @media (max-width: 760px) {
   .stock-home { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 16px; padding-right: 16px; }
   .inv-filters { padding-left: 16px; padding-right: 16px; }

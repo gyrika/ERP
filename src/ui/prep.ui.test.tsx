@@ -5,6 +5,7 @@ import { App } from './App.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { appendEvent, readAll } from './eventLog.ts';
 import { Root } from './Root.tsx';
+import { startLocalScheduler } from '../services/inventoryStore.ts';
 
 // SCRUM-136: low stock goes to the kitchen as a PREP ticket; Start, then Done makes the batch.
 
@@ -50,6 +51,28 @@ test('low stock is sent to the kitchen; the PREP ticket is started and marked Do
   await user.click(within(toast).getByRole('button', { name: 'Undo' }));
   expect(kitchen().getByRole('article', { name: 'Prep: Mozzarella Blend' })).toBeTruthy();
   expect(row('Mozzarella Blend').getByText('2,000 g')).toBeTruthy();
+});
+
+test('what it is made from goes first; the item waits and reaches the kitchen by itself when that is Done', async () => {
+  const stop = startLocalScheduler(); // no shop server here: this device releases held batches
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#items/semi');
+  render(<><Root /><Kitchen /></>);
+  await user.click(semi().getByRole('button', { name: '12inch Dough Ball' }));
+  const sheet = within(screen.getByRole('dialog', { name: '12inch Dough Ball' }));
+  await user.click(sheet.getByRole('button', { name: 'Send to kitchen' }));
+  expect(screen.getByText('Pizza Dough Culture sent to the kitchen first. Pizza Dough Batch and 12inch Dough Ball will be sent automatically when ready.')).toBeTruthy();
+  await user.click(sheet.getByRole('button', { name: 'Close' }));
+  expect(kitchen().getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['Prep: Pizza Dough Culture']);
+  expect(row('Pizza Dough Batch').getByText('Waiting for Pizza Dough Culture · 1 pcs')).toBeTruthy();
+  expect(row('12inch Dough Ball').getByText('Waiting for Pizza Dough Batch · 1 pcs')).toBeTruthy();
+
+  await user.click(kitchen().getByRole('button', { name: 'Start: Prep: Pizza Dough Culture' }));
+  await user.click(kitchen().getByRole('button', { name: 'Done: Prep: Pizza Dough Culture' }));
+  expect(kitchen().getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['Prep: Pizza Dough Batch']);
+  expect(screen.getByText('Pizza Dough Culture is ready. Pizza Dough Batch sent to the kitchen automatically.')).toBeTruthy();
+  expect(readAll().filter((e) => e.type === 'prep.released')).toHaveLength(1);
+  stop();
 });
 
 test('customers come first: a PREP ticket waits after the orders, and the Register chip ignores it', async () => {

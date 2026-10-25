@@ -6,7 +6,9 @@ import { menuItems } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { daysAgo } from '../domain/itemStory.ts';
 import { batchShare, madeFrom, prepAmount, prepKey, prepStatus, type PrepStatus } from '../domain/prep.ts';
-import { answerQuestion, sendPrep, setMakeBelow, useCostContext, usePreps, type PrepRow } from '../services/inventoryStore.ts';
+import { answerQuestion, cartShortages, sendPlan, setMakeBelow, useCostContext, useInventory, usePreps, usePurchases, useStock, type PrepRow } from '../services/inventoryStore.ts';
+import { andList, planNotice } from '../domain/production.ts';
+import { ReleaseNotices } from './ProductionNotices.tsx';
 import { currentCashier } from '../services/auth.ts';
 import { useMenu } from './menuStore.ts';
 import { ItemsTabs } from './ItemsTabs.tsx';
@@ -32,7 +34,33 @@ const STATUS_LABELS: Record<PrepStatus, string> = {
   unknown: 'Not made yet',
 };
 
-type Done = { message: string; undo: () => void };
+/** The last change, with its Undo; cart: puts what production waits for into the suppliers' carts. */
+type Done = { message: string; undo: () => void; cart?: () => Done };
+
+/**
+ * Sends `qty` of an item to the kitchen with what it is made from (production.ts): what is missing
+ * goes first, the item follows by itself. One hook for the list and the sheet.
+ */
+const useSendToKitchen = () => {
+  const { plan } = useStock();
+  const { items, suppliers } = useInventory();
+  const purchases = usePurchases();
+  return (p: Pick<PrepRow, 'key' | 'unit'>, qty: number): Done | string => {
+    const made = plan(p.key, qty, p.unit);
+    if (made.problem) return made.problem;
+    const undo = sendPlan(made);
+    const buy = made.buy;
+    const done: Done = { message: planNotice(made, prepAmount), undo };
+    if (buy.size) {
+      done.cart = () => {
+        const added = cartShortages(buy, items, purchases, new Set(suppliers.map((x) => x.id)));
+        const names = [...buy.keys()].map((id) => items.find((i) => i.id === id)?.name ?? id);
+        return { message: added.suppliers.length ? `${andList(names)}: added to the cart. The batch goes to the kitchen once it is received.` : `${andList(names)}: no active supplier to order from.`, undo: added.undo };
+      };
+    }
+    return done;
+  };
+};
 
 /** What uses an item: the semi-processed items made from it, and how many dish recipes. */
 type Uses = { dishes: number; semis: PrepRow[] };
@@ -57,6 +85,8 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
   /** The item whose sheet is open; '' : a new one being written. */
   const [open, setOpen] = useState<string | null>(null);
   const [done, setDone] = useState<Done | null>(null);
+  const [error, setError] = useState('');
+  const send = useSendToKitchen();
   const now = Date.now();
 
   // Used by a dish (by its key, or by the name his sheet uses for it), and by the items made from it.
@@ -77,8 +107,10 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
   const item = open ? preps.find((p) => p.key === open) ?? null : null;
 
   const toKitchen = (p: PrepRow) => {
-    const undo = sendPrep(p, p.makes!.qty);
-    setDone({ message: `${p.name}: 1 batch sent to the kitchen · ${prepAmount(p.makes!.qty, p.unit)}.`, undo });
+    const result = send(p, p.makes!.qty);
+    if (typeof result === 'string') { setError(result); setDone(null); return; }
+    setError('');
+    setDone(result);
   };
 
   return (
@@ -93,10 +125,13 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
 
       <ItemsTabs current="semi" />
 
+      <ReleaseNotices />
+      {error && <div className="inv-notice inv-notice--error" role="alert">{error}</div>}
       {done && (
         <div className="inv-notice" role="status">
           {done.message}
           <button type="button" onClick={() => { done.undo(); setDone(null); }}>Undo</button>
+          {done.cart && <button type="button" onClick={() => setDone(done.cart!())}>Add to cart</button>}
         </div>
       )}
 
@@ -136,6 +171,7 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
               <div className="inv-row__quantity" aria-label="On hand and batch size">
                 <span className={`inv-row__status inv-row__status--${status}`}>{STATUS_LABELS[status]}</span>
                 {p.tracked && <strong>{prepAmount(p.onHand, p.unit)}</strong>}
+                {p.reserved > 0 && <span className="inv-row__lasts">{prepAmount(p.reserved, p.unit)} held for the kitchen</span>}
                 <span className="inv-row__lasts">
                   {p.makes ? `${prepAmount(p.makes.qty, p.makes.unit)} a batch` : 'Batch size not known yet'}
                   {cost.complete ? ` · Rs ${fmt(cost.cents)}` : ''}
@@ -143,7 +179,8 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
               </div>
               <div className="inv-row__actions">
                 {p.inKitchen > 0 && <span className="inv-row__onorder">In the kitchen · {prepAmount(p.inKitchen, p.unit)}</span>}
-                {p.inKitchen === 0 && (status === 'low' || status === 'out') && p.makes && (
+                {p.waiting > 0 && <span className="inv-row__onorder inv-row__onorder--wait">Waiting for {andList(p.waitingFor)} · {prepAmount(p.waiting, p.unit)}</span>}
+                {p.inKitchen === 0 && p.waiting === 0 && (status === 'low' || status === 'out') && p.makes && (
                   <button type="button" className="inv-row__cart inv-row__cart--add" aria-label={`Send ${p.name} to the kitchen`} onClick={() => toKitchen(p)}>Send to kitchen</button>
                 )}
               </div>
@@ -298,6 +335,8 @@ function PrepSheet({ item, items, ctx, owner, uses, onClose, onOpen, onDone, onS
             )}
 
             <SendToKitchen item={item} onDone={(d) => onDone(d)} />
+            {item.reserved > 0 && <p className="inv-modal__note">{prepAmount(item.reserved, item.unit)} of it is held for batches in the kitchen: {prepAmount(item.onHand - item.reserved, item.unit)} free.</p>}
+            {item.waiting > 0 && <p className="inv-modal__note">{prepAmount(item.waiting, item.unit)} waiting for {andList(item.waitingFor)}: it goes to the kitchen by itself once that is ready.</p>}
 
             <MakeBelow item={item} onDone={(d) => onDone(d)} />
 
@@ -334,14 +373,16 @@ function PrepSheet({ item, items, ctx, owner, uses, onClose, onOpen, onDone, onS
 function SendToKitchen({ item, onDone }: { item: PrepRow; onDone: (done: Done) => void }) {
   const [typed, setTyped] = useState(item.makes ? '1' : '');
   const [error, setError] = useState('');
+  const send = useSendToKitchen();
   const n = Number(typed);
   const qty = item.makes ? n * item.makes.qty : n;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!(n > 0)) return setError(item.makes ? 'Type how many batches, more than 0.' : `Type how much to make, in ${item.unit}.`);
-    const undo = sendPrep(item, qty);
-    onDone({ message: `${item.name}: sent to the kitchen · ${prepAmount(qty, item.unit)}.`, undo });
+    const result = send(item, qty);
+    if (typeof result === 'string') return setError(result);
+    onDone(result);
   };
 
   return (

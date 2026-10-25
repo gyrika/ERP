@@ -42,6 +42,12 @@
 - **Resources:** `src/domain/resources.ts`. Per recipe (`resources:<recipe key>`): electricity (kWh), labour and equipment (minutes), other costs (Rs), per batch or per dish; the shop's rates once (`rates:shop`, Rs per kWh / per hour). Resources roll up through batches into each dish. Food cost (`menuCost`) stays ingredients only.
 - **Draft and published:** every change is a `recipe.draft_set` (owner only, synced, kept like answers; checked for shape by the server, `checkDraft`). Drafts change no cost and no stock. **Publish** writes one `recipe.answer_set` per draft (a new version, `versionsOf`), which closes it; Undo writes the old versions back and reopens the drafts. Sales and waste already use the answers in force when they happened, so publishing never changes past production.
 
+## Production with dependencies (2026-10-25, SCRUM-161)
+- **One ledger:** `stockFromEvents` (`src/domain/inventory.ts`) now also returns a `ledger` (`src/domain/production.ts`): for raw (`stock:<id>`), semi-processed (`semi:<key>`) and, through `canMake`, finished items, what is on hand, held by batches in the kitchen, free, coming and short. Items and Visual Flow read it through `itemStockOf` (`src/domain/itemStock.ts`), so both show the same figures. A never-counted raw item is unknown and never holds production back; a semi-processed item with no batch made has nothing on hand.
+- **Send to kitchen plans the chain** (`planProduction`): what the item is made from and is not there goes first, in whole batches, down every level; batches already coming and not spoken for are counted on (no duplicates). The item is sent held (`prep.ordered` with `waitFor`), so it is not on the kitchen screen.
+- **Release on the server:** `releasesDue` (`src/domain/scheduler.ts`) runs on the shop server after every stored push (`server/scheduler.ts`), oldest first, and writes `prep.released` (id `rel-<ticket>`, so once). The server is on the counter PC, so it works offline; a device with no server (the demo) runs it itself. Devices cannot push a release. Chosen over releasing in each device's fold because the kitchen screen only folds a day of events and stock needs the whole history.
+- **Cost:** the server keeps the shop's history in memory for this and folds it only while a batch is held. Fine for one shop; a big history would want a snapshot.
+
 ## Run
 `npm i && npm run dev` · `npm test` (domain + UI) · `npm run test:domain` · `npm run test:ui` · `npm run build` · demo: `/?demo` (manager PIN in `src/fake/data.ts`)
 

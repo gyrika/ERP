@@ -13,13 +13,17 @@ import {
   answerWith, buildFlow, connectProblem, focusOptions, holderOf, layout, lineFor, lineNode, newStage, resourcesOf, soldUnits, viewOf,
   type FlowView, type Holder,
 } from '../../domain/visualFlow.ts';
-import { discardDrafts, publishDrafts, recipesViewed, saveDraft, useFlowData } from '../../services/inventoryStore.ts';
+import { cartShortages, discardDrafts, publishDrafts, recipesViewed, saveDraft, sendPlan, useCatalog, useFlowData, usePurchases } from '../../services/inventoryStore.ts';
+import { itemStockOf, needsAttention, type ItemStock } from '../../domain/itemStock.ts';
+import { andList, planNotice, planProduction } from '../../domain/production.ts';
+import { batchShare, prepAmount } from '../../domain/prep.ts';
+import { ReleaseNotices } from '../ProductionNotices.tsx';
 import { CommandPalette } from '../CommandPalette.tsx';
 import { useMenu } from '../menuStore.ts';
 import { OwnerNav } from '../OwnerNav.tsx';
 import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
-import { EDGE_TYPES, NODE_TYPES, type VfEdge, type VfNode } from './FlowParts.tsx';
+import { EDGE_TYPES, NODE_TYPES, nodeShare, type VfEdge, type VfNode } from './FlowParts.tsx';
 import './visualFlow.css';
 
 /**
@@ -52,10 +56,21 @@ const VIEWS: { id: FlowView; label: string }[] = [
   { id: 'cost', label: 'Cost' },
   { id: 'financial', label: 'Financial' },
 ];
+/** What the drawing picks out; the rest is drawn faintly, so the flow stays whole. */
+type Filter = 'all' | 'attention' | 'out' | 'raw' | 'semi' | 'finished';
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'attention', label: 'Low' },
+  { id: 'out', label: 'Out' },
+  { id: 'raw', label: 'Raw' },
+  { id: 'semi', label: 'Semi-processed' },
+  { id: 'finished', label: 'Finished' },
+];
 const DEFAULT_FOCUS = 'recipe:margherita:L';
 const TOAST_MS = 6000;
 
-interface Toast { id: number; text: string; undo?: () => void }
+/** A change and its Undo; next: one more step it offers (put what is short in the cart). */
+interface Toast { id: number; text: string; undo?: () => void; next?: { label: string; run: () => void } }
 
 /** #flow/<focus>: a dish's flow can be linked to (and survives a reload). */
 const focusFromHash = () => (location.hash.startsWith('#flow/') ? decodeURIComponent(location.hash.slice('#flow/'.length)) : null);
@@ -63,7 +78,12 @@ const focusFromHash = () => (location.hash.startsWith('#flow/') ? decodeURICompo
 function Studio({ owner }: { owner: Actor }) {
   useMenu();
   const menu = menuItems();
-  const { ctx: published, drafts, events } = useFlowData();
+  const { ctx: published, drafts, events, stock } = useFlowData();
+  const purchases = usePurchases();
+  const { suppliers } = useCatalog();
+  const [filter, setFilter] = useState<Filter>('all');
+  /** The last Send to kitchen, typed out on that card's panel. */
+  const [sent, setSent] = useState<{ id: string; text: string; at: number } | null>(null);
   // What the canvas shows: his recipes with his drafts on top.
   const answers = useMemo(() => withDrafts(published.answers, drafts), [published.answers, drafts]);
   const ctx = useMemo(() => ({ items: published.items, answers }), [published.items, answers]);
@@ -101,7 +121,32 @@ function Studio({ owner }: { owner: Actor }) {
   const plan = useMemo(() => publishPlan(published.answers, drafts), [published.answers, drafts]);
   const blocked = plan.find((s) => s.problem);
 
-  const say = useCallback((text: string, undo?: () => void) => setToast({ id: Date.now(), text, undo }), []);
+  const say = useCallback((text: string, undo?: () => void, next?: Toast['next']) => setToast({ id: Date.now(), text, undo, next }), []);
+
+  // ----- stock: the same ledger as Items, on every card -----
+  const stocks = useMemo(() => {
+    const m = new Map<string, ItemStock>();
+    for (const n of graph.nodes) { const st = itemStockOf(n.id, stock); if (st) m.set(n.id, st); }
+    return m;
+  }, [graph.nodes, stock]);
+  const matches = useCallback((id: string, kind: string) => {
+    const st = stocks.get(id);
+    if (filter === 'all') return true;
+    if (filter === 'attention') return !!st && needsAttention(st);
+    if (filter === 'out') return st?.status === 'out';
+    return kind === filter;
+  }, [filter, stocks]);
+  const nameOf = useCallback((id: string) => graph.nodes.find((n) => n.id === id)?.name
+    ?? (id.startsWith('stock:') ? stock.rows.find((r) => `stock:${r.id}` === id)?.name : prepItems(published.answers).find((p) => `semi:${p.key}` === id)?.name)
+    ?? id.slice(id.indexOf(':') + 1), [graph.nodes, stock.rows, published.answers]);
+  const active = useMemo(() => new Set(suppliers.map((x) => x.id)), [suppliers]);
+
+  /** Puts base units of price-list items into their suppliers' carts; says what happened. */
+  const toCart = useCallback((buy: ReadonlyMap<string, number>) => {
+    const added = cartShortages(buy, stock.rows, purchases, active);
+    const names = andList([...buy.keys()].map((id) => nameOf(`stock:${id}`)));
+    say(added.suppliers.length ? `${names}: added to the cart. Nothing is in stock until it is received.` : `${names}: no active supplier to order from.`, added.undo);
+  }, [stock.rows, purchases, active, nameOf, say]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), TOAST_MS);
@@ -126,9 +171,27 @@ function Studio({ owner }: { owner: Actor }) {
       return null;
     },
     pickIngredient: (h) => setPicking(h),
+    sendToKitchen: (key, batches) => {
+      const item = prepItems(published.answers).find((p) => p.key === key);
+      if (!item?.makes) { say(`${item?.name ?? 'It'}: say what one batch makes first.`); return; }
+      const plan = planProduction({ key, name: item.name, qty: batches * item.makes.qty, unit: item.makes.unit }, stock.ledger, nameOf);
+      if (plan.problem) { say(plan.problem); return; }
+      const undo = sendPlan(plan, owner);
+      const text = planNotice(plan, prepAmount);
+      // Told on the item's own panel when it is open there; the toast keeps the Undo.
+      const open = sel ? sel.kind === 'node' && sel.id === `semi:${key}` : current === `semi:${key}`;
+      setSent({ id: `semi:${key}`, text, at: Date.now() });
+      say(open ? `${item.name}: sent` : text, () => { undo(); setSent(null); }, plan.buy.size ? { label: 'Add to cart', run: () => toCart(plan.buy) } : undefined);
+    },
+    addToCart: (itemId) => {
+      const row = stock.rows.find((r) => r.id === itemId);
+      if (!row) return;
+      const packs = Math.max(1, row.suggestedPacks, Math.ceil(row.shortBaseUnits / row.packQty - 1e-9));
+      toCart(new Map([[itemId, packs * row.packQty]]));
+    },
     select: setSel,
     toggle: (id) => setCollapsed((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; }),
-  }), [draft, answers, drafts, owner, say]);
+  }), [draft, answers, drafts, owner, say, published.answers, stock, nameOf, toCart, sel, current]);
 
   /** Put `sourceId` into the recipe `targetId`, or say why it can't go there. */
   const connect = useCallback((sourceId: string, targetId: string) => {
@@ -174,13 +237,17 @@ function Studio({ owner }: { owner: Actor }) {
     data: {
       node: n, view, focus: n.id === current, focusName,
       takes: !!n.recipe?.editable, onToggle: actions.toggle,
+      stock: stocks.get(n.id) ?? null, dim: !matches(n.id, n.kind), share: nodeShare(n, answers),
     },
-  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle]);
+  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers]);
   const edges: VfEdge[] = useMemo(() => graph.edges.map((e) => ({
     id: e.id, source: e.source, target: e.target, type: 'vf', selected: sel?.kind === 'edge' && sel.id === e.id,
     deletable: e.kind !== 'money',
-    data: { edge: e, view, total: graph.breakdown.total, onSelect: (id: string) => setSel({ kind: 'edge', id }) },
-  })), [graph.edges, graph.breakdown.total, sel, view]);
+    data: {
+      edge: e, view, total: graph.breakdown.total, onSelect: (id: string) => setSel({ kind: 'edge', id }),
+      share: e.line ? batchShare({ ...e.line, qty: e.qty }, answers) : null,
+    },
+  })), [graph.edges, graph.breakdown.total, sel, view, answers]);
 
   const onNodesChange = useCallback((changes: NodeChange<VfNode>[]) => {
     // Kept: where he drags a card to, and each card's size; selection is ours (sel), the rest is drawn from the graph.
@@ -235,6 +302,7 @@ function Studio({ owner }: { owner: Actor }) {
 
   return (
     <main className="vf" aria-label="Visual Flow">
+      <div className="vf-notices"><ReleaseNotices /></div>
       <header className="vf-bar">
         <button type="button" className="vf-focus" onClick={() => setPicking('focus')} aria-label={`Showing ${focusName}. Choose another item`}>
           <span className="vf-focus__name">{focusName || 'Choose an item'}</span>
@@ -243,6 +311,11 @@ function Studio({ owner }: { owner: Actor }) {
         <div className="vf-views" role="group" aria-label="View">
           {VIEWS.map((v, i) => (
             <button key={v.id} type="button" className="pill" aria-pressed={view === v.id} onClick={() => setView(v.id)} title={`${v.label} (${i + 1})`}>{v.label}</button>
+          ))}
+        </div>
+        <div className="chips chips--tight vf-filter" role="group" aria-label="Show">
+          {FILTERS.map((f) => (
+            <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>
           ))}
         </div>
         <div className="vf-publish">
@@ -281,7 +354,7 @@ function Studio({ owner }: { owner: Actor }) {
         </div>
         <FlowPanel
           graph={graph} view={view} sel={sel} ctx={ctx} menu={menu} events={events} drafts={drafts} plan={plan}
-          focusName={focusName} actions={actions}
+          focusName={focusName} actions={actions} stocks={stocks} makesOf={(key) => prepItems(published.answers).find((p) => p.key === key)?.makes ?? null} sent={sent}
         />
       </div>
       {picking && (
@@ -294,6 +367,7 @@ function Studio({ owner }: { owner: Actor }) {
         <div className="toast" role="status" key={toast.id}>
           <span>{toast.text}</span>
           {toast.undo && <button type="button" onClick={() => { toast.undo!(); setToast(null); }}>Undo</button>}
+          {toast.next && <button type="button" onClick={() => { toast.next!.run(); }}>{toast.next.label}</button>}
         </div>
       )}
     </main>

@@ -20,6 +20,8 @@ const TYPES = new Set<string>([
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
+/** What a held batch waits for, by name: a short list of item names. */
+const names = (v: unknown): boolean => Array.isArray(v) && v.length <= 40 && v.every((n) => shortString(n, 120));
 const isAddedId = (v: unknown): v is string => typeof v === 'string' && NEW_ITEM_ID.test(v);
 const onMenu = (itemId: unknown): boolean => MENU.some((entry) => entry.id === itemId) || isAddedId(itemId);
 /**
@@ -138,7 +140,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     }
     if (e.type === 'stock.wasted' && checkWaste(e.what, e.qty, e.reason, e.note, e.name) !== null) return { reason: `event ${e.id} has an invalid waste` };
     if ((e.type.startsWith('prep.') && e.orderNumber !== 0)
-      || (e.type === 'prep.ordered' && (!shortString(e.ticketId) || checkPrepOrder(e.prepId, e.name, e.qty, e.unit) !== null))
+      || (e.type === 'prep.ordered' && (!shortString(e.ticketId) || checkPrepOrder(e.prepId, e.name, e.qty, e.unit) !== null
+        || !(e.waitFor === undefined || names(e.waitFor)) || !(e.plan === undefined || shortString(e.plan))))
+      || (e.type === 'prep.released' && (!shortString(e.ticketId) || checkPrepOrder(e.prepId, e.name, e.qty, e.unit) !== null || !names(e.waited)))
       || (e.type === 'prep.order_undone' && !shortString(e.ticketId))
       || (e.type === 'prep.limit_set' && (!shortString(e.prepId, 120) || checkPrepLimit(e.before) !== null || checkPrepLimit(e.after) !== null))) {
       return { reason: `event ${e.id} has an invalid batch` };

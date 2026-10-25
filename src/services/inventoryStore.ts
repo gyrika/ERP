@@ -5,7 +5,9 @@ import { countHistory, gapOf, type CountEntry, type CountRecord, type GapReason,
 import type { SyncEvent } from '../domain/sync.ts';
 import { addEvents, appendEvent, dismissRejection, readAll, readRejections, subscribeEvents, type Rejection } from '../ui/eventLog.ts';
 import { numberingOf, numbersFor, pendingNumber, type DocKind } from '../domain/docNumbers.ts';
-import { inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow } from '../domain/inventory.ts';
+import { inventoryFromEvents, stockFromEvents, suppliersFromEvents, validateSeed, type InventoryRow, type Stock } from '../domain/inventory.ts';
+import { planProduction, type Plan } from '../domain/production.ts';
+import { holdsBatches, releasesDue } from '../domain/scheduler.ts';
 import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
 import type { Cents } from '../domain/types.ts';
@@ -344,19 +346,89 @@ export function usePreps(): PrepRow[] {
       const p = stock.get(item.key);
       // Once made, the stock is counted in the unit its batches were recorded in.
       const unit = p?.tracked ? p.unit : item.unit;
-      return { ...item, unit, tracked: p?.tracked ?? false, onHand: p?.onHand ?? 0, usedPerDay: p?.usedPerDay ?? 0, makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, inKitchen: p?.inKitchen ?? 0 };
+      return { ...item, unit, tracked: p?.tracked ?? false, onHand: p?.onHand ?? 0, usedPerDay: p?.usedPerDay ?? 0, makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, inKitchen: p?.inKitchen ?? 0,
+        reserved: p?.reserved ?? 0, waiting: p?.waiting ?? 0, waitingFor: p?.waitingFor ?? [] };
     });
   }, [events]);
 }
 
 /**
- * Sends a semi-processed item to the kitchen (anyone signed in): a prep ticket the cook Starts and
- * marks Done, and Done makes the batch (SCRUM-136). Returns the Undo, which takes the ticket back.
+ * The one stock ledger (raw, semi-processed and finished alike), from the whole history, and a
+ * planner for sending to the kitchen with its dependencies: what Items and Visual Flow both read.
  */
-export const sendPrep = (item: Pick<PrepItem, 'key' | 'name' | 'unit'>, qty: number, actor: Actor = currentCashier()): (() => void) => {
-  const ticketId = newLineId();
-  appendEvent({ type: 'prep.ordered', at: Date.now(), orderNumber: 0, actor, ticketId, prepId: item.key, name: item.name, qty, unit: item.unit });
-  return () => { appendEvent({ type: 'prep.order_undone', at: Date.now(), orderNumber: 0, actor, ticketId }); };
+export function useStock(): { stock: Stock; nameOf: (id: string) => string; plan: (key: string, qty: number, unit: string) => Plan } {
+  const events = useShopHistory();
+  return useMemo(() => {
+    const stock = stockFromEvents(SEED_INVENTORY, events);
+    const preps = prepItems(answersFromEvents(events));
+    const nameOf = (id: string) => (id.startsWith('stock:')
+      ? stock.rows.find((r) => r.id === id.slice('stock:'.length))?.name ?? 'An item'
+      : preps.find((p) => `semi:${p.key}` === id)?.name ?? id.slice(id.indexOf(':') + 1));
+    const plan = (key: string, qty: number, unit: string) => planProduction({ key, name: nameOf(`semi:${key}`), qty, unit }, stock.ledger, nameOf);
+    return { stock, nameOf, plan };
+  }, [events]);
+}
+
+/** Held batches the shop server sent to the kitchen in the last `minutes`, newest first: what to tell. */
+export function useRecentReleases(minutes = 30): Extract<SyncEvent, { type: 'prep.released' }>[] {
+  const events = useShopHistory();
+  return useMemo(() => {
+    const since = Date.now() - minutes * 60_000;
+    return events.filter((e): e is Extract<SyncEvent, { type: 'prep.released' }> => e.type === 'prep.released' && e.at >= since).reverse();
+  }, [events, minutes]);
+}
+
+/**
+ * Sends a plan (production.ts): what the item is made from first, then the item itself, held until
+ * its inputs are on hand; the shop server releases it to the kitchen. One Undo takes them all back.
+ */
+export const sendPlan = (plan: Plan, actor: Actor = currentCashier()): (() => void) => {
+  if (plan.problem || !plan.batches.length) return () => {};
+  const ids = plan.batches.map(() => newLineId());
+  const target = ids.at(-1)!;
+  plan.batches.forEach((b, i) => appendEvent({
+    type: 'prep.ordered', at: Date.now(), orderNumber: 0, actor, ticketId: ids[i], prepId: b.prepId, name: b.name, qty: b.qty, unit: b.unit,
+    ...(b.waitFor.length ? { waitFor: b.waitFor } : {}), ...(ids[i] !== target ? { plan: target } : {}),
+  }));
+  return () => { for (const ticketId of [...ids].reverse()) appendEvent({ type: 'prep.order_undone', at: Date.now(), orderNumber: 0, actor, ticketId }); };
+};
+
+/**
+ * What production waits for, into each supplier's cart (packs, rounded up): the supplier the reorder
+ * rule picks, else the last one, else the first. Returns the suppliers and one Undo; nothing is
+ * received until a GRN says so.
+ */
+export const cartShortages = (buy: ReadonlyMap<string, number>, rows: readonly InventoryRow[], purchases: PurchaseState, active: ReadonlySet<string>): { suppliers: string[]; undo: () => void } => {
+  const undos: (() => void)[] = [];
+  const suppliers = new Set<string>();
+  for (const [itemId, base] of buy) {
+    const row = rows.find((r) => r.id === itemId);
+    if (!row || !(base > 0)) continue;
+    const last = purchases.lastSupplier.get(itemId);
+    const to = (row.suggestedSupplierId && active.has(row.suggestedSupplierId) ? row.suggestedSupplierId : null)
+      ?? (last && row.supplierIds.includes(last) && active.has(last) ? last : row.supplierIds.find((id) => active.has(id)));
+    if (!to) continue;
+    const cart = readDrafts().get(to) ?? {};
+    const packs = Math.max(cart[itemId] ?? 0, Math.ceil(base / row.packQty - 1e-9));
+    undos.push(addToDraft(to, itemId, packs).undo);
+    suppliers.add(to);
+  }
+  return { suppliers: [...suppliers], undo: () => undos.reverse().forEach((u) => u()) };
+};
+
+/**
+ * Without a shop server (the demo, development) this device releases held batches itself, from
+ * its own records, the same way the server does.
+ */
+export const startLocalScheduler = (): (() => void) => {
+  const run = () => {
+    const events = readLive();
+    if (!holdsBatches(events)) return;
+    const made = releasesDue(SEED_INVENTORY, events, shopId(), Date.now());
+    if (made.length) addEvents(made);
+  };
+  run();
+  return subscribeEvents(run);
 };
 
 /** "Make more when below" (managers and the owner; audited). null: automatic. Returns the Undo. */
@@ -617,13 +689,13 @@ export const answerQuestion = (question: string, after: Answer | null, before: A
  * Visual Flow: the recipes as published, the owner's open drafts, and the history behind each
  * recipe's versions, all from the whole history (drafts sync like his answers).
  */
-export function useFlowData(): { ctx: CostContext; drafts: Map<string, Draft>; events: SyncEvent[] } {
+export function useFlowData(): { ctx: CostContext; drafts: Map<string, Draft>; events: SyncEvent[]; stock: Stock } {
   const events = useShopHistory();
-  return useMemo(() => ({
-    ctx: { items: inventoryFromEvents(SEED_INVENTORY, events), answers: answersFromEvents(events) },
-    drafts: draftsFromEvents(events),
-    events,
-  }), [events]);
+  return useMemo(() => {
+    // The same ledger as Items: one fold gives the price list and every item's stock.
+    const stock = stockFromEvents(SEED_INVENTORY, events);
+    return { ctx: { items: stock.rows, answers: answersFromEvents(events) }, drafts: draftsFromEvents(events), events, stock };
+  }, [events]);
 }
 
 /** One draft change (null drops it), with the draft it replaces for the Undo. */

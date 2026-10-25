@@ -17,6 +17,7 @@ import type { Fleet } from './fleet.ts';
 import { SetupError, isLocal, type SetupApi } from './setup.ts';
 import type { Device, EventStore } from './store.ts';
 import { createNumberer } from './numbering.ts';
+import { createScheduler } from './scheduler.ts';
 import { createStockRules } from './stockRules.ts';
 import { validatePush } from './validate.ts';
 
@@ -145,6 +146,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
   const refusal = (device: Device, e: SyncEvent, sessions: Awaited<ReturnType<EventStore['sessions']>>): string | null => {
     // Display numbers come from this server alone: a device cannot give a document a number.
     if (e.type === 'stock.numbered') return 'only the shop server numbers documents';
+    // Held batches go to the kitchen when the shop server sees their inputs on hand, never on a device's word.
+    if (e.type === 'prep.released') return 'only the shop server sends held batches to the kitchen';
     if (e.type.startsWith('kitchen.')) return device.kind === 'owner' || device.kind === 'manager' ? 'not from this device' : null;
     // The manager's phone counts and receives stock (SCRUM-94); orders, menu and recipes stay on the counter.
     if (device.kind === 'manager' && !e.type.startsWith('stock.')) return 'the manager phone records stock only';
@@ -158,6 +161,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     return null;
   };
   const numberDocs = createNumberer(store, now);
+  const releaseBatches = createScheduler(store, now);
   const checkStock = createStockRules(store, now);
   const broadcast = (tenantId: string, events: SyncedEvent[]) => {
     for (const st of streams.get(tenantId) ?? []) {
@@ -339,7 +343,9 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       rejected.push(...refused);
       const { accepted, stored: pushed } = result;
       // New purchase orders and GRNs get their number here, as records after them.
-      const stored = [...pushed, ...await numberDocs(device, allowed.filter((e) => !refused.some((r) => r.id === e.id)))];
+      const numbered = [...pushed, ...await numberDocs(device, allowed.filter((e) => !refused.some((r) => r.id === e.id)))];
+      // Held batches whose inputs are now on hand go to the kitchen (production scheduling).
+      const stored = [...numbered, ...await releaseBatches(device, numbered.map((s) => s.event))];
       broadcast(device.tenantId, stored);
       if (stored.length) onStored?.(device.tenantId, stored.map((s) => s.event));
       json(res, 200, { accepted, ...(rejected.length ? { rejected } : {}), serverTime: now() } satisfies PushResponse);
@@ -431,7 +437,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
   const ingest: Ingest = async (device, events) => {
     const { result, rejected } = await checkStock(device, events, (ok) => store.push(device, ok, now()));
     const { stored: pushed } = result;
-    const stored = [...pushed, ...await numberDocs(device, events.filter((e) => !rejected.some((r) => r.id === e.id)))];
+    const numbered = [...pushed, ...await numberDocs(device, events.filter((e) => !rejected.some((r) => r.id === e.id)))];
+    const stored = [...numbered, ...await releaseBatches(device, numbered.map((s) => s.event))];
     broadcast(device.tenantId, stored);
     if (stored.length) onStored?.(device.tenantId, stored.map((s) => s.event));
     return pushed.length;

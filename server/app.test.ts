@@ -280,6 +280,34 @@ test('numbers: the server numbers each new PO and GRN, devices cannot number doc
   await s.stop();
 });
 
+test('production: a held batch reaches the kitchen when the server sees its input made; devices cannot release one', async () => {
+  const s = await staffed();
+  const owner = await s.store.addStaff(SHOP, 'Anton', 'owner', '3690');
+  await s.login('3690');
+  const by = { id: owner.id, name: 'Anton', role: 'owner' };
+  const doc = (id: string, type: string, rest: object) => ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor: by, type, ...rest });
+  const answer = (id: string, question: string, after: object) => doc(id, 'recipe.answer_set', { question, before: null, after });
+  const released = async () => ((await (await s.call('/api/v1/events?after=0', s.tokens.counter)).json()).events as { event: { id: string; type: string } }[])
+    .filter((e) => e.event.type === 'prep.released').map((e) => e.event.id);
+
+  await s.push(s.tokens.counter, [
+    answer('a1', 'prep:kculture', { kind: 'prep', name: 'Culture', makes: { qty: 2000, unit: 'g' }, lines: [{ name: 'stock:inv-0001', qty: 1000, unit: 'g' }] }),
+    answer('a2', 'prep:kdough', { kind: 'prep', name: 'Dough', makes: { qty: 10000, unit: 'g' }, lines: [{ name: 'kitchen:kculture', qty: 2000, unit: 'g' }] }),
+    doc('o1', 'prep.ordered', { ticketId: 'culture-1', prepId: 'kitchen:kculture', name: 'Culture', qty: 2000, unit: 'g' }),
+    doc('o2', 'prep.ordered', { ticketId: 'dough-1', prepId: 'kitchen:kdough', name: 'Dough', qty: 10000, unit: 'g', waitFor: ['Culture'], plan: 'dough-1' }),
+  ]);
+  assert.deepEqual(await released(), [], 'the culture is not made yet');
+
+  const cheat = await (await s.push(s.tokens.counter, [doc('r1', 'prep.released', { ticketId: 'dough-1', prepId: 'kitchen:kdough', name: 'Dough', qty: 10000, unit: 'g', waited: ['Culture'] })])).json();
+  assert.deepEqual(cheat.rejected.map((x: { reason: string }) => x.reason), ['only the shop server sends held batches to the kitchen']);
+
+  await s.push(s.tokens.kitchen, [{ id: 'b1', shopId: SHOP, at: 5000, orderNumber: 0, ticketId: 'culture-1', type: 'kitchen.bumped' }]);
+  assert.deepEqual(await released(), ['rel-dough-1'], 'the culture is Done: the dough goes, once');
+  await s.push(s.tokens.kitchen, [{ id: 'b2', shopId: SHOP, at: 5000, orderNumber: 0, ticketId: 'none', type: 'kitchen.seen' }]);
+  assert.deepEqual(await released(), ['rel-dough-1']);
+  await s.stop();
+});
+
 test('purchasing: the server re-checks the order against what it stored, and says what to do', async () => {
   const s = await staffed();
   await s.login('2580');

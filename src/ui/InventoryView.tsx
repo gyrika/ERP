@@ -17,6 +17,7 @@ import { daysAgo, formatStock } from '../domain/itemStory.ts';
 import { StockSheet, type SheetTab } from './StockSheet.tsx';
 import { ItemsTabs } from './ItemsTabs.tsx';
 import { RejectionNotices } from './Rejections.tsx';
+import { ReleaseNotices } from './ProductionNotices.tsx';
 import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, receiveUnitOf, tiersOf, unitName } from '../domain/counting.ts';
 
@@ -75,7 +76,9 @@ export function InventoryView({
     const last = purchases.lastSupplier.get(item.id);
     const to = item.suggestedSupplierId ?? (last && item.supplierIds.includes(last) && supplierNames.has(last) ? last : item.supplierIds.find((id) => supplierNames.has(id)));
     if (!to) return;
-    const { draft, undo } = addToDraft(to, item.id, Math.max(1, item.suggestedPacks), carts.get(to) ?? {});
+    // Enough for what the reorder rule says, and for batches waiting on it (production).
+    const forBatches = Math.ceil(item.shortBaseUnits / item.packQty - 1e-9);
+    const { draft, undo } = addToDraft(to, item.id, Math.max(1, item.suggestedPacks, forBatches), carts.get(to) ?? {});
     const count = Object.keys(draft).length;
     setDone({ message: `${item.name}: added to ${supplierNames.get(to)}'s cart · ${count} ${count === 1 ? 'item' : 'items'}.`, undo, href: `#order/${to}` });
   };
@@ -140,6 +143,7 @@ export function InventoryView({
       <ItemsTabs current="raw" />
 
       <RejectionNotices />
+      <ReleaseNotices />
       {(archived || error) && (
         <div className={`inv-notice${error ? ' inv-notice--error' : ''}`} role={error ? 'alert' : 'status'}>
           {error || `${archived?.name} removed from inventory.`}
@@ -183,7 +187,7 @@ export function InventoryView({
         {shown.map((item) => {
            const status = stockStatus(item);
            const cart = cartOf(carts, item.id);
-           const canCart = !cart && !coming.packs.has(item.id) && (status === 'low' || status === 'out') && item.supplierIds.some((id) => supplierNames.has(id));
+           const canCart = !cart && !coming.packs.has(item.id) && (status === 'low' || status === 'out' || item.shortBaseUnits > 0) && item.supplierIds.some((id) => supplierNames.has(id));
 
            return (
              <article key={item.id} className="inv-row"
@@ -217,6 +221,8 @@ export function InventoryView({
                    ? <strong>Count due · hidden</strong>
                    : <strong>{formatStock(item.onHandBaseUnits, item)}</strong>)}
                  {!item.counted && <span className="inv-row__lasts">{receiveUnitOf(item).id === 'pack' ? `${formatQuantity(item.packQty, item.baseUnit)} a pack` : `Bought by ${unitName(receiveUnitOf(item))}`}</span>}
+                 {item.reservedBaseUnits > 0 && <span className="inv-row__lasts">{formatQuantity(item.reservedBaseUnits, item.baseUnit)} held for the kitchen</span>}
+                 {item.shortBaseUnits > 0 && <span className="inv-row__lasts inv-row__short">Kitchen waits for {formatQuantity(item.shortBaseUnits, item.baseUnit)} more</span>}
                  {status === 'unsure'
                    ? <span className="inv-row__lasts">{missedText(item.missedSales)}</span>
                    : item.counted && !dueIds.has(item.id) && formatLasts(item.lastsDays) && <span className="inv-row__lasts">{formatLasts(item.lastsDays)}</span>}
