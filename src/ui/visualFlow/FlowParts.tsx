@@ -1,6 +1,11 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, Handle, Position, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react';
 import type { CSSProperties } from 'react';
 import { fmt } from '../../domain/money.ts';
+import type { ItemStock } from '../../domain/itemStock.ts';
+import { andList } from '../../domain/production.ts';
+import { prepAmount } from '../../domain/prep.ts';
+import { formatQuantity } from '../../domain/quantity.ts';
+import type { BaseUnit } from '../../domain/inventoryData.ts';
 import type { FlowEdge, FlowNode, FlowView } from '../../domain/visualFlow.ts';
 
 /**
@@ -25,6 +30,10 @@ export type NodeData = {
   /** Takes new ingredients (a recipe that can change here). */
   takes: boolean;
   onToggle: (id: string) => void;
+  /** Its stock, from the same ledger as Items; null: a resource or money. */
+  stock: ItemStock | null;
+  /** Left out by the filter: drawn faintly, so the flow stays whole. */
+  dim: boolean;
 };
 export type VfNode = Node<NodeData, 'vf'>;
 
@@ -40,13 +49,39 @@ export const nodeValue = (n: FlowNode, view: FlowView, focus: boolean): string =
   return focus ? rs(n.cents) : `${rs(n.cents)} · ${pct(n.share)}`;
 };
 
+/** An amount of an item in its own unit: kg and L for a price-list item, as Items shows it. */
+export const stockAmount = (s: ItemStock, qty: number): string =>
+  s.kind === 'raw' ? formatQuantity(qty, s.unit as BaseUnit) : prepAmount(qty, s.unit || 'pcs');
+
+/** The card's stock line: "12 kg on hand · 2 kg held", "Can make 8", "Not counted yet". */
+export const stockLine = (s: ItemStock): string => {
+  if (s.kind === 'finished') return s.canMake === null ? 'Stock not known' : `Can make ${s.canMake}`;
+  if (!s.known) return s.kind === 'raw' ? 'Not counted yet' : 'None made yet';
+  return `${stockAmount(s, s.onHand)} on hand${s.reserved > 0 ? ` · ${stockAmount(s, s.reserved)} held` : ''}`;
+};
+
+/** What is happening to it: waiting, in the kitchen, short. */
+export const stockNote = (s: ItemStock): string | null => {
+  if (s.waiting > 0) return `Waiting for ${andList(s.waitingFor)}`;
+  if (s.inKitchen > 0) return `In the kitchen · ${stockAmount(s, s.inKitchen)}`;
+  if (s.short > 0) return `Short ${stockAmount(s, s.short)} for the kitchen`;
+  if (s.status === 'out') return s.kind === 'finished' ? 'None can be made' : 'Out of stock';
+  if (s.status === 'low') return s.kind === 'raw' ? `Low · order ${s.orderPacks} ${s.orderPacks === 1 ? 'pack' : 'packs'}` : 'Low · make more';
+  return null;
+};
+
 export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
-  const { node: n, view, focus, takes, onToggle } = data;
+  const { node: n, view, focus, takes, onToggle, stock, dim } = data;
   const folds = n.recipe !== null && !focus && n.inputs > 0;
   const gap = n.missing.length > 0;
+  // Being made or waiting is in hand (blue); red only when it is short and nothing is coming.
+  const alert = !stock ? null
+    : stock.waiting > 0 || stock.inKitchen > 0 ? 'wait'
+      : stock.status === 'out' || stock.short > 0 ? 'out' : stock.status === 'low' ? 'low' : null;
+  const note = stock && stockNote(stock);
   return (
     <div
-      className={`vf-node vf-node--${n.kind}${focus ? ' vf-node--focus' : ''}${selected ? ' vf-node--on' : ''}${gap ? ' vf-node--gap' : ''}`}
+      className={`vf-node vf-node--${n.kind}${focus ? ' vf-node--focus' : ''}${selected ? ' vf-node--on' : ''}${gap ? ' vf-node--gap' : ''}${alert ? ` vf-node--${alert}` : ''}${dim ? ' vf-node--dim' : ''}`}
       style={{ '--share': view === 'material' ? 0 : n.share } as CSSProperties}
     >
       {(takes || n.kind === 'profit') && <Handle type="target" position={Position.Left} className="vf-handle" isConnectable={takes} />}
@@ -60,6 +95,8 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
         {nodeValue(n, view, focus)}
         {n.kind === 'profit' && n.qty > 0 && <span className="vf-node__sub"> · {amount(n.qty, 'sold')} in 28 days</span>}
       </div>
+      {stock && <div className="vf-node__stock num">{stockLine(stock)}</div>}
+      {note && <div className={`vf-node__alert${alert ? ` vf-node__alert--${alert}` : ''}`}>{note}</div>}
       {folds && (
         <button
           type="button" className="vf-node__fold nodrag"

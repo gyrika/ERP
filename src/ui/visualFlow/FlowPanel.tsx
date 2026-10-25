@@ -7,7 +7,9 @@ import type { MenuItem } from '../../domain/types.ts';
 import { holderOf, lineNode, moneyOf, ratesOf, resourcesOf, SALES_DAYS, type FlowEdge, type FlowGraph, type FlowNode, type FlowView, type Holder } from '../../domain/visualFlow.ts';
 import { NumberInput } from '../NumberInput.tsx';
 import { lineName } from '../RecipesView.tsx';
-import { amount, KIND_LABEL, pct, rs } from './FlowParts.tsx';
+import { amount, KIND_LABEL, pct, rs, stockAmount, stockLine, stockNote } from './FlowParts.tsx';
+import { needsAttention, type ItemStock } from '../../domain/itemStock.ts';
+import { prepAmount } from '../../domain/prep.ts';
 
 /**
  * The side panel: what the selected card or line is, in plain words, and the one place to change
@@ -22,6 +24,10 @@ export interface PanelActions {
   setRates: (rates: Rates) => void;
   addStage: (h: Holder, name: string) => string | null;
   pickIngredient: (h: Holder) => void;
+  /** Sends batches of a semi-processed item with what it is made from (production.ts). */
+  sendToKitchen: (key: string, batches: number) => void;
+  /** Puts a raw material in its supplier's cart: what the reorder rule says, or what the kitchen waits for. */
+  addToCart: (itemId: string) => void;
   select: (s: Selection) => void;
   toggle: (id: string) => void;
 }
@@ -37,6 +43,10 @@ interface Props {
   plan: readonly PublishStep[];
   focusName: string;
   actions: PanelActions;
+  /** Each card's stock, from the same ledger as Items. */
+  stocks: ReadonlyMap<string, ItemStock>;
+  /** What one batch of a semi-processed item makes; null: not known. */
+  makesOf: (key: string) => { qty: number; unit: string } | null;
 }
 
 const dateText = (at: number) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -76,6 +86,7 @@ export function FlowPanel(p: Props) {
   return (
     <aside className="vf-panel" aria-label="Details">
       {edge ? <EdgeDetails {...p} edge={edge} /> : shown ? <NodeDetails {...p} node={shown} /> : <p className="vf-muted">Choose something to make.</p>}
+      {!node && !edge && <Attention {...p} />}
       {p.plan.length > 0 && <DraftList {...p} />}
     </aside>
   );
@@ -140,6 +151,7 @@ function NodeDetails(p: Props & { node: FlowNode }) {
         {n.recipe?.question && <p className="vf-muted">{versionText(n.recipe.question, events, drafts)}</p>}
       </header>
       <Figures {...p} node={n} />
+      <StockDetails {...p} node={n} />
       <Gaps missing={n.missing} menu={menu} />
       {item && (
         <p className="vf-muted">
@@ -153,6 +165,82 @@ function NodeDetails(p: Props & { node: FlowNode }) {
         <button type="button" className="linkbtn" onClick={() => actions.toggle(n.id)}>{n.collapsed ? 'Show what goes into it' : 'Hide what goes into it'}</button>
       )}
     </>
+  );
+}
+
+const STATUS_TEXT: Record<ItemStock['status'], string> = { out: 'Out of stock', low: 'Low', unsure: 'Check the shelf', ok: 'In stock', unknown: 'Not known yet' };
+
+/** The one action that fits: a raw material is ordered, a semi-processed item is made; a dish is made to order. */
+function StockAction({ node, st, actions, makesOf }: Props & { node: FlowNode; st: ItemStock }) {
+  const [batches, setBatches] = useState('1');
+  if (st.kind === 'raw') {
+    return <button type="button" className="vf-add vf-add--go" onClick={() => actions.addToCart(node.id.slice('stock:'.length))}>Order from supplier</button>;
+  }
+  if (st.kind !== 'semi') return null;
+  const key = node.id.slice('semi:'.length);
+  const makes = makesOf(key);
+  if (!makes) return <p className="vf-muted">Say what one batch makes to send it to the kitchen.</p>;
+  const n = Number(batches);
+  return (
+    <form className="vf-send" onSubmit={(e) => { e.preventDefault(); if (n > 0) actions.sendToKitchen(key, n); }}>
+      <NumberInput className="vf-num" aria-label={`Batches of ${node.name}`} value={batches} onText={setBatches} decimals={1} unit={n === 1 ? 'batch' : 'batches'} />
+      <button type="submit" className="vf-add vf-add--go" disabled={!(n > 0)}>Send to kitchen</button>
+      {n > 0 && <p className="vf-muted">{prepAmount(n * makes.qty, makes.unit)}; what it is made from goes first if it is not there.</p>}
+    </form>
+  );
+}
+
+/** On hand, held, free, in the kitchen, waiting: the same figures as Items. */
+function StockDetails(p: Props & { node: FlowNode }) {
+  const st = p.stocks.get(p.node.id);
+  if (!st) return null;
+  const note = stockNote(st);
+  return (
+    <section className="vf-section" aria-label="Stock">
+      <h3 className="vf-section__title">Stock · <span className={`vf-stock__status--${st.status}`}>{STATUS_TEXT[st.status]}</span></h3>
+      {st.kind === 'finished' ? (
+        <p className="vf-muted">{stockLine(st)}{st.canMake !== null ? ' now, from what is on hand. Dishes are made to order: they reach the kitchen from the Register.' : ': its recipe takes nothing counted yet.'}</p>
+      ) : st.known ? (
+        <dl className="vf-figures">
+          <dt>On hand</dt><dd className="num">{stockAmount(st, st.onHand)}</dd>
+          {st.reserved > 0 && <><dt>Held for the kitchen</dt><dd className="num">{stockAmount(st, st.reserved)}</dd></>}
+          <dt>Free to use</dt><dd className="num">{stockAmount(st, st.available)}</dd>
+          {st.inKitchen > 0 && <><dt>Being made</dt><dd className="num">{stockAmount(st, st.inKitchen)}</dd></>}
+          {st.waiting > 0 && <><dt>Waiting</dt><dd className="num">{stockAmount(st, st.waiting)}</dd></>}
+        </dl>
+      ) : (
+        <p className="vf-muted">{st.kind === 'raw' ? 'Not counted yet: count it under Items to know what is there.' : 'None made yet: its first batch from the kitchen starts its stock.'}</p>
+      )}
+      {note && <p className={st.status === 'out' || st.short > 0 ? 'vf-problem' : 'vf-muted'}>{note}{st.waiting > 0 ? '. It goes to the kitchen by itself when ready.' : ''}</p>}
+      <StockAction {...p} st={st} />
+    </section>
+  );
+}
+
+/** Nothing selected: what in this flow needs a look, out first, each with its one action. */
+function Attention(p: Props) {
+  const rows = p.graph.nodes
+    .map((n) => ({ n, st: p.stocks.get(n.id) }))
+    .filter((x): x is { n: FlowNode; st: ItemStock } => !!x.st && x.n.id !== p.graph.focus && needsAttention(x.st))
+    .sort((a, b) => Number(b.st.status === 'out') - Number(a.st.status === 'out'));
+  if (!rows.length) return null;
+  return (
+    <section className="vf-section" aria-label="Needs attention">
+      <h3 className="vf-section__title">Needs attention</h3>
+      <ul className="vf-attention">
+        {rows.map(({ n, st }) => (
+          <li key={n.id} className="vf-attention__row">
+            <button type="button" className="vf-line__open" onClick={() => p.actions.select({ kind: 'node', id: n.id })}>
+              <span className="vf-attention__name">{n.name}<span className="vf-attention__note">{stockNote(st) ?? stockLine(st)}</span></span>
+            </button>
+            {st.kind === 'raw' && <button type="button" className="vf-add" onClick={() => p.actions.addToCart(n.id.slice('stock:'.length))}>Order</button>}
+            {st.kind === 'semi' && st.waiting === 0 && st.inKitchen === 0 && p.makesOf(n.id.slice('semi:'.length)) && (
+              <button type="button" className="vf-add" onClick={() => p.actions.sendToKitchen(n.id.slice('semi:'.length), 1)}>Make 1 batch</button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

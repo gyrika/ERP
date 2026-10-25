@@ -105,6 +105,13 @@ export const batchUsage = (key: string, qty: number, unit: string, answers: Read
   return [...total].filter(([, q]) => q > 0).map(([inventoryId, qtyBaseUnits]) => ({ inventoryId, qtyBaseUnits }));
 };
 
+/** One recipe line, `times` over, as a batch takes it: down to the price-list items, or to tracked items. */
+export const lineUsage = (line: BookLine, times: number, answers: ReadonlyMap<string, Answer>, tracked: Tracked = NONE): RecipeLine[] => {
+  const total = new Map<string, number>();
+  trace(line, times, answers, total, 1, tracked);
+  return [...total].filter(([, q]) => q > 0).map(([inventoryId, qtyBaseUnits]) => ({ inventoryId, qtyBaseUnits }));
+};
+
 /**
  * How much of each semi-processed item a sold line used, by key, whether or not it has a stock
  * yet: the daily use behind "make more" (an item's use is known from the day it is first made).

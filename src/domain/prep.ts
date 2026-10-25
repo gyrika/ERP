@@ -119,6 +119,12 @@ export interface PrepStock {
   lastMadeAt: number | null;
   /** Sent to the kitchen and not Done yet, in its unit. */
   inKitchen: number;
+  /** Held by batches in the kitchen that are made from it (production.ts): on hand, but spoken for. */
+  reserved: number;
+  /** Sent, but waiting for what it is made from before it reaches the kitchen. */
+  waiting: number;
+  /** What those waiting batches wait for, by name. */
+  waitingFor: string[];
 }
 
 export type PrepStatus = 'out' | 'low' | 'ok' | 'unknown';
@@ -135,8 +141,12 @@ export const prepStatus = (p: Pick<PrepStock, 'tracked' | 'onHand' | 'usedPerDay
 export const prepAmount = (qty: number, unit: string): string =>
   `${Number((Math.round(qty * 10) / 10).toFixed(1)).toLocaleString('en-US')} ${unit}`;
 
-/** One batch sent to the kitchen: what, and how much. */
-export interface PrepOrder { ticketId: string; prepId: string; name: string; qty: number; unit: string; at: number }
+/**
+ * One batch sent to the kitchen: what, and how much. held: waiting for what it is made from
+ * (`waitFor`, by name), not on the kitchen screen until released (production.ts); `at` is when
+ * it reached the kitchen. plan: the ticket the person asked for, when this one was sent for it.
+ */
+export interface PrepOrder { ticketId: string; prepId: string; name: string; qty: number; unit: string; at: number; held: boolean; waitFor: string[]; plan?: string }
 
 /**
  * Prep tickets as batches, in event order (stock and waste history share it, so they agree).
@@ -159,12 +169,26 @@ export const prepTracker = () => {
     /** Items with a batch standing, with the unit their stock is counted in. */
     tracked: tracked as ReadonlyMap<string, string>,
     /** Sent and not Done yet, and still on the kitchen screen (it shows a day's tickets). */
-    open: (now: number): PrepOrder[] => [...orders.values()].filter((o) => !done.has(o.ticketId) && now - o.at <= TICKET_HORIZON_MS),
+    open: (now: number): PrepOrder[] => [...orders.values()].filter((o) => !o.held && !done.has(o.ticketId) && now - o.at <= TICKET_HORIZON_MS),
+    /** Held for what it is made from, oldest first: released in this order. */
+    waiting: (): PrepOrder[] => [...orders.values()].filter((o) => o.held),
     step(e: SyncEvent): { kind: 'made' | 'unmade'; order: PrepOrder } | null {
       switch (e.type) {
-        case 'prep.ordered':
-          if (!orders.has(e.ticketId)) orders.set(e.ticketId, { ticketId: e.ticketId, prepId: e.prepId, name: e.name, qty: e.qty, unit: e.unit, at: e.at });
+        case 'prep.ordered': {
+          const waitFor = e.waitFor ?? [];
+          if (!orders.has(e.ticketId)) {
+            orders.set(e.ticketId, {
+              ticketId: e.ticketId, prepId: e.prepId, name: e.name, qty: e.qty, unit: e.unit, at: e.at, held: waitFor.length > 0, waitFor, ...(e.plan ? { plan: e.plan } : {}),
+            });
+          }
           return null;
+        }
+        case 'prep.released': {
+          // Reaches the kitchen now; a second release, or one for an order taken back, changes nothing.
+          const o = orders.get(e.ticketId);
+          if (o?.held) orders.set(e.ticketId, { ...o, held: false, at: e.at });
+          return null;
+        }
         case 'prep.order_undone': {
           const o = orders.get(e.ticketId);
           if (!o) return null;
@@ -175,7 +199,7 @@ export const prepTracker = () => {
         }
         case 'kitchen.bumped': {
           const o = orders.get(e.ticketId);
-          if (!o || done.has(o.ticketId)) return null;
+          if (!o || o.held || done.has(o.ticketId)) return null;
           const unit = tracked.get(o.prepId);
           if (unit !== undefined && unit !== o.unit) return null;
           done.add(o.ticketId);

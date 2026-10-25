@@ -129,6 +129,12 @@ The kitchen's taps become events so the counter and owner see them:
 `kitchen.seen`, `kitchen.started`, `kitchen.unstarted`, `kitchen.bumped`, `kitchen.unbumped`
 (see `KitchenEvent` in `sync.ts`). Start and Done time the cooking: `docs/cook-times.md`.
 
+Production with dependencies (SCRUM-161, `PrepEvent` in `sync.ts`): `prep.ordered` may carry
+`waitFor` (names it waits for; present = held, not on the kitchen screen) and `plan` (the ticket the
+person asked for). `prep.released` (`ticketId`, `prepId`, `name`, `qty`, `unit`, `waited`) puts a
+held batch on the kitchen screen; only the shop server writes it (id `rel-<ticketId>`), a device's is
+refused. The kitchen fires a ticket from the release alone and ignores one for a batch taken back.
+
 ## Decision needed: where the server runs
 
 The internet at the shop is unreliable, and **the kitchen works from the screen only**. If the server

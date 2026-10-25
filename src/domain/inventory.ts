@@ -8,6 +8,8 @@ import type { LearnedUnit, Tier } from './counting.ts';
 import { suggestions } from './ordering.ts';
 import { onOrder, purchasesFromEvents } from './purchaseOrders.ts';
 import { stockSettingsFromEvents, type StockSettings } from './stockSettings.ts';
+import { ledgerOf, type Ledger } from './production.ts';
+import type { PrepOrder } from './prep.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -118,6 +120,10 @@ export type InventoryRow = InventoryItem & {
   receiveUnit: string | null;
   /** "Order when below" this many packs, the owner's choice (SCRUM-135); null: the reorder rule decides. */
   orderBelowPacks: number | null;
+  /** Spoken for by batches in the kitchen that are made from it (production.ts), in base units. */
+  reservedBaseUnits: number;
+  /** Held batches wait for this much more of it to come in (a delivery), in base units; 0: none. */
+  shortBaseUnits: number;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -238,6 +244,10 @@ export interface Stock {
   untrackedSold: number;
   /** Semi-processed items (SCRUM-136): each one any batch or "make more" amount was recorded for, or used in that window. */
   preps: PrepStock[];
+  /** What is free, spoken for and short, for every kind of item alike, and what is due to the kitchen (production.ts). */
+  ledger: Ledger;
+  /** Batches in the kitchen or held for their inputs, oldest first. */
+  production: PrepOrder[];
 }
 
 /** inventoryFromEvents, plus what the stock does not know about. */
@@ -536,6 +546,8 @@ export const stockFromEvents = (
       tier,
       receiveUnit,
       orderBelowPacks,
+      reservedBaseUnits: 0,
+      shortBaseUnits: 0,
       suggestedPacks: 0,
       suggestedSupplierId: null as string | null,
     };
@@ -555,16 +567,37 @@ export const stockFromEvents = (
     if (at < now - settings.usageDays * DAY || at > now) continue;
     for (const [key, qty] of use) prepUsed.set(key, (prepUsed.get(key) ?? 0) + qty);
   }
+  const open = batches.open(now);
+  const waiting = batches.waiting();
   const inKitchen = new Map<string, number>();
-  for (const o of batches.open(now)) inKitchen.set(o.prepId, (inKitchen.get(o.prepId) ?? 0) + o.qty);
-  const prepRows: PrepStock[] = [...new Set([...preps.keys(), ...prepUsed.keys(), ...inKitchen.keys()])].map((key) => {
+  for (const o of open) inKitchen.set(o.prepId, (inKitchen.get(o.prepId) ?? 0) + o.qty);
+  const held = new Map<string, { qty: number; names: Set<string> }>();
+  for (const o of waiting) {
+    const h = held.get(o.prepId) ?? { qty: 0, names: new Set<string>() };
+    h.qty += o.qty;
+    o.waitFor.forEach((n) => h.names.add(n));
+    held.set(o.prepId, h);
+  }
+
+  // One ledger for all three kinds: what is counted (raw) or made (semi-processed) is known.
+  const onHand = new Map<string, number>();
+  for (const r of rows) if (r.counted) onHand.set(`stock:${r.id}`, r.onHandBaseUnits);
+  for (const [key, p] of preps) if (tracked.has(key)) onHand.set(`semi:${key}`, p.onHand);
+  const ledger = ledgerOf({ answers, tracked, onHand, open, waiting });
+  for (const r of rows) {
+    r.reservedBaseUnits = ledger.reserved.get(`stock:${r.id}`) ?? 0;
+    r.shortBaseUnits = ledger.short.get(`stock:${r.id}`) ?? 0;
+  }
+  const reservedSemi = [...ledger.reserved.keys()].filter((id) => id.startsWith('semi:')).map((id) => id.slice('semi:'.length));
+  const prepRows: PrepStock[] = [...new Set([...preps.keys(), ...prepUsed.keys(), ...inKitchen.keys(), ...held.keys(), ...reservedSemi])].map((key) => {
     const p = preps.get(key);
     return {
       key, unit: p?.unit ?? '', tracked: tracked.has(key), onHand: p?.onHand ?? 0, usedPerDay: (prepUsed.get(key) ?? 0) / days,
       makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, inKitchen: inKitchen.get(key) ?? 0,
+      reserved: ledger.reserved.get(`semi:${key}`) ?? 0, waiting: held.get(key)?.qty ?? 0, waitingFor: [...(held.get(key)?.names ?? [])],
     };
   });
-  return { rows, untrackedSold, preps: prepRows };
+  return { rows, untrackedSold, preps: prepRows, ledger, production: [...open, ...waiting].sort((a, b) => a.at - b.at) };
 };
 
 const lineQty = (qty: number) => (Number.isFinite(qty) && qty > 0 ? qty : 1);

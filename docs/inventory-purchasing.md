@@ -22,6 +22,8 @@ How stock, ordering and receiving work. Inventory is **managers and owners only*
 5. **Undo a GRN**: only the latest GRN of an order, within *grnUndoHours*, with a manager's PIN and a reason. The GRN stays listed, marked Undone.
 6. **Count**: needs a reason when the gap is over *countGapShare* of what was expected **or** worth over *countGapCents*: Spoiled, Spilled, Wrong entry, or Other (with a note). Big gaps go to the owner's **count review**; marking one Reviewed changes no stock.
 
+7. **Production** (SCRUM-161, `src/domain/production.ts`): *Send to kitchen* on Items › Semi-processed or Visual Flow sends first what the item is made from and is not there (whole batches, every level), and the item waits ("Waiting for Culture") until the shop server sees its inputs on hand and releases it to the kitchen. A batch in the kitchen holds its inputs (*held for the kitchen*). When a counted raw item is short for a waiting batch, Items shows *Kitchen waits for X more* and *+ Cart* orders it; the batch goes once a GRN puts the stock in. Finished dishes show *Can make N* from what is on hand.
+
 ## Rules that hold everywhere
 
 - Stock is the sum of movements (`GRN`, `GRN_UNDO`, `COUNT_ADJUST`, and sales worked out from orders). A GRN is one record that carries its own stock movement; nothing edits a stock figure.
@@ -41,6 +43,7 @@ How stock, ordering and receiving work. Inventory is **managers and owners only*
 | PO / GRN state, statuses, checks | `src/domain/purchaseOrders.ts` |
 | Numbers | `src/domain/docNumbers.ts`, `server/numbering.ts` |
 | Stock from records | `src/domain/inventory.ts` |
+| One ledger, production planning, release | `src/domain/production.ts`, `src/domain/itemStock.ts`, `src/domain/scheduler.ts`, `server/scheduler.ts` |
 | Counts and reasons | `src/domain/counting.ts`, `src/domain/gapReview.ts` |
 | Server rules | `server/stockRules.ts`, `server/validate.ts` |
 | Writing records | `src/services/inventoryStore.ts` |

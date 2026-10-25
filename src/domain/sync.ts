@@ -128,14 +128,21 @@ export type StockEvent =
  * Done is the batch made: the item's stock goes up and its raw items come off. From its first
  * batch on, sales take the item. prepId: the item's key (his own as `kitchen:<id>`, a sheet
  * batch by name); qty in `unit`. Undo right after sending takes the ticket back.
+ *
+ * Dependencies (production.ts): an order whose inputs are not on hand is sent held, with
+ * `waitFor` naming them ("Culture"), after the orders that make them; `plan` is the ticket the
+ * person asked for, so its parts are told apart. A held order reaches the kitchen only with
+ * `prep.released`, which the shop server writes once its inputs are on hand (`id` rel-<ticket>,
+ * so it is written once), with the order's details so the kitchen needs nothing older.
  */
 export type PrepEvent =
-  | (StockBase & { type: 'prep.ordered'; ticketId: string; prepId: string; name: string; qty: number; unit: string })
+  | (StockBase & { type: 'prep.ordered'; ticketId: string; prepId: string; name: string; qty: number; unit: string; waitFor?: string[]; plan?: string })
   | (StockBase & { type: 'prep.order_undone'; ticketId: string })
+  | (StockBase & { type: 'prep.released'; ticketId: string; prepId: string; name: string; qty: number; unit: string; waited: string[] })
   /** "Make more when below" this amount, in the item's unit (managers and the owner); null: automatic. */
   | (StockBase & { type: 'prep.limit_set'; prepId: string; before: number | null; after: number | null });
 
-export const PREP_EVENT_TYPES = ['prep.ordered', 'prep.order_undone', 'prep.limit_set'] as const satisfies readonly PrepEvent['type'][];
+export const PREP_EVENT_TYPES = ['prep.ordered', 'prep.order_undone', 'prep.released', 'prep.limit_set'] as const satisfies readonly PrepEvent['type'][];
 
 /**
  * Stock moves only by these (stockMovements.ts): GRN in, GRN_UNDO out, COUNT_ADJUST ±.

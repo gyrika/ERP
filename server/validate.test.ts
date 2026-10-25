@@ -283,6 +283,14 @@ test('prep sent to the kitchen (SCRUM-136): a ticket, an item, a unit and a real
   assert.ok(!ok({ ...made, ticketId: '' }));
   assert.ok(ok({ ...base, type: 'prep.order_undone', ticketId: 'ticket-1' }));
   assert.ok(!ok({ ...base, type: 'prep.order_undone' }));
+  // Held for what it is made from (production.ts), and its release.
+  assert.ok(ok({ ...made, waitFor: ['Culture'], plan: 'ticket-1' }));
+  assert.ok(!ok({ ...made, waitFor: 'Culture' }));
+  assert.ok(!ok({ ...made, waitFor: [''] }));
+  const released = { ...made, type: 'prep.released', waited: ['Culture'] };
+  assert.ok(ok(released));
+  assert.ok(!ok({ ...released, waited: undefined }));
+  assert.ok(!ok({ ...released, qty: -1 }));
   assert.ok(ok({ ...base, type: 'prep.limit_set', prepId: 'Mozzarella Blend', before: null, after: 3000 }));
   assert.ok(!ok({ ...base, type: 'prep.limit_set', prepId: 'Mozzarella Blend', before: null, after: -1 }));
 });

@@ -2,7 +2,7 @@
 /* The design tokens of styles.css throughout, so it follows light and dark like every screen.
    Quiet by default: the item in focus is the one dark card, amber is a gap, nothing else is coloured. */
 .vf-page { height: 100dvh; overflow: hidden; }
-.vf { height: 100%; display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+.vf { height: 100%; display: grid; grid-template-rows: auto auto 1fr; min-height: 0; }
 
 .vf-bar { display: flex; align-items: center; gap: 16px; padding: 0 24px 12px; flex-wrap: wrap; }
 .vf-focus { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 12px; margin-left: -12px; border-radius: 12px; color: var(--ink); font: inherit; font-size: 22px; font-weight: 600; letter-spacing: -0.5px; cursor: pointer; transition: background-color 150ms var(--ease); }
@@ -10,6 +10,7 @@
 .vf-focus__name { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vf-views { display: inline-flex; gap: 2px; padding: 4px; border-radius: 980px; background: var(--chip); }
 .vf-views .pill { min-height: 40px; padding: 0 18px; }
+.vf-filter { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .vf-publish { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 .vf-discard { min-height: 48px; align-self: center; }
 .vf-primary { min-height: 48px; padding: 0 24px; border-radius: 980px; background: var(--primary); color: var(--on-primary); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; animation: rise 200ms var(--ease); }
@@ -41,6 +42,17 @@
 .vf-node__name { margin-top: 4px; font-size: 15px; font-weight: 600; letter-spacing: -0.2px; line-height: 1.25; overflow-wrap: anywhere; }
 .vf-node__value { margin-top: 4px; font-size: 14px; color: var(--ink-2); }
 .vf-node__sub { font-size: 12px; }
+/* Stock, from the same ledger as Items: one line, and a coloured edge only when it needs a look. */
+.vf-node__stock { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+.vf-node--focus .vf-node__stock { border-top-color: rgba(127, 127, 127, 0.35); color: inherit; opacity: 0.85; }
+.vf-node__alert { margin-top: 2px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.vf-node__alert--out { color: var(--bad); }
+.vf-node--focus .vf-node__alert { color: inherit; }
+.vf-node--out { box-shadow: inset 4px 0 0 var(--bad), var(--card-shadow); }
+.vf-node--low { box-shadow: inset 4px 0 0 var(--warn), var(--card-shadow); }
+.vf-node--wait { box-shadow: inset 4px 0 0 var(--info, var(--ink-3)), var(--card-shadow); }
+.vf-node--out.vf-node--on, .vf-node--low.vf-node--on, .vf-node--wait.vf-node--on { box-shadow: 0 0 0 2px var(--ink), var(--card-shadow); }
+.vf-node--dim { opacity: 0.32; }
 .vf-node__fold { position: absolute; right: 8px; bottom: 8px; min-width: 32px; height: 28px; padding: 0 8px; border-radius: 980px; background: var(--chip); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .vf-node--focus .vf-node__fold { background: rgba(127, 127, 127, 0.3); color: inherit; }
 .vf-handle.react-flow__handle { width: 12px; height: 12px; border: 2px solid var(--ink-3); background: var(--surface); }
@@ -111,3 +123,16 @@
   .vf-panel { border-left: 0; border-top: 1px solid var(--line); padding: 20px 16px 96px; }
 }
 @media (prefers-reduced-motion: reduce) { .vf-node, .vf-edge, .vf-node::after, .vf-primary { transition: none; animation: none; } }
+
+/* Stock in the panel: the figures, then the one action that fits the item. */
+.vf-stock__status--out { color: var(--bad); }
+.vf-attention { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.vf-attention__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 48px; }
+.vf-attention__name { font-weight: 600; overflow-wrap: anywhere; }
+.vf-attention__note { display: block; font-size: 13px; color: var(--ink-2); font-weight: 400; }
+.vf-notices { padding: 0 24px; }
+.vf-notices .inv-notice { margin: 0 0 8px; }
+.vf-send { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; min-width: 0; }
+.vf-send .vf-num { min-width: 0; width: 100%; }
+.vf-send .vf-add { white-space: nowrap; }
+.vf-send .vf-muted { grid-column: 1 / -1; margin: 0; }

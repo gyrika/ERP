@@ -226,16 +226,24 @@ export const ticketsFromEvents = (events: readonly SyncEvent[], now: number): Ki
 const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
   let t: KitchenTicket[] = [];
   const before = new Map<string, KitchenLine>(); // change event id → the kitchen's line before it
+  const recalled = new Set<string>(); // prep tickets taken back
   for (const e of events) {
     switch (e.type) {
       case 'order.sent':
         t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn, ...(e.online ? { online: e.online } : {}) });
         break;
       case 'order.send_undone': t = recall(t, e.ticketId); break;
+      // A batch held for what it is made from reaches the kitchen when it is released (production.ts).
       case 'prep.ordered':
+        if (e.waitFor?.length) break;
         t = fire(t, { id: e.ticketId, shopId: e.shopId, number: 0, lines: [], firedAt: e.at, prep: { prepId: e.prepId, name: e.name, qty: e.qty, unit: e.unit } });
         break;
-      case 'prep.order_undone': t = recall(t, e.ticketId); break;
+      case 'prep.released':
+        // Once, and never for a batch taken back before it went.
+        if (recalled.has(e.ticketId) || t.some((x) => x.id === e.ticketId)) break;
+        t = fire(t, { id: e.ticketId, shopId: e.shopId, number: 0, lines: [], firedAt: e.at, prep: { prepId: e.prepId, name: e.name, qty: e.qty, unit: e.unit } });
+        break;
+      case 'prep.order_undone': recalled.add(e.ticketId); t = recall(t, e.ticketId); break;
       case 'order.item_changed':
       case 'order.item_cancelled': {
         const was = kitchenLine(t, e.lineId);
