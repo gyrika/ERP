@@ -73,3 +73,37 @@ test('a waste needs what, a real amount (whole dishes) and a reason; Other needs
   assert.ok(checkWaste({ kind: 'stock' }, 1, 'burnt', undefined, 'M'));
   assert.equal(checkWaste({ kind: 'stock', itemId: FLOUR }, 0.5, 'expired', undefined, 'Flour'), null);
 });
+
+// SCRUM-176: a sent dish cancelled after the kitchen made it is waste; one not made yet gives its stock back.
+const sentPizza: SyncEvent = { id: 'snt1', shopId: 's', at: 100, orderNumber: 7, actor: ravi, type: 'order.sent', ticketId: 't7', addOn: false,
+  lines: [{ id: 'L1', itemId: 'margherita', size: 'L', qty: 1, adds: [], outs: [], sent: true }] };
+const cancel = (made: boolean): Extract<SyncEvent, { type: 'order.item_cancelled' }> => ({
+  id: made ? 'cx-made' : 'cx', shopId: 's', at: 200, orderNumber: 7, actor: ravi, type: 'order.item_cancelled', lineId: 'L1', index: 0,
+  before: { id: 'L1', itemId: 'margherita', size: 'L', qty: 1, adds: [], outs: [], sent: true }, reason: 'Customer left', totalBefore: 145000, totalAfter: 0,
+  ...(made ? { made: true as const } : {}),
+});
+
+test('cancelled before it was made: its mozzarella goes back, and it is not waste', () => {
+  assert.equal(onHand([sentPizza], MOZZ), -75);
+  assert.equal(onHand([sentPizza, cancel(false)], MOZZ), 0);
+  assert.deepEqual(wasteRecords([sentPizza, cancel(false)]), []);
+});
+
+test('cancelled after it was made: its mozzarella stays used, as waste, with the reason given', () => {
+  const events = [sentPizza, cancel(true)];
+  assert.equal(onHand(events, MOZZ), -75);
+  const [w] = wasteRecords(events);
+  assert.equal(w.reason, 'cancelled');
+  assert.equal(w.note, 'Customer left');
+  assert.deepEqual(w.takes.find((t) => t.inventoryId === MOZZ), { inventoryId: MOZZ, qtyBaseUnits: 75 });
+  const [h] = itemHistory(events, MOZZ);
+  assert.equal(h.kind === 'waste' && h.reason, 'cancelled');
+});
+
+test('Undo of a made-then-cancelled dish takes the waste back; the sale stands as before', () => {
+  const undo: SyncEvent = { id: 'u7', shopId: 's', at: 300, orderNumber: 7, actor: ravi, type: 'order.change_undone', undoneEventId: 'cx-made',
+    undoneType: 'order.item_cancelled', totalBefore: 0, totalAfter: 145000 };
+  const events = [sentPizza, cancel(true), undo];
+  assert.deepEqual(wasteRecords(events), []);
+  assert.equal(onHand(events, MOZZ), -75);
+});

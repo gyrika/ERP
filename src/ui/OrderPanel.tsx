@@ -55,11 +55,14 @@ export interface ManagePanel {
   /** Selected line index, or selected waiting order when no order is on screen. */
   selected: number;
   pendingVoid: string | null;
+  /** The line being voided was already made by the kitchen (SCRUM-176): its stock is waste. */
+  voidMade: boolean;
   adjusting: string | null;
   onSelect: (index: number) => void;
   onEditLine: (line: OrderLine) => void;
   onAskVoid: (line: OrderLine) => void;
   onVoid: (lineId: string, reason: string) => void;
+  onVoidMade: (made: boolean) => void;
   onAskAdjust: (line: OrderLine) => void;
   onAdjust: (lineId: string, cents: Cents) => void;
   onDiscount: (discount: Discount | null) => void;
@@ -89,10 +92,16 @@ interface Props {
   onReprint?: () => void;
 }
 
-function VoidReasons({ lineId, onVoid }: { lineId: string; onVoid: ManagePanel['onVoid'] }) {
+function VoidReasons({ lineId, onVoid, made, onMade }: { lineId: string; onVoid: ManagePanel['onVoid']; made: boolean; onMade: ManagePanel['onVoidMade'] }) {
   const [other, setOther] = useState<string | null>(null);
   return (
     <div className="inline" role="group" aria-label="Why void this item?">
+      {/* Made already: its ingredients are used up (waste), not back on the shelf (SCRUM-176). */}
+      <span className="inline__label">Already made?</span>
+      <div className="chips chips--tight" role="radiogroup" aria-label="Already made?">
+        <button type="button" role="radio" className="chip" aria-checked={!made} onClick={() => onMade(false)}>Not made yet</button>
+        <button type="button" role="radio" className="chip" aria-checked={made} onClick={() => onMade(true)}><kbd>M</kbd>Already made · waste</button>
+      </div>
       <span className="inline__label">Why void it?</span>
       <div className="chips chips--tight">
         {VOID_REASONS.map((r, i) => (
@@ -242,7 +251,7 @@ export function OrderPanel({
                     <button type="button" className="chip chip--solid chip--danger" onClick={() => manage.onAskVoid(l)}><kbd>Del</kbd>Void</button>
                   </div>
                 )}
-                {manage.pendingVoid === l.id && <VoidReasons lineId={l.id} onVoid={manage.onVoid} />}
+                {manage.pendingVoid === l.id && <VoidReasons lineId={l.id} onVoid={manage.onVoid} made={manage.voidMade} onMade={manage.onVoidMade} />}
                 {manage.adjusting === l.id && <AdjustField line={l} order={order} onAdjust={manage.onAdjust} />}
               </div>
             );

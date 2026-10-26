@@ -260,3 +260,26 @@ test('light or dark for this screen, from the command palette; it stays after a 
   expect(document.documentElement.dataset.theme).toBeUndefined();
   expect(localStorage.getItem('cb.theme')).toBeNull();
 });
+
+test('voiding a sent line asks "Already made?": yes once the kitchen started it, and then it is counted as waste (SCRUM-176)', async () => {
+  const user = userEvent.setup();
+  render(<><App /><Kitchen /></>);
+  await sendAndReopen(user);
+  await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
+  await unlock(user);
+
+  await user.keyboard('{Delete}');
+  const made = panel().getByRole('radiogroup', { name: 'Already made?' });
+  expect(within(made).getByRole('radio', { name: /Already made/ }).getAttribute('aria-checked')).toBe('true'); // the kitchen started it
+  await user.keyboard('1'); // "Customer changed mind"
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Customer changed mind', made: true });
+  expect(screen.getByText(/Voided Margherita · counted as waste/)).toBeTruthy();
+
+  // M switches it: the other line was not made after all, so its stock goes back.
+  await user.keyboard('{Delete}');
+  await user.keyboard('m');
+  expect(within(panel().getByRole('radiogroup', { name: 'Already made?' })).getByRole('radio', { name: 'Not made yet' }).getAttribute('aria-checked')).toBe('true');
+  await user.keyboard('2');
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Wrong item entered' });
+  expect('made' in auditEvents().at(-1)!).toBe(false);
+});

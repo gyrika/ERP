@@ -472,6 +472,8 @@ export const stockFromEvents = (
         const hadGaps = gaps.get(e.lineId);
         if (!had && !hadGaps) break; // never sent: it took nothing
         beforeChange.set(e.id, { lineId: e.lineId, usage: had ?? null, preps: prepTaken.get(e.lineId) ?? null, gaps: hadGaps ?? null });
+        // Already made (SCRUM-176): what it took was used up, so it stays off, as waste (waste.ts).
+        if (e.type === 'order.item_cancelled' && e.made) break;
         if (e.type === 'order.item_changed') setLine(e.lineId, usageOf(e.after, answers, tracked), prepUse(e.after, answers));
         else setLine(e.lineId, null);
         if (e.type === 'order.item_changed') gaps.set(e.lineId, { ...gapsOf(e.after, answers, tracked), qty: lineQty(e.after.qty) });

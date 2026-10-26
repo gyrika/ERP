@@ -28,7 +28,8 @@ export type OrderEvent =
   | (Base & { type: 'order.payment_undone' })
   // Manager changes (audited). Sent-item changes carry the reason the manager gave.
   | (Base & Audited & { type: 'order.item_changed'; lineId: string; before: OrderLine; after: OrderLine; reason: string })
-  | (Base & Audited & { type: 'order.item_cancelled'; lineId: string; index: number; before: OrderLine; reason: string })
+  /** made: the kitchen had already made it (SCRUM-176): its stock stays used, as waste, not given back. */
+  | (Base & Audited & { type: 'order.item_cancelled'; lineId: string; index: number; before: OrderLine; reason: string; made?: true })
   | (Base & Audited & { type: 'order.line_removed'; lineId: string; index: number; before: OrderLine })
   | (Base & Audited & { type: 'order.line_adjusted'; lineId: string; before: Cents; after: Cents })
   | (Base & Audited & { type: 'order.discount_set'; before: Discount | null; after: Discount | null })

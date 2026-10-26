@@ -1,5 +1,6 @@
 import { answersFromEvents, batchMakes, ownPreps, kitchenLine, recipeUnit, type Answer, type RecipeEvent } from './costing.ts';
-import { wasteUsage, type RecipeLine } from './stockUsage.ts';
+import { bookUsage, wasteUsage, type RecipeLine } from './stockUsage.ts';
+import { lineItemName } from './halves.ts';
 import type { SyncEvent } from './sync.ts';
 import type { InventoryItem } from './inventoryData.ts';
 import { PREPS } from './recipeBook.ts';
@@ -28,9 +29,11 @@ export const WASTE_REASONS = [
   { id: 'returned', label: 'Sent back' },
   { id: 'other', label: 'Other' },
 ] as const;
-export type WasteReason = (typeof WASTE_REASONS)[number]['id'];
+/** The bin's reasons, and 'cancelled': a dish made, then cancelled by a manager (SCRUM-176), never chosen in the bin. */
+export type WasteReason = (typeof WASTE_REASONS)[number]['id'] | 'cancelled';
+/** A reason the bin may record (not 'cancelled', which only a cancel makes). */
 export const isWasteReason = (r: unknown): r is WasteReason => WASTE_REASONS.some((w) => w.id === r);
-export const wasteReasonLabel = (id: string): string => WASTE_REASONS.find((r) => r.id === id)?.label ?? id;
+export const wasteReasonLabel = (id: string): string => (id === 'cancelled' ? 'Made, then cancelled' : WASTE_REASONS.find((r) => r.id === id)?.label ?? id);
 
 export const MAX_WASTE_QTY = 1e6;
 
@@ -129,6 +132,14 @@ export const wasteRecords = (events: readonly SyncEvent[], items: readonly Pick<
         reason: e.reason, ...(e.note ? { note: e.note } : {}), takes: wasteUsage(e.what, e.qty, answers, tracked),
       });
     } else if (e.type === 'stock.waste_undone') out.delete(e.wasteId);
+    // A dish made, then cancelled (SCRUM-176): it took what a sale takes, and that is its waste.
+    else if (e.type === 'order.item_cancelled' && e.made && !out.has(e.id)) {
+      out.set(e.id, {
+        id: e.id, at: e.at, by: e.actor.name, what: { kind: 'dish', itemId: e.before.itemId, ...(e.before.size ? { size: e.before.size } : {}) },
+        name: lineItemName(e.before), qty: e.before.qty, unit: 'pcs', reason: 'cancelled', ...(e.reason ? { note: e.reason } : {}),
+        takes: bookUsage(e.before, answers, tracked),
+      });
+    } else if (e.type === 'order.change_undone') out.delete(e.undoneEventId);
   }
   return [...out.values()];
 };

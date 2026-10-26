@@ -14,8 +14,11 @@ import type { Cents, Discount, LineSpec, Order, OrderLine } from './types.ts';
  * Menu prices are never touched: discounts live in `order.adjust`.
  */
 export type ManagerChange =
-  /** Remove a line. A line already sent to the kitchen needs a reason (owner rule). */
-  | { kind: 'void'; lineId: string; reason?: string }
+  /**
+   * Remove a line. A line already sent to the kitchen needs a reason (owner rule); made: the kitchen
+   * had already made it, so its stock is waste, not given back (SCRUM-176).
+   */
+  | { kind: 'void'; lineId: string; reason?: string; made?: boolean }
   /** Change size / extras / quantity / note. Sent lines need a reason. */
   | { kind: 'edit'; lineId: string; after: LineSpec; reason?: string }
   /** Cents off one line (capped at the line's price). 0 removes the adjustment. */
@@ -95,7 +98,7 @@ export function applyManagerChange(order: Order, change: ManagerChange, actor: A
         order: next,
         inverse: { kind: 'restoreLine', line, index },
         event: line.sent
-          ? { ...base, totalAfter, type: 'order.item_cancelled', lineId: line.id, index, before: line, reason }
+          ? { ...base, totalAfter, type: 'order.item_cancelled', lineId: line.id, index, before: line, reason, ...(change.made ? { made: true as const } : {}) }
           : { ...base, totalAfter, type: 'order.line_removed', lineId: line.id, index, before: line },
         ...(line.sent ? { kitchen: { lineId: line.id, after: null } } : {}),
       };

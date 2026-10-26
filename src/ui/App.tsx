@@ -18,7 +18,11 @@ import { PaySheet } from './PaySheet.tsx';
 import { PinSheet } from './PinSheet.tsx';
 import { ShorthandBar, describe } from './ShorthandBar.tsx';
 import { SyncSign } from './SyncSign.tsx';
-import { useKitchenTickets } from './kitchenStore.ts';
+import { readTickets, useKitchenTickets } from './kitchenStore.ts';
+
+/** The kitchen has started (or finished) the ticket holding this line: it was most likely made. */
+const kitchenStarted = (lineId: string): boolean =>
+  readTickets().some((t) => (t.startedAt !== undefined || t.doneAt !== undefined) && t.lines.some((l) => l.id === lineId));
 import { setSoundOn, soundOn } from './sound.ts';
 import { useManagerMode } from './useManagerMode.ts';
 import { useRegister } from './useRegister.ts';
@@ -95,6 +99,8 @@ export function App({
   // ---------- manager mode ----------
   const [selected, setSelected] = useState(0);
   const [pendingVoid, setPendingVoid] = useState<string | null>(null);
+  /** The line being voided was already made: what it took is waste, not put back (SCRUM-176). */
+  const [voidMade, setVoidMade] = useState(false);
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [sound, setSound] = useState(soundOn);
@@ -139,8 +145,9 @@ export function App({
 
   const askVoid = useCallback((line: OrderLine) => {
     setAdjusting(null);
-    // Not sent yet: nothing for the kitchen to know, so it goes at once. Sent: a reason first (owner rule).
-    if (line.sent) setPendingVoid(line.id); else manage({ kind: 'void', lineId: line.id });
+    // Not sent yet: nothing for the kitchen to know, so it goes at once. Sent: a reason first (owner rule),
+    // and whether it was already made: yes when the kitchen has started its ticket.
+    if (line.sent) { setPendingVoid(line.id); setVoidMade(kitchenStarted(line.id)); } else manage({ kind: 'void', lineId: line.id });
   }, [manage]);
 
   const askAdjust = useCallback((line: OrderLine) => { setPendingVoid(null); setAdjusting(line.id); }, []);
@@ -172,7 +179,8 @@ export function App({
         if (palette || sheet || adjusting) return; // they own their keys (Enter, typing)
         if (pendingVoid) {
           const i = Number(e.key) - 1;
-          if (VOID_REASONS[i] && !isTypingTarget(e.target)) { e.preventDefault(); manage({ kind: 'void', lineId: pendingVoid, reason: VOID_REASONS[i] }); }
+          if (VOID_REASONS[i] && !isTypingTarget(e.target)) { e.preventDefault(); manage({ kind: 'void', lineId: pendingVoid, reason: VOID_REASONS[i], made: voidMade }); }
+          else if (key === 'm' && !isTypingTarget(e.target)) { e.preventDefault(); setVoidMade((m) => !m); }
           return;
         }
         if (isTypingTarget(e.target) || mod || e.altKey) return;
@@ -206,7 +214,7 @@ export function App({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [reg, sheet, typed, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
+  }, [reg, sheet, typed, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, voidMade, listing, lines.length,
     selected, selectedLine, askVoid, askAdjust, toggleChip, manage, wasted, undoWaste]);
 
   // Tapping empty space outside an opened order goes back to the "Waiting to pay" list.
@@ -223,11 +231,12 @@ export function App({
   };
 
   const managePanel: ManagePanel | null = manager && {
-    actor: manager, selected, pendingVoid, adjusting,
+    actor: manager, selected, pendingVoid, voidMade, adjusting,
     onSelect: (i) => { setSelected(i); setPendingVoid(null); setAdjusting(null); },
     onEditLine: (line) => setSheet({ kind: 'edit', line }),
     onAskVoid: askVoid,
-    onVoid: (lineId, reason) => manage({ kind: 'void', lineId, reason }),
+    onVoid: (lineId, reason) => manage({ kind: 'void', lineId, reason, made: voidMade }),
+    onVoidMade: setVoidMade,
     onAskAdjust: askAdjust,
     onAdjust: (lineId, cents) => manage({ kind: 'adjustLine', lineId, cents }),
     onDiscount: (discount) => manage({ kind: 'discount', discount }),
@@ -370,7 +379,7 @@ export function App({
           manager={Boolean(sheet.line.sent)}
           onClose={closeSheet}
           onSubmit={(spec, reason) => { manage({ kind: 'edit', lineId: sheet.line.id, after: spec, reason }); closeSheet(); }}
-          onRemove={(reason) => { manage({ kind: 'void', lineId: sheet.line.id, reason }); closeSheet(); }}
+          onRemove={(reason) => { manage({ kind: 'void', lineId: sheet.line.id, reason, made: kitchenStarted(sheet.line.id) }); closeSheet(); }}
         />
       )}
       {sheet?.kind === 'edit' && !manager && !sheet.line.sent && (

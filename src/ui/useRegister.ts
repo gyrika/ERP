@@ -318,7 +318,7 @@ export function useRegister() {
     const name = (id: string) => lineItemName(s.order.lines.find((l) => l.id === id)!);
     toastFor(
       change.kind === 'discount' ? (change.discount ? discountLabel(change.discount) : 'Discount removed')
-        : change.kind === 'void' ? `Voided ${name(change.lineId)}`
+        : change.kind === 'void' ? `Voided ${name(change.lineId)}${change.made ? ' · counted as waste' : ''}`
           : change.kind === 'edit' ? `Changed ${name(change.lineId)}`
             : `Adjusted ${name(change.lineId)} · −${fmt(change.cents)}`,
     );

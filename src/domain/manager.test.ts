@@ -110,3 +110,10 @@ test('a sent-line void or edit tells the kitchen; discounts do not', () => {
   assert.equal(apply(order(), { kind: 'edit', lineId: 'b', after: { itemId: 'margherita', qty: 3, size: 'M', adds: [], outs: [] }, reason: 'x' }).kitchen?.after?.qty, 3);
   assert.equal(apply(order(), { kind: 'discount', discount: { kind: 'comp' } }).kitchen, undefined);
 });
+
+test('voiding a sent line the kitchen already made says so on the event (SCRUM-176); otherwise it does not', () => {
+  const made = apply(order(), { kind: 'void', lineId: 'a', reason: 'Customer left', made: true }).event;
+  assert.equal(made.type === 'order.item_cancelled' && made.made, true);
+  const notMade = apply(order(), { kind: 'void', lineId: 'a', reason: 'Customer left' }).event;
+  assert.equal('made' in notMade, false);
+});
