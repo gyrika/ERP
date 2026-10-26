@@ -23,6 +23,7 @@ import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '
 import type { WasteChoice, WasteReason } from '../domain/waste.ts';
 import { prepItems, type PrepItem, type PrepStock } from '../domain/prep.ts';
 import { draftEvent, draftsFromEvents, type Draft, type PublishStep } from '../domain/recipeDrafts.ts';
+import { trendDays, valuationOf, valueAt, type Valuation } from '../domain/valuation.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -332,6 +333,43 @@ export function useInventory(): { items: InventoryRow[]; allItems: InventoryRow[
       untrackedSold: stock.untrackedSold,
     };
   }, [events]);
+}
+
+/** Stock value as it stands (SCRUM-163), from the same stock as Items and Visual Flow. */
+export function useValuation(): Valuation {
+  const events = useShopHistory();
+  return useMemo(() => valuationOf(stockFromEvents(SEED_INVENTORY, events), answersFromEvents(events)), [events]);
+}
+
+/** Past days' values, by day end: kept while the events up to that day are the same. */
+const pastValues = new Map<number, { n: number; last: string; cents: Cents }>();
+
+/**
+ * The last 30 days' stock value, oldest first; null while it is worked out. Thirty replays of
+ * the history are slow on the counter PC, so they run after the screen shows, and a past day
+ * is replayed again only when an event for it arrives late (a sync).
+ */
+export function useValueTrend(): { at: number; cents: Cents }[] | null {
+  const events = useShopHistory();
+  const [trend, setTrend] = useState<{ at: number; cents: Cents }[] | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const days = trendDays(Date.now());
+      const points = days.map((at, i) => {
+        const upTo = events.filter((e) => e.at <= at);
+        const key = { n: upTo.length, last: upTo[upTo.length - 1]?.id ?? '' };
+        const kept = pastValues.get(at);
+        if (i < days.length - 1 && kept && kept.n === key.n && kept.last === key.last) return { at, cents: kept.cents };
+        const cents = valueAt(SEED_INVENTORY, upTo, at).total;
+        if (i < days.length - 1) pastValues.set(at, { ...key, cents });
+        return { at, cents };
+      });
+      for (const at of pastValues.keys()) if (at < days[0]) pastValues.delete(at);
+      setTrend(points);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [events]);
+  return trend;
 }
 
 /** A semi-processed item with its stock (SCRUM-136): untracked until its first batch. */
@@ -660,11 +698,11 @@ export function useCountHistory(): CountRecord[] {
 }
 
 /** One item's story for its sheet (SCRUM-93): last count, delivery, price change, and what uses it. */
-export function useItemStory(itemId: string, packQty = 0): ItemStory & { usedIn: string[]; history: HistoryEntry[] } {
+export function useItemStory(itemId: string, packQty = 0, priceCents?: Cents): ItemStory & { usedIn: string[]; history: HistoryEntry[] } {
   const events = useShopHistory();
   return useMemo(() => ({
-    ...itemStory(events, itemId, packQty), history: itemHistory(events, itemId, packQty), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId),
-  }), [events, itemId, packQty]);
+    ...itemStory(events, itemId, packQty), history: itemHistory(events, itemId, packQty, priceCents), usedIn: usedIn(menuItems(), answersFromEvents(events), itemId),
+  }), [events, itemId, packQty, priceCents]);
 }
 
 /** What food costing needs (SCRUM-77): the price list with its latest prices, and the owner's answers. */
