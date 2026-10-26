@@ -139,12 +139,12 @@ Tables and cameras (CV Table Management, SCRUM-166; `TableEvent` / `VisionEvent`
 and fold in `tables.ts`). All have `orderNumber` 0 and an actor; the server takes exactly these fields,
 so no camera password or image can ride along:
 `table.layout_set {tables:[{id,label,seats}]}`, `table.state_changed {tableId,from,to,confidence}` (the
-camera; ignored by the fold when the table is no longer in `from`), `table.state_set {tableId,from,to}`
+camera, by the rules of `observe`: free/reserved → occupied, occupied → free or needs_cleaning, needs_cleaning → free; ignored by the fold when the table is no longer in `from`), `table.state_set {tableId,from,to}`
 (staff; holds until presence flips), `table.state_set_undone {tableId,undoneEventId}` (Undo, like
 `order.change_undone`), `table.alert_raised {tableId,alert:'needs_cleaning'}`,
 `table.alert_cleared {tableId,alertEventId}`, `vision.cameras_set {cameras:[{id,name,ip,rtspPath,enabled}]}`
 (at most 16, at most 4 `enabled`; `ip` is a host only, `rtspPath` a path only), `vision.zones_set {cameraId,zones:[{id,tableId,points}]}`
-(points `{x,y}` normalised 0-1), `vision.settings_set {mode:'off'|'shadow'|'live',seatS,leaveS,cleanAlertS,cpuLimit?}` (`cpuLimit` whole 5-50, the worker's share of the CPU in percent; missing = 15; in Shadow a `table.state_changed` is kept but moves no table),
+(points `{x,y}` normalised 0-1), `vision.settings_set {mode:'off'|'shadow'|'live',shortVisitS,leftCheckS,autoFreeS,cpuLimit?}` (SCRUM-182, whole seconds: `shortVisitS` 0-3600, `leftCheckS` 1-300, `autoFreeS` 60-7200; events from before carry `seatS,leaveS,cleanAlertS` instead (all three, never mixed with the new), are still accepted, and fold to the default timers 180/10/300; `cpuLimit` whole 5-50, the worker's share of the CPU in percent; missing = 15; in Shadow a `table.state_changed` is kept but moves no table),
 `vision.camera_offline` / `vision.camera_online {cameraId}`, `vision.heartbeat {cameras:[{id,online,fps}],cpu,slowed?}` (`slowed`: the CPU guard has the worker checking every 2 s; the server keeps one heartbeat per 5 minutes, or sooner when a camera or `slowed` changes).
 Who may record them (`mayRecord`, SCRUM-167): role `vision` only `table.state_changed`, `table.alert_raised`,
 `table.alert_cleared`, `vision.camera_offline`/`camera_online`/`heartbeat`, and nobody else may; `table.state_set` and its

@@ -171,7 +171,7 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
     ] },
     { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-front', zones: FRONT.map((t, i) => zone(t, i)) },
     { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-back', zones: FAKE_TABLES.filter((t) => !FRONT.includes(t.id)).map((t, i) => zone(t.id, i)) },
-    { ...base, type: 'vision.settings_set', id: id('vset'), at: start, actor: owner, mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300 },
+    { ...base, type: 'vision.settings_set', id: id('vset'), at: start, actor: owner, mode: 'shadow', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 },
   );
   const backOffline = now - 40 * MIN;
   const heartbeat = (at: number, backOnline: boolean, cpu: number): SyncEvent => ({ ...base, type: 'vision.heartbeat', id: id('beat'), at, actor: cameras,
@@ -201,13 +201,14 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
     // The staff's side in Shadow: its own seed, so the visits stay exactly as they were.
     const staff = seeded(dateSeed(dayStart) + 909);
     // Twice a day before lunch the cameras take a waiter for a guest; staff free the table within minutes (a miss).
+    // The waiter leaves within 3 minutes, a short visit: straight back to free, no cleaning (the owner's rules).
     for (const k of [0, 1]) {
       const at = dayStart + Math.floor((11 * 60 + k * 25 + staff() * 15) * MIN);
       const table = FAKE_TABLES[Math.floor(staff() * FAKE_TABLES.length)].id;
       if (at > now || (isToday && at >= backOffline && !FRONT.includes(table))) continue;
       events.push(change(table, at, 'free', 'occupied'),
         { ...base, type: 'table.state_set', id: id('fix'), at: at + 2 * MIN, actor: nimal, tableId: table, from: 'free', to: 'free' },
-        change(table, at + 4 * MIN, 'occupied', 'needs_cleaning'));
+        change(table, at + 2 * MIN + 10_000, 'occupied', 'free'));
     }
     const weekend = day.getDay() === 5 || day.getDay() === 6;
     let visits = Math.round((weekend ? 26 : 18) * (0.9 + rand() * 0.2));
@@ -226,7 +227,9 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
       const stay = Math.floor((isToday ? 40 + rand() * 20 : 25 + rand() * 20) * MIN);
       const wiped = at + stay + Math.floor((2 + rand() * 6) * MIN);
       freeAt.set(table.id, wiped);
-      events.push(change(table.id, at, 'free', 'occupied'), change(table.id, at + stay, 'occupied', 'needs_cleaning'));
+      // Left after a long visit: needs cleaning, and the cameras' tracker frees it 5 minutes later.
+      events.push(change(table.id, at, 'free', 'occupied'), change(table.id, at + stay, 'occupied', 'needs_cleaning'),
+        change(table.id, at + stay + 5 * MIN, 'needs_cleaning', 'free'));
       // Staff seat them a minute or three after the cameras see them, and wipe the table after they leave.
       events.push({ ...base, type: 'table.state_set', id: id('seat'), at: at + Math.floor((1 + staff() * 2) * MIN), actor: nimal, tableId: table.id, from: 'free', to: 'occupied' });
       events.push({ ...base, type: 'table.state_set', id: id('wipe'), at: wiped, actor: nimal, tableId: table.id, from: 'occupied', to: 'free' });

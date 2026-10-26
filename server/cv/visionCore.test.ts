@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { ZoneSpec } from '../../src/domain/tables.ts';
 import { followFloor, startTracker } from './tracker.ts';
 import {
-  alertsDue, BACKOFF_MAX_MS, cameraArgs, devSources, CPU_GUARD_MS, cpuGuard, cpuPercent, checkEvery, CROP_MARGIN, FRAME_BYTES, FRAME_H, FRAME_W, frameReader,
+  BACKOFF_MAX_MS, cameraArgs, devSources, CPU_GUARD_MS, cpuGuard, cpuPercent, checkEvery, CROP_MARGIN, FRAME_BYTES, FRAME_H, FRAME_W, frameReader,
   greyThumb, linkStep, meanAbsDiff, MOTION_H, MOTION_THRESHOLD, MOTION_W, NO_FRAMES_MS, OFFLINE_REPORT_MS, presence, restartDelay, REUSE_MS,
   shouldReuse, SLOW_CHECK_MS, CHECK_MS, zoneBox, type Guard, type Link,
 } from './visionCore.ts';
@@ -84,8 +84,8 @@ test('a person is at a table when the foot point is inside its zone', () => {
   const zones = [zone('a', 't1', 0, 0, 0.5, 1), zone('b', 't2', 0.5, 0, 1, 1)];
   // Foot point: centre across, 80% down. This box's foot is at (160, 300) px = (0.25, 0.83).
   const p = presence([{ x1: 120, y1: 100, x2: 200, y2: 350, score: 0.9 }], zones, FRAME_W, FRAME_H);
-  assert.deepEqual([...p], [['t1', true], ['t2', false]]);
-  assert.deepEqual([...presence([], zones, FRAME_W, FRAME_H)], [['t1', false], ['t2', false]]);
+  assert.deepEqual([...p], [['t1', { present: true, confidence: 0.9 }], ['t2', { present: false, confidence: 0 }]]);
+  assert.deepEqual([...presence([], zones, FRAME_W, FRAME_H)], [['t1', { present: false, confidence: 0 }], ['t2', { present: false, confidence: 0 }]]);
 });
 
 test('restart backoff: 1 s doubling to 60 s', () => {
@@ -153,17 +153,4 @@ test('Live follows a staff change on the floor; Shadow keeps its own count', () 
   // Its own change, come back from the server: nothing to do.
   assert.equal(followFloor(startTracker('occupied', 5000), { state: 'occupied', since: 5000, alertId: null }, 'live').hold, null);
   assert.equal(followFloor(t, undefined, 'live'), t);
-});
-
-test('cleaning alerts: raised once after cleanAlertS, cleared when the table is no longer dirty', () => {
-  const sent = new Set<string>();
-  const dirty = { t1: { state: 'needs_cleaning' as const, since: 0, alertId: null } };
-  assert.deepEqual(alertsDue(dirty, 299_999, 300, sent), []);
-  assert.deepEqual(alertsDue(dirty, 300_000, 300, sent), [{ type: 'table.alert_raised', tableId: 't1', alert: 'needs_cleaning' }]);
-  assert.deepEqual(alertsDue(dirty, 301_000, 300, sent), [], 'once, while the server stores it');
-  assert.deepEqual(alertsDue({ t1: { ...dirty.t1, alertId: 'e9' } }, 302_000, 300, sent), []);
-  const clean = { t1: { state: 'free' as const, since: 400_000, alertId: 'e9' } };
-  assert.deepEqual(alertsDue(clean, 400_000, 300, sent), [{ type: 'table.alert_cleared', tableId: 't1', alertEventId: 'e9' }]);
-  assert.deepEqual(alertsDue(clean, 401_000, 300, sent), []);
-  assert.deepEqual(alertsDue(dirty, 10_000_000, 0, new Set()), [], 'cleanAlertS 0: never');
 });

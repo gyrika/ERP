@@ -1,8 +1,8 @@
 import type { FromWorker, SeenBox, VisionFields, WorkerConfig } from './messages.ts';
 import { followFloor, lost, sample as trackSample, startTracker, type Tracker } from './tracker.ts';
 import {
-  alertsDue, checkEvery, cpuGuard, cpuPercent, CPU_SAMPLE_MS, FRAME_H, FRAME_W, greyThumb, HEARTBEAT_MS, linkStep, presence,
-  shouldReuse, zoneBox, type Guard, type Link,
+  checkEvery, cpuGuard, cpuPercent, CPU_SAMPLE_MS, FRAME_H, FRAME_W, greyThumb, HEARTBEAT_MS, linkStep, presence,
+  shouldReuse, zoneBox, type Guard, type Link, type Presence,
 } from './visionCore.ts';
 import type { Box, Rect } from './yolox.ts';
 
@@ -15,8 +15,8 @@ import type { Box, Rect } from './yolox.ts';
  * (zones' crop as a grey thumbnail) either reuses the last detection or runs `detect` on the crop;
  * each person's foot point in a zone is a presence sample for that table's tracker (./tracker.ts),
  * whose changes go out as `table.state_changed`. A table seen by two cameras is present if either
- * sees someone. `tick` (every second): camera links, Live's alerts and camera events, the CPU
- * guard, the heartbeat.
+ * sees someone. `tick` (every second): camera links, Live's camera events, the CPU guard, the
+ * heartbeat. (Cleaning alerts went with SCRUM-182: a dirty table frees itself after `autoFreeS`.)
  */
 export type EngineConfig = Omit<WorkerConfig, 'packDir' | 'cameras'> & { cameras: { id: string; zones: WorkerConfig['cameras'][number]['zones'] }[] };
 
@@ -39,8 +39,8 @@ interface Cam {
   lastCheck: number | null;
   last: { thumb: Uint8Array; at: number; persons: Box[] } | null;
   busy: boolean;
-  /** Each of its tables: is someone there, at the last check? */
-  seen: Map<string, boolean>;
+  /** Each of its tables: is someone there, at the last check, and how sure? */
+  seen: Map<string, Presence>;
 }
 
 export function visionEngine(o: {
@@ -55,7 +55,6 @@ export function visionEngine(o: {
   let cfg: EngineConfig | null = null;
   const cams = new Map<string, Cam>();
   const trackers = new Map<string, Tracker>();
-  const sent = new Set<string>();
   let guard: Guard = { slowed: false, since: null };
   /** The camera the owner watches large (SCRUM-175), or null. */
   let watched: string | null = null;
@@ -71,9 +70,11 @@ export function visionEngine(o: {
   /** One presence sample for a table, from every camera that sees it and has not lost it. */
   const sample = (tableId: string, at: number) => {
     if (!cfg) return;
-    const present = [...cams.values()].some((c) => c.online && c.seen.get(tableId) === true);
+    const words = [...cams.values()].filter((c) => c.online).map((c) => c.seen.get(tableId)).filter((p) => p !== undefined);
+    const present = words.some((p) => p.present);
+    const confidence = Math.max(0, ...words.map((p) => p.confidence));
     const before = trackers.get(tableId) ?? startTracker(cfg.floor[tableId]?.state ?? 'free', cfg.floor[tableId]?.since ?? at);
-    const { tracker, change } = trackSample(before, at, present, cfg);
+    const { tracker, change } = trackSample(before, at, present, confidence, cfg);
     trackers.set(tableId, tracker);
     if (change) event({ type: 'table.state_changed', tableId, from: change.from, to: change.to, confidence: change.confidence }, change.at);
   };
@@ -157,7 +158,6 @@ export function visionEngine(o: {
         }
         if (r.emit && cfg.mode === 'live') event({ type: r.emit, cameraId: c.id }, t);
       }
-      if (cfg.mode === 'live') for (const a of alertsDue(cfg.floor, t, cfg.cleanAlertS, sent)) event(a, t);
 
       if (t - cpuAt >= CPU_SAMPLE_MS) {
         const used = o.cpuMicros();

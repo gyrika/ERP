@@ -246,6 +246,7 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
       <main className="setup__main vision" aria-label="Computer vision">
         <header className="vision__head">
           <h1>Computer vision</h1>
+          <a href="#vision/guide" className="vision__link">How to set up</a>
           <div ref={modes} className="vision__modes" role="radiogroup" aria-label="Computer vision mode" onKeyDown={onModeKey}
             aria-describedby={!canChange ? 'vision-locked' : undefined}>
             {MODES.map((m, i) => {
@@ -291,7 +292,7 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
                 </FloorTile>
               ))}
             </div>
-            {table && <p className="vision__why" aria-live="polite"><b>Table {table.label}</b> {whyState(table, events, settings)}</p>}
+            {table && <p className="vision__why" aria-live="polite"><b>Table {table.label}</b> {whyState(table, events, settings, now)}</p>}
           </> : <p className="setup__hint">No tables yet.{!phone && <> <a href="#cameras" className="vision__link">Set up tables</a></>}</p>}
         </section>
 

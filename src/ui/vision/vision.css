@@ -89,3 +89,13 @@
 .views__checked { font-size: 15px; color: var(--ink-2); }
 
 @media (prefers-reduced-motion: reduce) { .views__tile { transition: none; } .views__tile:hover { transform: none; } }
+/* The owner's guide (SCRUM-182): reading width, the type scale's sizes. */
+.vision__head > .vision__link { margin-right: auto; }
+.guide-page { min-height: 100dvh; height: 100dvh; overflow-y: auto; background: var(--ground); color: var(--ink); }
+.guide { max-width: 720px; margin: 0 auto; padding: 24px 40px 64px; font-size: 17px; line-height: 1.55; }
+@media (max-width: 720px) { .guide { padding: 16px 16px 48px; } }
+.guide h1 { margin: 12px 0 4px; font-size: 28px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.2; }
+.guide h2 { margin: 24px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -0.3px; }
+.guide p, .guide ul { margin: 8px 0 0; }
+.guide ul { padding-left: 22px; }
+.guide li + li { margin-top: 6px; }

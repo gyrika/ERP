@@ -11,7 +11,7 @@ const left: ZoneSpec = { id: 'z1', tableId: 't1', points: [{ x: 0, y: 0 }, { x: 
 const seated: Box = { x1: 120, y1: 100, x2: 200, y2: 350, score: 0.9 };
 
 const config = (patch: Partial<EngineConfig> = {}): EngineConfig => ({
-  mode: 'shadow', seatS: 10, leaveS: 30, cleanAlertS: 300, cpuLimit: 15,
+  mode: 'shadow', shortVisitS: 20, leftCheckS: 10, autoFreeS: 60, cpuLimit: 15,
   cameras: [{ id: 'cam1', zones: [left] }], floor: { t1: { state: 'free', since: 0, alertId: null } }, offline: [], ...patch,
 });
 
@@ -44,11 +44,11 @@ function setup(opts: { people?: () => Box[]; cpu?: (t: number) => number } = {})
   };
 }
 
-test('a person in a zone for seatS makes the table occupied (Shadow records it too); the crop is the zone plus margin', async () => {
+test('the first frame with a person in a zone makes the table occupied (Shadow records it too), with the detector score; the crop is the zone plus margin', async () => {
   const s = setup();
   s.engine.configure(config());
-  await s.run(12);
-  assert.deepEqual(s.events(), [{ type: 'table.state_changed', tableId: 't1', from: 'free', to: 'occupied', confidence: 1 }]);
+  await s.run(3);
+  assert.deepEqual(s.events(), [{ type: 'table.state_changed', tableId: 't1', from: 'free', to: 'occupied', confidence: 0.9 }]);
   assert.deepEqual(s.crops[0], { x: 0, y: 0, w: 352, h: 360 });
 });
 
@@ -132,20 +132,28 @@ test('Live records a camera offline after 300 s without frames, and online with 
   }
 });
 
-test('Live raises and clears cleaning alerts from the floor', async () => {
-  const s = setup({ people: () => [] });
-  s.engine.configure(config({ mode: 'live', floor: { t1: { state: 'needs_cleaning', since: s.at() - 300_000, alertId: null } } }));
-  s.engine.tick();
-  assert.deepEqual(s.events(), [{ type: 'table.alert_raised', tableId: 't1', alert: 'needs_cleaning' }]);
-  s.engine.configure(config({ mode: 'live', floor: { t1: { state: 'free', since: s.at(), alertId: 'a1' } } }));
-  s.engine.tick();
-  assert.deepEqual(s.events().at(-1), { type: 'table.alert_cleared', tableId: 't1', alertEventId: 'a1' });
+test('they leave: empty for leftCheckS ends the visit; a long one needs cleaning and frees itself after autoFreeS, a short one frees at once', async () => {
+  let here = true;
+  const s = setup({ people: () => (here ? [seated] : []) });
+  s.engine.configure(config());
+  const moving = (i: number) => 100 + (i % 4) * 20; // every check detects
+  await s.run(30, moving); // a 30 s visit: longer than shortVisitS (20 s)
+  here = false;
+  await s.run(12, moving);
+  assert.deepEqual(s.events().map((e) => 'to' in e && e.to), ['occupied', 'needs_cleaning'], 'left after 10 s empty');
+  await s.run(60, moving);
+  assert.deepEqual(s.events().map((e) => 'to' in e && e.to), ['occupied', 'needs_cleaning', 'free'], 'frees itself after autoFreeS');
+  here = true;
+  await s.run(5, moving); // a 5 s visit
+  here = false;
+  await s.run(12, moving);
+  assert.deepEqual(s.events().slice(3).map((e) => 'to' in e && e.to), ['occupied', 'free'], 'a short visit needs no cleaning');
 });
 
 test('Live follows staff: a table staff freed while people sit stays free until they leave', async () => {
   const s = setup();
   s.engine.configure(config({ mode: 'live' }));
-  await s.run(12);
+  await s.run(3);
   assert.equal(s.events().length, 1);
   s.engine.configure(config({ mode: 'live', floor: { t1: { state: 'free', since: s.at(), alertId: null } } }));
   await s.run(30);

@@ -488,10 +488,11 @@ export function setupApi(ctx: SetupContext) {
       return { events: await record(actor, { type: 'vision.zones_set', cameraId: body.cameraId, zones: body.zones }) };
     },
 
-    async cvSettings(body: { ownerPin?: unknown; mode?: unknown; seatS?: unknown; leaveS?: unknown; cleanAlertS?: unknown; cpuLimit?: unknown }) {
+    /** The owner's table timers (SCRUM-182: shortVisitS, leftCheckS, autoFreeS), mode and CPU limit; `checkTableEvent` checks them. */
+    async cvSettings(body: { ownerPin?: unknown; mode?: unknown; shortVisitS?: unknown; leftCheckS?: unknown; autoFreeS?: unknown; cpuLimit?: unknown }) {
       const actor = await owner(body.ownerPin);
       return { events: await record(actor, {
-        type: 'vision.settings_set', mode: body.mode, seatS: body.seatS, leaveS: body.leaveS, cleanAlertS: body.cleanAlertS,
+        type: 'vision.settings_set', mode: body.mode, shortVisitS: body.shortVisitS, leftCheckS: body.leftCheckS, autoFreeS: body.autoFreeS,
         ...(body.cpuLimit === undefined ? {} : { cpuLimit: body.cpuLimit }),
       }) };
     },

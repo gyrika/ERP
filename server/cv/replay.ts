@@ -49,7 +49,7 @@ export async function replay(clip: ReplayClip, file: string, o: { packDir: strin
     },
   });
   engine.configure({
-    mode: 'shadow', ...clip.timers, cleanAlertS: 0, cpuLimit: 50, offline: [],
+    mode: 'shadow', ...clip.timers, cpuLimit: 50, offline: [],
     cameras: [{ id: clip.name, zones: clip.zones }],
     floor: Object.fromEntries(clip.zones.map((z) => [z.tableId, { state: 'free' as const, since: start, alertId: null }])),
   });
@@ -63,7 +63,7 @@ export async function replay(clip: ReplayClip, file: string, o: { packDir: strin
 
 /** What differs from the clip's expected changes (empty: it passed). */
 export const mismatches = (clip: ReplayClip, got: ReplayResult['changes'], tolerance: number): string[] => {
-  const left = [...got];
+  const left = got.filter((g) => !clip.ignore?.includes(g.tableId));
   const out: string[] = [];
   for (const e of clip.expect) {
     const i = left.findIndex((g) => g.tableId === e.tableId && g.from === e.from && g.to === e.to && Math.abs(g.atS - e.atS) <= tolerance);

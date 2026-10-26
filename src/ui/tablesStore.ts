@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { tablesFromEvents, visionFromEvents, type FloorTable, type TableState } from '../domain/tables.ts';
+import { tablesFromEvents, visionFromEvents, type VisionSettings, type FloorTable, type TableState } from '../domain/tables.ts';
 import { currentCashier } from '../services/auth.ts';
 import { appendEvent, readAll, subscribeEvents } from './eventLog.ts';
 
@@ -7,11 +7,11 @@ import { appendEvent, readAll, subscribeEvents } from './eventLog.ts';
  * The floor is not stored: it is folded from the event log (`tablesFromEvents`), like the
  * kitchen tickets, so a camera's change, another tab's or the server's shows up the same way.
  */
-export interface Floor { tables: FloorTable[]; cleanAlertS: number }
+export interface Floor { tables: FloorTable[]; settings: VisionSettings }
 
 export const readFloor = (): Floor => {
   const events = readAll();
-  return { tables: tablesFromEvents(events), cleanAlertS: visionFromEvents(events).settings.cleanAlertS };
+  return { tables: tablesFromEvents(events), settings: visionFromEvents(events).settings };
 };
 
 /** No layout yet (the setup screen is SCRUM-171): no chip, no floor. */
