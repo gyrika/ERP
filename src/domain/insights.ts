@@ -10,6 +10,7 @@ import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine } from './types.ts';
 import { lineItemName } from './halves.ts';
+import { camerasOffline, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
 
 /**
  * The Owner view's brain (CLAUDE.md: "tell the owner what needs attention and
@@ -449,7 +450,9 @@ export const rulesSuggestions: SuggestionsService = {
   insights({ events, now, stock }) {
     const sales = salesFrom(events);
     return [
+      camerasOffline(events, now), // first: the floor is guessing until it is back
       salesVsUsual(sales, now),
+      tablesVsUsual(events, now),
       voidsToday(events, sales, now),
       discountsToday(events, sales, now),
       kitchenSlow(events, now),
@@ -461,6 +464,8 @@ export const rulesSuggestions: SuggestionsService = {
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
       grnApprovals(events, stock, now),
+      visitLength(events, now),
+      tableUse(events, now),
       notSelling(events, sales, now),
       bestSeller(events, now),
     ].filter((x): x is Insight => x !== null).sort((a, b) => ORDER[a.tone] - ORDER[b.tone]);

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cameraLost, checkTableEvent, DEFAULT_LEAVE_S, DEFAULT_SEAT_S, DEFAULT_VISION_SETTINGS, footPoint, LEAVE_SHARE, newTracker,
-  floorSummary, observe, pointInPolygon, SEAT_SHARE, staffSet, tablesFromEvents, visionFromEvents, type FloorTable, type Sample, type TableTracker,
+  floorSummary, observe, pointInPolygon, SEAT_SHARE, staffSet, tableChanges, tablesFromEvents, visionFromEvents, type FloorTable, type Sample, type TableTracker,
 } from './tables.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Actor } from './auth.ts';
@@ -348,4 +348,20 @@ test('the chip counts free tables, and takes the colour of the most urgent one',
   assert.deepEqual(floorSummary([tile('needs_cleaning', 100, 'alert-1'), tile('needs_cleaning', 100)], 101 * S), { free: 0, tone: 'bad' });
   assert.deepEqual(floorSummary([tile('needs_cleaning', 0)], 60 * S, 60), { free: 0, tone: 'bad' }, 'the owner\'s own alert time');
   assert.deepEqual(floorSummary([tile('needs_cleaning', 0)], 60 * S, 0), { free: 0, tone: 'warn' }, '0: no cleaning alert');
+});
+
+test('the changes the floor took, in order and by whom: stale camera changes are left out, an Undo says so', () => {
+  const set = ev({ type: 'table.state_set', tableId: 't1', from: 'occupied', to: 'free' }, 300, cashier);
+  const changes = tableChanges([
+    layout(),
+    ev({ type: 'table.state_changed', tableId: 't1', from: 'free', to: 'occupied', confidence: 0.9 }, 100),
+    ev({ type: 'table.state_changed', tableId: 't2', from: 'occupied', to: 'needs_cleaning', confidence: 0.9 }, 150), // stale: t2 is free
+    set,
+    ev({ type: 'table.state_set_undone', tableId: 't1', undoneEventId: (set as { id: string }).id }, 310, cashier),
+  ]);
+  assert.deepEqual(changes.map((c) => [c.tableId, c.from, c.to, c.at, c.by]), [
+    ['t1', 'free', 'occupied', 100, 'camera'],
+    ['t1', 'occupied', 'free', 300, 'staff'],
+    ['t1', 'free', 'occupied', 310, 'undo'],
+  ]);
 });

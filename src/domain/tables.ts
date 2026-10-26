@@ -184,8 +184,20 @@ export interface FloorTable extends TableSpec {
  * a staff change always applies. `table.state_set_undone` puts back what the staff change
  * replaced, like `order.change_undone`, as long as nothing has changed the table since.
  */
-export const tablesFromEvents = (events: readonly SyncEvent[]): FloorTable[] => {
+export const tablesFromEvents = (events: readonly SyncEvent[]): FloorTable[] => foldTables(events).floor;
+
+/** One change the floor took, in order: who made it (the camera, staff, or a staff Undo) and when. */
+export interface TableChange { tableId: string; from: TableState; to: TableState; at: number; by: 'camera' | 'staff' | 'undo' }
+
+/** Every change the floor took, by the same rules as `tablesFromEvents` (stale camera changes left out). The Owner feed's visits. */
+export const tableChanges = (events: readonly SyncEvent[]): TableChange[] => foldTables(events).changes;
+
+const foldTables = (events: readonly SyncEvent[]): { floor: FloorTable[]; changes: TableChange[] } => {
   let layout: TableSpec[] = [];
+  const changes: TableChange[] = [];
+  const took = (tableId: string, from: TableState, to: TableState, at: number, by: TableChange['by']) => {
+    if (from !== to) changes.push({ tableId, from, to, at, by });
+  };
   const state = new Map<string, { state: TableState; since: number; lastId: string | null }>();
   const alerts = new Map<string, string | null>();
   /** What each staff change replaced, by its event id. */
@@ -199,16 +211,17 @@ export const tablesFromEvents = (events: readonly SyncEvent[]): FloorTable[] => 
         for (const t of e.tables) if (!state.has(t.id)) state.set(t.id, { state: 'free', since: e.at, lastId: null });
         break;
       case 'table.state_changed':
-        if (now && now.state === e.from) state.set(e.tableId, { state: e.to, since: e.at, lastId: e.id });
+        if (now && now.state === e.from) { state.set(e.tableId, { state: e.to, since: e.at, lastId: e.id }); took(e.tableId, e.from, e.to, e.at, 'camera'); }
         break;
       case 'table.state_set':
         if (!now) break;
         replaced.set(e.id, now);
         state.set(e.tableId, { state: e.to, since: e.at, lastId: e.id });
+        took(e.tableId, now.state, e.to, e.at, 'staff');
         break;
       case 'table.state_set_undone': {
         const was = replaced.get(e.undoneEventId);
-        if (now && was && now.lastId === e.undoneEventId) state.set(e.tableId, was);
+        if (now && was && now.lastId === e.undoneEventId) { state.set(e.tableId, was); took(e.tableId, now.state, was.state, e.at, 'undo'); }
         break;
       }
       case 'table.alert_raised': alerts.set(e.tableId, e.id); break;
@@ -216,7 +229,7 @@ export const tablesFromEvents = (events: readonly SyncEvent[]): FloorTable[] => 
     }
   }
   const vision = visionFromEvents(events);
-  return layout.map((t) => {
+  const floor = layout.map((t) => {
     const watchers = vision.cameras.filter((c) => c.enabled && (vision.zones[c.id] ?? []).some((z) => z.tableId === t.id));
     const s = state.get(t.id) ?? { state: 'free' as const, since: 0 };
     return {
@@ -226,6 +239,7 @@ export const tablesFromEvents = (events: readonly SyncEvent[]): FloorTable[] => 
       alertId: alerts.get(t.id) ?? null,
     };
   });
+  return { floor, changes };
 };
 
 /**

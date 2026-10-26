@@ -3,7 +3,8 @@ import { MENU } from '../domain/menu.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { lineGross, percentOf } from '../domain/totals.ts';
 import type { OrderLine, SizeId } from '../domain/types.ts';
-import { FAKE_SHOP_ID, FAKE_STAFF } from './data.ts';
+import type { TableState } from '../domain/tables.ts';
+import { FAKE_SHOP_ID, FAKE_STAFF, FAKE_TABLES } from './data.ts';
 
 /**
  * FAKE: five weeks of believable CheesyBeez trading, for the Owner view in
@@ -13,6 +14,9 @@ import { FAKE_SHOP_ID, FAKE_STAFF } from './data.ts';
  * insight has something to show: fewer sales than a usual same weekday, a
  * burst of voids by one manager, a slow kitchen in the last two hours, two
  * items running low, and one pizza nobody has ordered for three weeks.
+ * Two cameras watch the six tables: today fewer tables are taken, guests stay
+ * longer (the kitchen is slow), table 6 by the door is hardly used, and the
+ * back camera has been offline for the last 40 minutes.
  * Nothing here is real, and none of it is ever synced.
  */
 
@@ -132,5 +136,63 @@ export function demoHistory(now: number, shopId = FAKE_SHOP_ID): SyncEvent[] {
   events.push({ type: 'stock.adjusted', id: id('stock'), shopId, at: counted + DAY, orderNumber: 0, actor: ravi, itemId: 'inv-0001', deltaPacks: -3 });
   events.push({ type: 'stock.adjusted', id: id('stock'), shopId, at: counted + 2 * DAY, orderNumber: 0, actor: ravi, itemId: 'inv-0006', deltaPacks: -3 });
 
+  events.push(...demoTables(today.getTime(), now, shopId, id));
+
   return events.filter((e) => e.at <= now).sort((a, b) => a.at - b.at);
+}
+
+const cameras: Actor = { id: 'vision', name: 'Cameras', role: 'vision' };
+const owner: Actor = FAKE_STAFF.find((s) => s.actor.role === 'owner')!.actor;
+/** How often each table is taken: the big table most, table 6 by the door hardly. */
+const TABLE_WEIGHT: Record<string, number> = { 'demo-t1': 3, 'demo-t2': 4, 'demo-t3': 4, 'demo-t4': 5, 'demo-t5': 2, 'demo-t6': 0.4 };
+const FRONT = ['demo-t1', 'demo-t2', 'demo-t3'];
+
+/** The cameras' side of the five weeks: visits seen, tables wiped by the cashier, the back camera offline now. */
+function demoTables(today: number, now: number, shopId: string, id: (p: string) => string): SyncEvent[] {
+  const events: SyncEvent[] = [];
+  const start = today - 36 * DAY;
+  const base = { shopId, orderNumber: 0 as const };
+  const zone = (tableId: string) => ({ id: `zone-${tableId}`, tableId, points: [{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.1 }, { x: 0.9, y: 0.9 }, { x: 0.1, y: 0.9 }] });
+  events.push(
+    { ...base, type: 'table.layout_set', id: id('layout'), at: start, actor: owner, tables: FAKE_TABLES },
+    { ...base, type: 'vision.cameras_set', id: id('cams'), at: start, actor: owner, cameras: [
+      { id: 'demo-cam-front', name: 'Front', ip: '192.168.1.21', rtspPath: '/stream1', enabled: true },
+      { id: 'demo-cam-back', name: 'Back', ip: '192.168.1.22', rtspPath: '/stream1', enabled: true },
+    ] },
+    { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-front', zones: FRONT.map(zone) },
+    { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-back', zones: FAKE_TABLES.filter((t) => !FRONT.includes(t.id)).map((t) => zone(t.id)) },
+    { ...base, type: 'vision.settings_set', id: id('vset'), at: start, actor: owner, mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 },
+  );
+  const backOffline = now - 40 * MIN;
+  events.push({ ...base, type: 'vision.camera_offline', id: id('offline'), at: backOffline, actor: cameras, cameraId: 'demo-cam-back' });
+  const change = (tableId: string, at: number, from: TableState, to: TableState): SyncEvent =>
+    ({ ...base, type: 'table.state_changed', id: id('seen'), at, actor: cameras, tableId, from, to, confidence: 0.9 });
+
+  for (let back = 35; back >= 0; back--) {
+    const day = new Date(today); day.setDate(day.getDate() - back);
+    const dayStart = day.getTime();
+    const isToday = back === 0;
+    // Its own seed, so the sales above stay exactly as they were.
+    const rand = seeded(dayStart / DAY + 505);
+    const weekend = day.getDay() === 5 || day.getDay() === 6;
+    let visits = Math.round((weekend ? 26 : 18) * (0.9 + rand() * 0.2));
+    if (isToday) visits = Math.round(visits * 0.75); // fewer tables taken today
+    const freeAt = new Map(FAKE_TABLES.map((t) => [t.id, 0]));
+    const starts = Array.from({ length: visits }, () => dayStart + Math.floor((rand() < 0.4 ? 12 * 60 + rand() * 120 : 18 * 60 + rand() * 210) * MIN))
+      .sort((a, b) => a - b);
+    for (const at of starts) {
+      // Today the back camera sees nothing since it went offline.
+      const open = FAKE_TABLES.filter((t) => freeAt.get(t.id)! <= at && !(isToday && at >= backOffline && !FRONT.includes(t.id)));
+      if (!open.length) continue;
+      let r = rand() * open.reduce((n, t) => n + TABLE_WEIGHT[t.id], 0);
+      const table = open.find((t) => (r -= TABLE_WEIGHT[t.id]) <= 0) ?? open[open.length - 1];
+      // 25-45 minutes normally; 40-60 today, with the kitchen slow.
+      const stay = Math.floor((isToday ? 40 + rand() * 20 : 25 + rand() * 20) * MIN);
+      const wiped = at + stay + Math.floor((2 + rand() * 6) * MIN);
+      freeAt.set(table.id, wiped);
+      events.push(change(table.id, at, 'free', 'occupied'), change(table.id, at + stay, 'occupied', 'needs_cleaning'));
+      events.push({ ...base, type: 'table.state_set', id: id('wipe'), at: wiped, actor: nimal, tableId: table.id, from: 'needs_cleaning', to: 'free' });
+    }
+  }
+  return events;
 }
