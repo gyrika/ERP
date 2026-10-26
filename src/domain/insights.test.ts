@@ -15,8 +15,16 @@ const paid = (orderNumber: number, at: number, total: number): SyncEvent =>
 
 test('the demo Friday: every kind of card, things needing a decision first, good news last', () => {
   const insights = rulesSuggestions.insights({ events: demoHistory(friday), now: friday, stock });
-  assert.deepEqual(insights.map((i) => i.id), ['sales-vs-usual', 'voids', 'kitchen-slow', 'running-low', 'sold-without-recipe', 'costs-to-answer', 'not-selling', 'best-seller']);
-  const [sales, voids, kitchen, low, unrecipe, costs, idle] = insights;
+  assert.deepEqual(insights.map((i) => i.id), [
+    'camera-offline', 'sales-vs-usual', 'tables-vs-usual', 'voids', 'kitchen-slow', 'running-low', 'sold-without-recipe', 'costs-to-answer',
+    'visit-length', 'table-use', 'not-selling', 'best-seller',
+  ]);
+  const [camera, sales, tables, voids, kitchen, low, unrecipe, costs, visits, use, idle] = insights;
+  // The cameras (SCRUM-172): the back one is offline, fewer tables taken, guests stay longer, table 6 hardly used.
+  assert.equal(camera.title, 'Back camera offline for 40 min');
+  assert.match(tables.title, /^Tables \d+% quieter than a usual Friday$/);
+  assert.match(visits.title, /^Guests staying \d+ min longer than usual$/);
+  assert.equal(use.title, 'Table 3 busiest, table 6 quietest');
   assert.match(sales.title, /^Sales \d+% below a usual Friday$/);
   assert.match(voids.title, /voids today, \d+ by Ravi$/);
   assert.ok(voids.action.items.every((i) => i.secondary?.startsWith('Ravi')), 'each void says who and why');

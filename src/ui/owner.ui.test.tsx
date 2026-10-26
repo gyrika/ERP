@@ -22,12 +22,16 @@ test('the demo owner feed: today in one line, then cards with one tap each', asy
   const feed = within(await screen.findByRole('region', { name: 'Needs your attention' }));
   const cards = await feed.findAllByRole('article');
   expect(cards.map((c) => c.getAttribute('aria-label'))).toEqual([
+    'Back camera offline for 40 min',
     expect.stringMatching(/^Sales \d+% below a usual Friday$/),
+    expect.stringMatching(/^Tables \d+% quieter than a usual Friday$/),
     expect.stringMatching(/voids today, \d+ by Ravi$/),
     expect.stringMatching(/^Kitchen slow/),
     '3 items running low',
     expect.stringMatching(/sold \d+ times this week; its stock isn't counted$|^\d+ dishes sold this week without a recipe$/),
     'Food costs: 22 answers to go',
+    expect.stringMatching(/^Guests staying \d+ min longer than usual$/),
+    'Table 3 busiest, table 6 quietest',
     "BBQ Pork hasn't sold in 2 weeks",
     expect.stringMatching(/best seller$/),
   ]);
@@ -39,6 +43,10 @@ test('the demo owner feed: today in one line, then cards with one tap each', asy
   expect(sheet.getByText(/Prima/)).toBeTruthy();
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog')).toBeNull();
+
+  // The cameras (SCRUM-172): one tap names the camera, since when, and the tables it watches.
+  await user.click(within(feed.getByRole('article', { name: 'Back camera offline for 40 min' })).getByRole('button', { name: 'See cameras' }));
+  expect(within(screen.getByRole('dialog', { name: 'Back camera offline for 40 min' })).getByText('offline since 19:50 · tables 4, 5, 6')).toBeTruthy();
 });
 
 test('no history yet: a calm screen, not an empty error; only the food-cost questions wait', async () => {
