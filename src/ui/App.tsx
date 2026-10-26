@@ -268,6 +268,7 @@ export function App({
         id: `theme-${t}`, label: THEME_LABEL[t], hint: themeChoice() === t ? 'On' : undefined, run: () => setTheme(t),
       })),
       { id: 'setup', label: "Settings: staff, printer, devices, stock rules (owner's PIN)", run: () => { location.hash = '#setup'; } },
+      { id: 'cameras', label: "Cameras: table detection (owner's PIN)", run: () => { location.hash = '#cameras'; } },
       { id: 'undo', label: 'Undo last change', hint: 'Ctrl+Z', run: () => reg.undoManager(manager) },
       { id: 'sound', label: sound ? 'Turn sound off' : 'Turn sound on', run: () => { setSoundOn(!sound); setSound(!sound); } },
       { id: 'leave', label: 'Leave manager mode', hint: 'Esc', run: mode.exit },

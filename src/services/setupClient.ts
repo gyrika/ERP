@@ -14,6 +14,14 @@ export interface SetupState {
   staff?: StaffRow[];
 }
 
+/** The CV pack on the shop server (server/cvPack.ts). */
+export type CvStatus = { active: boolean } & (
+  | { phase: 'idle' }
+  | { phase: 'downloading'; bytes: number; total: number | null }
+  | { phase: 'verifying' }
+  | { phase: 'ready'; version: string }
+  | { phase: 'failed'; reason: string });
+
 export class SetupFailed extends Error {}
 
 const call = async <T>(step: string, body?: unknown): Promise<T> => {
@@ -40,4 +48,6 @@ export const setupClient = {
   installUpdate: (ownerPin?: string) => call<{ started: boolean; from: string }>('/update/install', { ownerPin }),
   updateStatus: (ownerPin?: string) =>
     call<{ status: { phase: string; percent: number; version: string; at: number } | null }>('/update/status', { ownerPin }),
+  cvStatus: (ownerPin: string) => call<CvStatus>('/cv/status', { ownerPin }),
+  cvActivate: (ownerPin: string) => call<CvStatus>('/cv/activate', { ownerPin }),
 };

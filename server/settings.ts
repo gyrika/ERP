@@ -24,6 +24,8 @@ export interface ShopSettings {
   /** The manager phones' inbox in the cloud (SCRUM-94): how far this shop has taken it, and the local device it files under. */
   managerInboxSeq?: number;
   managerInboxDevice?: string;
+  /** The owner activated CV on #cameras (SCRUM-169): the CV pack is kept installed. */
+  cvActive?: boolean;
 }
 
 export function settingsFile(file: string) {

@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from './app.ts';
+import { cvPack } from './cvPack.ts';
 import { dryRunPrinter } from './printer.ts';
 import { settingsFile } from './settings.ts';
 import { isLocal, setupApi, shopIdFor } from './setup.ts';
@@ -133,6 +134,32 @@ test('the cloud step: the shop code connects this shop, and copying starts witho
   assert.equal(s.connected(), 1, 'copying started straight away');
   assert.equal((await s.state()).cloud, true);
   await s.stop();
+});
+
+test("CV pack: status and Activate need the owner's PIN; Activate switches CV on", async () => {
+  const s = await start();
+  const without = await s.post('/cv/status', {});
+  assert.equal(without.status, 409, 'no CV wired in here');
+  await s.stop();
+
+  const dir = mkdtempSync(join(tmpdir(), 'cb-setup-cv-'));
+  const settings = settingsFile(join(dir, 'settings.json'));
+  const cv = cvPack({
+    dir: join(dir, 'cv-pack'), appVersion: () => '1.0.40', active: () => settings.get().cvActive === true,
+    setActive: (on) => { settings.set({ cvActive: on }); }, fetch: (async () => new Response('Not Found', { status: 404 })) as unknown as typeof fetch,
+  });
+  const store = memoryStore();
+  const setup = setupApi({ store, settings, usePrinter: () => {}, printsDir: join(dir, 'prints'), port: 8080, cloud: () => null, cloudUrl: 'https://cloud.test', cv });
+  await setup.nameShop({ name: 'CheesyBeez', place: 'Thalwila' });
+  await setup.addStaff({ name: 'Nisal Vimukthi', role: 'owner', pin: '1234' });
+  await setup.finish();
+  await assert.rejects(setup.cvStatus({ ownerPin: '0000' }), /owner's PIN/);
+  assert.deepEqual(await setup.cvStatus({ ownerPin: '1234' }), { active: false, phase: 'idle' });
+  assert.equal((await setup.cvActivate({ ownerPin: '1234' })).phase, 'downloading');
+  await cv.settled();
+  assert.deepEqual(await setup.cvStatus({ ownerPin: '1234' }), { active: true, phase: 'failed', reason: 'GitHub answered 404' });
+  assert.equal(settings.get().cvActive, true);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("updates: the owner's PIN after setup; development has nothing to install", async () => {

@@ -29,7 +29,7 @@ const ROLES: { id: Role; label: string }[] = [
 ];
 const roleLabel = (r: Role) => ROLES.find((x) => x.id === r)?.label ?? r;
 
-function OwnerPin({ title, onPin, error }: { title: string; onPin: (pin: string) => void; error: string }) {
+export function OwnerPin({ title, onPin, error }: { title: string; onPin: (pin: string) => void; error: string }) {
   const [pin, setPin] = useState('');
   return (
     <form className="setup__form" onSubmit={(e) => { e.preventDefault(); if (pin.length === PIN_LENGTH) onPin(pin); }}>

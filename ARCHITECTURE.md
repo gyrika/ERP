@@ -53,6 +53,9 @@
 - **Vision role (SCRUM-167, 2026-10-26):** `vision` is a `Role` but never a person (`STAFF_ROLES` excludes it; setup, `server:staff` and PIN login refuse it). It may record only what the camera sees (`VISION_RECORDS` in auth.ts) and staff may not record those. No device push may carry it: the camera worker (SCRUM-170) hands its events to the server over IPC, and the server stamps `vision` and stores them itself, the way `server/scheduler.ts` stores `prep.released` with `store.push(device, made, now())` after the push, past `refusal` (then broadcast like the scheduler's releases).
 - **Register floor (SCRUM-168, 2026-10-26):** the Tables chip (free count, dot amber for a table to clean, red once it waited `cleanAlertS` or has an alert) and `#tables`, one tile per table by number. **F1**, not F3 (F3 is the Owner view). Keys C cleaned / F free / R reserved / O seated (added so the floor works with no cameras) and Ctrl+Z, each a `table.state_set` / `table.state_set_undone` event. No layout (`table.layout_set`, set up in SCRUM-171) → no chip; `/?demo` seeds six tables (`src/fake/data.ts`). The chip, the fold and the floor are lazy chunks: the Register grew 1.6 kB (demo seed and loaders).
 
+## CV pack (2026-10-26, SCRUM-169)
+- `#cameras` (owner's PIN) → **Activate CV**: the shop server fetches `cv-pack-<CV_PACK_VERSION>-win-x64.zip` from the app's release (`server/cvPack.ts`), checks each file against its `manifest.json`, unpacks to a temp folder and renames it to `cv-pack\<version>`; a new version is fetched on start with CV paused, then the old one deleted. Built by `deploy/cv-pack/build.ps1` in CI; pinned inputs mirrored in the `cv-deps` pre-release.
+
 ## Run
 `npm i && npm run dev` · `npm test` (domain + UI) · `npm run test:domain` · `npm run test:ui` · `npm run build` · demo: `/?demo` (manager PIN in `src/fake/data.ts`)
 

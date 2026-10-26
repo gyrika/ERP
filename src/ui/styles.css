@@ -845,6 +845,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .setup__field--pin input { letter-spacing: 8px; max-width: 200px; }
 .setup__hint { margin: 0; font-size: 14px; color: var(--ink-2); }
 .setup__error { margin: 0; font-size: 15px; font-weight: 500; color: var(--bad); }
+.cv__failed { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
 .setup__foot { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 8px; }
 .setup__foot .cta { min-width: 200px; }
 .setup__back { align-self: flex-start; }

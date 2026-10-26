@@ -8,6 +8,7 @@ import { dryRunPrinter, listPrinters, systemPrinter, type RawPrinter } from './p
 import type { Settings } from './settings.ts';
 import { PinTaken, type EventStore, type StaffMember } from './store.ts';
 import type { UpdatesApi } from './updates.ts';
+import type { CvPackApi } from './cvPack.ts';
 
 /**
  * The setup wizard's side of the server: the shop, the printer, the staff and
@@ -30,6 +31,8 @@ export interface SetupContext {
   onCloudConnected?: () => void;
   /** CheesyBeez Station's versions ("Update now"). */
   updates?: UpdatesApi;
+  /** The CV pack (server/cvPack.ts), off until the owner activates it on #cameras. */
+  cv?: CvPackApi;
   fetch?: typeof fetch;
   now?: () => number;
 }
@@ -267,6 +270,20 @@ export function setupApi(ctx: SetupContext) {
       if (!ctx.updates) throw new SetupError(409, 'not_ready', 'no updates here');
       try { ctx.updates.install(); } catch (e) { throw new SetupError(409, 'not_ready', e instanceof Error ? e.message : String(e)); }
       return { started: true, from: ctx.updates.current() };
+    },
+
+    /** #cameras: where the CV pack is (idle, downloading, verifying, ready, failed). */
+    async cvStatus(body: { ownerPin?: unknown }) {
+      await authorise(body.ownerPin);
+      if (!ctx.cv) throw new SetupError(409, 'not_ready', 'no CV here');
+      return ctx.cv.status();
+    },
+
+    /** "Activate CV", and Retry: the pack downloads in the background; the screen asks cvStatus as it goes. */
+    async cvActivate(body: { ownerPin?: unknown }) {
+      await authorise(body.ownerPin);
+      if (!ctx.cv) throw new SetupError(409, 'not_ready', 'no CV here');
+      return ctx.cv.activate();
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */

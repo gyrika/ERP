@@ -30,6 +30,7 @@ import { navData, navigate, onNavigate, startNav, useBackKeys } from './nav.ts';
 const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
 /** The floor (SCRUM-168): loaded when it is opened, so the Register does not grow. */
 const FloorView = lazy(() => import('./floor/FloorView.tsx'));
+const CamerasView = lazy(() => import('./CamerasView.tsx'));
 
 const KITCHEN = '#kitchen';
 const OWNER = '#owner';
@@ -233,6 +234,10 @@ export function Root() {
   }
   if (hash === TABLES && seesFloor) {
     return <Suspense fallback={<div className="floor" aria-busy="true" />}><FloorView onBack={() => go('')} /></Suspense>;
+  }
+  // Table detection (SCRUM-169): the owner's PIN, on the shop PC.
+  if (hash === '#cameras' && seesOwner) {
+    return <Suspense fallback={<div className="setup" aria-busy="true" />}><CamerasView onRegister={() => go('')} /></Suspense>;
   }
   if ((hash === '#suppliers' || hash === '#items/suppliers') && mayManageStock) {
     return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;
