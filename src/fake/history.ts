@@ -33,6 +33,9 @@ const seeded = (seed: number) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 
+/** A seed from the calendar date, not the millisecond, so the demo is the same in every time zone. */
+const dateSeed = (dayStart: number): number => { const d = new Date(dayStart); return d.getFullYear() * 372 + d.getMonth() * 31 + d.getDate(); };
+
 /** How often each item is ordered (pizzas lead, the specials trail). */
 const POPULAR: Record<string, number> = {
   'devilled-chicken': 10, margherita: 9, 'cheese-onion': 7, 'bbq-chicken': 7, sausages: 6, 'chicken-burger': 6,
@@ -144,7 +147,7 @@ export function demoHistory(now: number, shopId = FAKE_SHOP_ID): SyncEvent[] {
 const cameras: Actor = { id: 'vision', name: 'Cameras', role: 'vision' };
 const owner: Actor = FAKE_STAFF.find((s) => s.actor.role === 'owner')!.actor;
 /** How often each table is taken: the big table most, table 6 by the door hardly. */
-const TABLE_WEIGHT: Record<string, number> = { 'demo-t1': 3, 'demo-t2': 4, 'demo-t3': 4, 'demo-t4': 5, 'demo-t5': 2, 'demo-t6': 0.4 };
+const TABLE_WEIGHT: Record<string, number> = { 'demo-t1': 3, 'demo-t2': 4, 'demo-t3': 4, 'demo-t4': 7, 'demo-t5': 2, 'demo-t6': 0.4 };
 const FRONT = ['demo-t1', 'demo-t2', 'demo-t3'];
 
 /** The cameras' side of the five weeks: visits seen, tables wiped by the cashier, the back camera offline now. */
@@ -173,10 +176,10 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
     const dayStart = day.getTime();
     const isToday = back === 0;
     // Its own seed, so the sales above stay exactly as they were.
-    const rand = seeded(dayStart / DAY + 505);
+    const rand = seeded(dateSeed(dayStart) + 505);
     const weekend = day.getDay() === 5 || day.getDay() === 6;
     let visits = Math.round((weekend ? 26 : 18) * (0.9 + rand() * 0.2));
-    if (isToday) visits = Math.round(visits * 0.75); // fewer tables taken today
+    if (isToday) visits = Math.round(visits * 0.6); // fewer tables taken today, clearly past the 20% line in any time zone
     const freeAt = new Map(FAKE_TABLES.map((t) => [t.id, 0]));
     const starts = Array.from({ length: visits }, () => dayStart + Math.floor((rand() < 0.4 ? 12 * 60 + rand() * 120 : 18 * 60 + rand() * 210) * MIN))
       .sort((a, b) => a - b);
