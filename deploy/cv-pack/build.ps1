@@ -111,7 +111,13 @@ $bins = Join-Path $pack 'node_modules/onnxruntime-node/bin'
 (Get-ChildItem $bins -Directory -Recurse) | Where-Object { $_.Parent.Name -like 'napi-v*' -and $_.Name -ne 'win32' } | Remove-Item -Recurse -Force
 (Get-ChildItem $bins -Directory -Recurse) | Where-Object { $_.Parent.Name -eq 'win32' -and $_.Name -ne 'x64' } | Remove-Item -Recurse -Force
 if (-not (Get-ChildItem $bins -Recurse -Filter onnxruntime_binding.node | Where-Object FullName -match 'win32\\x64')) { throw 'onnxruntime-node has no win32/x64 binding' }
-if (-not (Test-Path (Join-Path $pack 'LICENSES/onnxruntime-node-LICENSE.txt'))) { throw 'onnxruntime-node has no LICENSE' }
+# The npm package carries no licence file: ONNX Runtime's MIT licence and the notices for what its DLLs contain,
+# from the same release tag.
+foreach ($f in 'LICENSE', 'ThirdPartyNotices.txt') {
+  $url = "https://raw.githubusercontent.com/microsoft/onnxruntime/v$OrtVersion/$f"
+  & curl.exe -fsSL --retry 3 -o (Join-Path $pack "LICENSES/onnxruntime-$f$(if ($f -eq 'LICENSE') { '.txt' })") $url
+  if ($LASTEXITCODE) { throw "could not fetch $url" }
+}
 
 # The manifest: every file's sha256, which the server checks before it uses the pack.
 $files = Get-ChildItem $pack -Recurse -File | Sort-Object FullName | ForEach-Object {
