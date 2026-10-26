@@ -48,6 +48,9 @@
 - **Release on the server:** `releasesDue` (`src/domain/scheduler.ts`) runs on the shop server after every stored push (`server/scheduler.ts`), oldest first, and writes `prep.released` (id `rel-<ticket>`, so once). The server is on the counter PC, so it works offline; a device with no server (the demo) runs it itself. Devices cannot push a release. Chosen over releasing in each device's fold because the kitchen screen only folds a day of events and stock needs the whole history.
 - **Cost:** the server keeps the shop's history in memory for this and folds it only while a batch is held. Fine for one shop; a big history would want a snapshot.
 
+## CV pack (2026-10-26, SCRUM-169)
+- `#cameras` (owner's PIN) → **Activate CV**: the shop server fetches `cv-pack-<CV_PACK_VERSION>-win-x64.zip` from the app's release (`server/cvPack.ts`), checks each file against its `manifest.json`, unpacks to a temp folder and renames it to `cv-pack\<version>`; a new version is fetched on start with CV paused, then the old one deleted. Built by `deploy/cv-pack/build.ps1` in CI; pinned inputs mirrored in the `cv-deps` pre-release.
+
 ## Run
 `npm i && npm run dev` · `npm test` (domain + UI) · `npm run test:domain` · `npm run test:ui` · `npm run build` · demo: `/?demo` (manager PIN in `src/fake/data.ts`)
 

@@ -28,6 +28,7 @@ import { navData, navigate, onNavigate, startNav, useBackKeys } from './nav.ts';
 
 /** Visual Flow carries its own drawing library: loaded when it is opened, so the Register stays light. */
 const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
+const CamerasView = lazy(() => import('./CamerasView.tsx'));
 
 const KITCHEN = '#kitchen';
 const OWNER = '#owner';
@@ -218,6 +219,10 @@ export function Root() {
   // How each dish is made, drawn (the owner's, like the recipes): #flow, or #flow/<item> for one item.
   if ((hash === '#flow' || hash.startsWith('#flow/')) && seesOwner) {
     return <Suspense fallback={<div className="owner" aria-busy="true" />}><VisualFlowView key={hash} onRegister={() => go('')} /></Suspense>;
+  }
+  // Table detection (SCRUM-169): the owner's PIN, on the shop PC.
+  if (hash === '#cameras' && seesOwner) {
+    return <Suspense fallback={<div className="setup" aria-busy="true" />}><CamerasView onRegister={() => go('')} /></Suspense>;
   }
   if ((hash === '#suppliers' || hash === '#items/suppliers') && mayManageStock) {
     return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;

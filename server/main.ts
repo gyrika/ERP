@@ -8,6 +8,7 @@ import type { Device } from './store.ts';
 import { dryRunPrinter, switchablePrinter, systemPrinter } from './printer.ts';
 import { startOnline, type Online } from './online.ts';
 import { createFleet } from './fleet.ts';
+import { cvPack } from './cvPack.ts';
 import { startReplicator } from './replicator.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
@@ -67,6 +68,14 @@ const updates = updatesApi({
   statusFile: `${dataDir}/update-status.json`,
   nowFile: `${dataDir}/update-now.txt`,
 });
+// Table detection's downloads (SCRUM-169): off until the owner activates CV on #cameras.
+const cv = cvPack({
+  dir: `${dataDir}/cv-pack`,
+  appVersion: updates.current,
+  active: () => settings.get().cvActive === true,
+  setActive: (on) => { settings.set({ cvActive: on }); },
+});
+cv.start();
 let replicator: ReturnType<typeof startReplicator> | null = null;
 let online: Online | null = null;
 let inbox: ReturnType<typeof startManagerInbox> | null = null;
@@ -135,7 +144,7 @@ const server = createApp({
   onStored: (tenantId, events) => { if (tenantId === cloudShop()) { replicator?.nudge(); online?.onEvents(events); } },
   online: () => online,
   cloudStatus: () => replicator?.status() ?? null,
-  setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates }),
+  setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv }),
   version: updates.current,
   updating: () => activeUpdate(updates.status(), Date.now()),
   fleet,
@@ -152,6 +161,8 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  database: ${storeName}`);
   console.log(`  receipt printer: ${printer.name}`);
   if (fleet) console.log('  shops screen: on (CLOUD_ADMIN_KEY), on this computer only');
+  const vision = cv.status();
+  console.log(`  table detection (CV): ${vision.active ? vision.phase : 'off'}`);
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
