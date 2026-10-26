@@ -8,8 +8,9 @@ import { grnValueCents, purchasesFromEvents } from './purchaseOrders.ts';
 import { formatQuantity } from './quantity.ts';
 import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
-import type { Cents, OrderLine } from './types.ts';
+import type { Cents, OrderLine, Tender } from './types.ts';
 import { lineItemName } from './halves.ts';
+import { stockValueCard } from './valuation.ts';
 import { camerasOffline, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
 
 /**
@@ -83,7 +84,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 // ----- facts from the events -----
 
-interface Sale { orderNumber: number; total: Cents; at: number; by: string }
+export interface Sale { orderNumber: number; total: Cents; at: number; by: string; tender: Tender }
 
 /**
  * Paid orders, as they stand: a payment undone later no longer counts.
@@ -96,7 +97,7 @@ export const salesFrom = (events: readonly SyncEvent[]): Sale[] => {
   for (const e of events) {
     if (e.type === 'order.paid') {
       open.set(e.orderNumber, [...(open.get(e.orderNumber) ?? []), sales.length]);
-      sales.push({ orderNumber: e.orderNumber, total: e.total, at: e.at, by: e.actor.name });
+      sales.push({ orderNumber: e.orderNumber, total: e.total, at: e.at, by: e.actor.name, tender: e.tender });
     } else if (e.type === 'order.payment_undone') {
       const i = open.get(e.orderNumber)?.pop();
       if (i !== undefined) sales[i] = null;
@@ -216,7 +217,7 @@ const discountsToday = (events: readonly SyncEvent[], sales: Sale[], now: number
 };
 
 /** How long each ticket took, from Send to the kitchen's first Done. */
-const ticketTimes = (events: readonly SyncEvent[]) => {
+export const ticketTimes = (events: readonly SyncEvent[]) => {
   const sent = new Map<string, { at: number; orderNumber: number }>();
   const out: { orderNumber: number; sentAt: number; minutes: number }[] = [];
   for (const e of events) {
@@ -464,6 +465,7 @@ export const rulesSuggestions: SuggestionsService = {
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
       grnApprovals(events, stock, now),
+      stockValueCard(events, stock, now),
       visitLength(events, now),
       tableUse(events, now),
       notSelling(events, sales, now),

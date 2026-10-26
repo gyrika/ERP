@@ -7,7 +7,7 @@ Goal: the most advanced, premium POS the shop could use: faster than any competi
 ## The three minds (state which one a screen serves, what they already know, and the single next thing they need, BEFORE designing it)
 1. **Cashier**: customer waiting, hands busy. Take an order in seconds, never hunt, never err.
 2. **Kitchen**: sees only what to make next, in order, readable from a distance.
-3. **Owner**: wants to be told what needs attention and what to decide, not read reports.
+3. **Owner**: wants to be told what needs attention and what to decide
 
 ## Principles
 - Zero-search ordering: likely items already on screen; repeat customers get "the usual" in one tap.
@@ -16,7 +16,7 @@ Goal: the most advanced, premium POS the shop could use: faster than any competi
 - Modifiers appear only after the item is chosen, as big chips, sensible defaults.
 - Payment in one gesture: cash quick amounts + automatic change, bank transfer, card, QR. All four stay on screen; card and QR get real provider integrations later.
 - Default screen = current order + menu, nothing else. Settings/reports/admin live behind a command palette and role views.
-- Kitchen display: ONE column of tickets, colour = urgency only, one tap to bump. Owner view: ONE feed of insights, each with a one-tap action. No chart walls.
+- Kitchen display: ONE column of tickets, colour = urgency only, one tap to bump. Owner view (Today, `src/ui/Glance.tsx`, SCRUM-173): the shop at a glance (sales ring, five stations Deliveries → Shelves → Kitchen → Counter → Money, sales by hour vs usual, every Rs 100 sold, a dot per stock item) plus the To do list with one tap each; a black screen types the day in a sentence and explains whatever is tapped (phone: bottom, PC: right). Small charts as evidence, never chart walls; numbers stay pictures, words go on the screen.
 - Offline-first (power/internet are unreliable), silent background sync, real-time between counter, kitchen, owner phone.
 - Anticipation behind a swappable `SuggestionsService`: prep load, stock forecast + supplier order draft, unusual voids/discounts, price/menu suggestions. Upsell prompts subtle and ignorable.
 - Kitchen works from the SCREEN ONLY: no printed kitchen ticket or cancel slip, and no ticket-printing data. For now the kitchen has NO screen of its own: it shares the counter PC, and F2 (or the Kitchen chip) flips the whole screen between Register and Kitchen; a kitchen device comes later (owner, 2026-10-12). Arrivals, changes and cancellations chime and flash until tapped.

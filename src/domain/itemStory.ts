@@ -25,16 +25,32 @@ export interface ItemStory {
 export type HistoryEntry =
   | { kind: 'count'; at: number; by: string; counted: number; expected: number; delta: number; valueCents: Cents;
       reason: GapReason | null; photo: string | null; first: boolean; review: Review | null }
-  | { kind: 'delivery'; at: number; by: string; packs: number; grnId?: string }
+  | { kind: 'delivery'; at: number; by: string; packs: number; grnId?: string; valueCents?: Cents }
   | { kind: 'price'; at: number; by: string; before: Cents; after: Cents }
   /** Thrown away (waste.ts): qty in base units; from: the dish, batch or the item itself. */
-  | { kind: 'waste'; at: number; by: string; qty: number; from: string; reason: WasteReason; note?: string };
+  | { kind: 'waste'; at: number; by: string; qty: number; from: string; reason: WasteReason; note?: string; valueCents?: Cents };
+
+/**
+ * Its price a pack at time t (SCRUM-163): the last change before t, else the price before
+ * its first change, else the price now.
+ */
+const priceAtFor = (events: readonly SyncEvent[], itemId: string, priceNow: Cents) => {
+  const changes = events.flatMap((e) => (e.type === 'stock.price_set' && e.itemId === itemId ? [e] : []));
+  return (t: number): Cents => {
+    let p = changes.length ? changes[0].before : priceNow;
+    for (const c of changes) if (c.at <= t) p = c.after;
+    return p;
+  };
+};
 
 /**
  * Everything that happened to one item's stock, newest first. Undone counts are left
- * out, and a delivery or price change taken back with Undo cancels its pair.
+ * out, and a delivery or price change taken back with Undo cancels its pair. Given its
+ * price now, deliveries and waste carry their value at the price of that day (SCRUM-163).
  */
-export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQty = 0): HistoryEntry[] => {
+export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQty = 0, priceCents?: Cents): HistoryEntry[] => {
+  const priceAt = priceCents === undefined ? null : priceAtFor(events, itemId, priceCents);
+  const worth = (packs: number, at: number) => (priceAt ? { valueCents: Math.round(packs * priceAt(at)) } : {});
   const undone = new Set(events.flatMap((e) => (e.type === 'stock.count_undone' ? [e.countId] : [])));
   const reviews = new Map(gapCases(events).filter((c) => c.itemId === itemId).map((c) => [c.countId, c.review]));
   const out: HistoryEntry[] = [];
@@ -43,7 +59,7 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQt
     // A GRN is a delivery of every item it accepted; its undo takes that delivery off the list.
     if (e.type === 'stock.grn') {
       const accepted = e.lines.filter((l) => l.itemId === itemId).reduce((n, l) => n + (l.accepted ?? 0), 0);
-      if (accepted > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs: accepted, grnId: e.id });
+      if (accepted > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs: accepted, grnId: e.id, ...worth(accepted, e.at) });
       continue;
     }
     if (e.type === 'stock.grn_undone') {
@@ -63,7 +79,7 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQt
       // Older deliveries are adjustments in packs; newer ones are GRN movements in base units.
       const packs = e.type === 'stock.adjusted' ? e.deltaPacks : e.qtyBase / packQty;
       // An Undo of a delivery is the same packs taken back: it cancels that delivery.
-      if (packs > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs });
+      if (packs > 0) out.push({ kind: 'delivery', at: e.at, by: e.actor.name, packs, ...worth(packs, e.at) });
       else {
         for (let i = out.length - 1; i >= 0; i--) {
           const d = out[i];
@@ -83,7 +99,9 @@ export const itemHistory = (events: readonly SyncEvent[], itemId: string, packQt
   // Waste reaches this item through recipes too: merged in by time, newest first.
   for (const w of wasteRecords(events)) {
     const qty = w.takes.filter((t) => t.inventoryId === itemId).reduce((n, t) => n + t.qtyBaseUnits, 0);
-    if (qty > 0) out.push({ kind: 'waste', at: w.at, by: w.by, qty, from: w.name, reason: w.reason, ...(w.note ? { note: w.note } : {}) });
+    if (qty > 0) {
+      out.push({ kind: 'waste', at: w.at, by: w.by, qty, from: w.name, reason: w.reason, ...(w.note ? { note: w.note } : {}), ...(packQty > 0 ? worth(qty / packQty, w.at) : {}) });
+    }
   }
   return out.sort((a, b) => b.at - a.at); // stable: same-time entries keep their order
 };

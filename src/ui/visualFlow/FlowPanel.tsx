@@ -50,6 +50,10 @@ interface Props {
   actions: PanelActions;
   /** Each card's stock, from the same ledger as Items. */
   stocks: ReadonlyMap<string, ItemStock>;
+  /** Each card's stock value and unit cost (SCRUM-163); the item in focus: the stock behind it. */
+  worths: ReadonlyMap<string, { cents: number | null; unitCents: number | null; unit: string }>;
+  /** The stock value behind the item in focus; null: none of it is known. */
+  behind: number | null;
   /** What one batch of a semi-processed item makes; null: not known. */
   makesOf: (key: string) => { qty: number; unit: string } | null;
   /** The last Send to kitchen from the panel: its card and what it said. */
@@ -204,9 +208,14 @@ function StockAction({ node, st, actions, makesOf, ordering, buying }: Props & {
   );
 }
 
+/** A unit cost as it is bought and used: a kg, a L, each. */
+const unitCostText = (cents: number, unit: string): string =>
+  unit === 'g' ? `${rs(cents * 1000)} a kg` : unit === 'ml' ? `${rs(cents * 1000)} a L` : unit === 'pcs' ? `${rs(cents)} each` : `${rs(cents)} a ${unit}`;
+
 /** On hand, held, free, in the kitchen, waiting: the same figures as Items. */
 function StockDetails(p: Props & { node: FlowNode }) {
   const st = p.stocks.get(p.node.id);
+  const worth = p.worths.get(p.node.id);
   if (!st) return null;
   const note = stockNote(st);
   // What is going on with it, in one short message: the last send from here, else its state.
@@ -227,8 +236,16 @@ function StockDetails(p: Props & { node: FlowNode }) {
           <dt>Free to use</dt><dd className="num">{stockAmount(st, st.available)}</dd>
           {st.inKitchen > 0 && <><dt>Being made</dt><dd className="num">{stockAmount(st, st.inKitchen)}</dd></>}
           {st.waiting > 0 && <><dt>Waiting</dt><dd className="num">{stockAmount(st, st.waiting)}</dd></>}
+          {worth?.unitCents != null && <><dt>Unit cost</dt><dd className="num">{unitCostText(worth.unitCents, worth.unit)}</dd></>}
+          {worth?.cents != null && <><dt className="vf-figures__total">Value</dt><dd className="vf-figures__total num">{rs(worth.cents)}</dd></>}
         </dl>
       )}
+      {p.node.id === p.graph.focus && p.behind !== null && (
+        <dl className="vf-figures">
+          <dt>Stock behind it</dt><dd className="num">{rs(p.behind)}</dd>
+        </dl>
+      )}
+      {st.kind === 'raw' && <a className="linkbtn vf-history" href={`#items/item/${encodeURIComponent(p.node.id.slice('stock:'.length))}`}>History</a>}
       {said && (
         <div className={`vf-screen${!sent && (st.status === 'out' || st.short > 0) ? ' vf-screen--alert' : ''}`} role="status">
           <TypeOut key={sent?.at ?? 0} text={said} className="vf-screen__text" />
