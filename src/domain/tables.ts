@@ -313,7 +313,12 @@ const wholeIn = (v: unknown, min: number, max: number): boolean => Number.isSafe
 const only = (o: Record<string, unknown>, keys: readonly string[]): boolean => Object.keys(o).every((k) => keys.includes(k));
 const unique = (list: { id: string }[]): boolean => new Set(list.map((x) => x.id)).size === list.length;
 /** An IPv4 address or a host name: no user, password or port. */
-const host = (v: unknown): boolean => typeof v === 'string' && v.length <= 253 && /^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(v);
+/** A camera's address: a name or an IP, and a port when it is not RTSP's 554 ("192.168.1.5:8080", a phone app). */
+const host = (v: unknown): boolean => {
+  if (typeof v !== 'string' || v.length > 253) return false;
+  const m = /^([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?)(:(\d{1,5}))?$/.exec(v);
+  return m !== null && (m[4] === undefined || (Number(m[4]) >= 1 && Number(m[4]) <= 65535));
+};
 /** The stream's path on the camera ("/stream1"), never a full URL with a login. */
 const rtspPath = (v: unknown): boolean => typeof v === 'string' && v.length <= 200 && /^\/[A-Za-z0-9/_.?=&%-]*$/.test(v);
 

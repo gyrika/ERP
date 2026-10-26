@@ -9,7 +9,7 @@ import { networkInterfaces } from 'node:os';
 import type { Actor, Role } from '../src/domain/auth.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
 import type { CameraSpec } from '../src/domain/tables.ts';
-import { CAUSE_TEXT } from '../src/domain/cameraSetup.ts';
+import { CAUSE_TEXT, hostPort } from '../src/domain/cameraSetup.ts';
 import { discover as scanLan, snapshot as takeSnapshot, type FoundCamera } from './cvCameras.ts';
 import { liveViews, type LiveViews, type ViewMode } from './cvLive.ts';
 import { askCamera as askOnvif } from './onvif.ts';
@@ -440,7 +440,8 @@ export function setupApi(ctx: SetupContext) {
      */
     async cvAsk(body: { ownerPin?: unknown; cameraId?: unknown; ip?: unknown; user?: unknown; password?: unknown }) {
       await owner(body.ownerPin);
-      const ip = text(body.ip, 253);
+      // ONVIF answers on the camera's own address; a port typed for the stream (":8080") is not its.
+      const ip = hostPort(text(body.ip, 253)).host;
       if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) throw new SetupError(400, 'invalid', 'type the camera’s IP address');
       const kept = typeof body.cameraId === 'string' ? ctx.secrets?.get(body.cameraId) : null;
       const user = typeof body.user === 'string' && body.user ? body.user.slice(0, 80) : kept?.user ?? '';
