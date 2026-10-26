@@ -41,7 +41,7 @@ test('a new shop: name it (this PC becomes the counter), add staff, finish only 
   const s = await start();
   // The printer list is whatever this PC has (and Windows may be slow to tell): not compared.
   const { printers: _printers, ...fresh } = await s.state();
-  assert.deepEqual(fresh, { done: false, shop: null, printer: null, cloud: false });
+  assert.deepEqual(fresh, { done: false, shop: null, printer: null, cloud: false, cv: null });
 
   const named = await s.post('/shop', { name: 'CheesyBeez', place: 'Thalwila' });
   assert.match(named.body.shopId, /^cheesybeez-thalwila-[0-9a-f]{4}$/, 'a short random ending keeps shops apart in the cloud');

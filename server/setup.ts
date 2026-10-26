@@ -81,6 +81,8 @@ export interface SetupState {
   printer: string | null;
   printers: string[];
   cloud: boolean;
+  /** Computer vision's pack (idle until the owner activates it): #vision shows Activate, its progress, then the switch. */
+  cv: ReturnType<CvPackApi['status']> | null;
   /** Only while the shop is new; afterwards the staff list needs the owner's PIN. */
   staff?: StaffMember[];
 }
@@ -245,6 +247,7 @@ export function setupApi(ctx: SetupContext) {
         printer: s.printer ?? null,
         printers: await listPrinters(),
         cloud: ctx.cloud() !== null,
+        cv: ctx.cv?.status() ?? null,
         ...(!s.setupDone && current ? { staff: await ctx.store.listStaff(current.id) } : {}),
       };
     },

@@ -21,6 +21,8 @@ export interface VisionClient {
   needsPin: boolean;
   status(pin: string): Promise<CvStatus>;
   activate(pin: string): Promise<CvStatus>;
+  /** The CV pack as it is now, without the PIN (null: this server has none, as in development without a pack folder). */
+  pack(): Promise<CvStatus | null>;
   /** Records the settings; returns the event, already in this device's log. */
   save(pin: string, s: VisionSettings): Promise<SyncEvent[]>;
   /** Which cameras have a login kept (never the password). */
@@ -69,6 +71,7 @@ const shopServer: VisionClient = {
   needsPin: true,
   status: (pin) => setupClient.cvStatus(pin),
   activate: (pin) => setupClient.cvActivate(pin),
+  pack: async () => (await setupClient.state()).cv ?? null,
   async save(pin, s) {
     const { events } = await cameraClient.saveSettings(pin, s);
     addEvents(events);
@@ -112,6 +115,7 @@ const demo: VisionClient = {
   needsPin: false,
   status: async () => FAKE_CV_STATUS,
   activate: async () => FAKE_CV_STATUS,
+  pack: async () => FAKE_CV_STATUS,
   save: async (_pin, s) => record({ type: 'vision.settings_set', ...s }),
   logins: async () => demoLogins,
   scan: async () => [{ ip: '192.168.1.40', name: 'TP-IPC C200' }],

@@ -13,6 +13,8 @@ export interface SetupState {
   printer: string | null;
   printers: string[];
   cloud: boolean;
+  /** The CV pack, without a PIN: #vision asks it before showing Activate. */
+  cv?: CvStatus | null;
   staff?: StaffRow[];
 }
 

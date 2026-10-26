@@ -64,7 +64,7 @@ test('one page: the switch turns CV on (PIN in the line, the CV pack arrives, Sh
   expect(screen.getByRole('link', { name: 'Computer vision' }).getAttribute('aria-current')).toBe('page');
   expect(screen.queryByRole('link', { name: 'How to set up' })).toBeNull();
   // Off: the switch says so (red); the panel holds the settings.
-  expect(toggle().getAttribute('aria-checked')).toBe('false');
+  expect((await screen.findByRole('switch', { name: 'Computer vision' })).getAttribute('aria-checked')).toBe('false');
   expect(within(toggle()).getByText('Off')).toBeTruthy();
   expect(within(panel()).getByRole('heading', { name: 'Settings' })).toBeTruthy();
 
@@ -230,3 +230,35 @@ test('a manager sees the page but cannot change CV, the mode, the CPU limit or t
   expect(within(panel()).getByRole('heading', { name: 'Table 1' })).toBeTruthy();
   expect(within(panel()).queryByText('Edit the table')).toBeNull();
 });
+
+test('the first time: Activate computer vision downloads the pack with its progress here, then the switch appears, off', async () => {
+  const server = fakeShopServer();
+  const pack = { phase: 'idle' as string, looks: 0 };
+  const fetchCv = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (String(url) === '/api/v1/setup' && !init?.method) {
+      // The pack, without the PIN: idle until Activate, then downloading for a look, then ready.
+      if (pack.phase === 'downloading' && ++pack.looks > 1) pack.phase = 'ready';
+      const cv = pack.phase === 'downloading' ? { active: true, phase: 'downloading', bytes: 20_000_000, total: 50_000_000 }
+        : pack.phase === 'ready' ? { active: true, phase: 'ready', version: '1' } : { active: false, phase: 'idle' };
+      return Response.json({ done: true, shop: null, printer: null, printers: [], cloud: false, cv });
+    }
+    if (String(url).endsWith('/cv/activate')) pack.phase = 'downloading';
+    return fetchCv(url, init);
+  }));
+  addEvents(shop());
+  history.replaceState(null, '', '/#vision');
+  const user = userEvent.setup();
+  render(<Root />);
+  const card = await screen.findByRole('region', { name: 'Activate computer vision' });
+  expect(within(card).getByRole('heading', { name: 'Computer vision is not activated yet' })).toBeTruthy();
+  expect(screen.queryByRole('switch', { name: 'Computer vision' })).toBeNull();
+
+  await user.click(within(card).getByRole('button', { name: 'Activate computer vision' }));
+  await user.type(await screen.findByLabelText("The owner's PIN to activate computer vision"), '1234{Enter}');
+  expect(await screen.findByRole('progressbar', { name: 'Downloading the CV pack' })).toBeTruthy();
+  expect(await screen.findByRole('switch', { name: 'Computer vision' }, { timeout: 4000 })).toBeTruthy();
+  expect(screen.queryByRole('region', { name: 'Activate computer vision' })).toBeNull();
+  expect(toggle().getAttribute('aria-checked')).toBe('false'); // activated, still off: the owner turns it on
+  expect(server.settings).toEqual([]);
+}, 15_000);

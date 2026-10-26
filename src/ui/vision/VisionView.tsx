@@ -120,6 +120,23 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
   };
   const cancelPin = () => { asking?.done(new PinCancelled()); setAsking(null); setPinError(''); };
 
+  // ----- the CV pack: the first time, Activate downloads it (its progress here); then the switch -----
+  /** undefined: not asked yet; null: no pack here (the cloud, or a server without one): the switch as it is. */
+  const [pack, setPack] = useState<CvStatus | null | undefined>(undefined);
+  useEffect(() => { client.pack().then(setPack, () => setPack(null)); }, [client]);
+  useEffect(() => {
+    if (!pack || !busy(pack)) return;
+    const t = setTimeout(() => { client.pack().then(setPack, () => {}); }, LOOK_MS);
+    return () => clearTimeout(t);
+  }, [pack, client]);
+  const needsActivate = pack != null && pack.phase !== 'ready';
+  const [activateError, setActivateError] = useState('');
+  const activate = () => {
+    setActivateError('');
+    withPin('activate computer vision', async (p) => { setPack(await client.activate(p)); })
+      .catch((e: unknown) => { if (!(e instanceof PinCancelled)) setActivateError(message(e)); });
+  };
+
   // ----- On / Off, Shadow / Live and the CPU limit: one `vision.settings_set` each -----
   /** A change waiting for the CV pack. */
   const [waiting, setWaiting] = useState<Partial<VisionSettings> | null>(null);
@@ -135,6 +152,7 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
       let st = await client.status(p);
       if (st.phase === 'idle' || st.phase === 'failed') st = await client.activate(p);
       setCv(st);
+      setPack(st);
       if (st.phase !== 'ready') { setWaiting(patch); return; }
     }
     setWaiting(null);
@@ -196,7 +214,7 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
 
   let line: ReactNode = null;
   if (asking) line = <PinLine what={asking.what} onPin={(p) => void unlock(p)} onCancel={cancelPin} />;
-  else if (waiting && busy(cv)) line = <CvProgress status={cv!} />;
+  else if (waiting && busy(cv) && !needsActivate) line = <CvProgress status={cv!} />; // else the Activate card shows it
   else if (waiting && cv?.phase === 'failed') {
     line = (
       <p className="setup__error cv__failed" role="alert">
@@ -269,13 +287,32 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
         <div className="vpage__main">
           <header className="vpage__bar">
             <h1>Computer vision</h1>
-            <span className="vpage__mode">{on ? modeLabel(settings.mode) : ''}</span>
-            <button type="button" role="switch" aria-checked={on} className="vtoggle" disabled={!canChange}
-              aria-label="Computer vision" aria-describedby={!canChange ? 'vision-locked' : undefined} onClick={toggle}>
-              <span className="vtoggle__track" aria-hidden="true"><span className="vtoggle__knob" /></span>
-              <span className="vtoggle__word">{on ? 'On' : 'Off'}</span>
-            </button>
+            {pack !== undefined && !needsActivate && <>
+              <span className="vpage__mode">{on ? modeLabel(settings.mode) : ''}</span>
+              <button type="button" role="switch" aria-checked={on} className="vtoggle" disabled={!canChange}
+                aria-label="Computer vision" aria-describedby={!canChange ? 'vision-locked' : undefined} onClick={toggle}>
+                <span className="vtoggle__track" aria-hidden="true"><span className="vtoggle__knob" /></span>
+                <span className="vtoggle__word">{on ? 'On' : 'Off'}</span>
+              </button>
+            </>}
           </header>
+          {needsActivate && pack && (
+            <section className="vactivate" aria-label="Activate computer vision">
+              {busy(pack) ? <CvProgress status={pack} /> : <>
+                <div className="vactivate__text">
+                  <h2>{pack.phase === 'failed' ? 'Activating did not finish' : 'Computer vision is not activated yet'}</h2>
+                  <p className="setup__hint">
+                    {pack.phase === 'failed' ? `${pack.reason}. Check the internet and try again.`
+                      : 'Activate downloads the camera tools once: the video reader and the people detector. No restart; the counter keeps working.'}
+                  </p>
+                </div>
+                <button type="button" className="cta" disabled={!canChange} onClick={activate}>
+                  {pack.phase === 'failed' ? 'Try again' : 'Activate computer vision'}
+                </button>
+              </>}
+              {activateError && <p className="setup__error" role="alert">{activateError}</p>}
+            </section>
+          )}
           {!canChange && <p id="vision-locked" className="setup__hint vpage__locked">{lockedWhy}</p>}
           {(line || pinError || error) && (
             <div className="vpage__line">
