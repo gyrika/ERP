@@ -1,0 +1,91 @@
+/* Computer vision (#vision, SCRUM-174). Lazy, with VisionView; the tiles are the floor's (floor/floor.css). */
+.vision { max-width: 880px; }
+.vision__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.vision__modes { display: inline-flex; padding: 4px; gap: 4px; border-radius: 16px; background: var(--chip); }
+.vision__mode { min-width: 96px; min-height: 48px; padding: 0 20px; border-radius: 12px; font-size: 16px; font-weight: 500; color: var(--ink-2);
+  transition: background 150ms var(--ease), color 150ms var(--ease); }
+.vision__mode[aria-checked='true'] { background: var(--surface); color: var(--ink); box-shadow: var(--card-shadow); }
+.vision__mode[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
+.vision__mode[aria-disabled='true'][aria-checked='true'] { opacity: 1; }
+/* :focus, not :focus-visible: from the Shadow card Live is focused for Enter, and must show it. */
+.vision__mode:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+.vision__mode:focus:not(:focus-visible):not(:last-child) { outline: none; }
+.vision__line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 48px; font-size: 15px; }
+.vision__line .chip { min-height: 48px; padding: 0 20px; }
+.vision__line .chip:disabled { opacity: 0.4; }
+.vision__line.vision__note::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--warn); }
+.vision__pin { align-items: end; }
+.vision__pin .setup__field input { background: var(--surface); }
+.vision__link { min-height: 48px; display: inline-flex; align-items: center; color: var(--ink); font-weight: 500; text-underline-offset: 3px; }
+.vision__skeleton { height: 320px; border-radius: 16px; }
+
+.vision__part { display: flex; flex-direction: column; gap: 14px; padding-top: 22px; border-top: 1px solid var(--line); }
+.vision__part h2 { margin: 0; font-size: 21px; font-weight: 500; letter-spacing: -0.4px; }
+.vision__grid { padding: 0; }
+.vision__grid .floor__tile { min-height: 152px; }
+.vision__day { font-size: 13px; color: var(--ink-2); line-height: 1.35; }
+.vision__why { margin: 0; min-height: 48px; font-size: 16px; line-height: 1.45; }
+.vision__why b { margin-right: 6px; }
+
+.vision__cams { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.vision__cam { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 16px; min-height: 56px; padding: 0 18px;
+  border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 15px; color: var(--ink-2); }
+.vision__cam b { color: var(--ink); font-weight: 500; }
+.vision__cam span:first-of-type { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); }
+.vision__cam span:first-of-type::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+.vision__cam--off span:first-of-type::before { background: var(--bad); }
+.vision__cpu { display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+.vision__cpu input { width: 100%; max-width: 420px; height: 48px; accent-color: var(--ink); }
+.vision__cpu input:disabled { opacity: 0.45; }
+.vision__slowed { font-weight: 600; }
+.vision__slowed::before { content: ''; display: inline-block; width: 8px; height: 8px; margin: 0 6px 0 4px; border-radius: 50%; background: var(--warn); vertical-align: 1px; }
+
+@media (max-width: 720px) {
+  .vision__head { flex-direction: column; align-items: stretch; }
+  .vision__modes { display: flex; }
+  .vision__mode { flex: 1; min-width: 0; }
+  .vision__cam { grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; padding: 10px 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .vision__mode { transition: none; } }
+
+/* Camera views (SCRUM-180): a tile per camera, 16:9, then one large. The picture is the hero; the words stay small. */
+.views__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.views__tile { display: flex; flex-direction: column; gap: 0; min-height: 48px; padding: 0; overflow: hidden; text-align: left;
+  border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); color: var(--ink);
+  transition: transform 150ms var(--ease), box-shadow 150ms var(--ease); }
+.views__tile:hover { transform: translateY(-1px); }
+.views__tile:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.views__frame { position: relative; display: block; aspect-ratio: 16 / 9; background: #000; }
+.views__frame img, .views__frame .skeleton { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border-radius: 0; }
+.views__tile--off .views__frame img { opacity: 0.35; filter: grayscale(1); }
+.views__caption { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 0 14px; font-size: 15px; }
+.views__caption b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.views__why { padding: 0 14px 12px; font-size: 13px; line-height: 1.35; color: var(--ink-2); }
+.views__status { display: inline-flex; align-items: center; gap: 8px; flex: none; font-size: 14px; color: var(--ink-2); }
+.views__status::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
+.views__status--ok::before { background: var(--ok); }
+.views__status--bad::before { background: var(--bad); }
+
+.views__large { margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.views__head { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-size: 17px; }
+.views__head .chip { min-height: 48px; padding: 0 18px; display: inline-flex; align-items: center; gap: 8px; }
+.views__head b { font-weight: 500; }
+.views__frame--large { border-radius: 16px; overflow: hidden; max-height: 70vh; }
+.views__frame--large img { object-fit: contain; }
+
+/* What detection sees (SCRUM-175), over the large view: zones in their table's colour, people in white. */
+.overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.overlay polygon, .overlay rect { stroke-width: 2; vector-effect: non-scaling-stroke; }
+.overlay__zone polygon { fill-opacity: 0.28; stroke-opacity: 0.9; }
+.overlay__zone--free { fill: var(--ok); stroke: var(--ok); }
+.overlay__zone--occupied { fill: var(--warn); stroke: var(--warn); }
+.overlay__zone--needs_cleaning { fill: var(--bad); stroke: var(--bad); }
+.overlay__zone--reserved { fill: var(--reserved); stroke: var(--reserved); }
+.overlay__zone--nocam { fill: var(--nocam); stroke: var(--nocam); }
+.overlay text { font-size: 22px; font-weight: 600; fill: #fff; stroke: #000; stroke-width: 4px; paint-order: stroke; stroke-opacity: 0.7; }
+.overlay__person rect { fill: none; stroke: #fff; }
+.overlay__person text { font-size: 18px; }
+.overlay__person circle { fill: #fff; stroke: #000; stroke-width: 2; }
+.views__checked { font-size: 15px; color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) { .views__tile { transition: none; } .views__tile:hover { transform: none; } }

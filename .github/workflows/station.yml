@@ -1,8 +1,9 @@
 # Releases CheesyBeez on every merge to main that changes what the shop installs:
 #   tests (Linux) -> cloud staging -> cloud live ┐
 #   tests (Windows)                              ├-> GitHub Release with Setup.exe (next version, e.g. 1.0.4 -> 1.0.5;
-#   Setup.exe build                              ┘   a big change: raise deploy/station/release-line.txt)
-# The three run side by side; only the release waits, so no Setup.exe is published before the cloud is live
+#   Setup.exe build                              ┤   a big change: raise deploy/station/release-line.txt)
+#   CV pack build (cv-pack-N-win-x64.zip)        ┘   attached to the same release; the shop server fetches it on "Activate CV"
+# The four run side by side; only the release waits, so no Setup.exe is published before the cloud is live
 # and the Windows tests pass. A merge whose Setup.exe would install exactly what the last release installs
 # (deploy/station/content-hash.mjs) deploys the cloud and releases nothing.
 # Shop PCs look every 5 minutes, download it, and install it the next time the PC starts, or late at night when the counter is quiet.
@@ -15,9 +16,9 @@ name: CheesyBeez Station
 on:
   push:
     branches: [main]
-    paths: ['deploy/station/**', '.github/workflows/station.yml', 'server/**', 'src/**', 'cloud/**', 'public/**', 'index.html', 'order.html', 'package.json', 'package-lock.json']
+    paths: ['deploy/station/**', 'deploy/cv-pack/**', '.github/workflows/station.yml', 'server/**', 'src/**', 'cloud/**', 'public/**', 'index.html', 'order.html', 'package.json', 'package-lock.json']
   pull_request:
-    paths: ['deploy/station/**', '.github/workflows/station.yml', 'server/**', 'src/**', 'cloud/**', 'public/**', 'index.html', 'order.html', 'package.json', 'package-lock.json']
+    paths: ['deploy/station/**', 'deploy/cv-pack/**', '.github/workflows/station.yml', 'server/**', 'src/**', 'cloud/**', 'public/**', 'index.html', 'order.html', 'package.json', 'package-lock.json']
   workflow_dispatch:
 
 permissions:
@@ -189,9 +190,58 @@ jobs:
           name: CheesyBeez-Setup-${{ steps.version.outputs.value }}
           path: deploy/station/Output/*.exe
 
+  # Table detection's downloads (SCRUM-169, deploy/cv-pack/build.ps1): ffmpeg, ONNX Runtime and the model,
+  # pinned by sha256, checked here by the shop server's own unpacking code and by running the model once.
+  cv-pack:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3 # the Station's Node.js: onnxruntime-node must load in it
+
+      - name: Pinned downloads (cached)
+        uses: actions/cache@v4
+        with:
+          path: C:\cv-cache
+          key: cv-deps-${{ hashFiles('deploy/cv-pack/build.ps1') }}
+
+      - name: Build the CV pack
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # On main the first build keeps a copy of the pinned downloads in the cv-deps pre-release (BtbN deletes old builds).
+        run: ./deploy/cv-pack/build.ps1 -Out cv-pack-out -Cache C:\cv-cache ${{ github.event_name == 'push' && '-Mirror' || '' }}
+
+      - name: The server installs it, and ONNX Runtime runs YOLOX from it
+        shell: pwsh
+        run: |
+          $zip = (Get-ChildItem cv-pack-out -Filter 'cv-pack-*-win-x64.zip').FullName
+          node --experimental-strip-types --no-warnings deploy/cv-pack/check.ts $zip
+          if ($LASTEXITCODE) { throw "The CV pack check failed ($LASTEXITCODE)" }
+
+      - name: ffmpeg.exe runs and is the LGPL build
+        shell: pwsh
+        run: |
+          $zip = (Get-ChildItem cv-pack-out -Filter 'cv-pack-*-win-x64.zip').FullName
+          $dir = Join-Path $env:RUNNER_TEMP 'cv-pack-ffmpeg'
+          Expand-Archive $zip $dir
+          $v = & (Join-Path $dir 'ffmpeg.exe') -hide_banner -version | Out-String
+          if ($LASTEXITCODE) { throw "ffmpeg.exe did not run ($LASTEXITCODE)" }
+          $v.Split("`n") | Select-Object -First 3 | Write-Host
+          if ($v -match '--enable-gpl|--enable-nonfree') { throw 'ffmpeg.exe is not the LGPL build' }
+          Get-ChildItem $dir -Recurse -File | Measure-Object Length -Sum | ForEach-Object { "Unpacked: $($_.Count) files, $([math]::Round($_.Sum / 1MB)) MB" } | Write-Host
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cv-pack
+          path: cv-pack-out/*.zip
+          retention-days: 7
+
   # Only now, with the cloud live, the Windows tests green and something new to install.
   release:
-    needs: [cloud, test-windows, build]
+    needs: [cloud, test-windows, build, cv-pack]
     if: github.event_name == 'push' && needs.build.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -200,12 +250,19 @@ jobs:
           name: CheesyBeez-Setup-${{ needs.build.outputs.version }}
           path: out
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: cv-pack
+          path: out
+
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.build.outputs.version }}
           target_commitish: ${{ github.sha }}
-          files: out/*.exe
+          files: |
+            out/*.exe
+            out/cv-pack-*-win-x64.zip
           # GitHub adds the merged pull requests since the last release under this text.
           generate_release_notes: true
           body: |

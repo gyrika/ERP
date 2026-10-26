@@ -83,6 +83,8 @@ export function GlanceView({ glance: g, insights, links, onOpen }: {
   const e = useCountUp();
   const pulses = usePulses(g.stations);
   const pick = (k: Key) => setKey((was) => (was === k ? 'summary' : k));
+  /** A card's button: its own screen when it names one (the Shadow week's "Switch to Live?"), else its list. */
+  const open = (i: Insight) => { if (i.action.go) location.hash = i.action.go; else onOpen(i.id); };
   const maxHour = Math.max(1, ...g.hours.map((h) => Math.max(h.today ?? 0, h.usual ?? 0)));
   const share = g.share === null ? null : Math.min(1, g.share);
   const C = 2 * Math.PI * 54;
@@ -204,7 +206,7 @@ export function GlanceView({ glance: g, insights, links, onOpen }: {
                 <span className="glance__task-dot" aria-hidden="true" />
                 <span>{i.title}</span>
               </button>
-              <button type="button" className="insight__action" onClick={() => onOpen(i.id)}>{i.action.label}</button>
+              <button type="button" className="insight__action" onClick={() => open(i)}>{i.action.label}</button>
             </article>
           ))}
         </section>
@@ -220,7 +222,7 @@ export function GlanceView({ glance: g, insights, links, onOpen }: {
           )}
         </div>
         <div aria-live="polite"><TypeOut text={screen.text} className="glance__screen-text" /></div>
-        {screen.open && <button type="button" className="glance__screen-link" onClick={() => onOpen(screen.open!.id)}>{screen.open.action.label} →</button>}
+        {screen.open && <button type="button" className="glance__screen-link" onClick={() => open(screen.open!)}>{screen.open.action.label} →</button>}
         {links && screen.href && <a className="glance__screen-link" href={screen.href}>See the records →</a>}
       </section>
     </div>

@@ -304,6 +304,18 @@ test('a shorthand miss syncs with what was typed; a malformed one is refused', (
   assert.ok('reason' in validatePush({ events: [{ ...miss, actor: undefined }] }, 'shop-1'));
 });
 
+test('table and vision events sync with exactly their fields; a camera password or a frame is refused (SCRUM-166)', () => {
+  const floor = { ...base, orderNumber: 0, actor: { id: 'cashier-1', name: 'Kasun', role: 'cashier' } };
+  const set = { ...floor, type: 'table.state_set', tableId: 't1', from: 'needs_cleaning', to: 'free' };
+  const cams = { ...floor, type: 'vision.cameras_set', cameras: [{ id: 'c1', name: 'Front', ip: '192.168.1.20', rtspPath: '/stream1', enabled: true }] };
+  assert.ok('events' in validatePush({ events: [set, cams] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...set, to: 'gone' }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...set, orderNumber: 1001 }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...set, actor: undefined }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...cams, cameras: [{ ...cams.cameras[0], password: 'secret' }] }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ events: [{ ...floor, type: 'vision.camera_offline', cameraId: 'c1', image: 'AAAA' }] }, 'shop-1'));
+});
+
 test('a kitchen Remake is a waste with its ticket and line; a bad ticket id is refused (SCRUM-177)', () => {
   const remake = {
     ...base, id: 'w1', type: 'stock.wasted', what: { kind: 'dish', itemId: 'margherita', size: 'L' }, name: 'Margherita · Large',

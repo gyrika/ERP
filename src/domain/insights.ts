@@ -11,6 +11,7 @@ import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine, Tender } from './types.ts';
 import { lineItemName } from './halves.ts';
 import { stockValueCard } from './valuation.ts';
+import { camerasOffline, shadowToLive, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
 import { wasteAboveUsual, wasteReasonRepeats } from './wasteInsights.ts';
 
 /**
@@ -38,8 +39,8 @@ export interface Insight {
   tone: Tone;
   title: string;
   detail: string;
-  /** The one tap: open the list behind the card. */
-  action: { label: string; items: InsightItem[] };
+  /** The one tap: open the list behind the card, or with `go` open that place instead (SCRUM-174: "#vision/live"). */
+  action: { label: string; items: InsightItem[]; go?: string };
   /** Gaps for the owner to check (SCRUM-95): the list behind the card is answered, not just read. */
   cases?: CaseView[];
 }
@@ -451,7 +452,9 @@ export const rulesSuggestions: SuggestionsService = {
   insights({ events, now, stock }) {
     const sales = salesFrom(events);
     return [
+      camerasOffline(events, now), // first: the floor is guessing until it is back
       salesVsUsual(sales, now),
+      tablesVsUsual(events, now),
       voidsToday(events, sales, now),
       discountsToday(events, sales, now),
       kitchenSlow(events, now),
@@ -466,6 +469,9 @@ export const rulesSuggestions: SuggestionsService = {
       costsToAnswer(events, stock, now),
       grnApprovals(events, stock, now),
       stockValueCard(events, stock, now),
+      shadowToLive(events, now),
+      visitLength(events, now),
+      tableUse(events, now),
       notSelling(events, sales, now),
       bestSeller(events, now),
     ].filter((x): x is Insight => x !== null).sort((a, b) => ORDER[a.tone] - ORDER[b.tone]);

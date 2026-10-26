@@ -74,6 +74,27 @@ test('bad rows are refused whole, and nothing is stored', async () => {
   assert.equal((await (await call('/api/v1/replica', 'server-a')).json()).lastSourceSeq, 0);
 });
 
+test("tables and cameras (SCRUM-172): the shop's copy carries them, and the owner's phone reads them back", async () => {
+  const { call } = await setup();
+  const owner = { id: 'o', name: 'Anton', role: 'owner' };
+  const cameras = { id: 'vision', name: 'Cameras', role: 'vision' };
+  const row = (seq: number, event: object): SyncedEvent =>
+    ({ seq, deviceId: 'dev-server', receivedAt: 1000 + seq, event: { id: `v${seq}`, shopId: SHOP, at: 500 + seq, orderNumber: 0, ...event } as SyncEvent });
+  const rows = [
+    row(1, { type: 'table.layout_set', actor: owner, tables: [{ id: 't1', label: '1', seats: 4 }] }),
+    row(2, { type: 'vision.cameras_set', actor: owner, cameras: [{ id: 'c1', name: 'Front', ip: '192.168.1.21', rtspPath: '/stream1', enabled: true }] }),
+    row(3, { type: 'table.state_changed', actor: cameras, tableId: 't1', from: 'free', to: 'occupied', confidence: 0.9 }),
+    row(4, { type: 'vision.camera_offline', actor: cameras, cameraId: 'c1' }),
+    row(5, { type: 'vision.heartbeat', actor: cameras, cameras: [{ id: 'c1', online: true, fps: 5 }], cpu: 31 }),
+  ];
+  assert.equal((await (await call('/api/v1/replica', 'server-a', { events: rows })).json()).stored, 5);
+  const pulled = await (await call('/api/v1/events?after=0', 'owner-a')).json();
+  assert.deepEqual(pulled.events.map((e: SyncedEvent) => e.event), rows.map((r) => r.event));
+  // The same shape checks as the shop server: a camera event carrying a password is refused whole.
+  const leaky = row(6, { type: 'vision.camera_online', actor: cameras, cameraId: 'c1', password: 'x' });
+  assert.equal((await call('/api/v1/replica', 'server-a', { events: [leaky] })).status, 400);
+});
+
 test('the database itself refuses to change or delete an event', async () => {
   const { call, db } = await setup();
   await call('/api/v1/replica', 'server-a', { events: [synced('a', 1)] });

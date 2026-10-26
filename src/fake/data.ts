@@ -4,6 +4,7 @@
  * and goes away when real logins (sprint 3) and real data arrive.
  */
 import type { Actor } from '../domain/auth.ts';
+import type { SeenBox, TableSpec, TableState } from '../domain/tables.ts';
 import type { Order } from '../domain/types.ts';
 
 export const FAKE_SHOP_ID = 'shop-demo-cheesybeez';
@@ -53,3 +54,34 @@ export const FAKE_ORDER_SHOP = {
   phone: null,
   address: null,
 };
+
+/**
+ * Demo floor for /?demo (SCRUM-168): six tables until the owner draws his own (SCRUM-171), and
+ * what staff marked on a few of them, minutes ago. No cameras: the floor works by hand.
+ */
+export const FAKE_TABLES: TableSpec[] = [
+  { id: 'demo-t1', label: '1', seats: 2 }, { id: 'demo-t2', label: '2', seats: 4 }, { id: 'demo-t3', label: '3', seats: 4 },
+  { id: 'demo-t4', label: '4', seats: 6 }, { id: 'demo-t5', label: '5', seats: 2 }, { id: 'demo-t6', label: '6', seats: 4 },
+];
+export const FAKE_TABLE_STATES: { tableId: string; to: TableState; minutesAgo: number }[] = [
+  { tableId: 'demo-t2', to: 'occupied', minutesAgo: 24 },
+  { tableId: 'demo-t3', to: 'occupied', minutesAgo: 9 },
+  { tableId: 'demo-t4', to: 'needs_cleaning', minutesAgo: 3 },
+  { tableId: 'demo-t6', to: 'reserved', minutesAgo: 12 },
+];
+
+/**
+ * /?demo#vision, the Front camera open large (SCRUM-175): what detection sees, drawn over the test
+ * picture. Two people at table 2, one at table 3, one walking past (feet outside every zone).
+ */
+export const FAKE_DETECTIONS: Record<string, SeenBox[]> = {
+  'demo-cam-front': [
+    { x1: 0.38, y1: 0.2, x2: 0.48, y2: 0.85, score: 0.91 },
+    { x1: 0.52, y1: 0.25, x2: 0.62, y2: 0.88, score: 0.84 },
+    { x1: 0.74, y1: 0.22, x2: 0.86, y2: 0.9, score: 0.78 },
+    { x1: 0.14, y1: 0.02, x2: 0.2, y2: 0.3, score: 0.52 },
+  ],
+};
+
+/** /?demo#vision (SCRUM-174): the CV pack is there already, so Shadow and Live switch at once. */
+export const FAKE_CV_STATUS = { active: true, phase: 'ready', version: 'demo' } as const;

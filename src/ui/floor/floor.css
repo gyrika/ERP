@@ -1,0 +1,28 @@
+/* Tables: the floor (SCRUM-168). One tile per table, colour = its state. Loaded with the floor; tokens in styles.css. */
+.floor { min-height: 100dvh; display: flex; flex-direction: column; background: var(--ground); }
+.floor__head { flex: 0 0 72px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 40px; }
+.floor__head h1 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -0.4px; }
+.floor__keys { display: inline-flex; gap: 6px; }
+.floor__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 16px; padding: 8px 40px 24px; align-content: start; }
+.floor__tile { --tone: var(--ok); min-height: 136px; display: grid; grid-template-rows: 1fr auto auto; justify-items: start; gap: 4px; padding: 16px 18px 16px 22px;
+  border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); border-left: 6px solid var(--tone); color: var(--ink); text-align: left;
+  transition: transform 150ms var(--ease), box-shadow 150ms var(--ease); }
+.floor__tile--occupied { --tone: var(--warn); }
+.floor__tile--needs_cleaning { --tone: var(--bad); }
+.floor__tile--reserved { --tone: var(--reserved); }
+.floor__tile--nocam { --tone: var(--nocam); }
+.floor__tile--nocam .floor__num { color: var(--ink-2); }
+.floor__tile[aria-selected='true'] { box-shadow: 0 0 0 3px var(--ink); transform: translateY(-1px); }
+.floor__num { font-size: 44px; font-weight: 600; letter-spacing: -1px; line-height: 1; }
+.floor__state { display: inline-flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 500; }
+.floor__state::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--tone); }
+.floor__time { font-size: 15px; color: var(--ink-2); }
+.floor__actions { position: sticky; bottom: 0; margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 16px 40px 24px; background: var(--ground); }
+.floor__picked { font-size: 17px; font-weight: 600; margin-right: 6px; }
+.floor__action { min-height: 56px; padding: 0 20px; font-size: 17px; }
+.floor__empty { padding: 0 40px; color: var(--ink-2); }
+@media (max-width: 720px) {
+  .floor__head, .floor__grid, .floor__actions, .floor__empty { padding-left: 16px; padding-right: 16px; }
+  .floor__grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .floor__tile { transition: none; } }

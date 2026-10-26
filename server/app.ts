@@ -2,7 +2,7 @@ import { createReadStream, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { isRemake, managesRole, mayRecord } from '../src/domain/auth.ts';
+import { isRemake, isStaffRole, managesRole, mayRecord } from '../src/domain/auth.ts';
 import {
   PULL_LIMIT, type ApiError, type LoginResponse, type PullResponse, type PushResponse, type StreamMessage, type SyncEvent, type SyncedEvent,
 } from '../src/domain/sync.ts';
@@ -148,6 +148,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     if (e.type === 'stock.numbered') return 'only the shop server numbers documents';
     // Held batches go to the kitchen when the shop server sees their inputs on hand, never on a device's word.
     if (e.type === 'prep.released') return 'only the shop server sends held batches to the kitchen';
+    // What the cameras saw comes from the camera worker on this PC (SCRUM-170), stamped by the server, never from a device.
+    if ('actor' in e && e.actor?.role === 'vision') return 'only the shop server records what the cameras see';
     if (e.type.startsWith('kitchen.')) return device.kind === 'owner' || device.kind === 'manager' ? 'not from this device' : null;
     // The manager's phone counts and receives stock (SCRUM-94); orders, menu and recipes stay on the counter.
     if (device.kind === 'manager' && !e.type.startsWith('stock.')) return 'the manager phone records stock only';
@@ -211,11 +213,22 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       try {
         if (step === '' && req.method === 'GET') { json(res, 200, await setup.state()); return; }
         if (req.method !== 'POST') throw new HttpError(405, 'server', 'method not allowed');
+        // TEMPORARY: a test video arrives as the body itself, too big for readBody; the PIN in a header.
+        if (step === '/cv/test-video/upload') {
+          const q = url.searchParams;
+          json(res, 200, await setup.cvTestVideoUpload(req, { ownerPin: req.headers['x-owner-pin'], cameraId: q.get('cameraId'), name: q.get('name') }));
+          return;
+        }
         const body = ((await readBody(req)) ?? {}) as Record<string, unknown>;
         const routes: Record<string, (b: Record<string, unknown>) => Promise<unknown>> = {
           '/shop': setup.nameShop, '/printer': setup.setPrinter, '/staff': setup.addStaff, '/staff/list': setup.staff,
           '/staff/remove': setup.removeStaff, '/pair': setup.pair, '/cloud': setup.connectCloud, '/finish': () => setup.finish(),
           '/update/check': setup.checkUpdate, '/update/install': setup.installUpdate, '/update/status': setup.updateStatus,
+          '/cv/status': setup.cvStatus, '/cv/activate': setup.cvActivate, '/cv/setup': setup.cvSetup, '/cv/scan': setup.cvScan,
+          '/cv/test': setup.cvTest, '/cv/cameras': setup.cvCameras, '/cv/tables': setup.cvTables, '/cv/zones': setup.cvZones,
+          '/cv/settings': setup.cvSettings, '/cv/ask': setup.cvAsk,
+          '/cv/views/open': setup.cvViewsOpen, '/cv/views/frame': setup.cvViewsFrame, '/cv/views/close': setup.cvViewsClose,
+          '/cv/test-video/stop': setup.cvTestVideoStop, '/cv/test-video': setup.cvTestVideos,
         };
         const route = routes[step];
         if (!route) throw new HttpError(404, 'server', 'no such setup step');
@@ -237,7 +250,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       const staff = isPin(body?.pin) ? await store.staffByPin(device.tenantId, body.pin) : null;
       // A cashier's own PIN in the manager box is simply a wrong PIN: it says nothing about who exists.
       // The same on the manager's phone: it opens for managers and owners only (SCRUM-94).
-      if (!staff || ((purpose === 'manager' || device.kind === 'manager') && !managesRole(staff.role))) {
+      if (!staff || !isStaffRole(staff.role) || ((purpose === 'manager' || device.kind === 'manager') && !managesRole(staff.role))) {
         const count = (w?.count ?? 0) + 1;
         wrong.set(device.id, count >= MAX_WRONG ? { count: 0, until: t + WRONG_WAIT_MS } : { count, until: 0 });
         throw new HttpError(401, 'wrong_pin', 'wrong PIN');

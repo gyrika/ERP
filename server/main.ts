@@ -8,6 +8,10 @@ import type { Device } from './store.ts';
 import { dryRunPrinter, switchablePrinter, systemPrinter } from './printer.ts';
 import { startOnline, type Online } from './online.ts';
 import { createFleet } from './fleet.ts';
+import { cvPack } from './cvPack.ts';
+import { cvSecrets } from './cvSecrets.ts';
+import { startVision } from './cvWorker.ts';
+import { devSources } from './cv/visionCore.ts';
 import { startReplicator } from './replicator.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
@@ -67,6 +71,14 @@ const updates = updatesApi({
   statusFile: `${dataDir}/update-status.json`,
   nowFile: `${dataDir}/update-now.txt`,
 });
+// Table detection's downloads (SCRUM-169): off until the owner activates CV on #vision.
+const cv = cvPack({
+  dir: `${dataDir}/cv-pack`,
+  appVersion: updates.current,
+  active: () => settings.get().cvActive === true,
+  setActive: (on) => { settings.set({ cvActive: on }); },
+});
+cv.start();
 let replicator: ReturnType<typeof startReplicator> | null = null;
 let online: Online | null = null;
 let inbox: ReturnType<typeof startManagerInbox> | null = null;
@@ -109,6 +121,20 @@ const fleet = process.env.CLOUD_ADMIN_KEY
   ? createFleet({ url: process.env.CLOUD_ADMIN_URL || 'https://cheesybeez-cloud.cheesybeez-cloud.workers.dev', key: process.env.CLOUD_ADMIN_KEY })
   : null;
 
+// Development only: CV_DEV_CAMERAS puts looping video or image files where cameras' streams would be.
+const devCameras = devSources(process.env.CV_DEV_CAMERAS);
+// The cameras' logins, encrypted in the data folder (C:\ProgramData\CheesyBeez on the shop PC).
+const secrets = cvSecrets(dataDir);
+// The setup endpoints, #cameras and #vision's camera views (SCRUM-180).
+const setup = setupApi({
+  store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv,
+  // The owner's setup is stored like a push.
+  secrets, ingest: (device, events) => server.ingest(device, events), dev: devCameras,
+  // TEMPORARY: the owner's test video plays in place of a camera; the worker hears of it at once.
+  testVideos: { dir: `${dataDir}/cv-test`, onChange: () => vision.refresh() },
+  // The large camera view draws what detection sees (SCRUM-175).
+  detections: { watch: (id) => vision.watch(id), seen: (id) => vision.seen(id) },
+});
 const server = createApp({
   photos: photoFolder(`${dataDir}/photos`),
   cloudPhoto: async (tenantId, id) => {
@@ -132,13 +158,21 @@ const server = createApp({
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
   printer,
-  onStored: (tenantId, events) => { if (tenantId === cloudShop()) { replicator?.nudge(); online?.onEvents(events); } },
+  onStored: (tenantId, events) => {
+    vision.onStored(tenantId, events);
+    if (tenantId === cloudShop()) { replicator?.nudge(); online?.onEvents(events); }
+  },
   online: () => online,
   cloudStatus: () => replicator?.status() ?? null,
-  setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates }),
+  setup,
   version: updates.current,
   updating: () => activeUpdate(updates.status(), Date.now()),
   fleet,
+});
+// The camera worker (SCRUM-170): runs in Shadow or Live while the CV pack is there; what it sees is stored through the server.
+const vision = startVision({
+  store, settings, packDir: () => cv.packDir(), login: (id) => secrets.get(id), dev: devCameras,
+  ingest: (device, events) => server.ingest(device, events), logDir: `${dataDir}/logs`,
 });
 // After the server exists: the manager phones' inbox files events through it.
 startCloud();
@@ -152,9 +186,12 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  database: ${storeName}`);
   console.log(`  receipt printer: ${printer.name}`);
   if (fleet) console.log('  shops screen: on (CLOUD_ADMIN_KEY), on this computer only');
+  const pack = cv.status();
+  console.log(`  table detection (CV): ${pack.active ? pack.phase : 'off'}`);
+  if (devCameras.size) console.log(`  development cameras (CV_DEV_CAMERAS): ${[...devCameras.keys()].join(', ')}`);
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
-const stop = () => { replicator?.stop(); online?.stop(); inbox?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
+const stop = () => { setup.stopViews(); void vision.stop(); replicator?.stop(); online?.stop(); inbox?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

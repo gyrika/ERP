@@ -21,3 +21,6 @@ excel/
 # Tool caches
 .playwright-mcp/
 tsconfig.tsbuildinfo
+
+# Stock and phone clips for the camera worker replay (npm run cv:clips): licences forbid handing them on
+test-assets/

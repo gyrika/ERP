@@ -276,6 +276,37 @@ test('stock: only a logged-in manager or owner may change it, and only from the 
   await s.stop();
 });
 
+test("tables: staff set a table from the counter; no device may push what a camera saw (vision is the server's stamp)", async () => {
+  const s = await staffed();
+  await s.login('1111');
+  const nimal = { id: s.cashier.id, name: 'Nimal', role: 'cashier' };
+  const cameras = { id: 'vision', name: 'Cameras', role: 'vision' };
+  const floor = (id: string, type: string, actor: { id: string; name: string; role: string }, more: Record<string, unknown>) =>
+    ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor, type, ...more });
+  const r = await (await s.push(s.tokens.counter, [
+    floor('cleaned', 'table.state_set', nimal, { tableId: 't1', from: 'needs_cleaning', to: 'free' }),
+    floor('undo', 'table.state_set_undone', nimal, { tableId: 't1', undoneEventId: 'cleaned' }),
+    floor('seen', 'table.state_changed', cameras, { tableId: 't1', from: 'free', to: 'occupied', confidence: 0.9 }),
+    floor('fake-cam', 'table.state_changed', nimal, { tableId: 't1', from: 'free', to: 'occupied', confidence: 0.9 }),
+    floor('offline', 'vision.camera_offline', cameras, { cameraId: 'c1' }),
+    floor('layout', 'table.layout_set', nimal, { tables: [{ id: 't1', label: '1', seats: 4 }] }),
+  ])).json();
+  assert.deepEqual(r.accepted.map((a: { id: string }) => a.id), ['cleaned', 'undo']);
+  assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['seen', 'fake-cam', 'offline', 'layout']);
+  assert.match(r.rejected.find((x: { id: string }) => x.id === 'seen').reason, /only the shop server/);
+  const kitchen = await (await s.push(s.tokens.kitchen, [floor('k-cam', 'vision.heartbeat', cameras, { cameras: [], cpu: 10 })])).json();
+  assert.deepEqual(kitchen.rejected.map((x: { id: string }) => x.id), ['k-cam']);
+  await s.stop();
+});
+
+test('nobody logs in as vision, even if such a row were in the staff table', async () => {
+  const store = memoryStore();
+  await store.addStaff(SHOP, 'Cameras', 'vision', '7777');
+  const s = await start(store);
+  assert.equal((await s.call('/api/v1/login', s.tokens.counter, { pin: '7777', purpose: 'shift' })).status, 401);
+  await s.stop();
+});
+
 test('numbers: the server numbers each new PO and GRN, devices cannot number documents themselves', async () => {
   const s = await staffed();
   await s.login('2580');

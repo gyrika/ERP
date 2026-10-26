@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
@@ -38,6 +38,11 @@ type Sheet =
   | { kind: 'waste' }
   | null;
 
+/** The Tables chip carries the floor's fold (SCRUM-168): loaded beside the Register, so the Register does not grow. */
+const TablesChip = lazy(() => import('./TablesChip.tsx'));
+/** "Table N needs cleaning" for 5 s (the owner's exception to "no banners", 2026-10-26): from the same chunk. */
+const CleaningNote = lazy(() => import('./TablesChip.tsx').then((m) => ({ default: m.CleaningNote })));
+
 const isTypingTarget = (el: EventTarget | null): boolean =>
   el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 
@@ -47,12 +52,15 @@ const isTypingTarget = (el: EventTarget | null): boolean =>
  */
 export function App({
   onKitchen,
+  onTables,
   onOwner,
   onSwitch,
   canManageStock = true,
   onVoice,
 }: {
   onKitchen?: () => void;
+  /** Opens the floor of tables (SCRUM-168; F1 does the same). The chip shows only once there is a layout. */
+  onTables?: () => void;
   /** Opens the Owner view (owners and managers; F3 does the same). */
   onOwner?: () => void;
   onSwitch?: () => void;
@@ -262,6 +270,7 @@ export function App({
         id: `theme-${t}`, label: THEME_LABEL[t], hint: themeChoice() === t ? 'On' : undefined, run: () => setTheme(t),
       })),
       { id: 'setup', label: "Settings: staff, printer, devices, stock rules (owner's PIN)", run: () => { location.hash = '#setup'; } },
+      { id: 'cameras', label: 'Computer vision: cameras and tables', run: () => { location.hash = '#vision'; } },
       { id: 'undo', label: 'Undo last change', hint: 'Ctrl+Z', run: () => reg.undoManager(manager) },
       { id: 'sound', label: sound ? 'Turn sound off' : 'Turn sound on', run: () => { setSoundOn(!sound); setSound(!sound); } },
       { id: 'leave', label: 'Leave manager mode', hint: 'Esc', run: mode.exit },
@@ -294,6 +303,7 @@ export function App({
         ) : (
           <span className="corner">
             <OnlineChip state={online} looking={sheet?.kind === 'online'} onOpen={() => setSheet({ kind: 'online' })} />
+            {onTables && <Suspense fallback={null}><TablesChip onOpen={onTables} /></Suspense>}
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
             {onVoice && (
@@ -398,6 +408,8 @@ export function App({
       )}
       {palette && manager && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
 
+      {/* Hidden under an open sheet, like the toasts: it never covers the sheet, the order or the primary action. */}
+      {onTables && !sheet && !palette && <Suspense fallback={null}><CleaningNote /></Suspense>}
       {/* Hidden under an open sheet: it would cover the sheet's buttons (e.g. Card). */}
       {wasted && manager && !sheet && !palette && (
         <div className="toast" role="status" key={`waste-${wasted.id}`}>

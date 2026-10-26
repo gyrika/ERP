@@ -1,0 +1,126 @@
+/*
+ * Computer vision as one page, no scrolling (owner, 2026-10-27): the bar (CV on or off), the camera
+ * strip, the tables filling what is left, and the side panel for whatever is picked. Only the panel
+ * and, with many tables, the table grid scroll inside themselves. Lazy, with VisionView.
+ */
+.vpage { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: calc(100dvh - 16px); min-height: 560px; }
+.vpage__main { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: 0; padding: 4px 32px 20px; }
+.vpage__main h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -0.8px; }
+.vpage__bar { display: flex; align-items: center; gap: 12px; min-height: 56px; }
+.vpage__bar h1 { margin-right: auto; }
+.vpage__mode { font-size: 15px; color: var(--ink-2); }
+.vpage__locked { margin: -8px 0 0; }
+.vpage__line { display: flex; flex-direction: column; gap: 8px; }
+.vpage__sechead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.vpage__sechead .chip { min-height: 48px; padding: 0 18px; }
+.vpage__sechead .chip[aria-pressed='true'] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.vpage__count { margin-left: 6px; font-size: 15px; font-weight: 500; color: var(--ink-3); }
+.vpage .vision__part { gap: 12px; padding-top: 16px; }
+
+/* The switch: small; white is on, red is off (the owner's colours). The word says it too. */
+.vtoggle { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 6px 0 10px; border: 0; border-radius: 980px; background: transparent;
+  color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.vtoggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.vtoggle:disabled { cursor: not-allowed; opacity: 0.6; }
+.vtoggle__track { position: relative; width: 48px; height: 28px; border-radius: 980px; background: var(--bad); border: 1px solid var(--bad); box-sizing: border-box;
+  transition: background 180ms var(--ease), border-color 180ms var(--ease); }
+.vtoggle__knob { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 180ms var(--ease), background 180ms var(--ease); }
+.vtoggle[aria-checked='true'] .vtoggle__track { background: #fff; border-color: var(--line); }
+.vtoggle[aria-checked='true'] .vtoggle__knob { transform: translateX(20px); background: #1C1C1E; }
+.vtoggle__word { min-width: 26px; text-align: left; }
+
+/* The camera strip: four across, sideways past that. */
+.vstrip { flex: none; }
+.vstrip .views__grid { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: calc((100% - 36px) / 4); overflow-x: auto; padding: 2px; }
+.vstrip .views__caption { min-height: 40px; padding: 0 12px; font-size: 14px; }
+.vstrip .views__status { font-size: 13px; }
+.vstrip .views__tile[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--ink); }
+.vstrip__skeleton { height: 160px; border-radius: 14px; }
+.views__frame video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.views__status--test::before { background: var(--info); }
+
+/* The tables: what is left of the height. */
+.vtables { flex: 1; min-height: 0; }
+.vtables .vision__grid { flex: 1; min-height: 0; overflow-y: auto; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 12px; padding: 4px 2px 2px; }
+.vtables .floor__tile { min-height: 104px; padding: 12px 12px 12px 16px; border-left-width: 5px; border-radius: 14px; }
+.vtables .floor__num { font-size: 30px; }
+.vtables .floor__state { font-size: 15px; }
+.vtables .floor__time { font-size: 13px; }
+.vtable__nozone { font-size: 12px; font-weight: 500; color: var(--warn); }
+.vtable__state { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; color: var(--ink-2); }
+.vtable__state::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+.vtable__state--occupied::before { background: var(--warn); }
+.vtable__state--needs_cleaning::before { background: var(--bad); }
+.vtable__state--reserved::before { background: var(--reserved); }
+.vtable__state--nocam::before { background: var(--nocam); }
+
+/* The side panel. */
+.vpanel { min-height: 0; overflow-y: auto; border-left: 1px solid var(--line); background: var(--surface); }
+.vpanel__body { display: flex; flex-direction: column; gap: 16px; padding: 16px 20px 24px; animation: rise 200ms var(--ease); }
+.vpanel__head { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+.vpanel__head h2 { margin: 0 auto 0 0; font-size: 21px; font-weight: 500; letter-spacing: -0.4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vpanel__close { flex: none; width: 48px; height: 48px; border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); font-size: 18px; cursor: pointer; }
+.vpanel__close:hover { background: var(--chip); color: var(--ink); }
+.vpanel__close:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.vpanel__text { margin: 0; font-size: 15px; color: var(--ink-2); line-height: 1.45; }
+.vpanel__warn { color: var(--warn); font-weight: 500; }
+.vpanel__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; }
+.vpanel__group { display: flex; flex-direction: column; gap: 8px; }
+.vpanel__label { font-size: 14px; font-weight: 500; color: var(--ink-2); }
+.vpanel .vision__modes { align-self: flex-start; }
+.vpanel .vision__cpu input { max-width: none; }
+.vpanel .vision__why { min-height: 0; }
+.vpanel__more { border-top: 1px solid var(--line); padding-top: 4px; }
+.vpanel__more > summary { display: flex; align-items: center; min-height: 48px; font-size: 16px; font-weight: 500; cursor: pointer; list-style: none; }
+.vpanel__more > summary::after { content: '\203A'; margin-left: auto; font-size: 20px; color: var(--ink-3); transition: transform 150ms var(--ease); }
+.vpanel__more[open] > summary::after { transform: rotate(90deg); }
+.vpanel__more > summary::-webkit-details-marker { display: none; }
+.vpanel__picture { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.views__frame--panel { border-radius: 12px; overflow: hidden; }
+.vpanel .zone__frame { align-self: stretch; }
+.vpanel .zone__frame img { width: 100%; }
+
+.panel-form, .cam--panel { display: flex; flex-direction: column; gap: 12px; }
+.vpanel .cam--panel { padding: 0; background: transparent; box-shadow: none; }
+.vpanel .setup__field input { width: 100%; min-width: 0; box-sizing: border-box; background: var(--ground); }
+.vpanel .setup__chips, .vpanel .cam__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vpanel .chip { min-height: 48px; padding: 0 16px; }
+.vpanel .chip:disabled { opacity: 0.4; }
+.vpanel .cam__brands .chip[aria-checked='true'] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.panel-form__foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.panel-form__unit { display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.panel-form__unit input { max-width: 110px; }
+
+/* TEMPORARY: the test video (owner, 2026-10-27), set apart so it reads as a tool, not a setting. */
+.testvideo { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1.5px dashed var(--line); border-radius: 14px; }
+.testvideo__tag { font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: var(--ink-3); }
+.testvideo__line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 15px; }
+.testvideo__line b { font-weight: 600; }
+.testvideo progress { flex: 1; min-width: 120px; height: 8px; accent-color: var(--ink); }
+
+/* Narrower than the counter: the page scrolls; a picked panel slides over from the right. */
+@media (max-width: 1100px) {
+  .vpage { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; }
+  .vtables .vision__grid { overflow: visible; }
+  .vpanel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .vpanel--picked { position: fixed; z-index: 40; inset: 0 0 0 auto; width: min(400px, 92vw); overflow-y: auto; border-left: 1px solid var(--line);
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18); }
+  .vstrip .views__grid { grid-auto-columns: minmax(200px, 46%); }
+}
+@media (max-width: 720px) {
+  .vpage__main { padding: 4px 16px 16px; }
+  .vpanel__body { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vtoggle__track, .vtoggle__knob, .vpanel__more > summary::after { transition: none; }
+  .vpanel__body { animation: none; }
+}
+
+/* The first time: Activate downloads the CV pack, its progress in place; then the switch. */
+.vactivate { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-radius: 16px;
+  background: var(--surface); box-shadow: var(--card-shadow); }
+.vactivate__text { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 320px; }
+.vactivate h2 { margin: 0; font-size: 19px; font-weight: 500; letter-spacing: -0.3px; }
+.vactivate .setup__hint { margin: 0; }
+.vactivate > .update { flex: 1; }
