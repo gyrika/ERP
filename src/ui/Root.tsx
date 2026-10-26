@@ -33,8 +33,6 @@ const FloorView = lazy(() => import('./floor/FloorView.tsx'));
 const CamerasView = lazy(() => import('./CamerasView.tsx'));
 /** Computer vision (SCRUM-174): the owner's page, on the counter and the owner's phone. */
 const VisionView = lazy(() => import('./vision/VisionView.tsx'));
-/** The owner's guide to the cameras (SCRUM-182), from the Computer vision page. */
-const VisionGuide = lazy(() => import('./vision/Guide.tsx'));
 
 const KITCHEN = '#kitchen';
 const OWNER = '#owner';
@@ -189,7 +187,6 @@ export function Root() {
   if (isManagerPhone()) return <ManagerPhone hash={hash} />;
   if (isCloudSite()) {
     if (!(ownerToken() || isDemo() || adminShop())) return <OwnerWelcome />;
-    if (hash === '#vision/guide') return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionGuide /></Suspense>;
     // The Shadow week card opens Computer vision: read-only on the phone.
     if (hash === '#vision' || hash === '#vision/live') {
       return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionView key={hash} phone focusLive={hash === '#vision/live'} /></Suspense>;
@@ -251,7 +248,6 @@ export function Root() {
   if (hash === TABLES && seesFloor) {
     return <Suspense fallback={<div className="floor" aria-busy="true" />}><FloorView onBack={() => go('')} /></Suspense>;
   }
-  if (hash === '#vision/guide' && seesOwner) return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionGuide /></Suspense>;
   // Computer vision (SCRUM-174): owners and managers see it; only the owner changes it. #vision/live: from the Shadow week card.
   if ((hash === '#vision' || hash === '#vision/live') && seesOwner) {
     return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionView key={hash} focusLive={hash === '#vision/live'} onRegister={() => go('')} /></Suspense>;

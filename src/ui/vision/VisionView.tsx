@@ -27,7 +27,7 @@ const CameraViews = import.meta.env.VITE_SITE === 'cloud' ? null : lazy(() => im
  * and why it thinks a table is taken. One switch (Off / Shadow / Live), the tables now with why
  * each is in its state and its day, the cameras' health and the CPU limit. The cameras, tables,
  * zones and timers are set up on #cameras. Managers and the owner's phone see it read-only; the
- * owner changes it with their PIN, as on #cameras. Every change is one `vision.settings_set`, with Undo.
+ * owner changes it with their PIN, as on #cameras. Every change is one `vision.settings_set`, as a line.
  */
 
 const MODES: { mode: VisionMode; label: string; hint: string }[] = [
@@ -89,14 +89,13 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
   const [asking, setAsking] = useState<Partial<VisionSettings> | null>(null);
   const [waiting, setWaiting] = useState<Partial<VisionSettings> | null>(null);
   const [cv, setCv] = useState<CvStatus | null>(null);
-  const [undo, setUndo] = useState<{ to: VisionSettings; said: string } | null>(null);
+  const [said, setSaid] = useState('');
   const [error, setError] = useState('');
 
   const save = useCallback(async (p: string, patch: Partial<VisionSettings>, said: string) => {
     if (!settings) return;
-    const before = settings;
     await client.save(p, { ...settings, ...patch });
-    setUndo({ to: before, said });
+    setSaid(said);
   }, [client, settings]);
 
   /** One change: the PIN first if it is not known yet; the CV pack before Shadow or Live, with its progress. */
@@ -145,12 +144,6 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
     }, LOOK_MS);
     return () => clearTimeout(t);
   }, [waiting, cv, client, pin, run]);
-
-  const undoIt = async () => {
-    if (!undo) return;
-    setError('');
-    try { await client.save(pin ?? '', undo.to); setUndo(null); } catch (e) { setError(message(e)); }
-  };
 
   // ----- the switch: arrows move, Enter (or a tap) chooses -----
   const modes = useRef<HTMLDivElement>(null);
@@ -229,13 +222,8 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
         <button type="button" className="chip chip--solid" onClick={() => void run(pin ?? '', waiting)}>Retry</button>
       </p>
     );
-  } else if (undo) {
-    line = (
-      <p className="vision__line" role="status">
-        <span>{undo.said}</span>
-        <button type="button" className="chip chip--solid" onClick={() => void undoIt()}>Undo</button>
-      </p>
-    );
+  } else if (said) {
+    line = <p className="vision__line" role="status">{said}</p>;
   } else {
     line = <p className="vision__line setup__hint" role="status">{focusLive && settings.mode !== 'live' && canChange && !blocked ? 'Enter switches to Live.' : MODES[current].hint}</p>;
   }
@@ -246,7 +234,6 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
       <main className="setup__main vision" aria-label="Computer vision">
         <header className="vision__head">
           <h1>Computer vision</h1>
-          <a href="#vision/guide" className="vision__link">How to set up</a>
           <div ref={modes} className="vision__modes" role="radiogroup" aria-label="Computer vision mode" onKeyDown={onModeKey}
             aria-describedby={!canChange ? 'vision-locked' : undefined}>
             {MODES.map((m, i) => {
