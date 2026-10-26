@@ -27,7 +27,7 @@ test('the demo Friday: every kind of card, things needing a decision first, good
   assert.equal(camera.title, 'Back camera offline for 40 min');
   assert.match(tables.title, /^Tables \d+% quieter than a usual Friday$/);
   assert.match(visits.title, /^Guests staying \d+ min longer than usual$/);
-  assert.equal(use.title, 'Table 3 busiest, table 6 quietest');
+  assert.equal(use.title, 'Table 4 busiest, table 6 quietest');
   assert.match(sales.title, /^Sales \d+% below a usual Friday$/);
   assert.match(voids.title, /voids today, \d+ by Ravi$/);
   assert.ok(voids.action.items.every((i) => i.secondary?.startsWith('Ravi')), 'each void says who and why');
