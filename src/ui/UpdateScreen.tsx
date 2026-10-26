@@ -13,11 +13,14 @@ const UPDATED = 'cb.updatedTo';
 const LOOK_IDLE_MS = 10_000;
 const LOOK_ACTIVE_MS = 3_000;
 
+// One function for the life of the page: a new one per render would restart the look below on every render.
+const reloadPage = () => location.reload();
+
 const readUpdated = (): string | null => {
   try { const v = sessionStorage.getItem(UPDATED); sessionStorage.removeItem(UPDATED); return v; } catch { return null; }
 };
 
-export function UpdateScreen({ reload = () => location.reload(), idleMs = LOOK_IDLE_MS, activeMs = LOOK_ACTIVE_MS }: {
+export function UpdateScreen({ reload = reloadPage, idleMs = LOOK_IDLE_MS, activeMs = LOOK_ACTIVE_MS }: {
   reload?: () => void; idleMs?: number; activeMs?: number;
 }) {
   const [state, setState] = useState<CounterUpdate>({ kind: 'none' });

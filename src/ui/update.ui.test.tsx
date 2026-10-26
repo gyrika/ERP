@@ -73,3 +73,13 @@ test('a window brought back from minimised looks at once, not at its next slowed
   await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await new Promise((r) => setTimeout(r, 20)); });
   expect(reload).toHaveBeenCalledTimes(1);
 });
+
+test('a parent that re-renders does not ask the server again before the idle timer (SCRUM-179)', async () => {
+  health = { ok: true, version: '1.0.9' };
+  // As in the app: no reload prop, so the default one is used.
+  const { rerender } = render(<UpdateScreen idleMs={60_000} />);
+  await answer({ ok: true, version: '1.0.9' });
+  for (let i = 0; i < 5; i++) rerender(<UpdateScreen idleMs={60_000} />);
+  await answer({ ok: true, version: '1.0.9' });
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
