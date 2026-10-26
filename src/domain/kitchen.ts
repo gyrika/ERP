@@ -227,6 +227,22 @@ export const TICKET_HORIZON_MS = 24 * 60 * 60_000;
 export const ticketsFromEvents = (events: readonly SyncEvent[], now: number): KitchenTicket[] =>
   prune(foldTickets(events.filter((e) => now - e.at <= TICKET_HORIZON_MS)), now);
 
+/** A dish as the bin and the kitchen count it: item and size. */
+export const dishKey = (itemId: string, size?: string): string => `${itemId}:${size ?? ''}`;
+
+/**
+ * Dishes the kitchen has made since `since` (SCRUM-183): lines on customers' tickets it
+ * started or finished, cancelled lines left out. Pizzas are made to order, so only these exist.
+ */
+export const dishesMade = (events: readonly SyncEvent[], since: number): Map<string, number> => {
+  const made = new Map<string, number>();
+  for (const t of foldTickets(events.filter((e) => e.at >= since))) {
+    if (t.prep || (t.startedAt === undefined && t.doneAt === undefined)) continue;
+    for (const l of t.lines) if (!l.cancelled) made.set(dishKey(l.itemId, l.size), (made.get(dishKey(l.itemId, l.size)) ?? 0) + l.qty);
+  }
+  return made;
+};
+
 /** Every ticket the events describe, done or not, however old. */
 const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
   let t: KitchenTicket[] = [];

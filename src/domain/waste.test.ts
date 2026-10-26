@@ -8,7 +8,7 @@ import { itemHistory } from './itemStory.ts';
 import { MENU } from './menu.ts';
 import { bookUsage, wasteUsage } from './stockUsage.ts';
 import type { SyncEvent } from './sync.ts';
-import { checkWaste, matchesWaste, wasteChoices, wasteRecords, type WasteWhat } from './waste.ts';
+import { checkWaste, dishesLeftToWaste, matchesWaste, wasteChoices, wasteRecords, type WasteWhat } from './waste.ts';
 
 // Waste in manager mode: stock goes down through the recipes, like a sale.
 
@@ -72,4 +72,23 @@ test('a waste needs what, a real amount (whole dishes) and a reason; Other needs
   assert.equal(checkWaste(dish, 1, 'other', 'rat got it', 'M'), null);
   assert.ok(checkWaste({ kind: 'stock' }, 1, 'burnt', undefined, 'M'));
   assert.equal(checkWaste({ kind: 'stock', itemId: FLOUR }, 0.5, 'expired', undefined, 'Flour'), null);
+});
+
+test('the bin can only take a dish the kitchen made today, less what is already wasted (SCRUM-183)', () => {
+  const now = new Date(2026, 9, 26, 20, 0).getTime();
+  const kasun = { id: 'c1', name: 'Kasun', role: 'cashier' as const };
+  const sent = (ticketId: string, at: number, qty: number): SyncEvent[] => [
+    { id: `s-${ticketId}`, shopId: 's', at, orderNumber: 1001, actor: kasun, type: 'order.sent', ticketId, addOn: false,
+      lines: [{ id: `L-${ticketId}`, itemId: 'margherita', size: 'L', qty, adds: [], outs: [], sent: true }] },
+  ];
+  const started = (ticketId: string, at: number): SyncEvent => ({ id: `k-${ticketId}`, shopId: 's', at, orderNumber: 1001, ticketId, type: 'kitchen.started' });
+  const yesterday = now - 24 * 60 * 60_000;
+  const events = [
+    ...sent('old', yesterday, 5), started('old', yesterday + 1), // yesterday's: gone
+    ...sent('waiting', now - 600_000, 4), // not started: not made
+    ...sent('cooking', now - 500_000, 3), started('cooking', now - 400_000),
+    wasted({ kind: 'dish', itemId: 'margherita', size: 'L' }, 1, 'Margherita · Large', now - 100_000),
+  ];
+  assert.deepEqual([...dishesLeftToWaste(events, now)], [['margherita:L', 2]]);
+  assert.equal(dishesLeftToWaste(sent('waiting', now - 600_000, 4), now).size, 0, 'sent but never started');
 });
