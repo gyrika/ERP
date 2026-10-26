@@ -37,6 +37,8 @@
 .vision__cpu { display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
 .vision__cpu input { width: 100%; max-width: 420px; height: 48px; accent-color: var(--ink); }
 .vision__cpu input:disabled { opacity: 0.45; }
+.vision__slowed { font-weight: 600; }
+.vision__slowed::before { content: ''; display: inline-block; width: 8px; height: 8px; margin: 0 6px 0 4px; border-radius: 50%; background: var(--warn); vertical-align: 1px; }
 
 @media (max-width: 720px) {
   .vision__head { flex-direction: column; align-items: stretch; }

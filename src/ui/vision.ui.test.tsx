@@ -150,6 +150,14 @@ test("on the owner's phone the page is read only", async () => {
   expect(screen.queryByRole('link', { name: 'Set up zones' })).toBeNull();
 });
 
+test('the camera worker slowed itself for the CPU limit: the page says so', async () => {
+  addEvents([...shop(), ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 0.5 }], cpu: 17, slowed: true })]);
+  history.replaceState(null, '', '/#vision');
+  render(<Root />);
+  expect(await screen.findByText(/Slowed to protect the Register/)).toBeTruthy();
+  expect(screen.getByText(/using 17% now/)).toBeTruthy();
+});
+
 test('a manager sees the page but cannot change the mode or the CPU limit', async () => {
   localStorage.setItem('cb.sync.token', 'device-token');
   localStorage.setItem('cb.sync.kind', 'counter');

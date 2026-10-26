@@ -112,6 +112,8 @@ export interface CameraHealth {
   at: number | null;
   /** The worker's CPU share there, whole percent. */
   cpu: number | null;
+  /** The CPU guard has slowed the worker to one check every 2 s (SCRUM-170). */
+  slowed: boolean;
   cameras: { id: string; name: string; online: boolean; fps: number | null; lastSeen: number | null }[];
 }
 
@@ -124,20 +126,21 @@ export const cameraHealth = (events: readonly SyncEvent[]): CameraHealth | null 
   let heard = false;
   let at: number | null = null;
   let cpu: number | null = null;
+  let slowed = false;
   const fps = new Map<string, number>();
   const seen = new Map<string, number>();
   for (const e of events) {
     if (e.type === 'vision.camera_offline') heard = true;
     else if (e.type === 'vision.camera_online') { heard = true; seen.set(e.cameraId, e.at); }
     else if (e.type === 'vision.heartbeat') {
-      heard = true; at = e.at; cpu = Math.round(e.cpu);
+      heard = true; at = e.at; cpu = Math.round(e.cpu); slowed = e.slowed === true;
       for (const c of e.cameras) { fps.set(c.id, c.fps); if (c.online) seen.set(c.id, e.at); }
     }
   }
   if (!heard) return null;
   const vision = visionFromEvents(events);
   return {
-    at, cpu,
+    at, cpu, slowed,
     cameras: vision.cameras.filter((c) => c.enabled).map((c) => ({
       id: c.id, name: c.name, online: !vision.offline.has(c.id), fps: fps.get(c.id) ?? null, lastSeen: seen.get(c.id) ?? null,
     })),

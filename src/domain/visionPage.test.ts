@@ -90,12 +90,16 @@ test('camera health: online or offline, fps, last seen and the CPU from the late
     ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 5 }, { id: 'c2', online: false, fps: 0 }], cpu: 12.4 }, at(20, 29)),
   ];
   assert.deepEqual(cameraHealth(events), {
-    at: at(20, 29), cpu: 12,
+    at: at(20, 29), cpu: 12, slowed: false,
     cameras: [
       { id: 'c1', name: 'Front', online: true, fps: 5, lastSeen: at(20, 29) },
       { id: 'c2', name: 'Back camera', online: false, fps: 0, lastSeen: at(20) },
     ],
   });
+  // The CPU guard slowed the worker: the latest heartbeat says so, until one says it is back.
+  const slow = ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 0.5 }], cpu: 18, slowed: true }, at(20, 35));
+  assert.equal(cameraHealth([...events, slow])!.slowed, true);
+  assert.equal(cameraHealth([...events, slow, ev({ type: 'vision.heartbeat', cameras: [], cpu: 9 }, at(20, 45))])!.slowed, false);
 });
 
 test("the sidebar's line: a camera offline first, else the mode and the floor", () => {

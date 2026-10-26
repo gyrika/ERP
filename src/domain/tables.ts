@@ -315,7 +315,7 @@ const FIELDS: Record<(typeof TABLE_EVENT_TYPES)[number] | (typeof VISION_EVENT_T
   'vision.settings_set': ['mode', 'seatS', 'leaveS', 'cleanAlertS', 'cpuLimit'],
   'vision.camera_offline': ['cameraId'],
   'vision.camera_online': ['cameraId'],
-  'vision.heartbeat': ['cameras', 'cpu'],
+  'vision.heartbeat': ['cameras', 'cpu', 'slowed'],
 };
 
 /** Why a table or vision event is not acceptable, or null. Shape only; who may record it is `mayRecord`. */
@@ -371,7 +371,8 @@ export const checkTableEvent = (e: Record<string, unknown>): string | null => {
       const cpu = e.cpu;
       if (!Array.isArray(c) || c.length > MAX_CAMERAS || !c.every((x) => isObj(x) && only(x, ['id', 'online', 'fps']) && id(x.id)
         && typeof x.online === 'boolean' && typeof x.fps === 'number' && Number.isFinite(x.fps) && x.fps >= 0 && x.fps <= 120)
-        || typeof cpu !== 'number' || !Number.isFinite(cpu) || cpu < 0 || cpu > 100) return 'the heartbeat is not valid';
+        || typeof cpu !== 'number' || !Number.isFinite(cpu) || cpu < 0 || cpu > 100
+        || (e.slowed !== undefined && typeof e.slowed !== 'boolean')) return 'the heartbeat is not valid';
       return null;
     }
   }

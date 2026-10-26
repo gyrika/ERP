@@ -307,6 +307,7 @@ test('the server accepts every well-formed table and vision event', () => {
     ev({ type: 'vision.camera_offline', cameraId: 'c1' }, 1),
     ev({ type: 'vision.camera_online', cameraId: 'c1' }, 1),
     ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 2.5 }], cpu: 37.5 }, 1),
+    ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 0.5 }], cpu: 16, slowed: true }, 1),
     // A 5th camera may be set up, as long as only 4 are used for CV (SCRUM-171).
     ev({ type: 'vision.cameras_set', cameras: Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, name: 'C', ip: '192.168.1.20', rtspPath: '/s', enabled: i < 4 })) }, 1),
   ]) assert.equal(valid(e), null, (e as { type: string }).type);
@@ -337,6 +338,7 @@ test('the server refuses malformed table and vision events, and any password or 
     ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: '15' }, 1),
     ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: 'yes', fps: 2 }], cpu: 40 }, 1),
     ev({ type: 'vision.heartbeat', cameras: [], cpu: 40, frame: 'data:image/jpeg;base64,AAAA' }, 1),
+    ev({ type: 'vision.heartbeat', cameras: [], cpu: 40, slowed: 'yes' }, 1),
     ev({ type: 'vision.camera_offline', cameraId: 'c1', snapshot: 'AAAA' }, 1),
     { ...(layout() as object), orderNumber: 1001 } as unknown as SyncEvent,
   ];

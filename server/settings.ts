@@ -28,6 +28,8 @@ export interface ShopSettings {
   cvActive?: boolean;
   /** The local device the owner's camera setup on #cameras is filed under (SCRUM-171). */
   cvSetupDevice?: string;
+  /** The local device the camera worker's events are filed under (SCRUM-170). */
+  cvWorkerDevice?: string;
 }
 
 export function settingsFile(file: string) {

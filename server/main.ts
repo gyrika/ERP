@@ -10,6 +10,7 @@ import { startOnline, type Online } from './online.ts';
 import { createFleet } from './fleet.ts';
 import { cvPack } from './cvPack.ts';
 import { cvSecrets } from './cvSecrets.ts';
+import { startVision } from './cvWorker.ts';
 import { startReplicator } from './replicator.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
@@ -119,11 +120,13 @@ const fleet = process.env.CLOUD_ADMIN_KEY
   ? createFleet({ url: process.env.CLOUD_ADMIN_URL || 'https://cheesybeez-cloud.cheesybeez-cloud.workers.dev', key: process.env.CLOUD_ADMIN_KEY })
   : null;
 
+// The cameras' logins, encrypted in the data folder (C:\ProgramData\CheesyBeez on the shop PC).
+const secrets = cvSecrets(dataDir);
 // The setup endpoints, #cameras and #vision's camera views (SCRUM-180).
 const setup = setupApi({
   store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv,
-  // The cameras' logins, encrypted in the data folder (C:\ProgramData\CheesyBeez on the shop PC); the owner's setup is stored like a push.
-  secrets: cvSecrets(dataDir), ingest: (device, events) => server.ingest(device, events),
+  // The owner's setup is stored like a push.
+  secrets, ingest: (device, events) => server.ingest(device, events),
 });
 const server = createApp({
   photos: photoFolder(`${dataDir}/photos`),
@@ -148,13 +151,21 @@ const server = createApp({
   store,
   staticDir: fileURLToPath(new URL('../dist', import.meta.url)),
   printer,
-  onStored: (tenantId, events) => { if (tenantId === cloudShop()) { replicator?.nudge(); online?.onEvents(events); } },
+  onStored: (tenantId, events) => {
+    vision.onStored(tenantId, events);
+    if (tenantId === cloudShop()) { replicator?.nudge(); online?.onEvents(events); }
+  },
   online: () => online,
   cloudStatus: () => replicator?.status() ?? null,
   setup,
   version: updates.current,
   updating: () => activeUpdate(updates.status(), Date.now()),
   fleet,
+});
+// The camera worker (SCRUM-170): runs in Shadow or Live while the CV pack is there; what it sees is stored through the server.
+const vision = startVision({
+  store, settings, packDir: () => cv.packDir(), login: (id) => secrets.get(id),
+  ingest: (device, events) => server.ingest(device, events), logDir: `${dataDir}/logs`,
 });
 // After the server exists: the manager phones' inbox files events through it.
 startCloud();
@@ -168,11 +179,11 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  database: ${storeName}`);
   console.log(`  receipt printer: ${printer.name}`);
   if (fleet) console.log('  shops screen: on (CLOUD_ADMIN_KEY), on this computer only');
-  const vision = cv.status();
-  console.log(`  table detection (CV): ${vision.active ? vision.phase : 'off'}`);
+  const pack = cv.status();
+  console.log(`  table detection (CV): ${pack.active ? pack.phase : 'off'}`);
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
-const stop = () => { setup.stopViews(); replicator?.stop(); online?.stop(); inbox?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
+const stop = () => { setup.stopViews(); void vision.stop(); replicator?.stop(); online?.stop(); inbox?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

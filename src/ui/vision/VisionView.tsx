@@ -311,7 +311,8 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
           )}
           <label className="vision__cpu">
             <span>CPU limit <b className="num">{cpuDraft ?? settings.cpuLimit}%</b>
-              {health?.cpu != null && <span className="setup__hint"> · using {health.cpu}% now</span>}</span>
+              {health?.cpu != null && <span className="setup__hint"> · using {health.cpu}% now</span>}
+              {health?.slowed && <span className="vision__slowed">Slowed to protect the Register</span>}</span>
             <input type="range" min={MIN_CPU_LIMIT} max={MAX_CPU_LIMIT} step={CPU_LIMIT_STEP} value={cpuDraft ?? settings.cpuLimit}
               disabled={!canChange} aria-valuetext={`${cpuDraft ?? settings.cpuLimit}% of the shop PC`}
               onChange={(e) => setCpuDraft(Number(e.target.value))} />

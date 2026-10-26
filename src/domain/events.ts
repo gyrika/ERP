@@ -69,4 +69,5 @@ export type VisionEvent =
   /** `cpuLimit` (SCRUM-174): percent of the shop PC the camera worker may use; missing = DEFAULT_CPU_LIMIT. */
   | (FloorBase & { type: 'vision.settings_set'; mode: VisionMode; seatS: number; leaveS: number; cleanAlertS: number; cpuLimit?: number })
   | (FloorBase & { type: 'vision.camera_offline' | 'vision.camera_online'; cameraId: string })
-  | (FloorBase & { type: 'vision.heartbeat'; cameras: { id: string; online: boolean; fps: number }[]; cpu: number });
+  /** `slowed`: the CPU guard has the worker checking every 2 s, to protect the Register (SCRUM-170). */
+  | (FloorBase & { type: 'vision.heartbeat'; cameras: { id: string; online: boolean; fps: number }[]; cpu: number; slowed?: boolean });
