@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { setMenuState } from '../domain/menu.ts';
 import { EMPTY_MENU_STATE } from '../domain/menuEdits.ts';
 import { readAll } from './eventLog.ts';
+import { adjustStock } from '../services/inventoryStore.ts';
 import { Root } from './Root.tsx';
 
 beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/#flow'); setMenuState(EMPTY_MENU_STATE); });
@@ -86,4 +87,20 @@ test('ordering a raw material from its card asks who from, at what price and how
   await user.click(order.getByRole('button', { name: 'Add to cart' }));
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.draft_set', lines: [expect.objectContaining({ itemId: 'inv-0001', packs: 3 })] });
   expect(order.getByRole('link', { name: 'Open cart' })).toBeTruthy();
+});
+
+test('Stock (4): each card shows what it holds in money, the dish what stands behind it, and a raw item opens its history', async () => {
+  const user = userEvent.setup();
+  adjustStock('inv-0001', 2); // two 25 kg bags of flour: Rs 12,800
+  render(<Root />);
+  await screen.findByRole('main', { name: 'Visual Flow' });
+  await user.keyboard('4');
+  expect(screen.getByRole('button', { name: 'Stock' }).getAttribute('aria-pressed')).toBe('true');
+  const flour = (await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 })).closest('.vf-node')!;
+  expect(flour.querySelector('.vf-node__value')?.textContent).toBe('Rs 12,800 · 100%');
+  expect(screen.getByText('Rs 12,800 behind it')).toBeTruthy();
+  fireEvent.click(flour);
+  expect(panel().getByText('Rs 256 a kg')).toBeTruthy();
+  expect(panel().getAllByText('Rs 12,800').length).toBeGreaterThan(0);
+  expect(panel().getByRole('link', { name: 'History' }).getAttribute('href')).toBe('#items/item/inv-0001');
 });

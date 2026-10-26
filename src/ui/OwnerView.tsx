@@ -15,12 +15,15 @@ import { signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { readAll, subscribeEvents } from './eventLog.ts';
 import { useShopEvents } from '../services/ownerData.ts';
 import { OwnerNav } from './OwnerNav.tsx';
+import { GlanceSkeleton, GlanceView } from './Glance.tsx';
+import { glanceOf } from '../domain/glance.ts';
 
 /**
  * The Owner view. Serves the owner: they know the shop, not the screens, and
- * read this on a phone between other things. The one question it answers is
- * "does anything need me?": today in one line, then ONE feed of cards, each
- * with one tap behind it. No charts, no tables (CLAUDE.md).
+ * read this on a phone between other things. It answers "how is the shop doing,
+ * and does anything need me?" in one look: the shop at a glance (Glance.tsx,
+ * SCRUM-173), whose every number explains itself when tapped, and the To do list,
+ * each item with one tap behind it.
  */
 const timeOf = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -146,17 +149,14 @@ export function OwnerView({ phone = false, onBack, shop }: {
   }, [remote, local]);
   const at = (data.state === 'loading' ? undefined : data.at) ?? Date.now();
 
-  const { summary, insights } = useMemo(() => {
-    if (!events) return { summary: null, insights: [] as Insight[] };
-    const shop = {
-      events,
-      now: at,
-      stock: {
-        items: inventoryFromEvents(SEED_INVENTORY, events).filter((item) => !item.archived),
-        suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
-      },
+  const { glance, insights } = useMemo(() => {
+    if (!events) return { glance: null, insights: [] as Insight[] };
+    const stock = {
+      items: inventoryFromEvents(SEED_INVENTORY, events).filter((item) => !item.archived),
+      suppliers: suppliersFromEvents(SEED_SUPPLIERS, events),
     };
-    return { summary: rulesSuggestions.summary(shop), insights: rulesSuggestions.insights(shop) };
+    const insights = rulesSuggestions.insights({ events, now: at, stock });
+    return { glance: glanceOf(events, stock, insights, at), insights };
   }, [events, at]);
   const opened = insights.find((i) => i.id === open) ?? null;
 
@@ -175,23 +175,10 @@ export function OwnerView({ phone = false, onBack, shop }: {
         </header>
       ) : <OwnerNav current="owner" onRegister={onBack} />}
 
-      <main className="owner__main" aria-label="Owner">
-        <section className="owner__today" aria-label="Today">
-          <span className="owner__label">
-            Today · {new Date(at).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </span>
-          {summary ? (
-            <>
-              <span className="owner__big num">Rs {fmt(summary.salesCents)}</span>
-              <span className="owner__sub num">
-                {summary.orders} {summary.orders === 1 ? 'order' : 'orders'}
-                {summary.orders > 0 && ` · average Rs ${fmt(Math.round(summary.averageCents / 100) * 100)}`}
-              </span>
-            </>
-          ) : (
-            <span className="owner__big skeleton" aria-label="Loading" />
-          )}
-        </section>
+      <main className="owner__main owner__main--glance" aria-label="Owner">
+        <span className="owner__label">
+          Today · {new Date(at).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </span>
 
         {offerInstall && install.kind === 'button' && (
           <p className="owner__install">
@@ -211,19 +198,9 @@ export function OwnerView({ phone = false, onBack, shop }: {
           </p>
         )}
 
-        <section className="owner__feed" aria-label="Needs your attention">
-          {!events && [0, 1, 2].map((i) => <div key={i} className="insight skeleton" aria-hidden />)}
-          {events && insights.length === 0 && <p className="owner__calm">Nothing needs you right now.</p>}
-          {insights.map((i) => (
-            <article key={i.id} className={`insight insight--${i.tone}`} aria-label={i.title}>
-              <div className="insight__text">
-                <h2>{i.title}</h2>
-                <p>{i.detail}</p>
-              </div>
-              <button type="button" className="insight__action" onClick={() => setOpen(i.id)}>{i.action.label}</button>
-            </article>
-          ))}
-        </section>
+        {glance
+          ? <GlanceView glance={glance} insights={insights} links={!phone && !shop} onOpen={setOpen} />
+          : <GlanceSkeleton />}
       </main>
 
       {opened && <Detail insight={opened} canReview={canReview} onClose={() => setOpen(null)} />}

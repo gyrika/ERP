@@ -48,10 +48,12 @@ test('the owner asks about a gap, the manager answers, the owner sees it and say
   expect(screen.queryByRole('region', { name: 'The owner asks' })).toBeNull();
   manager.unmount();
 
-  // Back with the owner: the answer is on the card; OK closes it.
+  // Back with the owner: the answer is on the To do; OK closes it.
   render(<OwnerView />);
   const back = await screen.findByRole('article', { name: /^Mozzarella \(Prabhat\): 1 kg short/ });
-  expect(within(back).getByText('1 answer from the manager.')).toBeTruthy();
+  // Tapped, the To do explains itself on the black screen.
+  await user.click(within(back).getByRole('button', { name: /^Mozzarella \(Prabhat\): 1 kg short/ }));
+  expect(within(screen.getByRole('region', { name: 'Shop screen' })).getAllByText(/1 answer from the manager\./).length).toBeGreaterThan(0);
   await user.click(within(back).getByRole('button', { name: 'Count review' }));
   expect(screen.getByText('Fridge door left open overnight.')).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Reviewed Mozzarella (Prabhat)' }));
