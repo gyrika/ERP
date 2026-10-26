@@ -31,12 +31,13 @@ const until = async (ok: () => boolean, ms = 5000) => {
   while (!ok()) { if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 20)); }
 };
 
-test('the worker\'s config: Shadow or Live only, the cameras in use with their login, zones, floor; nothing without the pack', () => {
+test("the worker's config: Live only (a shop left in the old Shadow is Off), the cameras in use with their login, zones, floor; nothing without the pack", () => {
   const login = (id: string) => (id === 'cam1' ? { user: 'admin', password: 'p@ss' } : null);
   assert.equal(workerConfig(setUp('off'), 'C:/pack', login), null);
-  assert.equal(workerConfig(setUp('shadow'), null, login), null, 'no pack (or a new one on its way): paused');
-  const c = workerConfig(setUp('shadow'), 'C:/pack', login)!;
-  assert.equal(c.mode, 'shadow');
+  assert.equal(workerConfig(setUp('shadow'), 'C:/pack', login), null, 'Shadow is gone: Off until the owner turns it on');
+  assert.equal(workerConfig(setUp('live'), null, login), null, 'no pack (or a new one on its way): paused');
+  const c = workerConfig(setUp('live'), 'C:/pack', login)!;
+  assert.equal(c.mode, 'live');
   assert.equal(c.cpuLimit, 20);
   assert.deepEqual([c.shortVisitS, c.leftCheckS, c.autoFreeS], [180, 10, 300], 'the owner\'s table rules');
   assert.deepEqual(c.cameras.map((x) => x.id), ['cam1'], 'only "Use for CV" cameras');
@@ -44,7 +45,7 @@ test('the worker\'s config: Shadow or Live only, the cameras in use with their l
   assert.deepEqual(c.cameras[0].zones, [zone]);
   assert.deepEqual(c.floor, { t1: { state: 'free', since: 1000, alertId: null } });
   // A development camera: the file, no login.
-  assert.equal(workerConfig(setUp('shadow'), 'C:/pack', login, new Map([['cam1', 'C:/clips/cafe.mp4']]))!.cameras[0].url, 'C:/clips/cafe.mp4');
+  assert.equal(workerConfig(setUp('live'), 'C:/pack', login, new Map([['cam1', 'C:/clips/cafe.mp4']]))!.cameras[0].url, 'C:/clips/cafe.mp4');
 });
 
 test('the server stamps worker events as the vision role, and checks them like a push', () => {
@@ -97,13 +98,13 @@ test('the worker process: spawned at below-normal priority with IPC both ways, r
   assert.equal(steady.running(), false);
 });
 
-test('the shop server runs the worker in Shadow, stores what it says as vision, writes cv.log, and stops it when CV is off', async () => {
+test('the shop server runs the worker in Live, stores what it says as vision, writes cv.log, and stops it when CV is off', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cvworker-'));
   const store = memoryStore();
   const settings = settingsFile(join(dir, 'settings.json'));
   settings.set({ shopId: SHOP, setupDone: true });
   const { device } = await store.addDevice(SHOP, 'Counter', 'counter');
-  await store.push(device, setUp('shadow'), 1000);
+  await store.push(device, setUp('live'), 1000);
   const ingested: SyncEvent[] = [];
   let packDir: string | null = dir;
   const vision = startVision({
@@ -141,7 +142,7 @@ test('the shop server runs the worker in Shadow, stores what it says as vision, 
     vision.onStored(SHOP, [off]);
     await until(() => !vision.running());
     const log = readFileSync(join(dir, 'logs', 'cv.log'), 'utf8');
-    assert.match(log, /config shadow 1/);
+    assert.match(log, /config live 1/);
     assert.doesNotMatch(log, /secret1/);
   } finally {
     await vision.stop();

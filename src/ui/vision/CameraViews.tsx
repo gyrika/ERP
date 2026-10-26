@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { createPortal } from 'react-dom';
 import { MAX_CAMERA_LIST, type CameraSpec, type FloorTable, type TableSpec, type ZoneSpec } from '../../domain/tables.ts';
 import type { VisionPick } from '../../domain/visionPage.ts';
-import { cameraViewsClient, type CameraViewsClient, type ViewFrame } from '../../services/cameraViews.ts';
+import { cameraViewsClient, type CameraViewsClient, type ViewFrame, type ViewsPerf } from '../../services/cameraViews.ts';
 import type { CameraLogins, CvStatus } from '../../services/setupClient.ts';
 import { demoVideos, type TestVideos, type VisionClient } from '../../services/visionClient.ts';
 import { isDemo } from '../storage.ts';
@@ -26,6 +26,7 @@ import { TestVideo } from './TestVideo.tsx';
  */
 
 const TILE_MS = 3000;
+const PERF_MS = 2000;
 const RETRY_MS = 1000;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const busy = (s: CvStatus | null) => s?.phase === 'downloading' || s?.phase === 'verifying';
@@ -56,14 +57,14 @@ function useTouches(onTouch: () => void) {
 }
 
 export default function CameraViews({
-  cameras, zones = {}, tables = [], detecting = true, pin, client: vc, withPin, pick, onPick, onClose, panel, views: given,
+  cameras, zones = {}, tables = [], detecting = true, pin, client: vc, withPin, pick, onPick, onClose, panel, onPerf, views: given,
 }: {
   /** Every camera, used for CV or not. */
   cameras: CameraSpec[];
   /** Each camera's zones and the floor, for the overlay and the zone editor. */
   zones?: Record<string, ZoneSpec[]>;
   tables?: FloorTable[];
-  /** CV is in Shadow or Live, so the worker checks what the panel shows. */
+  /** CV is on, so the worker checks what the large view shows. */
   detecting?: boolean;
   /** The owner's PIN, once typed on this page. */
   pin: string | null;
@@ -72,8 +73,10 @@ export default function CameraViews({
   pick: VisionPick;
   onPick: (p: VisionPick) => void;
   onClose: () => void;
-  /** The side panel: a camera's panel is drawn there. */
+  /** The side panel: a camera's details are drawn there. */
   panel: HTMLElement | null;
+  /** How the worker is doing now, for the panel's Performance (null: not watching). */
+  onPerf?: (p: ViewsPerf | null) => void;
   views?: CameraViewsClient;
 }) {
   const names = useRef(new Map<string, string>());
@@ -87,11 +90,27 @@ export default function CameraViews({
   const [cv, setCv] = useState<CvStatus | null>(null);
   const [logins, setLogins] = useState<CameraLogins>({});
   const [testing, setTesting] = useState<TestVideos>({});
+  const [perf, setPerf] = useState<ViewsPerf | null>(null);
+  /** Drawing a zone on the large view: the frame it is drawn on, held still. */
+  const [drawing, setDrawing] = useState<string | null>(null);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const takeTouch = useTouches(() => { if (pausedRef.current) setPaused(false); });
   const known = pin !== null || !client.needsPin;
   const live = pick.kind === 'camera' && cameras.some((c) => c.id === pick.id) ? pick.id : null;
+  useEffect(() => { setDrawing(null); }, [live]);
+
+  // Performance: every 2 s while the owner watches (the shop server's memory, never stored).
+  const perfCb = useRef(onPerf);
+  perfCb.current = onPerf;
+  useEffect(() => {
+    if (!key || paused) { setPerf(null); perfCb.current?.(null); return; }
+    let stop = false;
+    const look = () => client.perf(key).then((p) => { if (!stop) { setPerf(p); perfCb.current?.(p); } }, () => {});
+    void look();
+    const t = setInterval(look, PERF_MS);
+    return () => { stop = true; clearInterval(t); };
+  }, [key, paused, client]);
 
   /** The shop server checks the PIN; true when it opened. */
   const open = useCallback(async (p: string) => {
@@ -209,27 +228,27 @@ export default function CameraViews({
 
   // The list may hold lenses not used for CV too (MAX_CAMERA_LIST); the strip scrolls sideways past four.
   const full = cameras.length >= MAX_CAMERA_LIST;
-  const shown = cameras;
   const addPicked = pick.kind === 'add-camera';
   const cam = live ? cameras.find((c) => c.id === live)! : null;
+  const perfOf = (id: string) => perf?.perf?.cameras.find((c) => c.id === id);
 
   return (
-    <section className="vision__part vstrip" aria-labelledby="vision-views">
+    <section className={`vision__part vstrip${cam ? ' vstrip--large' : ''}`} aria-labelledby="vision-views">
       <div className="vpage__sechead">
         <h2 id="vision-views">{VIEW_WORDS.title.en} <span className="vpage__count num">{cameras.length}</span></h2>
         {!full && <button type="button" className="chip" aria-pressed={addPicked} onClick={() => onPick({ kind: 'add-camera' })}>+ {VIEW_WORDS.add.en}</button>}
       </div>
       {line}
       {cameras.length ? (
-        <div ref={strip} className="views__grid" role="group" aria-label="Every camera; Enter opens one in the panel" onKeyDown={onStripKey}>
-          {shown.map((c, i) => {
+        <div ref={strip} className="views__grid" role="group" aria-label="Every camera; Enter opens one large" onKeyDown={onStripKey}>
+          {cameras.map((c, i) => {
             const f = seen[c.id];
             const video = testing[c.id];
             const state = video ? 'Test video' : STATUS[f?.state ?? 'starting'];
             return (
-              <button key={c.id} type="button" data-view={c.id} tabIndex={i === Math.min(focused, shown.length - 1) ? 0 : -1}
+              <button key={c.id} type="button" data-view={c.id} tabIndex={i === Math.min(focused, cameras.length - 1) ? 0 : -1}
                 className={`views__tile${f?.state === 'offline' && !video ? ' views__tile--off' : ''}`} aria-pressed={live === c.id}
-                aria-label={`${c.name}, ${state}. Open in the panel`}
+                aria-label={`${c.name}, ${state}. Open large`}
                 onFocus={() => setFocused(i)} onClick={() => onPick({ kind: 'camera', id: c.id })}>
                 <span className="views__frame"><Picture id={c.id} f={f} alt="" /></span>
                 <span className="views__caption"><b>{c.name}</b><Status f={f} video={video} /></span>
@@ -239,9 +258,15 @@ export default function CameraViews({
         </div>
       ) : <p className="setup__hint">No cameras yet. Add one: Scan finds the ones on the shop Wi-Fi.</p>}
 
+      {cam && (
+        <LargeView key={cam.id} camera={cam} f={seen[cam.id]} zones={zones[cam.id] ?? []} tables={tables} detecting={detecting}
+          video={testing[cam.id]} drawing={drawing} onDrawn={() => setDrawing(null)} client={vc} withPin={withPin} />
+      )}
+
       {panel && cam && createPortal(
-        <CameraPanel key={cam.id} camera={cam} f={seen[cam.id]} zones={zones[cam.id] ?? []} tables={tables} detecting={detecting}
+        <CameraDetails key={cam.id} camera={cam} f={seen[cam.id]} zones={zones[cam.id] ?? []} tables={tables}
           cameras={cameras} logins={logins} onLogins={setLogins} client={vc} withPin={withPin} video={testing[cam.id]} onTesting={setTesting}
+          perf={perfOf(cam.id)} drawing={drawing !== null} onDraw={() => { const src = seen[cam.id]?.src; if (src) setDrawing(src); }}
           onClose={onClose} onRemoved={onClose} />, panel)}
       {panel && addPicked && createPortal(
         <div className="vpanel__body">
@@ -274,47 +299,73 @@ function Picture({ id, f, alt, onAspect }: { id: string; f: Seen | undefined; al
   return <img src={f.src} alt={alt} onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth && i.naturalHeight) onAspect?.(i.naturalWidth / i.naturalHeight); }} />;
 }
 
-/** One camera in the side panel: live with what detection sees, its zones, its test video, its connection. */
-function CameraPanel({ camera, f, zones, tables, detecting, cameras, logins, onLogins, client, withPin, video, onTesting, onClose, onRemoved }: {
-  camera: CameraSpec; f: Seen | undefined; zones: ZoneSpec[]; tables: FloorTable[]; detecting: boolean;
-  cameras: CameraSpec[]; logins: CameraLogins; onLogins: (l: CameraLogins) => void;
+/**
+ * The picked camera, large, in the camera section (owner, 2026-10-27): live with what detection
+ * sees; while a zone is drawn, the frame held still with the zone editor on it, big enough to
+ * place corners on a table. Its details are in the side panel.
+ */
+function LargeView({ camera, f, zones, tables, detecting, video, drawing, onDrawn, client, withPin }: {
+  camera: CameraSpec; f: Seen | undefined; zones: ZoneSpec[]; tables: FloorTable[]; detecting: boolean; video: string | undefined;
+  /** The frame a zone is being drawn on, or null. */
+  drawing: string | null; onDrawn: () => void;
   client: VisionClient; withPin: WithPin;
-  video: string | undefined; onTesting: (t: TestVideos) => void;
-  onClose: () => void; onRemoved: () => void;
 }) {
   const now = useNow(1000);
   const [aspect, setAspect] = useState(16 / 9);
-  /** Drawing a zone: the frame it is drawn on, held still. */
-  const [drawing, setDrawing] = useState<string | null>(null);
   const specs: TableSpec[] = tables.map(({ id, label, seats }) => ({ id, label, seats }));
-  const zoned = new Set(zones.map((z) => z.tableId));
-  const picture = isDemo() && demoVideos.has(camera.id) ? null : f?.src ?? null;
-  const tableWord = (n: number) => `${n} ${n === 1 ? 'table' : 'tables'}`;
+  if (drawing) {
+    return (
+      <div className="vlarge vlarge--drawing">
+        <ZoneEditor client={client} withPin={withPin} camera={camera} src={drawing} zones={zones} tables={specs} onDone={onDrawn} />
+      </div>
+    );
+  }
+  return (
+    <figure className="vlarge" aria-label={`${camera.name}, large`}>
+      <div className="views__frame views__frame--large" style={{ aspectRatio: String(aspect) }}>
+        <Picture id={camera.id} f={f} alt={`${camera.name} now`} onAspect={setAspect} />
+        {(f?.src || video) && <DetectionOverlay zones={zones} tables={tables} seen={f?.state === 'frame' && !(isDemo() && video) ? f.seen : undefined} aspect={aspect} />}
+      </div>
+      {f?.state === 'offline' && !video
+        ? <figcaption className="setup__error">{f.message}</figcaption>
+        : <figcaption className="views__checked num">
+          {isDemo() && video ? 'The demo plays the video here; detection runs on the shop server.' : checkedLine(f?.state === 'frame' ? f.seen : undefined, now, detecting)}
+        </figcaption>}
+    </figure>
+  );
+}
 
+/** One camera's details in the side panel: how it is doing now, its zones, its test video, its connection. */
+function CameraDetails({ camera, f, zones, tables, cameras, logins, onLogins, client, withPin, video, onTesting, perf, drawing, onDraw, onClose, onRemoved }: {
+  camera: CameraSpec; f: Seen | undefined; zones: ZoneSpec[]; tables: FloorTable[];
+  cameras: CameraSpec[]; logins: CameraLogins; onLogins: (l: CameraLogins) => void;
+  client: VisionClient; withPin: WithPin;
+  video: string | undefined; onTesting: (t: TestVideos) => void;
+  /** This camera's numbers now (undefined: the worker is not running or does not watch it). */
+  perf: { fps: number; checksPerS: number; detectMs: number | null } | undefined;
+  drawing: boolean; onDraw: () => void;
+  onClose: () => void; onRemoved: () => void;
+}) {
+  const label = (id: string) => tables.find((t) => t.id === id)?.label ?? '?';
+  const picture = isDemo() && demoVideos.has(camera.id) ? null : f?.src ?? null;
   return (
     <div className="vpanel__body">
       <PanelHead title={camera.name} onClose={onClose}><Status f={f} video={video} live /></PanelHead>
-      {drawing
-        ? <ZoneEditor client={client} withPin={withPin} camera={camera} src={drawing} zones={zones} tables={specs} onDone={() => setDrawing(null)} />
-        : <>
-          <figure className="vpanel__picture">
-            <div className="views__frame views__frame--panel">
-              <Picture id={camera.id} f={f} alt={`${camera.name} now`} onAspect={setAspect} />
-              {(f?.src || video) && <DetectionOverlay zones={zones} tables={tables} seen={f?.state === 'frame' && !(isDemo() && video) ? f.seen : undefined} aspect={aspect} />}
-            </div>
-            {f?.state === 'offline' && !video
-              ? <figcaption className="setup__error">{f.message}</figcaption>
-              : <figcaption className="views__checked num">
-                {isDemo() && video ? 'The demo plays the video here; detection runs on the shop server.' : checkedLine(f?.state === 'frame' ? f.seen : undefined, now, detecting)}
-              </figcaption>}
-          </figure>
-          <div className="vpanel__row">
-            <span>{zones.length ? `Zones on ${tableWord(zoned.size)}` : 'No zones yet'}</span>
-            <button type="button" className="chip chip--solid" disabled={!picture || !specs.length} onClick={() => picture && setDrawing(picture)}
-              title={!specs.length ? 'Add the tables first' : !picture ? 'Wait for the picture' : undefined}>Draw a zone</button>
-          </div>
-        </>}
-      <TestVideo client={client} withPin={withPin} camera={camera} playing={video} onChange={onTesting} detecting={detecting} />
+      <dl className="vperf" aria-label={`${camera.name}: performance now`}>
+        <div><dt>Frames</dt><dd className="num">{perf ? `${perf.fps} fps` : '–'}</dd></div>
+        <div><dt>Checks</dt><dd className="num">{perf ? `${perf.checksPerS}/s` : '–'}</dd></div>
+        <div><dt>Detection</dt><dd className="num">{perf?.detectMs != null ? `${perf.detectMs} ms` : '–'}</dd></div>
+      </dl>
+      {!perf && <p className="setup__hint">Turn CV on, with Use for CV on this camera, to see how it is doing.</p>}
+      <div className="vpanel__group">
+        <div className="vpanel__row">
+          <span className="vpanel__label">Zones</span>
+          <button type="button" className="chip chip--solid" disabled={drawing || !picture || !tables.length} onClick={onDraw}
+            title={!tables.length ? 'Add the tables first' : !picture ? 'Wait for the picture' : undefined}>{drawing ? 'Drawing on the picture…' : 'Draw a zone'}</button>
+        </div>
+        <p className="vpanel__text">{zones.length ? zones.map((z) => `Table ${label(z.tableId)}`).join(', ') : 'No zones yet: draw one around each table this camera sees.'}</p>
+      </div>
+      <TestVideo client={client} withPin={withPin} camera={camera} playing={video} onChange={onTesting} detecting={Boolean(perf)} />
       <details className="vpanel__more">
         <summary>Connection</summary>
         <CameraForm key={`${camera.id}-${logins[camera.id]?.user ?? ''}`} client={client} withPin={withPin} cameras={cameras} camera={camera} logins={logins}

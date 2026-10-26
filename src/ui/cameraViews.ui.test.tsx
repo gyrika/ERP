@@ -124,9 +124,9 @@ test('the owner watches every camera: PIN once, a tile per lens, Enter opens one
   expect(screen.queryByRole('dialog')).toBeNull();
 
   // Every camera, used for CV or not; each lens its own tile.
-  const front = await within(strip()).findByRole('button', { name: 'Front garden 1, Online. Open in the panel' });
-  expect(within(strip()).getByRole('button', { name: 'Kitchen, Online. Open in the panel' })).toBeTruthy();
-  expect(within(strip()).getByRole('button', { name: 'Store room, Offline. Open in the panel' })).toBeTruthy();
+  const front = await within(strip()).findByRole('button', { name: 'Front garden 1, Online. Open large' });
+  expect(within(strip()).getByRole('button', { name: 'Kitchen, Online. Open large' })).toBeTruthy();
+  expect(within(strip()).getByRole('button', { name: 'Store room, Offline. Open large' })).toBeTruthy();
   expect(front.querySelector('img')!.getAttribute('src')).toBe(`data:image/jpeg;base64,${JPEG}`);
   const frames = server.asks.filter((a) => a.step === '/cv/views/frame');
   expect(frames.every((a) => a.body.key === 'k-1' && !('ownerPin' in a.body) && a.body.mode === 'tile')).toBe(true);
@@ -137,10 +137,13 @@ test('the owner watches every camera: PIN once, a tile per lens, Enter opens one
   expect(document.activeElement).toBe(within(strip()).getByRole('button', { name: /^Front garden 2/ }));
   await user.keyboard('{ArrowLeft}{Enter}');
   expect(location.hash).toBe('#vision/camera-front-1');
+  // Large in the camera section; its details in the panel. The tables make room.
   expect(within(panel()).getByRole('heading', { name: 'Front garden 1' })).toBeTruthy();
   expect(await within(panel()).findByText('Live')).toBeTruthy();
-  expect(within(panel()).getByRole('img', { name: 'Front garden 1 now' })).toBeTruthy();
-  expect(within(panel()).getByText(/^Detection is Off: Shadow or Live/)).toBeTruthy(); // CV is Off in this shop
+  const large = within(strip()).getByRole('figure', { name: 'Front garden 1, large' });
+  expect(within(large).getByRole('img', { name: 'Front garden 1 now' })).toBeTruthy();
+  expect(within(large).getByText(/^Detection is Off/)).toBeTruthy(); // CV is Off in this shop
+  expect(screen.queryByRole('listbox', { name: 'Tables by number' })).toBeNull();
   await waitFor(() => expect(server.asks.filter((a) => a.step === '/cv/views/frame' && a.body.mode === 'live').length).toBeGreaterThan(2));
   expect(server.asks.filter((a) => a.body.mode === 'live').every((a) => a.body.cameraId === 'front-1')).toBe(true);
   await user.keyboard('{Escape}');
@@ -152,7 +155,7 @@ test('the owner watches every camera: PIN once, a tile per lens, Enter opens one
   await waitFor(() => expect(server.closed).toEqual(['k-1']));
 });
 
-test('the panel draws what detection sees: zones in their table colour, people with score and foot point, how old the check is', async () => {
+test('the large view draws what detection sees: zones in their table colour, people with score and foot point, how old the check is', async () => {
   const detectedAt = Date.now() - 3000; // the motion gate has reused it for 3 s
   fakeShopServer({ seen: () => ({ at: Date.now(), detectedAt, persons: [
     { x1: 0.1, y1: 0.2, x2: 0.2, y2: 0.9, score: 0.87 },
@@ -169,25 +172,26 @@ test('the panel draws what detection sees: zones in their table colour, people w
   const user = userEvent.setup();
   render(<Root />);
   await watch(user);
-  await user.click(await within(strip()).findByRole('button', { name: 'Front garden 1, Online. Open in the panel' }));
+  await user.click(await within(strip()).findByRole('button', { name: 'Front garden 1, Online. Open large' }));
 
-  const overlay = await within(panel()).findByRole('img', { name: /^Detection: 2 people\. Table 1 free\. Table 2 occupied$/ });
+  const large = within(await within(strip()).findByRole('figure', { name: 'Front garden 1, large' }));
+  const overlay = await large.findByRole('img', { name: /^Detection: 2 people\. Table 1 free\. Table 2 occupied$/ });
   // Each zone in its table's colour; the table without a zone on this camera is not drawn.
   const zones = [...overlay.querySelectorAll('.overlay__zone')];
   expect(zones.map((z) => [z.getAttribute('data-table'), z.getAttribute('class')])).toEqual([
     ['t1', 'overlay__zone overlay__zone--free'], ['t2', 'overlay__zone overlay__zone--occupied'],
   ]);
   // Each person: the box, its score, and the foot point (centre, 80% down).
-  expect(within(panel()).getByText('87%')).toBeTruthy();
-  expect(within(panel()).getByText('42%')).toBeTruthy();
+  expect(large.getByText('87%')).toBeTruthy();
+  expect(large.getByText('42%')).toBeTruthy();
   const feet = [...overlay.querySelectorAll('circle')];
   expect(feet).toHaveLength(2);
   expect(Number(feet[0].getAttribute('cx'))).toBeCloseTo(150);
   expect(Number(feet[0].getAttribute('cy'))).toBeCloseTo((0.2 + 0.8 * 0.7) * 562.5);
-  expect(within(panel()).getByText(/^Last checked [34] s ago · 2 people$/)).toBeTruthy();
-  expect(within(panel()).getByText('Zones on 2 tables')).toBeTruthy();
+  expect(large.getByText(/^Last checked [34] s ago · 2 people$/)).toBeTruthy();
+  expect(within(panel()).getByText('Table 1, Table 2')).toBeTruthy();
   // The tiles never carry it.
-  expect(within(strip()).queryByRole('img', { name: /^Detection/ })).toBeNull();
+  expect(within(within(strip()).getByRole('group', { name: /^Every camera/ })).queryByRole('img', { name: /^Detection/ })).toBeNull();
 });
 
 test('without the CV pack the strip says so, with Activate CV inline; untouched for 2 minutes it pauses until a touch', async () => {
@@ -258,18 +262,20 @@ test('Add camera in the panel: scan, log in, test, save; then it opens and its z
   const draw = within(panel()).getByRole('button', { name: 'Draw a zone' });
   await vi.waitFor(() => expect((draw as HTMLButtonElement).disabled).toBe(false));
   await user.click(draw);
-  const frame = within(panel()).getByRole('application', { name: /TP-IPC C200: click the corners/ });
+  // The zone is drawn on the large picture in the camera section.
+  const frame = within(strip()).getByRole('application', { name: /TP-IPC C200: click the corners/ });
   expect(document.activeElement).toBe(frame);
   await user.keyboard('{ArrowLeft>5/}{ArrowUp>5/} {ArrowRight>10/} {ArrowDown>10/} {ArrowLeft>3/} {Backspace}');
-  expect(within(panel()).getByText('3 corners · Enter closes the zone')).toBeTruthy();
+  expect(within(strip()).getByText('3 corners · Enter closes the zone')).toBeTruthy();
   await user.keyboard('{Enter}');
-  await user.click(within(within(panel()).getByRole('group', { name: 'Pick its table' })).getByRole('button', { name: 'Table 1' }));
+  await user.click(within(within(strip()).getByRole('group', { name: 'Pick its table' })).getByRole('button', { name: 'Table 1' }));
   const zones = (await vi.waitFor(() => server.asks.find((a) => a.step === '/cv/zones')!)).body;
   expect(zones.zones).toEqual([{ id: expect.any(String), tableId: 't1', points: [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.4 }, { x: 0.6, y: 0.6 }] }]);
-  expect(await within(panel()).findByRole('button', { name: 'Remove the zone of table 1' })).toBeTruthy();
+  expect(await within(strip()).findByRole('button', { name: 'Remove the zone of table 1' })).toBeTruthy();
   // Esc with nothing drawn leaves the drawing; the panel stays.
   await user.keyboard('{Escape}');
-  expect(within(panel()).getByText('Zones on 1 table')).toBeTruthy();
+  expect(within(panel()).getByText('Table 1')).toBeTruthy();
+  expect(within(strip()).getByRole('figure', { name: /, large$/ })).toBeTruthy();
   expect(location.hash).toBe(`#vision/camera-${saved[0].id}`);
 }, 15_000);
 
@@ -340,12 +346,12 @@ test('TEMPORARY test video: the file explorer picks a video for a camera; it upl
   expect(await within(box).findByText(/plays in place of Front garden 1\. Turn CV on to see detection\./)).toBeTruthy();
   expect(within(box).getByText('cafe.mp4')).toBeTruthy();
   expect(sent).toEqual([{ url: '/api/v1/setup/cv/test-video/upload?cameraId=front-1&name=cafe.mp4', pin: '1234', name: 'cafe.mp4' }]);
-  expect(await within(strip()).findByRole('button', { name: 'Front garden 1, Test video. Open in the panel' })).toBeTruthy();
+  expect(await within(strip()).findByRole('button', { name: 'Front garden 1, Test video. Open large' })).toBeTruthy();
 
   await user.click(within(box).getByRole('button', { name: 'Stop test' }));
   expect(await within(box).findByRole('button', { name: 'Test with a video…' })).toBeTruthy();
   expect(server.asks.find((a) => a.step === '/cv/test-video/stop')!.body).toEqual({ ownerPin: '1234', cameraId: 'front-1' });
-  expect(await within(strip()).findByRole('button', { name: /^Front garden 1, (Online|Connecting…)\. Open in the panel$/ })).toBeTruthy();
+  expect(await within(strip()).findByRole('button', { name: /^Front garden 1, (Online|Connecting…)\. Open large$/ })).toBeTruthy();
 });
 
 test('Ask the camera could not reach it: Add camera still works (saved with no path, for a test video); a phone takes its port', async () => {

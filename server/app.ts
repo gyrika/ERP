@@ -227,7 +227,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/cv/status': setup.cvStatus, '/cv/activate': setup.cvActivate, '/cv/setup': setup.cvSetup, '/cv/scan': setup.cvScan,
           '/cv/test': setup.cvTest, '/cv/cameras': setup.cvCameras, '/cv/tables': setup.cvTables, '/cv/zones': setup.cvZones,
           '/cv/settings': setup.cvSettings, '/cv/ask': setup.cvAsk,
-          '/cv/views/open': setup.cvViewsOpen, '/cv/views/frame': setup.cvViewsFrame, '/cv/views/close': setup.cvViewsClose,
+          '/cv/views/open': setup.cvViewsOpen, '/cv/views/frame': setup.cvViewsFrame, '/cv/views/close': setup.cvViewsClose, '/cv/views/perf': setup.cvViewsPerf,
           '/cv/test-video/stop': setup.cvTestVideoStop, '/cv/test-video': setup.cvTestVideos,
         };
         const route = routes[step];

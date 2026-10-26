@@ -343,7 +343,8 @@ test('vision settings, cameras and zones fold to their latest values', () => {
   assert.deepEqual(visionFromEvents([]).settings, DEFAULT_VISION_SETTINGS);
   const v = visionFromEvents([cameras(), zones('c1', ['t1']), zones('c1', ['t2']),
     ev({ type: 'vision.settings_set', mode: 'shadow', shortVisitS: 120, leftCheckS: 15, autoFreeS: 600 }, 10)]);
-  assert.deepEqual(v.settings, { mode: 'shadow', shortVisitS: 120, leftCheckS: 15, autoFreeS: 600, cpuLimit: DEFAULT_CPU_LIMIT }, 'no cpuLimit: the default');
+  // Shadow is gone (2026-10-27): a shop left in it reads as Off until the owner turns CV on.
+  assert.deepEqual(v.settings, { mode: 'off', shortVisitS: 120, leftCheckS: 15, autoFreeS: 600, cpuLimit: DEFAULT_CPU_LIMIT }, 'no cpuLimit: the default');
   assert.deepEqual(v.cameras.map((c) => c.id), ['c1', 'c2']);
   assert.deepEqual(v.zones.c1.map((z) => z.tableId), ['t2']);
   assert.deepEqual([...v.offline], []);
@@ -357,7 +358,7 @@ test('an event from before the new rules (seatS, leaveS, cleanAlertS) still fold
     ev({ type: 'vision.settings_set', mode: 'live', seatS: 90, leaveS: 240, cleanAlertS: 120 }, 10),
     ev({ type: 'vision.settings_set', mode: 'shadow', shortVisitS: 60, leftCheckS: 5, autoFreeS: 120, cpuLimit: 20 }, 20),
   ]);
-  assert.deepEqual(both.settings, { mode: 'shadow', shortVisitS: 60, leftCheckS: 5, autoFreeS: 120, cpuLimit: 20 });
+  assert.deepEqual(both.settings, { mode: 'off', shortVisitS: 60, leftCheckS: 5, autoFreeS: 120, cpuLimit: 20 });
 });
 
 // ----- What the server accepts -----

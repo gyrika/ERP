@@ -36,6 +36,13 @@ export const RECONNECT_MS = 10_000;
 export const NO_FRAMES_MS = 30_000;
 /** Offline this long (no frames): Live records `vision.camera_offline`. */
 export const OFFLINE_REPORT_MS = 300_000;
+/**
+ * How often the worker tells the server how it is doing now (CPU, frames and checks a second, how
+ * long a detection takes): memory only, for #vision's Performance (owner, 2026-10-27).
+ */
+export const PERF_MS = 2000;
+/** The window those numbers are measured over. */
+export const PERF_WINDOW_MS = 10_000;
 /** How often the worker sends a heartbeat; the server keeps one per HEARTBEAT_KEEP_MS. */
 export const HEARTBEAT_MS = 30_000;
 export const HEARTBEAT_KEEP_MS = 300_000;

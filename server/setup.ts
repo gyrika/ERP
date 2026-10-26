@@ -21,7 +21,7 @@ import type { Settings } from './settings.ts';
 import { PinTaken, type Device, type EventStore, type StaffMember } from './store.ts';
 import type { UpdatesApi } from './updates.ts';
 import type { CvPackApi } from './cvPack.ts';
-import type { Seen } from './cv/messages.ts';
+import type { Perf, Seen } from './cv/messages.ts';
 
 /**
  * The setup wizard's side of the server: the shop, the printer, the staff and
@@ -60,7 +60,7 @@ export interface SetupContext {
    * What the camera worker's detection sees (SCRUM-175, server/cvWorker.ts): the large view watches
    * one camera (null: none) and its answer carries the latest people boxes. Memory only.
    */
-  detections?: { watch: (cameraId: string | null) => void; seen: (cameraId: string) => Seen | null };
+  detections?: { watch: (cameraId: string | null) => void; seen: (cameraId: string) => Seen | null; perf?: () => ({ at: number } & Perf) | null };
   /**
    * Development cameras (CV_DEV_CAMERAS): camera id -> a looping file the views show instead of the
    * stream. A test video (below) changes it while the server runs; the worker reads the same map.
@@ -469,6 +469,15 @@ export function setupApi(ctx: SetupContext) {
       if (f.state !== 'frame') return f;
       const seen = mode === 'live' ? ctx.detections?.seen(body.cameraId) ?? null : null;
       return { state: 'frame', seq: f.seq, at: f.at, jpeg: f.jpeg.toString('base64'), ...(seen ? { seen } : {}) };
+    },
+
+    /**
+     * #vision's Performance, every couple of seconds while the owner watches: the camera worker's
+     * numbers now (null while it does not run) and the views' ffmpegs. Memory only, never stored.
+     */
+    async cvViewsPerf(body: { key?: unknown }) {
+      watching(body.key);
+      return { perf: ctx.detections?.perf?.() ?? null, views: views.running().length };
     },
 
     /** The page was left: every view stops now. */

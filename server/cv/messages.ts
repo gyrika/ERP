@@ -35,10 +35,21 @@ export type VisionFields =
 
 export interface Heartbeat { cameras: { id: string; online: boolean; fps: number }[]; cpu: number; slowed: boolean }
 
+/** How the worker is doing now (PERF_MS), for #vision's Performance: never stored. */
+export interface Perf {
+  /** The worker's CPU share of the PC, whole percent, and the owner's limit. */
+  cpu: number;
+  cpuLimit: number;
+  slowed: boolean;
+  /** Each camera: frames read and checks made a second, and a detection's average time (null: none lately; the motion gate reused). */
+  cameras: { id: string; online: boolean; fps: number; checksPerS: number; detectMs: number | null }[];
+}
+
 export type FromWorker =
   | { type: 'ready' }
   | { type: 'event'; at: number; fields: VisionFields }
   | ({ type: 'heartbeat'; at: number } & Heartbeat)
+  | ({ type: 'perf'; at: number } & Perf)
   /** Only for the watched camera, only to the owner's open view: never stored, logged or sent to the cloud. */
   | ({ type: 'seen'; cameraId: string } & Seen)
   /** A line for cv.log: never an image or a password (the server masks logins again). */

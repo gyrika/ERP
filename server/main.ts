@@ -133,7 +133,7 @@ const setup = setupApi({
   // TEMPORARY: the owner's test video plays in place of a camera; the worker hears of it at once.
   testVideos: { dir: `${dataDir}/cv-test`, onChange: () => vision.refresh() },
   // The large camera view draws what detection sees (SCRUM-175).
-  detections: { watch: (id) => vision.watch(id), seen: (id) => vision.seen(id) },
+  detections: { watch: (id) => vision.watch(id), seen: (id) => vision.seen(id), perf: () => vision.perf() },
 });
 const server = createApp({
   photos: photoFolder(`${dataDir}/photos`),

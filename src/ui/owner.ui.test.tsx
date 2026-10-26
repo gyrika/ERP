@@ -30,7 +30,6 @@ test('the demo Today: the shop at a glance, each part explained on the black scr
     '3 items running low',
     expect.stringMatching(/sold \d+ times this week; its stock isn't counted$|^\d+ dishes sold this week without a recipe$/),
     'Food costs: 22 answers to go',
-    expect.stringMatching(/^Cameras were right \d+% of the time this week$/),
     expect.stringMatching(/^Guests staying \d+ min longer than usual$/),
     'Table 4 busiest, table 6 quietest',
     "BBQ Pork hasn't sold in 2 weeks",

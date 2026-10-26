@@ -172,7 +172,9 @@ export const visionFromEvents = (events: readonly SyncEvent[]): Vision => {
       case 'vision.settings_set':
         // Before 2026-10-26 the timers were seatS/leaveS/cleanAlertS, which the new rules have no use
         // for: such an event keeps its mode and CPU limit, and the timers fall back to the defaults.
-        v.settings = { mode: e.mode, ...('shortVisitS' in e ? timersOf(e) : DEFAULT_TIMERS), cpuLimit: e.cpuLimit ?? DEFAULT_CPU_LIMIT };
+        // Shadow is gone (owner, 2026-10-27): CV is Off or Live. A shop left in Shadow is Off until the
+        // owner turns it on; its old camera changes stay history only (foldTables).
+        v.settings = { mode: e.mode === 'shadow' ? 'off' : e.mode, ...('shortVisitS' in e ? timersOf(e) : DEFAULT_TIMERS), cpuLimit: e.cpuLimit ?? DEFAULT_CPU_LIMIT };
         break;
       case 'vision.cameras_set': v.cameras = e.cameras; break;
       case 'vision.zones_set': v.zones = { ...v.zones, [e.cameraId]: e.zones }; break;
