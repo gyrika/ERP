@@ -10,6 +10,7 @@ import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine } from './types.ts';
 import { lineItemName } from './halves.ts';
+import { stockValueCard } from './valuation.ts';
 
 /**
  * The Owner view's brain (CLAUDE.md: "tell the owner what needs attention and
@@ -461,6 +462,7 @@ export const rulesSuggestions: SuggestionsService = {
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
       grnApprovals(events, stock, now),
+      stockValueCard(events, stock, now),
       notSelling(events, sales, now),
       bestSeller(events, now),
     ].filter((x): x is Insight => x !== null).sort((a, b) => ORDER[a.tone] - ORDER[b.tone]);

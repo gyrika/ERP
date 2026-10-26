@@ -6,7 +6,7 @@ import { menuItems } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { daysAgo } from '../domain/itemStory.ts';
 import { batchShare, madeFrom, prepAmount, prepKey, prepStatus, type PrepStatus } from '../domain/prep.ts';
-import { answerQuestion, cartShortages, sendPlan, setMakeBelow, useCostContext, useInventory, usePreps, usePurchases, useStock, type PrepRow } from '../services/inventoryStore.ts';
+import { answerQuestion, cartShortages, sendPlan, setMakeBelow, useCostContext, useInventory, usePreps, usePurchases, useStock, useValuation, type PrepRow } from '../services/inventoryStore.ts';
 import { andList, planNotice } from '../domain/production.ts';
 import { ReleaseNotices } from './ProductionNotices.tsx';
 import { currentCashier } from '../services/auth.ts';
@@ -88,6 +88,9 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
   const [error, setError] = useState('');
   const send = useSendToKitchen();
   const now = Date.now();
+  // Its stock value (SCRUM-163): on hand × what one costs to make.
+  const valuation = useValuation();
+  const valueOf = useMemo(() => new Map(valuation.items.map((v) => [v.id, v.cents])), [valuation]);
 
   // Used by a dish (by its key, or by the name his sheet uses for it), and by the items made from it.
   const usesOf = (p: PrepRow): Uses => ({
@@ -171,6 +174,7 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
               <div className="inv-row__quantity" aria-label="On hand and batch size">
                 <span className={`inv-row__status inv-row__status--${status}`}>{STATUS_LABELS[status]}</span>
                 {p.tracked && <strong>{prepAmount(p.onHand, p.unit)}</strong>}
+                {p.tracked && valueOf.get(`semi:${p.key}`) != null && <span className="inv-row__value num">Rs {fmt(valueOf.get(`semi:${p.key}`)!)}</span>}
                 {p.reserved > 0 && <span className="inv-row__lasts">{prepAmount(p.reserved, p.unit)} held for the kitchen</span>}
                 <span className="inv-row__lasts">
                   {p.makes ? `${prepAmount(p.makes.qty, p.makes.unit)} a batch` : 'Batch size not known yet'}
