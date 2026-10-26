@@ -365,6 +365,14 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .ticket__struck { display: flex; flex-direction: column; gap: 4px; color: var(--bad); text-decoration-thickness: 3px; }
 .ticket__struck .ticket__detail { color: var(--bad); }
 .ticket__cancelled { margin-top: 2px; font-size: 19px; font-weight: 600; color: var(--bad); text-transform: uppercase; letter-spacing: 0.5px; }
+/* Remake (SCRUM-177): quiet on the line until tapped; the reasons are big, hands are busy. */
+.ticket__remake { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ticket__remake-btn { min-height: 48px; padding: 0 14px; border: 1px solid #3A3A3C; border-radius: 12px; background: transparent; color: #98989D; font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+.ticket__remake-btn:hover { color: #F5F5F7; border-color: #6E6D72; }
+.ticket__reasons { display: flex; flex-wrap: wrap; gap: 8px; }
+.ticket__reason { min-height: 52px; padding: 0 18px; border: 0; border-radius: 12px; background: #F5F5F7; color: #1C1C1E; font: inherit; font-size: 17px; font-weight: 600; cursor: pointer; }
+.ticket__reason--quiet { background: #2C2C2E; color: #F5F5F7; }
+.ticket__remake-btn:focus-visible, .ticket__reason:focus-visible { outline: 3px solid #F5F5F7; outline-offset: 2px; }
 .ticket__now { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 /* Prep tickets (SCRUM-136): a semi-processed item to make, not a customer waiting. Quieter card,
    dashed edge in a neutral tone (no cook time, so no urgency colour), PREP where the number goes. */

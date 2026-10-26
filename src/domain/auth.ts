@@ -59,13 +59,22 @@ export const VISION_RECORDS: ReadonlySet<string> = new Set([
 /** The floor plan and the cameras' setup: the owner's (SCRUM-171 sets them up). */
 const OWNER_FLOOR = new Set(['table.layout_set', 'vision.cameras_set', 'vision.zones_set', 'vision.settings_set']);
 
-export const mayRecord = (role: Role, type: string): boolean => {
+/**
+ * A kitchen Remake (SCRUM-177) or its Undo: waste tied to a kitchen ticket. Whoever is signed in
+ * records it, like a kitchen tap, so a burnt pizza is never left out; the bin stays a manager's.
+ */
+export const isRemake = (e: { type: string; ticketId?: unknown }): boolean =>
+  (e.type === 'stock.wasted' || e.type === 'stock.waste_undone') && typeof e.ticketId === 'string' && e.ticketId.length > 0;
+
+/** `remake`: the event is a kitchen Remake (isRemake). */
+export const mayRecord = (role: Role, type: string, remake = false): boolean => {
   if (role === 'vision') return VISION_RECORDS.has(type);
   if (VISION_RECORDS.has(type)) return false;
   // Marking a table cleaned, reserved or free on the floor, and its Undo: whoever works the counter.
   if (type === 'table.state_set' || type === 'table.state_set_undone') return role !== 'kitchen';
   if (OWNER_FLOOR.has(type)) return role === 'owner';
   if (type.startsWith('kitchen.')) return true;
+  if (remake) return true;
   // Sending prep to the kitchen: whoever is signed in (SCRUM-136); the "make more" amount is a manager's.
   if (type === 'prep.ordered' || type === 'prep.order_undone') return true;
   if (type === 'prep.limit_set') return managesRole(role);

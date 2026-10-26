@@ -12,6 +12,7 @@ import type { Cents, OrderLine, Tender } from './types.ts';
 import { lineItemName } from './halves.ts';
 import { stockValueCard } from './valuation.ts';
 import { camerasOffline, shadowToLive, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
+import { wasteAboveUsual, wasteReasonRepeats } from './wasteInsights.ts';
 
 /**
  * The Owner view's brain (CLAUDE.md: "tell the owner what needs attention and
@@ -461,6 +462,8 @@ export const rulesSuggestions: SuggestionsService = {
       gapsToCheck(events, stock),
       shortStreak(events, stock),
       countedShort(events, stock, now),
+      wasteAboveUsual(events, stock, now),
+      wasteReasonRepeats(events, now),
       soldWithoutRecipe(events, now),
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),

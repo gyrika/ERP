@@ -2,7 +2,7 @@ import { createReadStream, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { isStaffRole, managesRole, mayRecord } from '../src/domain/auth.ts';
+import { isRemake, isStaffRole, managesRole, mayRecord } from '../src/domain/auth.ts';
 import {
   PULL_LIMIT, type ApiError, type LoginResponse, type PullResponse, type PushResponse, type StreamMessage, type SyncEvent, type SyncedEvent,
 } from '../src/domain/sync.ts';
@@ -159,7 +159,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     const s = sessions.find((x) => x.staffId === actor.id && x.role === actor.role
       && e.at >= x.startedAt - CLOCK_SLACK_MS && e.at <= x.expiresAt + CLOCK_SLACK_MS);
     if (!s) return 'that person was not logged in on this device then';
-    if (!mayRecord(s.role, e.type)) return `a ${s.role} may not do this`;
+    if (!mayRecord(s.role, e.type, isRemake(e))) return `a ${s.role} may not do this`;
     return null;
   };
   const numberDocs = createNumberer(store, now);

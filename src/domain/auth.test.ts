@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canManage, isStaffRole, mayRecord, seesTakings, STAFF_ROLES, VISION_RECORDS } from './auth.ts';
+import { canManage, isRemake, isStaffRole, mayRecord, seesTakings, STAFF_ROLES, VISION_RECORDS } from './auth.ts';
 import { RECIPE_EVENT_TYPES } from './costing.ts';
 import { MENU_EVENT_TYPES } from './menuEdits.ts';
 import { SHORTHAND_EVENT_TYPES } from './shorthandMisses.ts';
@@ -83,4 +83,13 @@ test("nobody signs in as vision: it is the server's own stamp for the camera wor
   assert.equal(isStaffRole('owner'), true);
   assert.equal(seesTakings('vision'), false);
   assert.equal(canManage({ id: 'v', name: 'Cameras', role: 'vision' }), false);
+});
+
+test('waste is a manager\'s, except a kitchen Remake and its Undo, which whoever is signed in records (SCRUM-177)', () => {
+  assert.equal(mayRecord('cashier', 'stock.wasted'), false);
+  assert.equal(isRemake({ type: 'stock.wasted', ticketId: 't1' }), true);
+  assert.equal(isRemake({ type: 'stock.waste_undone', ticketId: 't1' }), true);
+  assert.equal(isRemake({ type: 'stock.wasted' }), false);
+  assert.equal(isRemake({ type: 'stock.counted', ticketId: 't1' }), false);
+  for (const role of ['cashier', 'kitchen', 'manager', 'owner'] as const) assert.equal(mayRecord(role, 'stock.wasted', true), true, role);
 });

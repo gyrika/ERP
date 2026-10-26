@@ -315,3 +315,14 @@ test('table and vision events sync with exactly their fields; a camera password 
   assert.ok('reason' in validatePush({ events: [{ ...cams, cameras: [{ ...cams.cameras[0], password: 'secret' }] }] }, 'shop-1'));
   assert.ok('reason' in validatePush({ events: [{ ...floor, type: 'vision.camera_offline', cameraId: 'c1', image: 'AAAA' }] }, 'shop-1'));
 });
+
+test('a kitchen Remake is a waste with its ticket and line; a bad ticket id is refused (SCRUM-177)', () => {
+  const remake = {
+    ...base, id: 'w1', type: 'stock.wasted', what: { kind: 'dish', itemId: 'margherita', size: 'L' }, name: 'Margherita · Large',
+    qty: 1, reason: 'burnt', ticketId: 't1', lineId: 'L1',
+  };
+  const undo = { ...base, id: 'u1', type: 'stock.waste_undone', wasteId: 'w1', ticketId: 't1' };
+  assert.deepEqual(validatePush({ deviceId: 'device-1', events: [remake, undo] }, 'shop-1'), { events: [remake, undo] });
+  assert.ok('reason' in validatePush({ deviceId: 'device-1', events: [{ ...remake, ticketId: 42 }] }, 'shop-1'));
+  assert.ok('reason' in validatePush({ deviceId: 'device-1', events: [{ ...undo, ticketId: '' }] }, 'shop-1'));
+});

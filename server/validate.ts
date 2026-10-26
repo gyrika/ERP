@@ -141,7 +141,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !(e.note === undefined || shortString(e.note, 200)) || (e.reason === 'other' && !(typeof e.note === 'string' && e.note.trim()))
       ) return { reason: `event ${e.id} has an invalid count` };
     }
-    if (e.type === 'stock.wasted' && checkWaste(e.what, e.qty, e.reason, e.note, e.name) !== null) return { reason: `event ${e.id} has an invalid waste` };
+    if (e.type === 'stock.wasted' && (checkWaste(e.what, e.qty, e.reason, e.note, e.name) !== null
+      || !(e.ticketId === undefined || shortString(e.ticketId)) || !(e.lineId === undefined || shortString(e.lineId)))) return { reason: `event ${e.id} has an invalid waste` };
     if ((e.type.startsWith('prep.') && e.orderNumber !== 0)
       || (e.type === 'prep.ordered' && (!shortString(e.ticketId) || checkPrepOrder(e.prepId, e.name, e.qty, e.unit) !== null
         || !(e.waitFor === undefined || names(e.waitFor)) || !(e.plan === undefined || shortString(e.plan))))
@@ -150,7 +151,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       || (e.type === 'prep.limit_set' && (!shortString(e.prepId, 120) || checkPrepLimit(e.before) !== null || checkPrepLimit(e.after) !== null))) {
       return { reason: `event ${e.id} has an invalid batch` };
     }
-    if (e.type === 'stock.waste_undone' && !shortString(e.wasteId)) return { reason: `event ${e.id} has an invalid waste id` };
+    if (e.type === 'stock.waste_undone' && (!shortString(e.wasteId) || !(e.ticketId === undefined || shortString(e.ticketId)))) return { reason: `event ${e.id} has an invalid waste id` };
     if (e.type === 'stock.count_undone' && !shortString(e.countId)) return { reason: `event ${e.id} has an invalid count id` };
     if (e.type === 'stock.unit_set' && (
       !shortString(e.itemId) || !shortString(e.name, 20) || typeof e.base !== 'number' || !Number.isFinite(e.base) || (e.base as number) < 0

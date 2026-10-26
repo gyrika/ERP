@@ -3,7 +3,8 @@ import {
   cookTimeMs, elapsedLabel, needsAttention, queue, ticketLines, urgency, type KitchenTicket, type LineView,
 } from '../domain/kitchen.ts';
 import { chime, useSoundBlocked } from './chime.ts';
-import { recordKitchen, useKitchenTickets } from './kitchenStore.ts';
+import { recordKitchen, recordRemake, REMAKE_REASONS, remakeName, useKitchenTickets, type RemakeReason } from './kitchenStore.ts';
+import type { OrderLine } from '../domain/types.ts';
 import { SyncSign } from './SyncSign.tsx';
 import { prepAmount } from '../domain/prep.ts';
 
@@ -17,6 +18,8 @@ import { prepAmount } from '../domain/prep.ts';
  * and cancellations chime and flash until someone taps the ticket.
  * Prep tickets (SCRUM-136: a semi-processed item sent from low stock) queue after the
  * customers' orders, labelled PREP on a quieter card; Done on one is the batch made.
+ * A dish that went in the bin (burnt, dropped, made wrong) gets Remake on its line (SCRUM-177):
+ * one tap and a reason records the waste, and the line stays on the ticket to make again.
  */
 
 export const useNow = (everyMs: number): number => {
@@ -87,6 +90,19 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
   const now = useNow(1000);
   // The last Start or Done, for Undo.
   const [last, setLast] = useState<{ id: string; number: number; label: string; step: 'started' | 'done' } | null>(null);
+  /** The line whose Remake reasons are open, and the last Remake, for its Undo (SCRUM-177). */
+  const [remaking, setRemaking] = useState<string | null>(null);
+  const [remade, setRemade] = useState<{ key: number; label: string; undo: () => void } | null>(null);
+  const remake = (t: KitchenTicket, line: OrderLine, reason: RemakeReason) => {
+    const undo = recordRemake(t, line, reason);
+    setRemaking(null);
+    setRemade({ key: Date.now(), label: `${remakeName(line)}: remake · ${REMAKE_REASONS.find((r) => r.id === reason)?.label}`, undo });
+  };
+  useEffect(() => {
+    if (remade === null) return;
+    const t = setTimeout(() => setRemade(null), 6000);
+    return () => clearTimeout(t);
+  }, [remade]);
   const soundBlocked = useSoundBlocked();
   const lastAlert = useRef(0);
   useDarkTheme();
@@ -215,6 +231,26 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                       </>
                     )}
                     {l.status === 'ok' && <LineBody v={l} />}
+                    {l.status !== 'cancelled' && t.startedAt !== undefined && (() => {
+                      // Remake (SCRUM-177): this one went in the bin; it is waste, and is made again.
+                      // Only once the kitchen has started: nothing can be thrown away before it is made.
+                      const line = t.lines.find((x) => x.id === l.key)!;
+                      return (
+                        <span className="ticket__remake">
+                          {l.remade ? <span className="ticket__tag">Remake ×{l.remade}</span> : null}
+                          {remaking === l.key ? (
+                            <span className="ticket__reasons" role="group" aria-label={`Why remake ${l.name}?`}>
+                              {REMAKE_REASONS.map((r) => (
+                                <button key={r.id} type="button" className="ticket__reason" onClick={() => remake(t, line, r.id)}>{r.label}</button>
+                              ))}
+                              <button type="button" className="ticket__reason ticket__reason--quiet" onClick={() => setRemaking(null)}>Cancel</button>
+                            </span>
+                          ) : (
+                            <button type="button" className="ticket__remake-btn" aria-label={`Remake ${l.name}`} onClick={() => setRemaking(l.key)}>Remake</button>
+                          )}
+                        </span>
+                      );
+                    })()}
                   </li>
                 ))}
               </ul>
@@ -232,7 +268,13 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
         })}
       </main>
 
-      {last !== null && (
+      {remade !== null && (
+        <div className="toast" role="status" key={remade.key}>
+          <span>{remade.label}</span>
+          <button type="button" onClick={() => { remade.undo(); setRemade(null); }}>Undo</button>
+        </div>
+      )}
+      {last !== null && remade === null && (
         <div className="toast" role="status" key={`${last.id}-${last.step}`}>
           <span className="num">{last.label} {last.step}</span>
           <button type="button" onClick={undo}>Undo</button>
