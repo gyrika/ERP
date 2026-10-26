@@ -347,3 +347,36 @@ test('TEMPORARY test video: the file explorer picks a video for a camera; it upl
   expect(server.asks.find((a) => a.step === '/cv/test-video/stop')!.body).toEqual({ ownerPin: '1234', cameraId: 'front-1' });
   expect(await within(strip()).findByRole('button', { name: /^Front garden 1, (Online|Connecting…)\. Open in the panel$/ })).toBeTruthy();
 });
+
+test('Ask the camera could not reach it: Add camera still works (saved with no path, for a test video); a phone takes its port', async () => {
+  const server = fakeShopServer();
+  history.replaceState(null, '', '/#vision/add-camera');
+  const user = userEvent.setup();
+  render(<Root />);
+  const p = await screen.findByRole('complementary', { name: 'Details' });
+  await user.type(await within(p).findByLabelText('IP address', {}, { timeout: 4000 }), '192.168.1.40');
+  await user.click(within(p).getByRole('radio', { name: 'Tiandy' }));
+  await user.click(within(p).getByRole('button', { name: 'Ask the camera' }));
+  await user.type(await screen.findByLabelText("The owner's PIN to ask the camera"), '1234{Enter}');
+  expect((await within(p).findByRole('alert')).textContent).toMatch(/refused the login/);
+  expect(within(p).getByText(/No stream path yet/)).toBeTruthy();
+  await user.click(within(p).getByRole('button', { name: 'Add camera' }));
+  const first = (await vi.waitFor(() => server.asks.find((a) => a.step === '/cv/cameras')!)).body.cameras as Record<string, unknown>[];
+  expect(first).toEqual([expect.objectContaining({ ip: '192.168.1.40', rtspPath: '/' })]);
+
+  // A phone running IP Webcam: its preset path, and the port typed after the IP.
+  history.replaceState(null, '', '/#vision/add-camera');
+  cleanup();
+  render(<Root />);
+  const q = await screen.findByRole('complementary', { name: 'Details' });
+  await user.click(await within(q).findByRole('radio', { name: 'Phone (IP Webcam)' }, { timeout: 4000 }));
+  expect(within(q).getByText(/In IP Webcam, press Start server/)).toBeTruthy();
+  expect(within(q).getByLabelText('IP address').getAttribute('placeholder')).toBe('192.168.1.5:8080');
+  await user.type(within(q).getByLabelText('Name'), 'My phone');
+  await user.type(within(q).getByLabelText('IP address'), '192.168.1.5:8080');
+  await user.click(within(q).getByRole('button', { name: 'Add camera' }));
+  await user.type(await screen.findByLabelText("The owner's PIN to save the camera"), '1234{Enter}');
+  await vi.waitFor(() => expect(server.asks.filter((a) => a.step === '/cv/cameras')).toHaveLength(2));
+  const phone = server.asks.filter((a) => a.step === '/cv/cameras')[1].body.cameras as Record<string, unknown>[];
+  expect(phone.at(-1)).toMatchObject({ name: 'My phone', ip: '192.168.1.5:8080', rtspPath: '/h264_ulaw.sdp' });
+}, 15_000);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import {
-  addPoint, ASK_BRANDS, asksCamera, brandOf, closePolygon, LIMIT_TEXT, mayUse, normalisePoint, presetPath, RTSP_PRESETS, type Brand,
+  addPoint, ASK_BRANDS, asksCamera, brandOf, closePolygon, LIMIT_TEXT, mayUse, normalisePoint, PHONE_PORT, presetPath, RTSP_PRESETS, type Brand,
 } from '../../domain/cameraSetup.ts';
 import {
   TIMER_LIMITS, timersOf, type CameraSpec, type Point, type TableSpec, type Timers, type VisionSettings, type ZoneSpec,
@@ -39,6 +39,8 @@ type Tested = { jpeg: string } | { error: string } | 'testing';
 type Asking = 'asking' | { note: string } | { error: string };
 const BRANDS = [...RTSP_PRESETS.map((p) => [p.brand, p.label] as const), ...ASK_BRANDS.map((b) => [b.brand, b.label] as const), ['custom', 'Other'] as const];
 const pathOf = (d: Draft) => presetPath(d.brand) ?? d.path.trim();
+/** What is saved: a camera whose path is not known yet (Ask could not reach it) is saved with "/", so a test video can still play. */
+const savedPath = (d: Draft) => { const p = pathOf(d); return p ? (p.startsWith('/') ? p : `/${p}`) : '/'; };
 
 /**
  * A camera's connection, in the panel: edits the one picked, or a new one (Scan fills its IP).
@@ -103,7 +105,7 @@ export function CameraForm({ client, withPin, cameras, camera, logins, onSaved, 
   const save = () => attempt(() => withPin('save the camera', async (p) => {
     const name = d.name.trim() || `Camera ${n}`;
     const mine: CameraDraft = {
-      id: d.id, name, ip: d.ip, rtspPath: pathOf(d), enabled: d.enabled,
+      id: d.id, name, ip: d.ip, rtspPath: savedPath(d), enabled: d.enabled,
       ...(d.user ? { user: d.user } : {}), ...(d.password ? { password: d.password } : {}),
     };
     const extra: CameraDraft[] = lenses.map((l, i) => ({
@@ -121,7 +123,6 @@ export function CameraForm({ client, withPin, cameras, camera, logins, onSaved, 
     onRemoved?.();
   }), setError);
 
-  const ipBox = useRef<HTMLInputElement>(null);
   return (
     <div className="cam cam--panel" aria-label={label} data-cam={d.id}>
       {!camera && (
@@ -138,13 +139,16 @@ export function CameraForm({ client, withPin, cameras, camera, logins, onSaved, 
       <label className="setup__field"><span>Name</span>
         <input value={d.name} placeholder={`Camera ${n}`} maxLength={60} onChange={(e) => change({ name: e.target.value })} /></label>
       <label className="setup__field"><span>IP address</span>
-        <input ref={ipBox} value={d.ip} inputMode="decimal" placeholder="192.168.1.20" onChange={(e) => change({ ip: e.target.value.trim() })} /></label>
+        <input value={d.ip} inputMode="url" placeholder={d.brand === 'phone' ? `192.168.1.5:${PHONE_PORT}` : '192.168.1.20'} onChange={(e) => change({ ip: e.target.value.trim() })} /></label>
       <div className="cam__brands" role="radiogroup" aria-label={`${label}: brand`}>
         {BRANDS.map(([brand, text]) => (
           <button key={brand} type="button" role="radio" aria-checked={d.brand === brand} className="chip"
             onClick={() => change({ brand, path: presetPath(brand) ?? (presetPath(d.brand) ? '' : d.path) })}>{text}</button>
         ))}
       </div>
+      {d.brand === 'phone' && (
+        <p className="setup__hint">In IP Webcam, press Start server and type the address it shows, with its port: {`192.168.1.5:${PHONE_PORT}`}. No login unless you set one.</p>
+      )}
       {asksCamera(d.brand) && (
         <label className="setup__field"><span>Stream path{d.brand !== 'custom' && ': Ask the camera fills it'}</span>
           <input value={d.path} placeholder={d.brand === 'custom' ? '/stream2' : ''} onChange={(e) => change({ path: e.target.value })} /></label>
@@ -176,9 +180,10 @@ export function CameraForm({ client, withPin, cameras, camera, logins, onSaved, 
       {tested && tested !== 'testing' && ('jpeg' in tested
         ? <img className="cam__shot" src={`data:image/jpeg;base64,${tested.jpeg}`} alt={`What ${label} sees`} />
         : <p className="setup__error" role="alert">{tested.error}</p>)}
+      {d.ip && !pathOf(d) && <p className="setup__hint">No stream path yet: the camera is saved without one. Ask the camera or type the path later; a test video plays without it.</p>}
       {error && <p className="setup__error" role="alert">{error}</p>}
       <div className="panel-form__foot">
-        <button type="button" className="chip chip--solid" disabled={!dirty || !d.ip || !pathOf(d)} onClick={() => void save()}>
+        <button type="button" className="chip chip--solid" disabled={!dirty || !d.ip} onClick={() => void save()}>
           {camera ? 'Save camera' : 'Add camera'}
         </button>
         {note && <span className="setup__hint" role="status">{note}</span>}

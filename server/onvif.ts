@@ -124,7 +124,7 @@ export const rtspPathOf = (uri: string): { path: string } | { error: string } =>
   let u: URL;
   try { u = new URL(uri); } catch { return { error: 'the camera gave no stream address' }; }
   if (u.protocol !== 'rtsp:') return { error: 'the camera gave no RTSP address' };
-  if (u.port && u.port !== '554') return { error: `the camera streams on port ${u.port}; only 554 works for now` };
+  if (u.port && u.port !== '554') return { error: `the camera streams on port ${u.port}: type its IP as ${u.hostname}:${u.port}, pick Other and type the path ${u.pathname}` };
   const path = `${u.pathname || '/'}${u.search}`;
   if (path.length > 200 || !/^\/[A-Za-z0-9/_.?=&%-]*$/.test(path)) return { error: 'the camera’s stream path has characters setup cannot keep' };
   return { path };

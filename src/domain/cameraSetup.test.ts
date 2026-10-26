@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addPoint, brandOf, CAUSE_TEXT, closePolygon, ffmpegCause, LIMIT_TEXT, liveBlocked, maskLogins, mayUse, normalisePoint, presetPath,
+  addPoint, brandOf, CAUSE_TEXT, hostPort, closePolygon, ffmpegCause, LIMIT_TEXT, liveBlocked, maskLogins, mayUse, normalisePoint, presetPath,
   rtspUrl, tablesWithoutZone, testFailure,
 } from './cameraSetup.ts';
 import type { CameraSpec, TableSpec, ZoneSpec } from './tables.ts';
@@ -90,4 +90,12 @@ test('Enter closes a zone of 3 points or more; a repeated point or a line is not
   assert.equal(closePolygon([{ x: 0, y: 0 }, { x: 0.5, y: 0.5 }, { x: 1, y: 1 }]), null, 'three points on one line');
   assert.deepEqual(addPoint(tri, tri[2]), tri, 'a double click adds one point');
   assert.equal(addPoint(Array.from({ length: 32 }, (_, i) => ({ x: i / 32, y: (i % 2) / 2 })), { x: 1, y: 1 }).length, 32);
+});
+
+test('a phone app streams on its own port: the IP takes it ("192.168.1.5:8080"); without one, the RTSP port 554', () => {
+  assert.deepEqual(hostPort('192.168.1.5:8080'), { host: '192.168.1.5', port: 8080 });
+  assert.deepEqual(hostPort('192.168.1.5'), { host: '192.168.1.5', port: 554 });
+  assert.equal(rtspUrl({ ip: '192.168.1.5:8080', rtspPath: presetPath('phone')! }), 'rtsp://192.168.1.5:8080/h264_ulaw.sdp');
+  assert.equal(rtspUrl({ ip: '192.168.1.5:8080', rtspPath: '/h264_ulaw.sdp', user: 'me', password: 'pw' }), 'rtsp://me:pw@192.168.1.5:8080/h264_ulaw.sdp');
+  assert.equal(brandOf('/h264_ulaw.sdp'), 'phone');
 });

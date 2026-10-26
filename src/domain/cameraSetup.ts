@@ -11,7 +11,11 @@ export const RTSP_PRESETS = [
   { brand: 'tapo', label: 'Tapo', path: '/stream2' },
   { brand: 'hikvision', label: 'Hikvision / EZVIZ', path: '/Streaming/Channels/102' },
   { brand: 'dahua', label: 'Dahua / Imou', path: '/cam/realmonitor?channel=1&subtype=1' },
+  // A phone as a camera, for trying CV (owner, 2026-10-27): the Android app "IP Webcam" serves RTSP on its port, 8080 by default.
+  { brand: 'phone', label: 'Phone (IP Webcam)', path: '/h264_ulaw.sdp' },
 ] as const;
+/** The port a phone app streams on, typed after the IP: "192.168.1.5:8080". */
+export const PHONE_PORT = 8080;
 /**
  * Brands whose path is asked of the camera itself (ONVIF GetStreamUri, server/onvif.ts) instead of
  * guessed (SCRUM-180). The answer is kept like a custom path. Any ONVIF camera can be asked from Other.
@@ -25,11 +29,18 @@ export const presetPath = (brand: Brand): string | null => RTSP_PRESETS.find((p)
 /** The brand whose path this is ('custom' for any other). */
 export const brandOf = (path: string): Brand => RTSP_PRESETS.find((p) => p.path === path)?.brand ?? 'custom';
 
+/** "192.168.1.5:8080" → the host and the port; RTSP's own port, 554, when none is typed. */
+export const hostPort = (ip: string): { host: string; port: number } => {
+  const m = /^(.*):(\d{1,5})$/.exec(ip.trim());
+  return m ? { host: m[1], port: Number(m[2]) } : { host: ip.trim(), port: 554 };
+};
+
 /** The stream's address with its login, for ffmpeg only: never shown, logged or stored. */
 export const rtspUrl = (c: { ip: string; rtspPath: string; user?: string; password?: string }): string => {
   const login = c.user ? `${encodeURIComponent(c.user)}${c.password ? `:${encodeURIComponent(c.password)}` : ''}@` : '';
   const path = c.rtspPath.startsWith('/') ? c.rtspPath : `/${c.rtspPath}`;
-  return `rtsp://${login}${c.ip}:554${path}`;
+  const { host, port } = hostPort(c.ip);
+  return `rtsp://${login}${host}:${port}${path}`;
 };
 
 /** Any `user:pass@` in a URL in this text becomes `***@`, so ffmpeg's words can be shown. */
@@ -38,7 +49,7 @@ export const maskLogins = (text: string): string => text.replace(/([a-z][a-z0-9+
 export type TestCause = 'login' | 'rtsp' | 'path' | 'pack' | 'other';
 export const CAUSE_TEXT: Record<TestCause, string> = {
   login: 'The camera refused the login: check the username and password (on Tapo, the camera account made in the Tapo app).',
-  rtsp: 'The camera did not answer: check the IP address, and turn RTSP on in the camera’s app.',
+  rtsp: 'The camera did not answer: check the IP address (and its port, like :8080 for a phone), and turn RTSP on in the camera’s app.',
   path: 'The camera has no stream at that path: pick its brand, or check the custom path.',
   pack: 'Activate CV first: Test needs the CV pack.',
   other: 'The camera did not send a picture.',

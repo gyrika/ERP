@@ -502,3 +502,14 @@ test('in Shadow the cameras are recorded but the floor changes only when staff s
   const left = ev({ type: 'table.state_changed', tableId: 't1', from: 'occupied', to: 'needs_cleaning', confidence: 0.9 }, 200);
   assert.equal(tablesFromEvents([layout(), shadow, seen, later, left])[0].state, 'free', 'stale: the floor never took what the camera saw');
 });
+
+test('a camera address may carry a port (a phone app, "192.168.1.5:8080"); never a login, a URL or a port out of range', () => {
+  const cams = (ip: string) => ev({ type: 'vision.cameras_set', cameras: [{ id: 'c1', name: 'Phone', ip, rtspPath: '/h264_ulaw.sdp', enabled: true }] }, 1);
+  assert.equal(valid(cams('192.168.1.5:8080')), null);
+  assert.equal(valid(cams('192.168.1.5')), null);
+  for (const bad of ['192.168.1.5:0', '192.168.1.5:70000', 'admin:pw@192.168.1.5', 'rtsp://192.168.1.5:8080', '192.168.1.5:']) {
+    assert.notEqual(valid(cams(bad)), null, bad);
+  }
+  // A camera saved before its path is known keeps "/".
+  assert.equal(valid(ev({ type: 'vision.cameras_set', cameras: [{ id: 'c1', name: 'Front', ip: '192.168.1.20', rtspPath: '/', enabled: false }] }, 1)), null);
+});
