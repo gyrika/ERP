@@ -101,6 +101,24 @@ test('the owner scans, logs a camera in, tests it and draws a table by keyboard;
   expect(zones.zones).toEqual([{ id: expect.any(String), tableId: expect.any(String), points: [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.4 }, { x: 0.6, y: 0.6 }] }]);
   expect(await screen.findByRole('button', { name: 'Remove the zone of table 1' })).toBeTruthy();
 
+  // The next zone, by mouse; its controls sit in the panel beside the picture.
+  const panel = screen.getByRole('complementary', { name: 'TP-IPC C200: drawing' });
+  expect((within(panel).getByRole('button', { name: 'Close zone' }) as HTMLButtonElement).disabled).toBe(true);
+  vi.spyOn(frame, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 500, height: 500, right: 500, bottom: 500, x: 0, y: 0, toJSON: () => ({}) });
+  const at = (clientX: number, clientY: number) => ({ target: frame, coords: { clientX, clientY } });
+  for (const [x, y] of [[100, 100], [300, 100], [300, 300], [200, 400]]) await user.pointer({ keys: '[MouseLeft]', ...at(x, y) });
+  expect(within(panel).getByText('4 corners · Enter closes the zone')).toBeTruthy();
+  await user.pointer({ keys: '[MouseRight]', ...at(200, 400) }); // right click takes the last corner back
+  expect(within(panel).getByText('3 corners · Enter closes the zone')).toBeTruthy();
+  await user.pointer([{ keys: '[MouseLeft>]', ...at(302, 298) }, at(330, 330), at(350, 350), { keys: '[/MouseLeft]', ...at(350, 350) }]); // drag a corner
+  await user.pointer(at(103, 98));
+  expect(within(panel).getByText('Click the first corner to close the zone')).toBeTruthy();
+  await user.pointer({ keys: '[MouseLeft]', ...at(103, 98) }); // a click on the first corner closes the zone
+  await user.click(within(screen.getByRole('group', { name: 'Pick its table' })).getByRole('button', { name: 'Table 2' }));
+  const both = server.asked.filter((a) => a.step === '/cv/zones').at(-1)!.body;
+  expect((both.zones as { points: unknown }[])[1].points).toEqual([{ x: 0.2, y: 0.2 }, { x: 0.6, y: 0.2 }, { x: 0.7, y: 0.7 }]);
+  expect(await within(panel).findByRole('button', { name: 'Remove the zone of table 2' })).toBeTruthy();
+
   // The timers keep the mode and the CPU limit as they are.
   // The owner's three timers, in plain words: minutes for the visit and the auto-free, seconds for the check.
   expect((screen.getByLabelText('A visit shorter than this needs no cleaning (min)') as HTMLInputElement).value).toBe('3');

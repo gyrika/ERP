@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addPoint, brandOf, CAUSE_TEXT, closePolygon, ffmpegCause, LIMIT_TEXT, liveBlocked, maskLogins, mayUse, normalisePoint, presetPath,
-  rtspUrl, tablesWithoutZone, testFailure,
+  addPoint, brandOf, CAUSE_TEXT, closePolygon, cornerAt, ffmpegCause, isNear, LIMIT_TEXT, liveBlocked, maskLogins, mayUse, normalisePoint, presetPath,
+  movePoint, rtspUrl, tablesWithoutZone, testFailure,
 } from './cameraSetup.ts';
 import type { CameraSpec, TableSpec, ZoneSpec } from './tables.ts';
 
@@ -90,4 +90,15 @@ test('Enter closes a zone of 3 points or more; a repeated point or a line is not
   assert.equal(closePolygon([{ x: 0, y: 0 }, { x: 0.5, y: 0.5 }, { x: 1, y: 1 }]), null, 'three points on one line');
   assert.deepEqual(addPoint(tri, tri[2]), tri, 'a double click adds one point');
   assert.equal(addPoint(Array.from({ length: 32 }, (_, i) => ({ x: i / 32, y: (i % 2) / 2 })), { x: 1, y: 1 }).length, 32);
+});
+
+test('the pointer is on a corner within 12 screen pixels, on a frame of any shape; dragging moves only that corner', () => {
+  const wide = { width: 800, height: 200 };
+  assert.equal(isNear({ x: 0.51, y: 0.5 }, { x: 0.5, y: 0.5 }, wide), true, '8 px across');
+  assert.equal(isNear({ x: 0.5, y: 0.57 }, { x: 0.5, y: 0.5 }, wide), false, '14 px down on a short frame');
+  const tri = [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.3, y: 0.6 }];
+  assert.equal(cornerAt(tri, { x: 0.505, y: 0.1 }, wide), 1);
+  assert.equal(cornerAt(tri, { x: 0.9, y: 0.9 }, wide), -1);
+  assert.equal(cornerAt([{ x: 0.5, y: 0.5 }, { x: 0.51, y: 0.5 }], { x: 0.509, y: 0.5 }, wide), 1, 'the nearer of two');
+  assert.deepEqual(movePoint(tri, 2, { x: 1.2, y: 0.33333 }), [tri[0], tri[1], { x: 1, y: 0.3333 }]);
 });
