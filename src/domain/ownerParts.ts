@@ -10,6 +10,7 @@ import { expectedBy, purchasesFromEvents } from './purchaseOrders.ts';
 import { stockSettingsFromEvents } from './stockSettings.ts';
 import { draftsFromEvents } from './recipeDrafts.ts';
 import type { SyncEvent } from './sync.ts';
+import { visionPart } from './visionPage.ts';
 
 /**
  * The owner's sidebar (SCRUM-131), arranged by the shop's day: the work (Sell, Receive, Order,
@@ -17,7 +18,7 @@ import type { SyncEvent } from './sync.ts';
  * and a badge only when something there needs a decision. Pure, like insights.ts: events in,
  * lines out. Nothing is a count for its own sake ("Onion out", not "60 items").
  */
-export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'items' | 'flow' | 'setup';
+export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'items' | 'flow' | 'vision' | 'setup';
 
 export interface PartLine {
   preview: string;
@@ -85,6 +86,8 @@ export const ownerParts = (events: readonly SyncEvent[], now: number): Record<Pa
       const drafts = draftsFromEvents(events).size;
       return { preview: drafts ? `${plural(drafts, 'change')} in draft` : 'How each dish is made', badge: 0 };
     })(),
+    // Computer vision (SCRUM-174): a camera offline, else the mode and the floor.
+    vision: visionPart(events, now),
     setup: { preview: 'Shop, staff, printer, stock rules', badge: 0 },
   };
 };

@@ -41,13 +41,9 @@ polyline.zone__new { fill: none; }
 .zone__tag { position: absolute; transform: translate(-50%, -50%); padding: 4px 10px; border-radius: 980px; background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 14px; font-weight: 600; line-height: 1.2; pointer-events: none; }
 
 .cvs__timers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.cvs__modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.cvs__mode { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 88px; padding: 12px 18px; }
-.cvs__mode span { font-size: 14px; color: var(--ink-2); }
-.cvs__mode:disabled { opacity: 0.45; cursor: not-allowed; }
 
 @media (max-width: 640px) {
-  .cam__grid, .cvs__timers, .cvs__modes { grid-template-columns: 1fr; }
+  .cam__grid, .cvs__timers { grid-template-columns: 1fr; }
   .cvs__tables li { grid-template-columns: 1fr 90px; }
   .cvs__tables li .chip { grid-column: 1 / -1; justify-self: start; }
 }

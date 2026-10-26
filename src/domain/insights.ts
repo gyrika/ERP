@@ -10,7 +10,7 @@ import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine } from './types.ts';
 import { lineItemName } from './halves.ts';
-import { camerasOffline, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
+import { camerasOffline, shadowToLive, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
 
 /**
  * The Owner view's brain (CLAUDE.md: "tell the owner what needs attention and
@@ -37,8 +37,8 @@ export interface Insight {
   tone: Tone;
   title: string;
   detail: string;
-  /** The one tap: open the list behind the card. */
-  action: { label: string; items: InsightItem[] };
+  /** The one tap: open the list behind the card, or with `go` open that place instead (SCRUM-174: "#vision/live"). */
+  action: { label: string; items: InsightItem[]; go?: string };
   /** Gaps for the owner to check (SCRUM-95): the list behind the card is answered, not just read. */
   cases?: CaseView[];
 }
@@ -464,6 +464,7 @@ export const rulesSuggestions: SuggestionsService = {
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
       grnApprovals(events, stock, now),
+      shadowToLive(events, now),
       visitLength(events, now),
       tableUse(events, now),
       notSelling(events, sales, now),

@@ -27,7 +27,7 @@ const WORK: { id: Section; label: string }[] = [
   { id: 'count', label: 'Count' },
   { id: 'owner', label: 'Today' },
 ];
-const THINGS: { id: Section; label: string }[] = [{ id: 'items', label: 'Items' }, { id: 'flow', label: 'Visual Flow' }];
+const THINGS: { id: Section; label: string }[] = [{ id: 'items', label: 'Items' }, { id: 'flow', label: 'Visual Flow' }, { id: 'vision', label: 'Computer vision' }];
 const SETTINGS: { id: Section; label: string } = { id: 'setup', label: 'Settings' };
 /** The manager's phone: what they do away from the counter. */
 const PHONE = new Set<Section>(['count', 'receive', 'items']);
@@ -51,6 +51,7 @@ const ICONS: Record<Section, ReactNode> = {
   owner: icon(<><path d="M4 19V10M10 19V5M16 19v-7M22 19H2" /></>),
   items: icon(<><path d="M3 8l9-5 9 5v8l-9 5-9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>),
   flow: icon(<><rect x="2" y="4" width="6" height="5" rx="1.5" /><rect x="2" y="15" width="6" height="5" rx="1.5" /><rect x="16" y="9.5" width="6" height="5" rx="1.5" /><path d="M8 6.5c4 0 4 5.5 8 5.5M8 17.5c4 0 4-5.5 8-5.5" /></>),
+  vision: icon(<><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>),
   setup: icon(<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
 };
 

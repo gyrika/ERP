@@ -220,7 +220,7 @@ export function OwnerView({ phone = false, onBack, shop }: {
                 <h2>{i.title}</h2>
                 <p>{i.detail}</p>
               </div>
-              <button type="button" className="insight__action" onClick={() => setOpen(i.id)}>{i.action.label}</button>
+              <button type="button" className="insight__action" onClick={() => { const go = i.action.go; if (go) location.hash = go; else setOpen(i.id); }}>{i.action.label}</button>
             </article>
           ))}
         </section>

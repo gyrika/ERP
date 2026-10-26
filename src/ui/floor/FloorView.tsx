@@ -1,17 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { elapsedLabel } from '../../domain/kitchen.ts';
 import type { FloorTable, TableState } from '../../domain/tables.ts';
 import { useNow } from '../Kitchen.tsx';
 import { setTable, undoTable, useFloor } from '../tablesStore.ts';
+import { columns, FloorTile } from './FloorTile.tsx';
 import './floor.css';
-
-/** State words. Sinhala and Tamil stay empty until the owner gives them. */
-const WORD: Record<TableState, { en: string; si: string; ta: string }> = {
-  free: { en: 'Free', si: '', ta: '' },
-  occupied: { en: 'Occupied', si: '', ta: '' },
-  needs_cleaning: { en: 'Needs cleaning', si: '', ta: '' },
-  reserved: { en: 'Reserved', si: '', ta: '' },
-};
 
 /** What a cashier can do to a table in each state: at most two keys, never a menu. */
 const ACTIONS: Record<TableState, { key: string; label: string; to: TableState }[]> = {
@@ -21,13 +13,6 @@ const ACTIONS: Record<TableState, { key: string; label: string; to: TableState }
   reserved: [{ key: 'O', label: 'Seated', to: 'occupied' }, { key: 'F', label: 'Free', to: 'free' }],
 };
 const KEYS: Record<string, TableState> = { c: 'free', f: 'free', r: 'reserved', o: 'occupied' };
-
-/** Tiles in the first row: how far Up and Down move. */
-const columns = (grid: HTMLElement | null): number => {
-  const tiles = grid ? [...grid.children] as HTMLElement[] : [];
-  if (!tiles.length) return 1;
-  return Math.max(1, tiles.filter((t) => t.offsetTop === tiles[0].offsetTop).length);
-};
 
 /**
  * The floor (SCRUM-168). Mind: the cashier, customer waiting, hands busy. They know the room;
@@ -91,19 +76,7 @@ export default function FloorView({ onBack }: { onBack: () => void }) {
         </span>
       </header>
       <div className="floor__grid" ref={grid} role="listbox" aria-label="Tables by number" aria-orientation="horizontal">
-        {tables.map((t, i) => {
-          const time = elapsedLabel(now - t.since);
-          const word = t.noCamera ? `${WORD[t.state].en.toLowerCase()} (camera off)` : WORD[t.state].en.toLowerCase();
-          return (
-            <button key={t.id} type="button" role="option" aria-selected={i === at} tabIndex={i === at ? 0 : -1}
-              aria-label={`Table ${t.label}, ${word}, ${time}`}
-              className={`floor__tile floor__tile--${t.noCamera ? 'nocam' : t.state}`} onClick={() => setPicked(i)}>
-              <span className="floor__num">{t.label}</span>
-              <span className="floor__state">{WORD[t.state].en}{t.noCamera && ' · no camera'}</span>
-              <span className="floor__time num">{time}</span>
-            </button>
-          );
-        })}
+        {tables.map((t, i) => <FloorTile key={t.id} t={t} now={now} selected={i === at} onPick={() => setPicked(i)} />)}
       </div>
       {table && (
         <div className="floor__actions" aria-label={`Table ${table.label}`} role="group">

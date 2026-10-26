@@ -25,9 +25,21 @@ export const MAX_CAMERAS = 4;
 /** Cameras the owner may set up in all, most of them off (SCRUM-171). */
 export const MAX_CAMERA_LIST = 16;
 
+/**
+ * The share of the shop PC's CPU the camera worker may use (SCRUM-174), in percent: the owner may
+ * raise it from 15 to 50 in steps of 5. The worker (SCRUM-170) enforces it by reading fewer frames.
+ */
+export const DEFAULT_CPU_LIMIT = 15;
+export const MIN_CPU_LIMIT = 5;
+export const MAX_CPU_LIMIT = 50;
+export const CPU_LIMIT_STEP = 5;
+
+/** Off: no cameras. Shadow: the cameras' changes are recorded, the floor follows staff only. Live: the cameras set the floor. */
 export type VisionMode = 'off' | 'shadow' | 'live';
-export interface VisionSettings { mode: VisionMode; seatS: number; leaveS: number; cleanAlertS: number }
-export const DEFAULT_VISION_SETTINGS: VisionSettings = { mode: 'off', seatS: DEFAULT_SEAT_S, leaveS: DEFAULT_LEAVE_S, cleanAlertS: DEFAULT_CLEAN_ALERT_S };
+export interface VisionSettings { mode: VisionMode; seatS: number; leaveS: number; cleanAlertS: number; cpuLimit: number }
+export const DEFAULT_VISION_SETTINGS: VisionSettings = {
+  mode: 'off', seatS: DEFAULT_SEAT_S, leaveS: DEFAULT_LEAVE_S, cleanAlertS: DEFAULT_CLEAN_ALERT_S, cpuLimit: DEFAULT_CPU_LIMIT,
+};
 
 export interface TableSpec { id: string; label: string; seats: number }
 /** Where a camera is. Never its password: the worker keeps that on the shop PC. */
@@ -158,7 +170,9 @@ export const visionFromEvents = (events: readonly SyncEvent[]): Vision => {
   for (const e of events) {
     if (!isVision(e)) continue;
     switch (e.type) {
-      case 'vision.settings_set': v.settings = { mode: e.mode, seatS: e.seatS, leaveS: e.leaveS, cleanAlertS: e.cleanAlertS }; break;
+      case 'vision.settings_set':
+        v.settings = { mode: e.mode, seatS: e.seatS, leaveS: e.leaveS, cleanAlertS: e.cleanAlertS, cpuLimit: e.cpuLimit ?? DEFAULT_CPU_LIMIT };
+        break;
       case 'vision.cameras_set': v.cameras = e.cameras; break;
       case 'vision.zones_set': v.zones = { ...v.zones, [e.cameraId]: e.zones }; break;
       case 'vision.camera_offline': v.offline.add(e.cameraId); break;
@@ -183,28 +197,38 @@ export interface FloorTable extends TableSpec {
 /**
  * The floor: the layout, each table's state and since-when, its open alert and camera. A camera
  * change from a state the table is no longer in (staff got there first) is stale and ignored;
- * a staff change always applies. `table.state_set_undone` puts back what the staff change
+ * a staff change always applies. In Shadow a camera change is what the camera saw, not the
+ * floor: it is kept (the Owner feed's visits, the Shadow week's misses) but moves no table. `table.state_set_undone` puts back what the staff change
  * replaced, like `order.change_undone`, as long as nothing has changed the table since.
  */
 export const tablesFromEvents = (events: readonly SyncEvent[]): FloorTable[] => foldTables(events).floor;
 
 /** One change the floor took, in order: who made it (the camera, staff, or a staff Undo) and when. */
-export interface TableChange { tableId: string; from: TableState; to: TableState; at: number; by: 'camera' | 'staff' | 'undo' }
+export interface TableChange {
+  tableId: string; from: TableState; to: TableState; at: number; by: 'camera' | 'staff' | 'undo';
+  /** A camera change in Shadow: what the camera saw, which the floor did not take. */
+  shadow?: true;
+}
 
-/** Every change the floor took, by the same rules as `tablesFromEvents` (stale camera changes left out). The Owner feed's visits. */
+/**
+ * Every change the floor took, by the same rules as `tablesFromEvents` (stale camera changes left
+ * out), and what the cameras saw in Shadow (as they saw it). The Owner feed's visits.
+ */
 export const tableChanges = (events: readonly SyncEvent[]): TableChange[] => foldTables(events).changes;
 
 const foldTables = (events: readonly SyncEvent[]): { floor: FloorTable[]; changes: TableChange[] } => {
   let layout: TableSpec[] = [];
   const changes: TableChange[] = [];
-  const took = (tableId: string, from: TableState, to: TableState, at: number, by: TableChange['by']) => {
-    if (from !== to) changes.push({ tableId, from, to, at, by });
+  const took = (tableId: string, from: TableState, to: TableState, at: number, by: TableChange['by'], shadow = false) => {
+    if (from !== to) changes.push({ tableId, from, to, at, by, ...(shadow ? { shadow: true as const } : {}) });
   };
   const state = new Map<string, { state: TableState; since: number; lastId: string | null }>();
   const alerts = new Map<string, string | null>();
   /** What each staff change replaced, by its event id. */
   const replaced = new Map<string, { state: TableState; since: number; lastId: string | null }>();
+  let mode: VisionMode = DEFAULT_VISION_SETTINGS.mode;
   for (const e of events) {
+    if (e.type === 'vision.settings_set') mode = e.mode;
     if (!isTable(e)) continue;
     const now = 'tableId' in e ? state.get(e.tableId) : undefined;
     switch (e.type) {
@@ -213,7 +237,8 @@ const foldTables = (events: readonly SyncEvent[]): { floor: FloorTable[]; change
         for (const t of e.tables) if (!state.has(t.id)) state.set(t.id, { state: 'free', since: e.at, lastId: null });
         break;
       case 'table.state_changed':
-        if (now && now.state === e.from) { state.set(e.tableId, { state: e.to, since: e.at, lastId: e.id }); took(e.tableId, e.from, e.to, e.at, 'camera'); }
+        if (mode === 'shadow') { if (now) took(e.tableId, e.from, e.to, e.at, 'camera', true); }
+        else if (now && now.state === e.from) { state.set(e.tableId, { state: e.to, since: e.at, lastId: e.id }); took(e.tableId, e.from, e.to, e.at, 'camera'); }
         break;
       case 'table.state_set':
         if (!now) break;
@@ -287,7 +312,7 @@ const FIELDS: Record<(typeof TABLE_EVENT_TYPES)[number] | (typeof VISION_EVENT_T
   'table.alert_cleared': ['tableId', 'alertEventId'],
   'vision.cameras_set': ['cameras'],
   'vision.zones_set': ['cameraId', 'zones'],
-  'vision.settings_set': ['mode', 'seatS', 'leaveS', 'cleanAlertS'],
+  'vision.settings_set': ['mode', 'seatS', 'leaveS', 'cleanAlertS', 'cpuLimit'],
   'vision.camera_offline': ['cameraId'],
   'vision.camera_online': ['cameraId'],
   'vision.heartbeat': ['cameras', 'cpu'],
@@ -333,7 +358,8 @@ export const checkTableEvent = (e: Record<string, unknown>): string | null => {
       return null;
     }
     case 'vision.settings_set':
-      if (!['off', 'shadow', 'live'].includes(String(e.mode)) || !wholeIn(e.seatS, 10, 3600) || !wholeIn(e.leaveS, 10, 3600) || !wholeIn(e.cleanAlertS, 0, 7200)) {
+      if (!['off', 'shadow', 'live'].includes(String(e.mode)) || !wholeIn(e.seatS, 10, 3600) || !wholeIn(e.leaveS, 10, 3600) || !wholeIn(e.cleanAlertS, 0, 7200)
+        || (e.cpuLimit !== undefined && !wholeIn(e.cpuLimit, MIN_CPU_LIMIT, MAX_CPU_LIMIT))) {
         return 'the settings are not valid';
       }
       return null;

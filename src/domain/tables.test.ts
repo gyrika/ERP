@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cameraLost, checkTableEvent, DEFAULT_LEAVE_S, DEFAULT_SEAT_S, DEFAULT_VISION_SETTINGS, footPoint, LEAVE_SHARE, newTracker,
-  floorSummary, observe, pointInPolygon, SEAT_SHARE, staffSet, tableChanges, tablesFromEvents, visionFromEvents, type FloorTable, type Sample, type TableTracker,
+  cameraLost, checkTableEvent, CPU_LIMIT_STEP, DEFAULT_CPU_LIMIT, DEFAULT_LEAVE_S, DEFAULT_SEAT_S, DEFAULT_VISION_SETTINGS, footPoint, LEAVE_SHARE, newTracker,
+  floorSummary, MAX_CPU_LIMIT, MIN_CPU_LIMIT, observe, pointInPolygon, SEAT_SHARE, staffSet, tableChanges, tablesFromEvents, visionFromEvents, type FloorTable, type Sample, type TableTracker,
 } from './tables.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Actor } from './auth.ts';
@@ -283,7 +283,7 @@ test('vision settings, cameras and zones fold to their latest values', () => {
   assert.deepEqual(visionFromEvents([]).settings, DEFAULT_VISION_SETTINGS);
   const v = visionFromEvents([cameras(), zones('c1', ['t1']), zones('c1', ['t2']),
     ev({ type: 'vision.settings_set', mode: 'shadow', seatS: 90, leaveS: 240, cleanAlertS: 120 }, 10)]);
-  assert.deepEqual(v.settings, { mode: 'shadow', seatS: 90, leaveS: 240, cleanAlertS: 120 });
+  assert.deepEqual(v.settings, { mode: 'shadow', seatS: 90, leaveS: 240, cleanAlertS: 120, cpuLimit: DEFAULT_CPU_LIMIT }, 'no cpuLimit: the default');
   assert.deepEqual(v.cameras.map((c) => c.id), ['c1', 'c2']);
   assert.deepEqual(v.zones.c1.map((z) => z.tableId), ['t2']);
   assert.deepEqual([...v.offline], []);
@@ -302,6 +302,8 @@ test('the server accepts every well-formed table and vision event', () => {
     ev({ type: 'table.alert_raised', tableId: 't1', alert: 'needs_cleaning' }, 1),
     ev({ type: 'table.alert_cleared', tableId: 't1', alertEventId: 'e1' }, 1),
     ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 5 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 50 }, 1),
     ev({ type: 'vision.camera_offline', cameraId: 'c1' }, 1),
     ev({ type: 'vision.camera_online', cameraId: 'c1' }, 1),
     ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 2.5 }], cpu: 37.5 }, 1),
@@ -329,6 +331,10 @@ test('the server refuses malformed table and vision events, and any password or 
     ev({ type: 'vision.zones_set', cameraId: 'c1', zones: [{ id: 'z', tableId: 't1', points: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }] }, 1),
     ev({ type: 'vision.settings_set', mode: 'on', seatS: 60, leaveS: 180, cleanAlertS: 300 }, 1),
     ev({ type: 'vision.settings_set', mode: 'live', seatS: 0, leaveS: 180, cleanAlertS: 300 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 4 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 51 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 12.5 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: '15' }, 1),
     ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: 'yes', fps: 2 }], cpu: 40 }, 1),
     ev({ type: 'vision.heartbeat', cameras: [], cpu: 40, frame: 'data:image/jpeg;base64,AAAA' }, 1),
     ev({ type: 'vision.camera_offline', cameraId: 'c1', snapshot: 'AAAA' }, 1),
@@ -367,4 +373,32 @@ test('the changes the floor took, in order and by whom: stale camera changes are
     ['t1', 'occupied', 'free', 300, 'staff'],
     ['t1', 'free', 'occupied', 310, 'undo'],
   ]);
+});
+
+// ----- Shadow and the CPU limit (SCRUM-174) -----
+
+test('the CPU limit: 15% unless the owner sets it, 5% to 50% in steps of 5', () => {
+  assert.deepEqual([DEFAULT_CPU_LIMIT, MIN_CPU_LIMIT, MAX_CPU_LIMIT, CPU_LIMIT_STEP], [15, 5, 50, 5]);
+  assert.equal(visionFromEvents([]).settings.cpuLimit, 15);
+  const v = visionFromEvents([ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 30 }, 1)]);
+  assert.equal(v.settings.cpuLimit, 30);
+});
+
+test('in Shadow the cameras are recorded but the floor changes only when staff set it; in Live they set it', () => {
+  const shadow = ev({ type: 'vision.settings_set', mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300 }, 5);
+  const seen = ev({ type: 'table.state_changed', tableId: 't1', from: 'free', to: 'occupied', confidence: 0.8 }, 100);
+  const shadowFloor = tablesFromEvents([layout(), shadow, seen]);
+  assert.equal(shadowFloor[0].state, 'free', 'the camera only watches');
+  // The change is still what the camera saw: the Owner feed's visits count it.
+  assert.deepEqual(tableChanges([layout(), shadow, seen]).map((c) => [c.tableId, c.to, c.by]), [['t1', 'occupied', 'camera']]);
+  // Staff set the floor in Shadow.
+  const staff = tablesFromEvents([layout(), shadow, seen, ev({ type: 'table.state_set', tableId: 't1', from: 'free', to: 'occupied' }, 120, cashier)]);
+  assert.deepEqual([staff[0].state, staff[0].since], ['occupied', 120]);
+  // Live: the camera sets the floor.
+  const live = ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 }, 5);
+  assert.equal(tablesFromEvents([layout(), live, seen])[0].state, 'occupied');
+  // Switching to Live later: only changes from then on move the floor.
+  const later = ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 }, 150);
+  const left = ev({ type: 'table.state_changed', tableId: 't1', from: 'occupied', to: 'needs_cleaning', confidence: 0.9 }, 200);
+  assert.equal(tablesFromEvents([layout(), shadow, seen, later, left])[0].state, 'free', 'stale: the floor never took what the camera saw');
 });

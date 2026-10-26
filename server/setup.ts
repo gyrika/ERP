@@ -390,9 +390,12 @@ export function setupApi(ctx: SetupContext) {
       return { events: await record(actor, { type: 'vision.zones_set', cameraId: body.cameraId, zones: body.zones }) };
     },
 
-    async cvSettings(body: { ownerPin?: unknown; mode?: unknown; seatS?: unknown; leaveS?: unknown; cleanAlertS?: unknown }) {
+    async cvSettings(body: { ownerPin?: unknown; mode?: unknown; seatS?: unknown; leaveS?: unknown; cleanAlertS?: unknown; cpuLimit?: unknown }) {
       const actor = await owner(body.ownerPin);
-      return { events: await record(actor, { type: 'vision.settings_set', mode: body.mode, seatS: body.seatS, leaveS: body.leaveS, cleanAlertS: body.cleanAlertS }) };
+      return { events: await record(actor, {
+        type: 'vision.settings_set', mode: body.mode, seatS: body.seatS, leaveS: body.leaveS, cleanAlertS: body.cleanAlertS,
+        ...(body.cpuLimit === undefined ? {} : { cpuLimit: body.cpuLimit }),
+      }) };
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */

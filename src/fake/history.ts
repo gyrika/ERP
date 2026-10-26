@@ -16,7 +16,10 @@ import { FAKE_SHOP_ID, FAKE_STAFF, FAKE_TABLES } from './data.ts';
  * items running low, and one pizza nobody has ordered for three weeks.
  * Two cameras watch the six tables: today fewer tables are taken, guests stay
  * longer (the kitchen is slow), table 6 by the door is hardly used, and the
- * back camera has been offline for the last 40 minutes.
+ * back camera has been offline for the last 40 minutes. The cameras have been in
+ * Shadow all along (SCRUM-174): staff seat guests and wipe tables, and twice a day
+ * they free a table the cameras wrongly saw taken, so the Shadow week card has
+ * something to say; the worker's last heartbeat is 15 seconds old.
  * Nothing here is real, and none of it is ever synced.
  */
 
@@ -161,12 +164,26 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
     ] },
     { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-front', zones: FRONT.map(zone) },
     { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-back', zones: FAKE_TABLES.filter((t) => !FRONT.includes(t.id)).map((t) => zone(t.id)) },
-    { ...base, type: 'vision.settings_set', id: id('vset'), at: start, actor: owner, mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 },
+    { ...base, type: 'vision.settings_set', id: id('vset'), at: start, actor: owner, mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300 },
   );
   const backOffline = now - 40 * MIN;
-  events.push({ ...base, type: 'vision.camera_offline', id: id('offline'), at: backOffline, actor: cameras, cameraId: 'demo-cam-back' });
+  const heartbeat = (at: number, backOnline: boolean, cpu: number): SyncEvent => ({ ...base, type: 'vision.heartbeat', id: id('beat'), at, actor: cameras,
+    cameras: [{ id: 'demo-cam-front', online: true, fps: 5 }, { id: 'demo-cam-back', online: backOnline, fps: backOnline ? 5 : 0 }], cpu });
+  events.push(
+    heartbeat(backOffline - MIN, true, 13),
+    { ...base, type: 'vision.camera_offline', id: id('offline'), at: backOffline, actor: cameras, cameraId: 'demo-cam-back' },
+    heartbeat(now - 15_000, false, 11),
+  );
   const change = (tableId: string, at: number, from: TableState, to: TableState): SyncEvent =>
     ({ ...base, type: 'table.state_changed', id: id('seen'), at, actor: cameras, tableId, from, to, confidence: 0.9 });
+
+  // Right now, whatever the hour (the front camera's tables; the back one is offline): two tables
+  // seated, one the cameras saw empty 3 minutes ago that nobody has wiped yet, one reserved.
+  const seat = (tableId: string, ago: number): SyncEvent[] => [change(tableId, now - ago * MIN, 'free', 'occupied'),
+    { ...base, type: 'table.state_set', id: id('seat'), at: now - (ago - 1) * MIN, actor: nimal, tableId, from: 'free', to: 'occupied' }];
+  events.push(...seat('demo-t1', 52), change('demo-t1', now - 3 * MIN, 'occupied', 'needs_cleaning'), ...seat('demo-t2', 24), ...seat('demo-t3', 9),
+    { ...base, type: 'table.state_set', id: id('book'), at: now - 12 * MIN, actor: nimal, tableId: 'demo-t6', from: 'free', to: 'reserved' });
+
 
   for (let back = 35; back >= 0; back--) {
     const day = new Date(today); day.setDate(day.getDate() - back);
@@ -174,6 +191,17 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
     const isToday = back === 0;
     // Its own seed, so the sales above stay exactly as they were.
     const rand = seeded(dayStart / DAY + 505);
+    // The staff's side in Shadow: its own seed, so the visits stay exactly as they were.
+    const staff = seeded(dayStart / DAY + 909);
+    // Twice a day before lunch the cameras take a waiter for a guest; staff free the table within minutes (a miss).
+    for (const k of [0, 1]) {
+      const at = dayStart + Math.floor((11 * 60 + k * 25 + staff() * 15) * MIN);
+      const table = FAKE_TABLES[Math.floor(staff() * FAKE_TABLES.length)].id;
+      if (at > now || (isToday && at >= backOffline && !FRONT.includes(table))) continue;
+      events.push(change(table, at, 'free', 'occupied'),
+        { ...base, type: 'table.state_set', id: id('fix'), at: at + 2 * MIN, actor: nimal, tableId: table, from: 'free', to: 'free' },
+        change(table, at + 4 * MIN, 'occupied', 'needs_cleaning'));
+    }
     const weekend = day.getDay() === 5 || day.getDay() === 6;
     let visits = Math.round((weekend ? 26 : 18) * (0.9 + rand() * 0.2));
     if (isToday) visits = Math.round(visits * 0.75); // fewer tables taken today
@@ -182,7 +210,8 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
       .sort((a, b) => a - b);
     for (const at of starts) {
       // Today the back camera sees nothing since it went offline.
-      const open = FAKE_TABLES.filter((t) => freeAt.get(t.id)! <= at && !(isToday && at >= backOffline && !FRONT.includes(t.id)));
+      const open = FAKE_TABLES.filter((t) => freeAt.get(t.id)! <= at && !(isToday && at >= backOffline && !FRONT.includes(t.id))
+        && !(isToday && at >= now - 60 * MIN && t.id !== 'demo-t4' && t.id !== 'demo-t5'));
       if (!open.length) continue;
       let r = rand() * open.reduce((n, t) => n + TABLE_WEIGHT[t.id], 0);
       const table = open.find((t) => (r -= TABLE_WEIGHT[t.id]) <= 0) ?? open[open.length - 1];
@@ -191,7 +220,9 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
       const wiped = at + stay + Math.floor((2 + rand() * 6) * MIN);
       freeAt.set(table.id, wiped);
       events.push(change(table.id, at, 'free', 'occupied'), change(table.id, at + stay, 'occupied', 'needs_cleaning'));
-      events.push({ ...base, type: 'table.state_set', id: id('wipe'), at: wiped, actor: nimal, tableId: table.id, from: 'needs_cleaning', to: 'free' });
+      // Staff seat them a minute or three after the cameras see them, and wipe the table after they leave.
+      events.push({ ...base, type: 'table.state_set', id: id('seat'), at: at + Math.floor((1 + staff() * 2) * MIN), actor: nimal, tableId: table.id, from: 'free', to: 'occupied' });
+      events.push({ ...base, type: 'table.state_set', id: id('wipe'), at: wiped, actor: nimal, tableId: table.id, from: 'occupied', to: 'free' });
     }
   }
   return events;

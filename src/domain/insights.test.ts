@@ -17,9 +17,12 @@ test('the demo Friday: every kind of card, things needing a decision first, good
   const insights = rulesSuggestions.insights({ events: demoHistory(friday), now: friday, stock });
   assert.deepEqual(insights.map((i) => i.id), [
     'camera-offline', 'sales-vs-usual', 'tables-vs-usual', 'voids', 'kitchen-slow', 'running-low', 'sold-without-recipe', 'costs-to-answer',
-    'visit-length', 'table-use', 'not-selling', 'best-seller',
+    'shadow-live', 'visit-length', 'table-use', 'not-selling', 'best-seller',
   ]);
-  const [camera, sales, tables, voids, kitchen, low, unrecipe, costs, visits, use, idle] = insights;
+  const [camera, sales, tables, voids, kitchen, low, unrecipe, costs, shadow, visits, use, idle] = insights;
+  // A week of Shadow (SCRUM-174): staff freed a table the cameras saw taken twice a day.
+  assert.match(shadow.title, /^Cameras were right 9\d% of the time this week$/);
+  assert.equal(shadow.action.go, '#vision/live');
   // The cameras (SCRUM-172): the back one is offline, fewer tables taken, guests stay longer, table 6 hardly used.
   assert.equal(camera.title, 'Back camera offline for 40 min');
   assert.match(tables.title, /^Tables \d+% quieter than a usual Friday$/);

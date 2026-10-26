@@ -31,6 +31,8 @@ const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
 /** The floor (SCRUM-168): loaded when it is opened, so the Register does not grow. */
 const FloorView = lazy(() => import('./floor/FloorView.tsx'));
 const CamerasView = lazy(() => import('./CamerasView.tsx'));
+/** Computer vision (SCRUM-174): the owner's page, on the counter and the owner's phone. */
+const VisionView = lazy(() => import('./vision/VisionView.tsx'));
 
 const KITCHEN = '#kitchen';
 const OWNER = '#owner';
@@ -183,7 +185,14 @@ export function Root() {
   // The cloud site is the owner's phone page and nothing else (the demo for examiners too).
   // A manager's phone app (SCRUM-94): the counts and the stock, nothing else.
   if (isManagerPhone()) return <ManagerPhone hash={hash} />;
-  if (isCloudSite()) return ownerToken() || isDemo() || adminShop() ? <OwnerView phone /> : <OwnerWelcome />;
+  if (isCloudSite()) {
+    if (!(ownerToken() || isDemo() || adminShop())) return <OwnerWelcome />;
+    // The Shadow week card opens Computer vision: read-only on the phone.
+    if (hash === '#vision' || hash === '#vision/live') {
+      return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionView key={hash} phone focusLive={hash === '#vision/live'} /></Suspense>;
+    }
+    return <OwnerView phone />;
+  }
   if (setup === 'checking') return <div className="setup" aria-busy="true" />;
   if (setup === 'new') return <SetupWizard mode="first" />;
   if (setup === 'remote' && !syncToken()) return <NotConnected />;
@@ -234,6 +243,10 @@ export function Root() {
   }
   if (hash === TABLES && seesFloor) {
     return <Suspense fallback={<div className="floor" aria-busy="true" />}><FloorView onBack={() => go('')} /></Suspense>;
+  }
+  // Computer vision (SCRUM-174): owners and managers see it; only the owner changes it. #vision/live: from the Shadow week card.
+  if ((hash === '#vision' || hash === '#vision/live') && seesOwner) {
+    return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionView key={hash} focusLive={hash === '#vision/live'} onRegister={() => go('')} /></Suspense>;
   }
   // Table detection (SCRUM-169): the owner's PIN, on the shop PC.
   if (hash === '#cameras' && seesOwner) {

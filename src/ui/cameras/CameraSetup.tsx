@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import {
-  addPoint, brandOf, closePolygon, LIMIT_TEXT, liveBlocked, mayUse, normalisePoint, presetPath, RTSP_PRESETS, type Brand,
+  addPoint, brandOf, closePolygon, LIMIT_TEXT, mayUse, normalisePoint, presetPath, RTSP_PRESETS, type Brand,
 } from '../../domain/cameraSetup.ts';
 import {
-  DEFAULT_VISION_SETTINGS, tablesFromEvents, visionFromEvents, type CameraSpec, type Point, type TableSpec, type VisionMode, type VisionSettings, type ZoneSpec,
+  DEFAULT_VISION_SETTINGS, tablesFromEvents, visionFromEvents, type CameraSpec, type Point, type TableSpec, type VisionSettings, type ZoneSpec,
 } from '../../domain/tables.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
 import { cameraClient, type CameraLogins } from '../../services/setupClient.ts';
@@ -14,7 +14,8 @@ import './cameras.css';
  * #cameras, under Activate CV (SCRUM-171). Serves the owner, once, at setup: they know their
  * tables and roughly where each camera points; the one thing they need is each camera seeing its
  * tables. Cameras (scan or IP, brand, login, Test, Use for CV), tables, a zone per table drawn on
- * the camera's snapshot, the timers, then Off / Shadow / Live. Every save is an owner event the
+ * the camera's snapshot, the timers. Off / Shadow / Live is on Computer vision (#vision, SCRUM-174),
+ * in one place only. Every save is an owner event the
  * shop server records (server/setup.ts); the login stays on the shop server, the snapshot only
  * in this screen's memory.
  */
@@ -336,20 +337,15 @@ function Zones({ pin, cameras, zones, tables, shots }: {
   );
 }
 
-// ----- Timers and mode -----
+// ----- Timers -----
 
-const MODES: { mode: VisionMode; label: string; hint: string }[] = [
-  { mode: 'off', label: 'Off', hint: 'The cameras are not used.' },
-  { mode: 'shadow', label: 'Shadow', hint: 'The cameras watch and learn; the floor still changes only when staff set it.' },
-  { mode: 'live', label: 'Live', hint: 'The cameras set the floor: occupied, needs cleaning.' },
-];
 const TIMERS: { key: 'seatS' | 'leaveS' | 'cleanAlertS'; label: string; min: number }[] = [
   { key: 'seatS', label: 'Seated after (seconds of people at the table)', min: 10 },
   { key: 'leaveS', label: 'Left after (seconds of an empty table)', min: 10 },
   { key: 'cleanAlertS', label: 'Cleaning alert after (seconds; 0 never)', min: 0 },
 ];
 
-function Mode({ pin, settings, blocked }: { pin: string; settings: VisionSettings; blocked: string | null }) {
+function Timers({ pin, settings }: { pin: string; settings: VisionSettings }) {
   const [timers, setTimers] = useState({ seatS: settings.seatS, leaveS: settings.leaveS, cleanAlertS: settings.cleanAlertS });
   const [dirty, setDirty] = useState(false);
   const [note, setNote] = useState('');
@@ -360,8 +356,8 @@ function Mode({ pin, settings, blocked }: { pin: string; settings: VisionSetting
   };
   const valid = TIMERS.every((t) => Number.isSafeInteger(timers[t.key]) && timers[t.key] >= t.min && timers[t.key] <= (t.key === 'cleanAlertS' ? 7200 : 3600));
   return (
-    <section className="cvs" aria-labelledby="cvs-mode">
-      <h2 id="cvs-mode">Timers</h2>
+    <section className="cvs" aria-labelledby="cvs-timers">
+      <h2 id="cvs-timers">Timers</h2>
       <div className="cvs__timers">
         {TIMERS.map((t) => (
           <label key={t.key} className="setup__field"><span>{t.label}</span>
@@ -372,21 +368,8 @@ function Mode({ pin, settings, blocked }: { pin: string; settings: VisionSetting
       <div className="setup__foot">
         <button type="button" className="chip chip--solid" disabled={!dirty || !valid} onClick={() => void save({ ...settings, ...timers }, 'Timers saved.')}>Save timers</button>
       </div>
-      <h2>Table detection</h2>
-      <div className="cvs__modes" role="radiogroup" aria-label="Table detection">
-        {MODES.map((m) => {
-          const off = m.mode === 'live' && blocked !== null;
-          return (
-            <button key={m.mode} type="button" role="radio" aria-checked={settings.mode === m.mode} className="setup__choice cvs__mode" disabled={off}
-              aria-describedby={off ? 'cvs-live-why' : undefined}
-              onClick={() => void save({ ...settings, ...(valid ? timers : {}), mode: m.mode }, `Table detection: ${m.label}.`)}>
-              <b>{m.label}</b><span>{m.hint}</span>
-            </button>
-          );
-        })}
-      </div>
-      {blocked && <p id="cvs-live-why" className="cam__note">Live: {blocked}</p>}
       {note && <p className="setup__hint" role="status">{note}</p>}
+      <p className="setup__hint">Off, Shadow and Live are on <a href="#vision">Computer vision</a>.</p>
       {error && <p className="setup__error" role="alert">{error}</p>}
     </section>
   );
@@ -409,7 +392,7 @@ export function CameraSetup({ pin }: { pin: string }) {
       <Cameras pin={pin} cameras={vision.cameras} logins={logins} onLogins={setLogins} shots={shots} onShot={(id, t) => setShots((s) => ({ ...s, [id]: t }))} />
       <Tables pin={pin} tables={tables} />
       <Zones pin={pin} cameras={vision.cameras.filter((c) => c.enabled)} zones={vision.zones} tables={tables} shots={shots} />
-      <Mode key={`${settings.seatS}-${settings.leaveS}-${settings.cleanAlertS}`} pin={pin} settings={settings} blocked={liveBlocked(tables, vision.cameras, vision.zones)} />
+      <Timers key={`${settings.seatS}-${settings.leaveS}-${settings.cleanAlertS}`} pin={pin} settings={settings} />
     </>
   );
 }

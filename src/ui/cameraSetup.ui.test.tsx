@@ -52,7 +52,7 @@ async function unlock() {
   return user;
 }
 
-test('the owner scans, logs a camera in, tests it, draws a table by keyboard and picks Shadow; Live waits for every table', async () => {
+test('the owner scans, logs a camera in, tests it and draws a table by keyboard; Off / Shadow / Live live on #vision', async () => {
   const server = fakeShopServer();
   const user = await unlock();
 
@@ -83,8 +83,9 @@ test('the owner scans, logs a camera in, tests it, draws a table by keyboard and
   await user.click(screen.getByRole('button', { name: 'Add table' }));
   await user.click(screen.getByRole('button', { name: 'Save tables' }));
   expect(await screen.findByText('Tables saved.')).toBeTruthy();
-  expect(screen.getByRole('radio', { name: /Live/ }).hasAttribute('disabled')).toBe(true);
-  expect(screen.getByText('Live: Tables 1 and 2 have no zone yet.')).toBeTruthy();
+  // The mode is in one place only: Computer vision.
+  expect(screen.queryByRole('radio', { name: /Live/ })).toBeNull();
+  expect(within(screen.getByRole('region', { name: 'Timers' })).getByRole('link', { name: 'Computer vision' }).getAttribute('href')).toBe('#vision');
 
   // The zone, by keyboard: three corners, Backspace takes one back, Enter closes, then its table.
   const frame = screen.getByRole('application', { name: /TP-IPC C200: click the corners/ });
@@ -95,11 +96,15 @@ test('the owner scans, logs a camera in, tests it, draws a table by keyboard and
   await user.click(within(screen.getByRole('group', { name: 'Pick its table' })).getByRole('button', { name: 'Table 1' }));
   const zones = server.asked.find((a) => a.step === '/cv/zones')!.body;
   expect(zones.zones).toEqual([{ id: expect.any(String), tableId: expect.any(String), points: [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.4 }, { x: 0.6, y: 0.6 }] }]);
-  expect(await screen.findByText('Live: Table 2 has no zone yet.')).toBeTruthy();
+  expect(await screen.findByRole('button', { name: 'Remove the zone of table 1' })).toBeTruthy();
 
-  await user.click(screen.getByRole('radio', { name: /Shadow/ }));
-  expect(await screen.findByText('Table detection: Shadow.')).toBeTruthy();
-  expect(server.asked.find((a) => a.step === '/cv/settings')!.body).toEqual({ ownerPin: '1234', mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300 });
+  // The timers keep the mode and the CPU limit as they are.
+  const seat = screen.getByLabelText('Seated after (seconds of people at the table)');
+  await user.clear(seat);
+  await user.type(seat, '90');
+  await user.click(screen.getByRole('button', { name: 'Save timers' }));
+  await vi.waitFor(() => expect(server.asked.find((a) => a.step === '/cv/settings')).toBeTruthy());
+  expect(server.asked.find((a) => a.step === '/cv/settings')!.body).toEqual({ ownerPin: '1234', mode: 'off', seatS: 90, leaveS: 180, cleanAlertS: 300, cpuLimit: 15 });
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(JSON.stringify(localStorage)).not.toMatch(/hunter2/);
 });

@@ -221,13 +221,15 @@ test('#cameras: the owner sets up cameras, tables, zones and settings as events;
   await setup.cvTables({ ...pin, tables: [{ id: 't1', label: '1', seats: 4 }, { id: 't2', label: '2', seats: 2 }] });
   await setup.cvZones({ ...pin, cameraId: 'c1', zones: [{ id: 'z1', tableId: 't1', points: [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.3, y: 0.6 }] }] });
   await assert.rejects(setup.cvZones({ ...pin, cameraId: 'c1', zones: [{ id: 'z1', tableId: 't1', points: [{ x: 0.1, y: 0.1 }, { x: 2, y: 0 }, { x: 0, y: 1 }] }] }), /not valid/);
-  await setup.cvSettings({ ...pin, mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300 });
+  await setup.cvSettings({ ...pin, mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 25 });
+  await assert.rejects(setup.cvSettings({ ...pin, mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 80 }), /not valid/, 'the CPU limit stops at 50%');
 
   const stored = (await store.pull(named.shopId, 0, 100)).map((s) => s.event);
   assert.deepEqual(stored.map((e) => e.type), ['vision.cameras_set', 'table.layout_set', 'vision.zones_set', 'vision.settings_set']);
   assert.ok(stored.every((e) => e.shopId === named.shopId && 'actor' in e && e.actor.role === 'owner' && e.actor.name === 'Nisal Vimukthi'));
   const v = visionFromEvents(stored);
   assert.equal(v.settings.mode, 'shadow');
+  assert.equal(v.settings.cpuLimit, 25);
   assert.deepEqual(tablesFromEvents(stored).map((t) => [t.id, t.watched]), [['t1', true], ['t2', false]]);
   assert.doesNotMatch(JSON.stringify(stored), /hunter2/, 'no password in any event');
   assert.doesNotMatch(readFileSync(join(dir, 'cv-secrets.json'), 'utf8'), /hunter2/);

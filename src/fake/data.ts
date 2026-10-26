@@ -69,3 +69,6 @@ export const FAKE_TABLE_STATES: { tableId: string; to: TableState; minutesAgo: n
   { tableId: 'demo-t4', to: 'needs_cleaning', minutesAgo: 3 },
   { tableId: 'demo-t6', to: 'reserved', minutesAgo: 12 },
 ];
+
+/** /?demo#vision (SCRUM-174): the CV pack is there already, so Shadow and Live switch at once. */
+export const FAKE_CV_STATUS = { active: true, phase: 'ready', version: 'demo' } as const;

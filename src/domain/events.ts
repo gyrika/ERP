@@ -66,6 +66,7 @@ export type VisionEvent =
   | (FloorBase & { type: 'vision.cameras_set'; cameras: CameraSpec[] })
   /** One camera's table zones; points normalised 0-1 to the frame. */
   | (FloorBase & { type: 'vision.zones_set'; cameraId: string; zones: ZoneSpec[] })
-  | (FloorBase & { type: 'vision.settings_set'; mode: VisionMode; seatS: number; leaveS: number; cleanAlertS: number })
+  /** `cpuLimit` (SCRUM-174): percent of the shop PC the camera worker may use; missing = DEFAULT_CPU_LIMIT. */
+  | (FloorBase & { type: 'vision.settings_set'; mode: VisionMode; seatS: number; leaveS: number; cleanAlertS: number; cpuLimit?: number })
   | (FloorBase & { type: 'vision.camera_offline' | 'vision.camera_online'; cameraId: string })
   | (FloorBase & { type: 'vision.heartbeat'; cameras: { id: string; online: boolean; fps: number }[]; cpu: number });

@@ -1,6 +1,6 @@
 import type { Insight, InsightItem } from './insights.ts';
 import type { SyncEvent } from './sync.ts';
-import { tableChanges, tablesFromEvents, visionFromEvents } from './tables.ts';
+import { tableChanges, tablesFromEvents, visionFromEvents, type TableState } from './tables.ts';
 
 /**
  * The Owner view's table and camera cards (CV v1, SCRUM-172). Pure, like insights.ts: events in,
@@ -174,7 +174,7 @@ export const tableUse = (events: readonly SyncEvent[], now: number): Insight | n
 };
 
 /** Cameras offline now, with no sign of them since (an "online", or a heartbeat saying so), longest first. */
-const offlineCameras = (events: readonly SyncEvent[], now: number) => {
+export const offlineCameras = (events: readonly SyncEvent[], now: number) => {
   const since = new Map<string, number>();
   for (const e of events) {
     if (e.type === 'vision.camera_offline') { if (!since.has(e.cameraId)) since.set(e.cameraId, e.at); }
@@ -213,6 +213,100 @@ export const camerasOffline = (events: readonly SyncEvent[], now: number): Insig
     action: {
       label: 'See cameras',
       items: named.map((c) => ({ primary: c.name, secondary: `offline since ${clock(c.at)}${c.tables.length ? ` · tables ${c.tables.join(', ')}` : ''}` })),
+    },
+  };
+};
+
+// ----- the Shadow week (SCRUM-174) -----
+
+/** A staff change this soon after a camera change judges it: later, the table has moved on. */
+export const SHADOW_WINDOW_MIN = 5;
+/** Days in Shadow, and of changes looked at, before the cameras are judged. */
+export const SHADOW_DAYS = 7;
+/** Camera changes in those days before a percentage means anything (about 4 visits a day). */
+export const MIN_SHADOW_CHANGES = 50;
+/** From this agreement the card suggests Live; under it, it lists the misses. */
+export const LIVE_READY_PCT = 85;
+
+type Presence = 'present' | 'absent';
+/** What a state says about people at the table. Reserved says nothing: the camera cannot see a booking. */
+const presence = (state: string): Presence | null =>
+  (state === 'occupied' ? 'present' : state === 'free' || state === 'needs_cleaning' ? 'absent' : null);
+
+export interface ShadowMiss { tableId: string; at: number; camera: TableState; staff: TableState; by: string }
+export interface ShadowAgreement {
+  /** When this run of Shadow began. */
+  since: number;
+  /** Camera changes in the last SHADOW_DAYS (since `since`, if later). */
+  changes: number;
+  misses: ShadowMiss[];
+  /** 1 − misses / changes, in whole percent (100 with no changes). */
+  pct: number;
+}
+
+/**
+ * How often staff contradicted the cameras while in Shadow. A miss: the first staff
+ * `table.state_set` on a table within SHADOW_WINDOW_MIN after a camera `table.state_changed` there
+ * (and before the camera's next change) that says the opposite about people at the table: the
+ * camera saw someone and staff set it free or to clean, or the camera saw them leave and staff set
+ * it occupied. Cleaning a table the camera saw left agrees; Reserved, and a staff change undone
+ * (a slip), say nothing. Null when the shop is not in Shadow now.
+ */
+export const shadowAgreement = (events: readonly SyncEvent[], now: number): ShadowAgreement | null => {
+  let since: number | null = null;
+  const undone = new Set<string>();
+  for (const e of events) {
+    if (e.type === 'vision.settings_set') since = e.mode !== 'shadow' ? null : since ?? e.at;
+    else if (e.type === 'table.state_set_undone') undone.add(e.undoneEventId);
+  }
+  if (since === null) return null;
+  const from = Math.max(since, now - SHADOW_DAYS * DAY_MS);
+  const windowMs = SHADOW_WINDOW_MIN * MIN;
+  /** Each table's camera change still waiting for staff's word. */
+  const open = new Map<string, { at: number; to: TableState }>();
+  let changes = 0;
+  const misses: ShadowMiss[] = [];
+  for (const e of events) {
+    if (e.at < from || e.at > now) continue;
+    if (e.type === 'table.state_changed') {
+      changes += 1;
+      open.set(e.tableId, { at: e.at, to: e.to });
+    } else if (e.type === 'table.state_set' && !undone.has(e.id)) {
+      const c = open.get(e.tableId);
+      if (!c || e.at - c.at > windowMs) continue;
+      open.delete(e.tableId); // the first word counts
+      const said = presence(e.to);
+      if (said && said !== presence(c.to)) misses.push({ tableId: e.tableId, at: e.at, camera: c.to, staff: e.to, by: e.actor.name });
+    }
+  }
+  return { since, changes, misses, pct: changes ? Math.round((1 - misses.length / changes) * 100) : 100 };
+};
+
+const STATE_WORD: Record<TableState, string> = { free: 'free', occupied: 'occupied', needs_cleaning: 'to clean', reserved: 'reserved' };
+
+/**
+ * After a week in Shadow: were the cameras right? From LIVE_READY_PCT the card asks to switch to
+ * Live, one tap to #vision with Live picked (the switch needs the owner's PIN, so it is made there);
+ * under it, the misses, to check the zones. No card outside Shadow, before SHADOW_DAYS or under
+ * MIN_SHADOW_CHANGES.
+ */
+export const shadowToLive = (events: readonly SyncEvent[], now: number): Insight | null => {
+  const a = shadowAgreement(events, now);
+  if (!a || now - a.since < SHADOW_DAYS * DAY_MS || a.changes < MIN_SHADOW_CHANGES) return null;
+  const title = `Cameras were right ${a.pct}% of the time this week`;
+  const corrected = `Staff corrected them ${plural(a.misses.length, 'time')} in ${plural(a.changes, 'change')}.`;
+  if (a.pct >= LIVE_READY_PCT) {
+    return { id: 'shadow-live', tone: 'info', title, detail: `${corrected} Switch to Live?`, action: { label: 'Switch to Live', items: [], go: '#vision/live' } };
+  }
+  const name = tableName(events);
+  return {
+    id: 'shadow-live',
+    tone: 'info',
+    title,
+    detail: `${corrected} Check the zones before Live.`,
+    action: {
+      label: 'See them',
+      items: [...a.misses].reverse().map((m) => ({ primary: name(m.tableId), secondary: `cameras: ${STATE_WORD[m.camera]} · ${m.by}: ${STATE_WORD[m.staff]}`, at: m.at })),
     },
   };
 };
