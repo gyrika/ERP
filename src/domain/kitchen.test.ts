@@ -287,3 +287,19 @@ test('cookLog times each finished ticket from the events, Undo applied', () => {
   const reopened = cookLog([...events, k('e10', 700_000, 'kitchen.unbumped')]);
   assert.deepEqual(reopened.map((r) => r.ticketId), ['t2'], 'a Done taken back is not cooked yet');
 });
+
+test('a Remake marks the line on its ticket, which stays open to make again; its Undo clears the mark (SCRUM-177)', () => {
+  const actor = { id: 'c1', name: 'Kasun', role: 'cashier' as const };
+  const sent: SyncEvent = { id: 's1', shopId: SHOP, at: 1000, orderNumber: 1001, actor, type: 'order.sent', ticketId: 't1', addOn: false,
+    lines: [{ id: 'L1', itemId: 'margherita', size: 'L', qty: 1, adds: [], outs: [], sent: true }] };
+  const remade: SyncEvent = { id: 'w1', shopId: SHOP, at: 2000, orderNumber: 0, actor, type: 'stock.wasted',
+    what: { kind: 'dish', itemId: 'margherita', size: 'L' }, name: 'Margherita · Large', qty: 1, reason: 'burnt', ticketId: 't1', lineId: 'L1' };
+  const [t] = ticketsFromEvents([sent, remade], 3000);
+  assert.equal(t.doneAt, undefined);
+  assert.equal(ticketLines(t)[0].remade, 1);
+  const undo: SyncEvent = { id: 'u1', shopId: SHOP, at: 2500, orderNumber: 0, actor, type: 'stock.waste_undone', wasteId: 'w1', ticketId: 't1' };
+  assert.equal(ticketLines(ticketsFromEvents([sent, remade, undo], 3000)[0])[0].remade, undefined);
+  // The bin's waste (no ticket) does not touch the kitchen.
+  const bin: SyncEvent = { ...remade, id: 'w2', ticketId: undefined, lineId: undefined };
+  assert.equal(ticketLines(ticketsFromEvents([sent, bin], 3000)[0])[0].remade, undefined);
+});

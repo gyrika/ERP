@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canManage, mayRecord, seesTakings } from './auth.ts';
+import { canManage, isRemake, mayRecord, seesTakings } from './auth.ts';
 import { fakeAuth } from '../fake/fakeAuth.ts';
 import { FAKE_STAFF } from '../fake/data.ts';
 
@@ -36,4 +36,13 @@ test('who may record what: the same rule the server enforces', () => {
 
 test('only managers and owners see the takings', () => {
   assert.deepEqual((['cashier', 'kitchen', 'manager', 'owner'] as const).map(seesTakings), [false, false, true, true]);
+});
+
+test('waste is a manager\'s, except a kitchen Remake and its Undo, which whoever is signed in records (SCRUM-177)', () => {
+  assert.equal(mayRecord('cashier', 'stock.wasted'), false);
+  assert.equal(isRemake({ type: 'stock.wasted', ticketId: 't1' }), true);
+  assert.equal(isRemake({ type: 'stock.waste_undone', ticketId: 't1' }), true);
+  assert.equal(isRemake({ type: 'stock.wasted' }), false);
+  assert.equal(isRemake({ type: 'stock.counted', ticketId: 't1' }), false);
+  for (const role of ['cashier', 'kitchen', 'manager', 'owner'] as const) assert.equal(mayRecord(role, 'stock.wasted', true), true, role);
 });

@@ -117,8 +117,11 @@ export type StockEvent =
    */
   | (StockBase & { type: 'stock.wasted'; what: WasteWhat;
     /** What it was called when thrown away ("Margherita · Large"), for history and reports. */
-    name: string; qty: number; reason: WasteReason; note?: string })
-  | (StockBase & { type: 'stock.waste_undone'; wasteId: string })
+    name: string; qty: number; reason: WasteReason; note?: string;
+    /** From the kitchen's Remake (SCRUM-177): the ticket and line it was made for, which the kitchen makes again. */
+    ticketId?: string; lineId?: string })
+  /** ticketId: undoing a kitchen Remake (SCRUM-177), so the kitchen may record it too. */
+  | (StockBase & { type: 'stock.waste_undone'; wasteId: string; ticketId?: string })
   /** The owner changes one of the stock rules' numbers (stockSettings.ts). */
   | (StockBase & { type: 'stock.settings_set'; key: keyof StockSettings; value: number });
 
