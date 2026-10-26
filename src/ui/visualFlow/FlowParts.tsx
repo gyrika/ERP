@@ -22,9 +22,18 @@ export const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
 export const amount = (qty: number, unit: string) => `${Number(qty.toFixed(qty < 10 ? 3 : 1)).toLocaleString('en-US')} ${unit}`;
 export const pct = (share: number) => `${Math.round(share * 100)}%`;
 
+/**
+ * The canvas's views: the drawing's own three, and Stock (SCRUM-163), the money on the shelves
+ * behind this item, drawn on the Material drawing.
+ */
+export type CanvasView = FlowView | 'stock';
+
+/** A card's stock value: cents null when not known; share of the value behind the item in focus. */
+export type Worth = { cents: number | null; share: number };
+
 export type NodeData = {
   node: FlowNode;
-  view: FlowView;
+  view: CanvasView;
   focus: boolean;
   /** The item in focus, by name ("Margherita Large"). */
   focusName: string;
@@ -37,6 +46,8 @@ export type NodeData = {
   dim: boolean;
   /** Its amount as a share of a batch ("1/12 batch"), when it is one. */
   share: string | null;
+  /** Its stock value, in the Stock view; the item in focus carries the total behind it. */
+  worth?: Worth;
 };
 export type VfNode = Node<NodeData, 'vf'>;
 
@@ -46,6 +57,18 @@ export type VfNode = Node<NodeData, 'vf'>;
  */
 export const nodeShare = (n: Pick<FlowNode, 'id' | 'qty' | 'unit'>, answers: ReadonlyMap<string, Answer>): string | null =>
   n.id.startsWith('semi:') ? batchShare({ name: n.id.slice('semi:'.length), qty: n.qty, unit: n.unit }, answers) : null;
+
+/**
+ * The Stock view's number: what it holds in money. A finished dish is made to order, so the
+ * item in focus shows the stock behind it (not added to the shop's total: Items has that).
+ */
+export const worthValue = (n: FlowNode, focus: boolean, worth: Worth | undefined, stock: ItemStock | null): string => {
+  if (focus) return worth?.cents != null ? `${rs(worth.cents)} behind it` : 'No stock behind it yet';
+  if (n.kind === 'finished') return 'Made to order';
+  if (n.kind !== 'raw' && n.kind !== 'semi') return 'Not stock';
+  if (worth?.cents != null) return `${rs(worth.cents)} · ${pct(worth.share)}`;
+  return stock && !stock.known ? (n.kind === 'raw' ? 'Not counted' : 'None made') : 'No cost yet';
+};
 
 /** The card's one number, for this view. */
 export const nodeValue = (n: FlowNode, view: FlowView, focus: boolean, share: string | null = null): string => {
@@ -81,7 +104,7 @@ export const stockNote = (s: ItemStock): string | null => {
 };
 
 export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
-  const { node: n, view, focus, takes, onToggle, stock, dim, share } = data;
+  const { node: n, view, focus, takes, onToggle, stock, dim, share, worth } = data;
   const folds = n.recipe !== null && !focus && n.inputs > 0;
   const gap = n.missing.length > 0;
   // Being made or waiting is in hand (blue); red only when it is short and nothing is coming.
@@ -92,7 +115,7 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
   return (
     <div
       className={`vf-node vf-node--${n.kind}${focus ? ' vf-node--focus' : ''}${selected ? ' vf-node--on' : ''}${gap ? ' vf-node--gap' : ''}${alert ? ` vf-node--${alert}` : ''}${dim ? ' vf-node--dim' : ''}`}
-      style={{ '--share': view === 'material' ? 0 : n.share } as CSSProperties}
+      style={{ '--share': view === 'material' ? 0 : view === 'stock' ? (focus ? 0 : worth?.share ?? 0) : n.share } as CSSProperties}
     >
       {(takes || n.kind === 'profit') && <Handle type="target" position={Position.Left} className="vf-handle" isConnectable={takes} />}
       <div className="vf-node__top">
@@ -102,7 +125,7 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
       </div>
       <div className="vf-node__name">{n.name}</div>
       <div className="vf-node__value num">
-        {nodeValue(n, view, focus, share)}
+        {view === 'stock' ? worthValue(n, focus, worth, stock) : nodeValue(n, view, focus, share)}
         {n.kind === 'profit' && n.qty > 0 && <span className="vf-node__sub"> · {amount(n.qty, 'sold')} in 28 days</span>}
       </div>
       {stock && <div className="vf-node__stock num">{stockLine(stock)}</div>}
@@ -121,12 +144,12 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
 }
 
 /** share: the line as a share of a batch ("1/12 batch"), when it is one. */
-export type EdgeData = { edge: FlowEdge; view: FlowView; total: number; onSelect: (id: string) => void; share: string | null };
+export type EdgeData = { edge: FlowEdge; view: CanvasView; total: number; onSelect: (id: string) => void; share: string | null };
 export type VfEdge = Edge<EdgeData, 'vf'>;
 
-const edgeLabel = (e: FlowEdge, view: FlowView, share: string | null): string => {
+const edgeLabel = (e: FlowEdge, view: CanvasView, share: string | null): string => {
   if (e.kind === 'money') return `${e.cents < 0 ? '−' : '+'}${rs(Math.abs(e.cents))}`;
-  if (view !== 'material') return rs(e.cents);
+  if (view !== 'material' && view !== 'stock') return rs(e.cents);
   if (e.kind === 'resource') return e.unit === 'Rs' ? rs(e.qty * 100) : amount(e.qty, e.unit);
   const waste = e.line?.waste ? ` · ${pct(e.line.waste)} waste` : '';
   return `${share ?? amount(e.qty, e.unit)}${waste}`;
@@ -137,7 +160,7 @@ export function FlowLine({ id, sourceX, sourceY, targetX, targetY, sourcePositio
   if (!data) return null;
   const { edge: e, view, total } = data;
   // In money views a line is as thick as what flows along it, like a river.
-  const share = view === 'material' || total <= 0 ? 0 : Math.min(1, Math.abs(e.cents) / total);
+  const share = view === 'material' || view === 'stock' || total <= 0 ? 0 : Math.min(1, Math.abs(e.cents) / total);
   const width = 1.5 + share * 9;
   return (
     <>
