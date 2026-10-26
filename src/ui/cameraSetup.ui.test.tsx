@@ -24,6 +24,9 @@ function fakeShopServer() {
       case '/cv/status': return Response.json({ active: true, phase: 'ready', version: '1' });
       case '/cv/setup': return Response.json({ logins: s.logins, packReady: true });
       case '/cv/scan': return Response.json({ found: [{ ip: '192.168.1.20', name: 'TP-IPC C200' }] });
+      case '/cv/ask': return Response.json(body.password === 'hunter2' || (body.cameraId && s.logins[body.cameraId]?.passwordSet)
+        ? { ok: true, streams: [{ path: '/1/2', label: 'Lens 1', width: 640, height: 360 }, { path: '/2/2', label: 'Lens 2', width: 704, height: 576 }] }
+        : { ok: false, cause: 'login', message: 'The camera refused the login: check the username and password.' });
       case '/cv/test': return Response.json(body.password === 'hunter2'
         ? { ok: true, jpeg: '/9j/2Q==' }
         : { ok: false, cause: 'login', message: 'The camera refused the login: check the username and password.' });
@@ -121,4 +124,36 @@ test('a 5th camera stays off: "Use for CV" says the limit inline', async () => {
   await user.click(within(screen.getByRole('listitem', { name: 'Cam 1' })).getByRole('switch', { name: 'Use for CV' }));
   await user.click(within(fifth).getByRole('switch', { name: 'Use for CV' }));
   expect(within(fifth).getByRole('switch', { name: 'Use for CV' }).getAttribute('aria-checked')).toBe('true');
+});
+
+test('a Tiandy: Ask the camera fills its stream path; a dual-lens camera becomes two cameras sharing one login', async () => {
+  const server = fakeShopServer();
+  const user = await unlock();
+  await user.click(screen.getByRole('button', { name: 'Add by IP' }));
+  const cam = screen.getByRole('listitem', { name: 'Camera 1' });
+  await user.type(within(cam).getByLabelText('Name'), 'Front garden');
+  await user.type(within(cam).getByLabelText('IP address'), '192.168.1.31');
+  await user.click(within(cam).getByRole('radio', { name: 'Tiandy' }));
+  expect((within(cam).getByLabelText(/Stream path/) as HTMLInputElement).value).toBe('');
+  expect(within(cam).getByRole('button', { name: 'Test' }).hasAttribute('disabled')).toBe(true);
+  await user.type(within(cam).getByLabelText('Username'), 'admin');
+  await user.type(within(cam).getByLabelText('Password'), 'hunter2');
+  await user.click(within(cam).getByRole('button', { name: 'Ask the camera' }));
+  expect(await within(cam).findByText(/This camera has 2 lenses: each is its own camera \(added below\)/)).toBeTruthy();
+  expect((within(cam).getByLabelText(/Stream path/) as HTMLInputElement).value).toBe('/1/2');
+  const lens2 = screen.getByRole('listitem', { name: 'Front garden 2' });
+  expect((within(lens2).getByLabelText(/Stream path/) as HTMLInputElement).value).toBe('/2/2');
+  expect(server.asked.find((a) => a.step === '/cv/ask')!.body).toEqual({ ownerPin: '1234', cameraId: expect.any(String), ip: '192.168.1.31', user: 'admin', password: 'hunter2' });
+
+  await user.click(screen.getByRole('button', { name: 'Save cameras' }));
+  expect(await screen.findByText('Cameras saved.')).toBeTruthy();
+  const saved = server.asked.find((a) => a.step === '/cv/cameras')!.body.cameras as Record<string, unknown>[];
+  expect(saved.map((c) => [c.name, c.ip, c.rtspPath])).toEqual([['Front garden', '192.168.1.31', '/1/2'], ['Front garden 2', '192.168.1.31', '/2/2']]);
+  expect(saved[1]).toMatchObject({ user: 'admin', password: 'hunter2' }); // typed once, kept for both lenses
+
+  // Any other ONVIF camera can be asked from Other; the kept login is used when none is typed.
+  await user.click(within(lens2).getByRole('radio', { name: 'Other' }));
+  await user.click(within(lens2).getByRole('button', { name: 'Ask the camera' }));
+  expect(await within(lens2).findByText(/2 lenses: each is its own camera\. Save/)).toBeTruthy();
+  expect(server.asked.filter((a) => a.step === '/cv/ask').at(-1)!.body).not.toHaveProperty('password');
 });

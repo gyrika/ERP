@@ -220,7 +220,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/update/check': setup.checkUpdate, '/update/install': setup.installUpdate, '/update/status': setup.updateStatus,
           '/cv/status': setup.cvStatus, '/cv/activate': setup.cvActivate, '/cv/setup': setup.cvSetup, '/cv/scan': setup.cvScan,
           '/cv/test': setup.cvTest, '/cv/cameras': setup.cvCameras, '/cv/tables': setup.cvTables, '/cv/zones': setup.cvZones,
-          '/cv/settings': setup.cvSettings,
+          '/cv/settings': setup.cvSettings, '/cv/ask': setup.cvAsk,
+          '/cv/views/open': setup.cvViewsOpen, '/cv/views/frame': setup.cvViewsFrame, '/cv/views/close': setup.cvViewsClose,
         };
         const route = routes[step];
         if (!route) throw new HttpError(404, 'server', 'no such setup step');

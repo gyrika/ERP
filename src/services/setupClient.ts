@@ -57,14 +57,19 @@ export const setupClient = {
 /** #cameras (SCRUM-171): what the shop server keeps of each camera's login — never the password. */
 export type CameraLogins = Record<string, { user: string; passwordSet: boolean }>;
 /** A camera to save: where it is, and its login when typed (the password only when changed). */
-export interface CameraDraft { id: string; name: string; ip: string; rtspPath: string; enabled: boolean; user?: string; password?: string }
+/** `loginFrom`: a second lens of a dual-lens camera shares that camera's kept login. */
+export interface CameraDraft { id: string; name: string; ip: string; rtspPath: string; enabled: boolean; user?: string; password?: string; loginFrom?: string }
 export type CameraTest = { ok: true; jpeg: string } | { ok: false; cause: 'login' | 'rtsp' | 'path' | 'pack' | 'other'; message: string };
+
+/** Ask the camera (ONVIF, SCRUM-180): one stream path per lens. */
+export type CameraAsk = { ok: true; streams: { path: string; label: string; width: number; height: number }[] } | { ok: false; cause: string; message: string };
 
 export const cameraClient = {
   setup: (ownerPin: string) => call<{ logins: CameraLogins; packReady: boolean }>('/cv/setup', { ownerPin }),
   scan: (ownerPin: string) => call<{ found: { ip: string; name: string }[] }>('/cv/scan', { ownerPin }),
   test: (ownerPin: string, c: { cameraId?: string; ip: string; rtspPath: string; user?: string; password?: string }) =>
     call<CameraTest>('/cv/test', { ownerPin, ...c }),
+  ask: (ownerPin: string, c: { cameraId?: string; ip: string; user?: string; password?: string }) => call<CameraAsk>('/cv/ask', { ownerPin, ...c }),
   saveCameras: (ownerPin: string, cameras: CameraDraft[]) => call<{ events: SyncEvent[]; logins: CameraLogins }>('/cv/cameras', { ownerPin, cameras }),
   saveTables: (ownerPin: string, tables: TableSpec[]) => call<{ events: SyncEvent[] }>('/cv/tables', { ownerPin, tables }),
   saveZones: (ownerPin: string, cameraId: string, zones: ZoneSpec[]) => call<{ events: SyncEvent[] }>('/cv/zones', { ownerPin, cameraId, zones }),

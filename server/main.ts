@@ -119,6 +119,12 @@ const fleet = process.env.CLOUD_ADMIN_KEY
   ? createFleet({ url: process.env.CLOUD_ADMIN_URL || 'https://cheesybeez-cloud.cheesybeez-cloud.workers.dev', key: process.env.CLOUD_ADMIN_KEY })
   : null;
 
+// The setup endpoints, #cameras and #vision's camera views (SCRUM-180).
+const setup = setupApi({
+  store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv,
+  // The cameras' logins, encrypted in the data folder (C:\ProgramData\CheesyBeez on the shop PC); the owner's setup is stored like a push.
+  secrets: cvSecrets(dataDir), ingest: (device, events) => server.ingest(device, events),
+});
 const server = createApp({
   photos: photoFolder(`${dataDir}/photos`),
   cloudPhoto: async (tenantId, id) => {
@@ -145,11 +151,7 @@ const server = createApp({
   onStored: (tenantId, events) => { if (tenantId === cloudShop()) { replicator?.nudge(); online?.onEvents(events); } },
   online: () => online,
   cloudStatus: () => replicator?.status() ?? null,
-  setup: setupApi({
-    store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv,
-    // The cameras' logins, encrypted in the data folder (C:\ProgramData\CheesyBeez on the shop PC); the owner's setup is stored like a push.
-    secrets: cvSecrets(dataDir), ingest: (device, events) => server.ingest(device, events),
-  }),
+  setup,
   version: updates.current,
   updating: () => activeUpdate(updates.status(), Date.now()),
   fleet,
@@ -171,6 +173,6 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
-const stop = () => { replicator?.stop(); online?.stop(); inbox?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
+const stop = () => { setup.stopViews(); replicator?.stop(); online?.stop(); inbox?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

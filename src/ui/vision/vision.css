@@ -45,3 +45,30 @@
   .vision__cam { grid-template-columns: minmax(0, 1fr) auto; row-gap: 2px; padding: 10px 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .vision__mode { transition: none; } }
+
+/* Camera views (SCRUM-180): a tile per camera, 16:9, then one large. The picture is the hero; the words stay small. */
+.views__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.views__tile { display: flex; flex-direction: column; gap: 0; min-height: 48px; padding: 0; overflow: hidden; text-align: left;
+  border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); color: var(--ink);
+  transition: transform 150ms var(--ease), box-shadow 150ms var(--ease); }
+.views__tile:hover { transform: translateY(-1px); }
+.views__tile:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.views__frame { position: relative; display: block; aspect-ratio: 16 / 9; background: #000; }
+.views__frame img, .views__frame .skeleton { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; border-radius: 0; }
+.views__tile--off .views__frame img { opacity: 0.35; filter: grayscale(1); }
+.views__caption { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 0 14px; font-size: 15px; }
+.views__caption b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.views__why { padding: 0 14px 12px; font-size: 13px; line-height: 1.35; color: var(--ink-2); }
+.views__status { display: inline-flex; align-items: center; gap: 8px; flex: none; font-size: 14px; color: var(--ink-2); }
+.views__status::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
+.views__status--ok::before { background: var(--ok); }
+.views__status--bad::before { background: var(--bad); }
+
+.views__large { margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.views__head { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; font-size: 17px; }
+.views__head .chip { min-height: 48px; padding: 0 18px; display: inline-flex; align-items: center; gap: 8px; }
+.views__head b { font-weight: 500; }
+.views__frame--large { border-radius: 16px; overflow: hidden; max-height: 70vh; }
+.views__frame--large img { object-fit: contain; }
+
+@media (prefers-reduced-motion: reduce) { .views__tile { transition: none; } .views__tile:hover { transform: none; } }

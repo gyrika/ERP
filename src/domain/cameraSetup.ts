@@ -12,7 +12,14 @@ export const RTSP_PRESETS = [
   { brand: 'hikvision', label: 'Hikvision / EZVIZ', path: '/Streaming/Channels/102' },
   { brand: 'dahua', label: 'Dahua / Imou', path: '/cam/realmonitor?channel=1&subtype=1' },
 ] as const;
-export type Brand = (typeof RTSP_PRESETS)[number]['brand'] | 'custom';
+/**
+ * Brands whose path is asked of the camera itself (ONVIF GetStreamUri, server/onvif.ts) instead of
+ * guessed (SCRUM-180). The answer is kept like a custom path. Any ONVIF camera can be asked from Other.
+ */
+export const ASK_BRANDS = [{ brand: 'tiandy', label: 'Tiandy' }] as const;
+export type Brand = (typeof RTSP_PRESETS)[number]['brand'] | (typeof ASK_BRANDS)[number]['brand'] | 'custom';
+/** Setup asks the camera for this brand's path, or offers to. */
+export const asksCamera = (brand: Brand): boolean => brand === 'custom' || ASK_BRANDS.some((b) => b.brand === brand);
 
 export const presetPath = (brand: Brand): string | null => RTSP_PRESETS.find((p) => p.brand === brand)?.path ?? null;
 /** The brand whose path this is ('custom' for any other). */

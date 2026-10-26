@@ -31,10 +31,10 @@ test('the Probe asks for ONVIF cameras (NetworkVideoTransmitter) with its own me
 });
 
 test("a ProbeMatch gives the camera's IPv4 address from XAddrs, and its name from the scopes", () => {
-  assert.deepEqual(parseProbeMatch(TAPO), [{ ip: '192.168.1.20', name: 'TP-IPC C200' }]);
-  assert.deepEqual(parseProbeMatch(HIK), [{ ip: '192.168.1.64', name: 'HIKVISION DS-2CD1023G0E-I' }], 'IPv6 left out; the hardware repeats the name, so once');
+  assert.deepEqual(parseProbeMatch(TAPO), [{ ip: '192.168.1.20', name: 'TP-IPC C200', xaddr: 'http://192.168.1.20:2020/onvif/device_service' }]);
+  assert.deepEqual(parseProbeMatch(HIK), [{ ip: '192.168.1.64', name: 'HIKVISION DS-2CD1023G0E-I', xaddr: 'http://192.168.1.64/onvif/device_service' }], 'IPv6 left out; the hardware repeats the name, so once');
   assert.deepEqual(parseProbeMatch('<not xml'), []);
-  assert.deepEqual(parseProbeMatch('<XAddrs>http://10.0.0.9:80/onvif</XAddrs>'), [{ ip: '10.0.0.9', name: '' }]);
+  assert.deepEqual(parseProbeMatch('<XAddrs>http://10.0.0.9:80/onvif</XAddrs>'), [{ ip: '10.0.0.9', name: '', xaddr: 'http://10.0.0.9:80/onvif' }]);
 });
 
 /** A fake ffmpeg: writes `out` and `err`, then exits with `code` (or never, when `hang`). */

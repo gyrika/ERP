@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from 'react';
-import { PIN_LENGTH } from '../../domain/auth.ts';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
 import { liveBlocked } from '../../domain/cameraSetup.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
 import {
@@ -16,7 +15,11 @@ import { useNow } from '../Kitchen.tsx';
 import { OwnerNav } from '../OwnerNav.tsx';
 import { CvProgress } from '../cameras/CvProgress.tsx';
 import { columns, FloorTile } from '../floor/FloorTile.tsx';
+import { PinLine } from './PinLine.tsx';
 import './vision.css';
+
+/** Camera views (SCRUM-180): the shop PC only, so the cloud build (owner's phone) leaves the code out. */
+const CameraViews = import.meta.env.VITE_SITE === 'cloud' ? null : lazy(() => import('./CameraViews.tsx'));
 
 /**
  * Computer vision (#vision, SCRUM-174), in the owner's sidebar. Mind: the owner. They know where
@@ -267,6 +270,17 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
         {line}
         {error && <p className="setup__error" role="alert">{error}</p>}
 
+        {CameraViews && !phone && (canChange
+          ? <Suspense fallback={<div className="skeleton vision__skeleton" aria-hidden="true" />}>
+            <CameraViews cameras={vision?.cameras ?? []} pin={pin} onPin={setPin} />
+          </Suspense>
+          : (
+            <section className="vision__part" aria-labelledby="vision-views">
+              <h2 id="vision-views">Camera views</h2>
+              <p className="setup__hint">Only the owner watches the cameras, on the shop PC.</p>
+            </section>
+          ))}
+
         <section className="vision__part" aria-labelledby="vision-tables">
           <h2 id="vision-tables">Tables now</h2>
           {tables.length ? <>
@@ -306,21 +320,5 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
         </section>
       </main>
     </div>
-  );
-}
-
-/** The owner's PIN, in the page's line: no dialog. */
-function PinLine({ what, onPin, onCancel }: { what: string; onPin: (pin: string) => void; onCancel: () => void }) {
-  const [pin, setPin] = useState('');
-  const submit = (e: FormEvent) => { e.preventDefault(); if (pin.length === PIN_LENGTH) onPin(pin); };
-  return (
-    <form className="vision__line vision__pin" onSubmit={submit}>
-      <label className="setup__field setup__field--pin"><span>The owner's PIN to {what}</span>
-        <input type="password" inputMode="numeric" autoFocus autoComplete="off" maxLength={PIN_LENGTH} value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, PIN_LENGTH))}
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onCancel(); } }} /></label>
-      <button type="submit" className="chip chip--solid" disabled={pin.length !== PIN_LENGTH}>Continue</button>
-      <button type="button" className="chip" onClick={onCancel}>Cancel</button>
-    </form>
   );
 }

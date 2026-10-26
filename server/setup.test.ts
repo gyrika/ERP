@@ -240,3 +240,83 @@ test('#cameras: the owner sets up cameras, tables, zones and settings as events;
   assert.equal((await setup.cvSetup(pin)).packReady, true);
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('#vision camera views: the PIN opens a key; frames come from the camera list and kept logins; Ask the camera; a second lens shares the login', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cb-setup-views-'));
+  const settings = settingsFile(join(dir, 'settings.json'));
+  settings.set({ cvActive: true });
+  mkdirSync(join(dir, 'cv-pack', CV_PACK_VERSION), { recursive: true });
+  const cv = cvPack({ dir: join(dir, 'cv-pack'), appVersion: () => '1.0.40', active: () => true, setActive: () => {} });
+  cv.start();
+  const store = memoryStore();
+  const asked: { ip: string; login: { user: string; password: string }; xaddr?: string }[] = [];
+  const sources: unknown[] = [];
+  let stops = 0;
+  let server: ReturnType<typeof createApp> | null = null;
+  const setup = setupApi({
+    store, settings, usePrinter: () => {}, printsDir: join(dir, 'prints'), port: 8080, cloud: () => null, cloudUrl: 'https://cloud.test', cv,
+    secrets: cvSecrets(dir), ingest: (device, events) => server!.ingest(device, events),
+    discover: async () => [{ ip: '192.168.1.31', name: 'Tiandy TC-C32', xaddr: 'http://192.168.1.31:8080/onvif/device_service' }],
+    askCamera: async (o) => {
+      asked.push(o);
+      return { ok: true, streams: [{ path: '/1/2', label: 'Lens 1', width: 640, height: 360 }, { path: '/2/2', label: 'Lens 2', width: 640, height: 360 }] };
+    },
+    views: (source, ffmpeg) => ({
+      async frame(id) {
+        sources.push({ src: await source(id), ffmpeg: ffmpeg() });
+        return { state: 'frame', seq: 1, at: 5, jpeg: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) };
+      },
+      stop: () => { stops += 1; }, sweep: () => {}, running: () => [],
+    }),
+  });
+  server = createApp({ store, setup });
+  await setup.nameShop({ name: 'CheesyBeez', place: 'Thalwila' });
+  await setup.addStaff({ name: 'Nisal Vimukthi', role: 'owner', pin: '1234' });
+  await setup.addStaff({ name: 'Mala', role: 'manager', pin: '2222' });
+  await setup.finish();
+  const pin = { ownerPin: '1234' };
+
+  // Ask the camera: where Scan found its ONVIF service, with the login typed now.
+  assert.deepEqual(await setup.cvScan(pin), { found: [{ ip: '192.168.1.31', name: 'Tiandy TC-C32' }] }, 'the screen gets no XAddr');
+  const r = await setup.cvAsk({ ...pin, ip: '192.168.1.31', user: 'admin', password: 'Sup3r-secret' });
+  assert.equal(r.ok && r.streams.length, 2);
+  assert.deepEqual(asked[0], { ip: '192.168.1.31', login: { user: 'admin', password: 'Sup3r-secret' }, xaddr: 'http://192.168.1.31:8080/onvif/device_service', fetch: undefined });
+  await assert.rejects(setup.cvAsk({ ownerPin: '2222', ip: '192.168.1.31' }), /owner's PIN/);
+  await assert.rejects(setup.cvAsk({ ...pin, ip: 'admin:x@192.168.1.31' }), /IP address/);
+
+  // Both lenses saved: lens 2 takes lens 1's login.
+  const lens1 = { id: 'front-1', name: 'Front garden 1', ip: '192.168.1.31', rtspPath: '/1/2', enabled: false };
+  const lens2 = { id: 'front-2', name: 'Front garden 2', ip: '192.168.1.31', rtspPath: '/2/2', enabled: false };
+  const saved = await setup.cvCameras({ ...pin, cameras: [{ ...lens1, user: 'admin', password: 'Sup3r-secret' }, { ...lens2, loginFrom: 'front-1' }] });
+  assert.deepEqual(saved.logins, { 'front-1': { user: 'admin', passwordSet: true }, 'front-2': { user: 'admin', passwordSet: true } });
+  assert.equal(stops, 1, 'a saved camera list stops every view');
+  assert.equal((await setup.cvAsk({ ...pin, cameraId: 'front-2', ip: '192.168.1.31' })).ok, true);
+  assert.deepEqual(asked[1].login, { user: 'admin', password: 'Sup3r-secret' }, 'later, the kept login');
+
+  // Views: the PIN once, then a key; never the PIN per frame.
+  await assert.rejects(setup.cvViewsOpen({ ownerPin: '2222' }), /owner's PIN/);
+  const { key, packReady } = await setup.cvViewsOpen(pin);
+  assert.equal(packReady, true);
+  await assert.rejects(setup.cvViewsFrame({ key: 'guess', cameraId: 'front-2' }), /PIN is needed again/);
+  const f = await setup.cvViewsFrame({ key, cameraId: 'front-2', mode: 'live', use: true });
+  assert.deepEqual(f, { state: 'frame', seq: 1, at: 5, jpeg: '/9j/2Q==' });
+  assert.deepEqual(sources[0], {
+    src: { ip: '192.168.1.31', rtspPath: '/2/2', user: 'admin', password: 'Sup3r-secret' },
+    ffmpeg: join(dir, 'cv-pack', CV_PACK_VERSION, 'ffmpeg.exe'),
+  });
+  await setup.cvViewsClose({ key });
+  assert.equal(stops, 2, 'leaving the page stops every view');
+  await assert.rejects(setup.cvViewsFrame({ key, cameraId: 'front-2' }), /PIN is needed again/);
+
+  // Over HTTP too, from the shop PC; never from the LAN (isLocal, tested above).
+  await new Promise<void>((done) => server!.listen(0, '127.0.0.1', done));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/setup`;
+  const open = await fetch(`${base}/cv/views/open`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(pin) });
+  const viaHttp = (await open.json()) as { key: string };
+  const frame = await fetch(`${base}/cv/views/frame`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: viaHttp.key, cameraId: 'front-1' }) });
+  assert.equal(((await frame.json()) as { state: string }).state, 'frame');
+  const ask = await fetch(`${base}/cv/ask`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...pin, ip: '192.168.1.31' }) });
+  assert.equal(ask.status, 200);
+  await new Promise((done) => server!.close(done));
+  rmSync(dir, { recursive: true, force: true });
+});

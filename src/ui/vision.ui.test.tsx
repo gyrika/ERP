@@ -26,6 +26,10 @@ function fakeShopServer() {
     const step = String(url).replace('/api/v1/setup', '');
     if (!step.startsWith('/cv/')) return new Response('{}', { status: 404 });
     const body = init?.body ? JSON.parse(String(init.body)) : {};
+    // Camera views (SCRUM-180) open with the same PIN; their pictures are cameraViews.ui.test.tsx's.
+    if (step === '/cv/views/frame') return Response.json({ state: 'starting' });
+    if (step === '/cv/views/close') return Response.json({ closed: true });
+    if (step === '/cv/views/open' && body.ownerPin === '1234') return Response.json({ key: 'k', packReady: true });
     if (body.ownerPin !== '1234') return Response.json({ message: "that is not the owner's PIN" }, { status: 401 });
     const { ownerPin: _pin, ...fields } = body;
     if (step === '/cv/activate') { s.activated = true; return Response.json({ active: true, phase: 'downloading', bytes: 0, total: 50_000_000 }); }
@@ -122,8 +126,9 @@ test('the demo: the Shadow week card goes to #vision with Live picked; Enter swi
   expect(radio('Shadow').getAttribute('aria-checked')).toBe('true');
   expect(screen.getByText(/in Shadow the cameras only watch/)).toBeTruthy();
   // The demo heartbeat: the front camera works, the back one is offline.
-  expect(screen.getByText('Front').closest('li')?.textContent).toMatch(/Online.*5 fps/);
-  expect(screen.getByText('Back').closest('li')?.textContent).toMatch(/Offline.*0 fps/);
+  const health = within(screen.getByRole('region', { name: 'Cameras' }));
+  expect(health.getByText('Front').closest('li')?.textContent).toMatch(/Online.*5 fps/);
+  expect(health.getByText('Back').closest('li')?.textContent).toMatch(/Offline.*0 fps/);
   expect(screen.getByText(/using 11% now/)).toBeTruthy();
 
   await user.keyboard('{Enter}');

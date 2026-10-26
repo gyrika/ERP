@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import {
-  addPoint, brandOf, closePolygon, LIMIT_TEXT, mayUse, normalisePoint, presetPath, RTSP_PRESETS, type Brand,
+  addPoint, ASK_BRANDS, asksCamera, brandOf, closePolygon, LIMIT_TEXT, mayUse, normalisePoint, presetPath, RTSP_PRESETS, type Brand,
 } from '../../domain/cameraSetup.ts';
 import {
   DEFAULT_VISION_SETTINGS, tablesFromEvents, visionFromEvents, type CameraSpec, type Point, type TableSpec, type VisionSettings, type ZoneSpec,
@@ -31,16 +31,23 @@ function useLog(): SyncEvent[] {
 
 // ----- Cameras -----
 
-interface Draft { id: string; name: string; ip: string; brand: Brand; path: string; user: string; password: string; enabled: boolean; limit?: boolean }
+interface Draft {
+  id: string; name: string; ip: string; brand: Brand; path: string; user: string; password: string; enabled: boolean; limit?: boolean;
+  /** A dual-lens camera's second lens: the first one's kept login (SCRUM-180). */
+  loginFrom?: string;
+}
 type Tested = { jpeg: string } | { error: string } | 'testing';
+/** Ask the camera: what it said, while asking, or why it could not. */
+type Asking = 'asking' | { note: string } | { error: string };
+const BRANDS = [...RTSP_PRESETS.map((p) => [p.brand, p.label] as const), ...ASK_BRANDS.map((b) => [b.brand, b.label] as const), ['custom', 'Other'] as const];
 
 const draftOf = (c: CameraSpec, logins: CameraLogins): Draft =>
   ({ id: c.id, name: c.name, ip: c.ip, brand: brandOf(c.rtspPath), path: c.rtspPath, user: logins[c.id]?.user ?? '', password: '', enabled: c.enabled });
-const pathOf = (d: Draft) => (d.brand === 'custom' ? d.path.trim() : presetPath(d.brand)!);
+const pathOf = (d: Draft) => presetPath(d.brand) ?? d.path.trim();
 
-function CameraCard({ d, n, passwordSet, tested, onChange, onTest, onRemove, onUse }: {
-  d: Draft; n: number; passwordSet: boolean; tested: Tested | undefined;
-  onChange: (patch: Partial<Draft>) => void; onTest: () => void; onRemove: () => void; onUse: () => void;
+function CameraCard({ d, n, passwordSet, tested, asked, onChange, onTest, onAsk, onRemove, onUse }: {
+  d: Draft; n: number; passwordSet: boolean; tested: Tested | undefined; asked: Asking | undefined;
+  onChange: (patch: Partial<Draft>) => void; onTest: () => void; onAsk: () => void; onRemove: () => void; onUse: () => void;
 }) {
   const label = d.name || `Camera ${n}`;
   return (
@@ -52,14 +59,14 @@ function CameraCard({ d, n, passwordSet, tested, onChange, onTest, onRemove, onU
           <input value={d.ip} inputMode="decimal" placeholder="192.168.1.20" onChange={(e) => onChange({ ip: e.target.value.trim() })} /></label>
       </div>
       <div className="cam__brands" role="radiogroup" aria-label={`${label}: brand`}>
-        {[...RTSP_PRESETS.map((p) => [p.brand, p.label] as const), ['custom', 'Other'] as const].map(([brand, text]) => (
+        {BRANDS.map(([brand, text]) => (
           <button key={brand} type="button" role="radio" aria-checked={d.brand === brand} className="chip"
-            onClick={() => onChange({ brand, path: brand === 'custom' ? d.path : presetPath(brand)! })}>{text}</button>
+            onClick={() => onChange({ brand, path: presetPath(brand) ?? (presetPath(d.brand) ? '' : d.path) })}>{text}</button>
         ))}
       </div>
-      {d.brand === 'custom' && (
-        <label className="setup__field"><span>Stream path</span>
-          <input value={d.path} placeholder="/stream2" onChange={(e) => onChange({ path: e.target.value })} /></label>
+      {asksCamera(d.brand) && (
+        <label className="setup__field"><span>Stream path{d.brand !== 'custom' && ': Ask the camera fills it'}</span>
+          <input value={d.path} placeholder={d.brand === 'custom' ? '/stream2' : ''} onChange={(e) => onChange({ path: e.target.value })} /></label>
       )}
       <div className="cam__grid">
         <label className="setup__field"><span>Username</span>
@@ -69,7 +76,12 @@ function CameraCard({ d, n, passwordSet, tested, onChange, onTest, onRemove, onU
             onChange={(e) => onChange({ password: e.target.value })} /></label>
       </div>
       <div className="cam__actions">
-        <button type="button" className="chip chip--solid" disabled={!d.ip || tested === 'testing'} onClick={onTest}>
+        {asksCamera(d.brand) && (
+          <button type="button" className={`chip${d.path ? '' : ' chip--solid'}`} disabled={!d.ip || asked === 'asking'} onClick={onAsk}>
+            {asked === 'asking' ? 'Asking…' : 'Ask the camera'}
+          </button>
+        )}
+        <button type="button" className={`chip${pathOf(d) ? ' chip--solid' : ''}`} disabled={!d.ip || !pathOf(d) || tested === 'testing'} onClick={onTest}>
           {tested === 'testing' ? 'Testing…' : 'Test'}
         </button>
         <button type="button" role="switch" aria-checked={d.enabled} className="cam__use" onClick={onUse}>
@@ -78,6 +90,9 @@ function CameraCard({ d, n, passwordSet, tested, onChange, onTest, onRemove, onU
         <button type="button" className="chip chip--danger cam__remove" onClick={onRemove}>Remove</button>
       </div>
       {d.limit && <p className="cam__note" role="status">{LIMIT_TEXT}</p>}
+      {asked && asked !== 'asking' && ('note' in asked
+        ? <p className="setup__hint" role="status">{asked.note}</p>
+        : <p className="setup__error" role="alert">{asked.error}</p>)}
       {tested && tested !== 'testing' && ('jpeg' in tested
         ? <img className="cam__shot" src={`data:image/jpeg;base64,${tested.jpeg}`} alt={`What ${label} sees`} />
         : <p className="setup__error" role="alert">{tested.error}</p>)}
@@ -95,6 +110,7 @@ function Cameras({ pin, cameras, logins, onLogins, shots, onShot }: {
   const [scanning, setScanning] = useState(false);
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  const [asked, setAsked] = useState<Record<string, Asking>>({});
   const ipFocus = useRef<string | null>(null);
 
   const change = (id: string, patch: Partial<Draft>) => {
@@ -123,21 +139,43 @@ function Cameras({ pin, cameras, logins, onLogins, shots, onShot }: {
   const test = async (d: Draft) => {
     onShot(d.id, 'testing');
     try {
-      const r = await cameraClient.test(pin, { cameraId: d.id, ip: d.ip, rtspPath: pathOf(d), user: d.user || undefined, password: d.password || undefined });
+      const r = await cameraClient.test(pin, { cameraId: d.loginFrom ?? d.id, ip: d.ip, rtspPath: pathOf(d), user: d.user || undefined, password: d.password || undefined });
       onShot(d.id, r.ok ? { jpeg: r.jpeg } : { error: r.message });
     } catch (e) { onShot(d.id, { error: message(e) }); }
+  };
+  /** Ask the camera (ONVIF) for its stream: the first lens here, any other lens as its own camera. */
+  const ask = async (d: Draft) => {
+    setAsked((a) => ({ ...a, [d.id]: 'asking' }));
+    try {
+      const r = await cameraClient.ask(pin, { cameraId: d.loginFrom ?? d.id, ip: d.ip, user: d.user || undefined, password: d.password || undefined });
+      if (!r.ok) { setAsked((a) => ({ ...a, [d.id]: { error: r.message } })); return; }
+      const [one, ...more] = r.streams;
+      change(d.id, { path: one.path });
+      const name = d.name.trim() || `Camera ${drafts.indexOf(d) + 1}`;
+      const fresh = more.filter((m) => !drafts.some((x) => x.ip === d.ip && x.path === m.path));
+      if (fresh.length) {
+        setDrafts((ds) => [...ds, ...fresh.map((m, i) => ({
+          id: newId('cam'), name: `${name} ${i + 2}`.slice(0, 60), ip: d.ip, brand: d.brand, path: m.path, user: d.user, password: d.password,
+          enabled: false, ...(d.password ? {} : { loginFrom: d.loginFrom ?? d.id }),
+        }))]);
+      }
+      const lenses = r.streams.length;
+      setAsked((a) => ({ ...a, [d.id]: { note: lenses > 1
+        ? `This camera has ${lenses} lenses: each is its own camera${fresh.length ? ' (added below)' : ''}. Save cameras to keep them.`
+        : `The camera streams at ${one.path} (${one.width}×${one.height}). Test it, then save.` } }));
+    } catch (e) { setAsked((a) => ({ ...a, [d.id]: { error: message(e) } })); }
   };
   const save = async () => {
     setError('');
     const list = drafts.map((d, i) => ({
       id: d.id, name: d.name.trim() || `Camera ${i + 1}`, ip: d.ip, rtspPath: pathOf(d), enabled: d.enabled,
-      ...(d.user ? { user: d.user } : {}), ...(d.password ? { password: d.password } : {}),
+      ...(d.user ? { user: d.user } : {}), ...(d.password ? { password: d.password } : {}), ...(d.loginFrom ? { loginFrom: d.loginFrom } : {}),
     }));
     try {
       const r = await cameraClient.saveCameras(pin, list);
       addEvents(r.events);
       onLogins(r.logins);
-      setDrafts((ds) => ds.map((d, i) => ({ ...d, name: list[i].name, password: '' })));
+      setDrafts((ds) => ds.map((d, i) => ({ ...d, name: list[i].name, password: '', loginFrom: undefined })));
       setDirty(false); setNote('Cameras saved.');
     } catch (e) { setError(message(e)); }
   };
@@ -146,7 +184,7 @@ function Cameras({ pin, cameras, logins, onLogins, shots, onShot }: {
   return (
     <section className="cvs" aria-labelledby="cvs-cameras">
       <h2 id="cvs-cameras">Cameras</h2>
-      <p className="setup__hint">Up to 4 cameras watch the tables. Scan finds the ones on the shop Wi-Fi; or add one by its IP address.</p>
+      <p className="setup__hint">Up to 4 cameras watch the tables; every camera shows on Computer vision. Scan finds the ones on the shop Wi-Fi; or add one by its IP address.</p>
       <div className="setup__chips">
         <button type="button" className="chip chip--solid" disabled={scanning} onClick={() => void scan()}>{scanning ? 'Scanning…' : 'Scan for cameras'}</button>
         <button type="button" className="chip" onClick={() => add()}>Add by IP</button>
@@ -158,8 +196,9 @@ function Cameras({ pin, cameras, logins, onLogins, shots, onShot }: {
       {drafts.length > 0 && (
         <ul className="cams">
           {drafts.map((d, i) => (
-            <CameraCard key={d.id} d={d} n={i + 1} passwordSet={logins[d.id]?.passwordSet ?? false} tested={shots[d.id]}
-              onChange={(p) => change(d.id, p)} onTest={() => void test(d)} onUse={() => use(d)}
+            <CameraCard key={d.id} d={d} n={i + 1} passwordSet={(logins[d.id] ?? (d.loginFrom ? logins[d.loginFrom] : undefined))?.passwordSet ?? false}
+              tested={shots[d.id]} asked={asked[d.id]}
+              onChange={(p) => change(d.id, p)} onTest={() => void test(d)} onAsk={() => void ask(d)} onUse={() => use(d)}
               onRemove={() => { setDrafts((ds) => ds.filter((x) => x.id !== d.id)); setDirty(true); setNote(''); }} />
           ))}
         </ul>

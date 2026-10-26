@@ -24,7 +24,8 @@ export const probeXml = (messageId: string): string =>
   + '<w:Action e:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action></e:Header>'
   + '<e:Body><d:Probe><d:Types>dn:NetworkVideoTransmitter</d:Types></d:Probe></e:Body></e:Envelope>';
 
-export interface FoundCamera { ip: string; name: string }
+/** `xaddr`: its ONVIF device service, for Ask the camera (SCRUM-180). */
+export interface FoundCamera { ip: string; name: string; xaddr?: string }
 
 const tagText = (xml: string, tag: string): string[] =>
   [...xml.matchAll(new RegExp(`<(?:[\\w-]+:)?${tag}\\b[^>]*>([^<]*)</(?:[\\w-]+:)?${tag}>`, 'g'))].map((m) => m[1].trim());
@@ -41,16 +42,16 @@ export const parseProbeMatch = (xml: string): FoundCamera[] => {
   const model = scope(scopes, 'name');
   const hardware = scope(scopes, 'hardware');
   const name = hardware && !model.includes(hardware) ? `${model} ${hardware}`.trim() : model;
-  const ips = new Set<string>();
+  const ips = new Map<string, string>();
   for (const list of tagText(xml, 'XAddrs')) {
     for (const addr of list.split(/\s+/)) {
       try {
         const host = new URL(addr).hostname;
-        if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) ips.add(host);
+        if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) && !ips.has(host)) ips.set(host, addr);
       } catch { /* not a URL */ }
     }
   }
-  return [...ips].map((ip) => ({ ip, name }));
+  return [...ips].map(([ip, xaddr]) => ({ ip, name, xaddr }));
 };
 
 /** Scan: the cameras that answer the Probe within `waitMs`, by IP. */
