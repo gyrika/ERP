@@ -102,12 +102,16 @@ test('the owner scans, logs a camera in, tests it and draws a table by keyboard;
   expect(await screen.findByRole('button', { name: 'Remove the zone of table 1' })).toBeTruthy();
 
   // The timers keep the mode and the CPU limit as they are.
-  const seat = screen.getByLabelText('Seated after (seconds of people at the table)');
-  await user.clear(seat);
-  await user.type(seat, '90');
+  // The owner's three timers, in plain words: minutes for the visit and the auto-free, seconds for the check.
+  expect((screen.getByLabelText('A visit shorter than this needs no cleaning (min)') as HTMLInputElement).value).toBe('3');
+  expect((screen.getByLabelText('Empty this long counts as left (s)') as HTMLInputElement).value).toBe('10');
+  const free = screen.getByLabelText('Free again by itself after (min)');
+  expect((free as HTMLInputElement).value).toBe('5');
+  await user.clear(free);
+  await user.type(free, '8');
   await user.click(screen.getByRole('button', { name: 'Save timers' }));
   await vi.waitFor(() => expect(server.asked.find((a) => a.step === '/cv/settings')).toBeTruthy());
-  expect(server.asked.find((a) => a.step === '/cv/settings')!.body).toEqual({ ownerPin: '1234', mode: 'off', seatS: 90, leaveS: 180, cleanAlertS: 300, cpuLimit: 15 });
+  expect(server.asked.find((a) => a.step === '/cv/settings')!.body).toEqual({ ownerPin: '1234', mode: 'off', shortVisitS: 180, leftCheckS: 10, autoFreeS: 480, cpuLimit: 15 });
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(JSON.stringify(localStorage)).not.toMatch(/hunter2/);
 });

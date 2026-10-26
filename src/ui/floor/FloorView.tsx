@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FloorTable, TableState } from '../../domain/tables.ts';
+import { autoFreeAt, type FloorTable, type TableState } from '../../domain/tables.ts';
 import { useNow } from '../Kitchen.tsx';
 import { setTable, undoTable, useFloor } from '../tablesStore.ts';
 import { columns, FloorTile } from './FloorTile.tsx';
@@ -22,7 +22,7 @@ const KEYS: Record<string, TableState> = { c: 'free', f: 'free', r: 'reserved', 
  * Every change is a `table.state_set` event; Undo is `table.state_set_undone`.
  */
 export default function FloorView({ onBack }: { onBack: () => void }) {
-  const { tables } = useFloor();
+  const { tables, settings } = useFloor();
   const now = useNow(1000);
   const [picked, setPicked] = useState(0);
   const [undos, setUndos] = useState<{ tableId: string; eventId: string }[]>([]);
@@ -76,7 +76,14 @@ export default function FloorView({ onBack }: { onBack: () => void }) {
         </span>
       </header>
       <div className="floor__grid" ref={grid} role="listbox" aria-label="Tables by number" aria-orientation="horizontal">
-        {tables.map((t, i) => <FloorTile key={t.id} t={t} now={now} selected={i === at} onPick={() => setPicked(i)} />)}
+        {tables.map((t, i) => {
+          const frees = autoFreeAt(t, settings);
+          return (
+            <FloorTile key={t.id} t={t} now={now} selected={i === at} onPick={() => setPicked(i)}>
+              {frees !== null && <span className="floor__time">frees itself in {Math.max(1, Math.ceil((frees - now) / 60_000))} min</span>}
+            </FloorTile>
+          );
+        })}
       </div>
       {table && (
         <div className="floor__actions" aria-label={`Table ${table.label}`} role="group">

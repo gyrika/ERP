@@ -269,6 +269,8 @@ export const shadowAgreement = (events: readonly SyncEvent[], now: number): Shad
   for (const e of events) {
     if (e.at < from || e.at > now) continue;
     if (e.type === 'table.state_changed') {
+      // A dirty table freeing itself (the owner's 5-minute rule) is the clock, not something seen.
+      if (e.from !== 'occupied' && e.to !== 'occupied') continue;
       changes += 1;
       open.set(e.tableId, { at: e.at, to: e.to });
     } else if (e.type === 'table.state_set' && !undone.has(e.id)) {

@@ -66,7 +66,12 @@ export type VisionEvent =
   | (FloorBase & { type: 'vision.cameras_set'; cameras: CameraSpec[] })
   /** One camera's table zones; points normalised 0-1 to the frame. */
   | (FloorBase & { type: 'vision.zones_set'; cameraId: string; zones: ZoneSpec[] })
-  /** `cpuLimit` (SCRUM-174): percent of the shop PC the camera worker may use; missing = DEFAULT_CPU_LIMIT. */
-  | (FloorBase & { type: 'vision.settings_set'; mode: VisionMode; seatS: number; leaveS: number; cleanAlertS: number; cpuLimit?: number })
+  /**
+   * `cpuLimit` (SCRUM-174): percent of the shop PC the camera worker may use; missing = DEFAULT_CPU_LIMIT.
+   * The timers (SCRUM-182, the owner's rules of 2026-10-26) are `shortVisitS`, `leftCheckS`, `autoFreeS`;
+   * events from before carry `seatS`, `leaveS`, `cleanAlertS` instead, and fold to the default timers.
+   */
+  | (FloorBase & { type: 'vision.settings_set'; mode: VisionMode; cpuLimit?: number }
+    & ({ shortVisitS: number; leftCheckS: number; autoFreeS: number } | { seatS: number; leaveS: number; cleanAlertS: number }))
   | (FloorBase & { type: 'vision.camera_offline' | 'vision.camera_online'; cameraId: string })
   | (FloorBase & { type: 'vision.heartbeat'; cameras: { id: string; online: boolean; fps: number }[]; cpu: number });

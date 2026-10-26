@@ -59,6 +59,8 @@ test('the owner switches to Shadow by keyboard: PIN in the line, the CV pack arr
   const part = screen.getByRole('link', { name: 'Computer vision' });
   expect(part.getAttribute('aria-current')).toBe('page');
   expect(within(screen.getByRole('navigation', { name: 'Owner sections' })).getByText('Off')).toBeTruthy();
+  // The owner's guide, one tap from the page (SCRUM-182).
+  expect(screen.getByRole('link', { name: 'How to set up' }).getAttribute('href')).toBe('#vision/guide');
 
   // Live: not until table 2 has a zone, said inline with the way to fix it.
   expect(radio('Live').getAttribute('aria-disabled')).toBe('true');
@@ -75,11 +77,11 @@ test('the owner switches to Shadow by keyboard: PIN in the line, the CV pack arr
   await user.type(pin, '1234{Enter}');
   expect(await screen.findByRole('progressbar', { name: 'Downloading the CV pack' })).toBeTruthy();
   expect(await screen.findByText('Shadow on.', {}, { timeout: 4000 })).toBeTruthy();
-  expect(server.settings).toEqual([{ ownerPin: '1234', mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 15 }]);
+  expect(server.settings).toEqual([{ ownerPin: '1234', mode: 'shadow', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15 }]);
   expect(radio('Shadow').getAttribute('aria-checked')).toBe('true');
 
   await user.click(screen.getByRole('button', { name: 'Undo' }));
-  expect(server.settings[1]).toEqual({ ownerPin: '1234', mode: 'off', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 15 });
+  expect(server.settings[1]).toEqual({ ownerPin: '1234', mode: 'off', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15 });
 
   // The CPU limit: 5% to 50% in steps of 5; one event once the slider settles.
   const cpu = screen.getByRole('slider');
