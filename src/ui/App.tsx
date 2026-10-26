@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
@@ -38,6 +38,9 @@ type Sheet =
   | { kind: 'waste' }
   | null;
 
+/** The Tables chip carries the floor's fold (SCRUM-168): loaded beside the Register, so the Register does not grow. */
+const TablesChip = lazy(() => import('./TablesChip.tsx'));
+
 const isTypingTarget = (el: EventTarget | null): boolean =>
   el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 
@@ -47,12 +50,15 @@ const isTypingTarget = (el: EventTarget | null): boolean =>
  */
 export function App({
   onKitchen,
+  onTables,
   onOwner,
   onSwitch,
   canManageStock = true,
   onVoice,
 }: {
   onKitchen?: () => void;
+  /** Opens the floor of tables (SCRUM-168; F1 does the same). The chip shows only once there is a layout. */
+  onTables?: () => void;
   /** Opens the Owner view (owners and managers; F3 does the same). */
   onOwner?: () => void;
   onSwitch?: () => void;
@@ -294,6 +300,7 @@ export function App({
         ) : (
           <span className="corner">
             <OnlineChip state={online} looking={sheet?.kind === 'online'} onOpen={() => setSheet({ kind: 'online' })} />
+            {onTables && <Suspense fallback={null}><TablesChip onOpen={onTables} /></Suspense>}
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
             {onVoice && (

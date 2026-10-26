@@ -28,9 +28,12 @@ import { navData, navigate, onNavigate, startNav, useBackKeys } from './nav.ts';
 
 /** Visual Flow carries its own drawing library: loaded when it is opened, so the Register stays light. */
 const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
+/** The floor (SCRUM-168): loaded when it is opened, so the Register does not grow. */
+const FloorView = lazy(() => import('./floor/FloorView.tsx'));
 
 const KITCHEN = '#kitchen';
 const OWNER = '#owner';
+const TABLES = '#tables';
 
 /** Changing screens cross-fades (view transitions, 200 ms in styles.css) where the browser can; instant elsewhere. */
 const withTransition = (change: () => void) => {
@@ -102,7 +105,8 @@ function NotConnected() {
  *   and the screen locks itself when quiet. A kitchen login sees the Kitchen only.
  * - Until the kitchen has its own screen, F2 (or the Kitchen key) flips the
  *   counter between Register and Kitchen; F3 flips to the Owner view and back
- *   (owners and managers). The Kitchen stays visible while the
+ *   (owners and managers); F1 flips to the floor of tables and back, once the shop has a
+ *   table layout (SCRUM-168). The Kitchen stays visible while the
  *   screen is locked; only going back to the Register needs a PIN.
  * Development and the demo have no login (fake staff), as before.
  */
@@ -127,6 +131,8 @@ export function Root() {
   const inKitchen = hash === KITCHEN;
   /** The Owner view shows the takings: owners and managers only (SCRUM-41). */
   const seesOwner = !kitchenOnly && (!needsLogin || (staff !== null && seesTakings(staff.role)));
+  /** The floor: whoever works the counter (a kitchen login records no table changes). */
+  const seesFloor = !kitchenOnly && !isManagerPhone() && !isCloudSite() && (!needsLogin || staff !== null);
   // Every move is one step (nav.ts), the Register too, so Back is always "where I just was".
   const go = useCallback((to: string) => withTransition(() => {
     navigate(to);
@@ -143,10 +149,16 @@ export function Root() {
       if (e.key === 'F2' && !kitchenOnly) { e.preventDefault(); show(!inKitchen); }
       if (e.key === 'F3' && seesOwner) { e.preventDefault(); go(hash === OWNER ? '' : OWNER); }
       if (e.key === 'F4' && needsLogin && staff) { e.preventDefault(); lock(); }
+      if (e.key === 'F1' && seesFloor) {
+        e.preventDefault(); // F1 is the browser's help page otherwise
+        if (hash === TABLES) go('');
+        // The floor's fold is loaded with the floor, not with the Register.
+        else void import('./tablesStore.ts').then(({ hasFloor }) => { if (hasFloor()) go(TABLES); });
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [hash, inKitchen, show, go, seesOwner, kitchenOnly, needsLogin, staff]);
+  }, [hash, inKitchen, show, go, seesOwner, seesFloor, kitchenOnly, needsLogin, staff]);
 
   // Opening a page by voice (SCRUM-145): only the pages this person could open anyway.
   const mayManageStock = !needsLogin || (staff !== null && managesStock(staff.role));
@@ -219,11 +231,14 @@ export function Root() {
   if ((hash === '#flow' || hash.startsWith('#flow/')) && seesOwner) {
     return <Suspense fallback={<div className="owner" aria-busy="true" />}><VisualFlowView key={hash} onRegister={() => go('')} /></Suspense>;
   }
+  if (hash === TABLES && seesFloor) {
+    return <Suspense fallback={<div className="floor" aria-busy="true" />}><FloorView onBack={() => go('')} /></Suspense>;
+  }
   if ((hash === '#suppliers' || hash === '#items/suppliers') && mayManageStock) {
     return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;
   }
   return (
-    <App onKitchen={() => show(true)} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}
+    <App onKitchen={() => show(true)} onTables={seesFloor ? () => go(TABLES) : undefined} onOwner={needsLogin && seesOwner ? () => go(OWNER) : undefined}
       onSwitch={needsLogin ? lock : undefined} canManageStock={mayManageStock}
       onVoice={voiceOn ? { start: () => void voice.start(), stop: voice.stop } : undefined} />
   );

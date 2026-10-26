@@ -20,6 +20,9 @@
   --ok-ink: #1E7A4F;
   --warn: #E8A94B;
   --bad: #E5484D;
+  /* Tables (SCRUM-168): reserved is the one blue; a table whose camera is off is grey. */
+  --reserved: #3E63DD;
+  --nocam: #8E8E93;
   /* The small status screen (Visual Flow): black in both themes, like a kitchen display. */
   --screen: #0B0B0C;
   --on-screen: #ECECEE;
@@ -1663,3 +1666,4 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .grn-note { display: grid; gap: 8px; margin-top: 8px; }
 .grn-note__box { min-height: 96px; resize: vertical; font: inherit; }
 .grn-doc__note { margin: 12px 0 0; }
+

@@ -228,6 +228,17 @@ export const tablesFromEvents = (events: readonly SyncEvent[]): FloorTable[] => 
   });
 };
 
+/**
+ * The Register's Tables chip (SCRUM-168): how many tables are free, and the most urgent colour.
+ * A dirty table is amber, red once it has waited `cleanAlertS` (0: never) or has an open alert,
+ * so the chip turns red with no camera too.
+ */
+export const floorSummary = (tables: readonly FloorTable[], now: number, cleanAlertS = DEFAULT_CLEAN_ALERT_S): { free: number; tone: 'warn' | 'bad' | null } => {
+  const dirty = tables.filter((t) => t.state === 'needs_cleaning');
+  const overdue = dirty.some((t) => t.alertId !== null || (cleanAlertS > 0 && now - t.since >= cleanAlertS * 1000));
+  return { free: tables.filter((t) => t.state === 'free').length, tone: overdue ? 'bad' : dirty.length ? 'warn' : null };
+};
+
 // ----- What the server accepts -----
 
 export const TABLE_EVENT_TYPES = [

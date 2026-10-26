@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cameraLost, checkTableEvent, DEFAULT_LEAVE_S, DEFAULT_SEAT_S, DEFAULT_VISION_SETTINGS, footPoint, LEAVE_SHARE, newTracker,
-  observe, pointInPolygon, SEAT_SHARE, staffSet, tablesFromEvents, visionFromEvents, type Sample, type TableTracker,
+  floorSummary, observe, pointInPolygon, SEAT_SHARE, staffSet, tablesFromEvents, visionFromEvents, type FloorTable, type Sample, type TableTracker,
 } from './tables.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Actor } from './auth.ts';
@@ -332,4 +332,20 @@ test('the server refuses malformed table and vision events, and any password or 
     { ...(layout() as object), orderNumber: 1001 } as unknown as SyncEvent,
   ];
   for (const e of bad) assert.ok(valid(e), JSON.stringify(e));
+});
+
+// ----- The Register's Tables chip (SCRUM-168) -----
+
+const tile = (state: FloorTable['state'], sinceS: number, alertId: string | null = null): FloorTable =>
+  ({ id: `t-${state}-${sinceS}`, label: '1', seats: 4, state, since: sinceS * S, watched: false, noCamera: false, alertId });
+
+test('the chip counts free tables, and takes the colour of the most urgent one', () => {
+  assert.deepEqual(floorSummary([], 0), { free: 0, tone: null });
+  assert.deepEqual(floorSummary([tile('free', 0), tile('occupied', 0), tile('reserved', 0), tile('free', 0)], 10 * S), { free: 2, tone: null });
+  // A dirty table is amber while it is new, red once it has waited the cleaning-alert time (300 s), or an alert is open.
+  assert.deepEqual(floorSummary([tile('free', 0), tile('needs_cleaning', 0)], 299 * S), { free: 1, tone: 'warn' });
+  assert.deepEqual(floorSummary([tile('needs_cleaning', 0)], 300 * S), { free: 0, tone: 'bad' });
+  assert.deepEqual(floorSummary([tile('needs_cleaning', 100, 'alert-1'), tile('needs_cleaning', 100)], 101 * S), { free: 0, tone: 'bad' });
+  assert.deepEqual(floorSummary([tile('needs_cleaning', 0)], 60 * S, 60), { free: 0, tone: 'bad' }, 'the owner\'s own alert time');
+  assert.deepEqual(floorSummary([tile('needs_cleaning', 0)], 60 * S, 0), { free: 0, tone: 'warn' }, '0: no cleaning alert');
 });
