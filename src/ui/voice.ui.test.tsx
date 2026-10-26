@@ -216,6 +216,28 @@ test("tapped in a busy room and nobody speaks: nothing is sent, and it says it d
   } finally { vi.useRealTimers(); }
 });
 
+test('a tap let go before the microphone opens still stops by itself', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  try {
+    const room = fakeRoom();
+    let open!: () => void;
+    const opening = new Promise<void>((r) => { open = r; });
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => { await opening; return { getTracks: () => [{ stop() {} }] }; } } });
+    render(<Root />);
+    await key('keydown');
+    clock += 100;
+    await key('keyup');
+    await act(async () => { open(); });
+    await pass(300);
+    room.level = 0.25;
+    await pass(1000);
+    room.level = 0.005;
+    await pass(1100);
+    await settle();
+    expect(location.hash).toBe('#items');
+  } finally { vi.useRealTimers(); }
+});
+
 test('held, a pause does not cut the speaker off; letting go sends', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
   try {

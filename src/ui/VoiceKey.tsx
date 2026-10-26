@@ -25,8 +25,6 @@ const NOT_HEARD = 'Did not catch that. Press F9 and try again';
 
 interface Recording {
   recorder: MediaRecorder;
-  /** While the key is down; a held key, not the silence, ends the request. */
-  pressedAt: number | null;
   /** Not sent: no speech came ('nothing') or the person cancelled with Esc. */
   drop: 'nothing' | 'cancel' | null;
   quit: () => void;
@@ -62,6 +60,11 @@ export function useVoice(pages: readonly VoicePage[], current: string, open: (ha
   const rec = useRef<Recording | null>(null);
   /** One request at a time: a second F9 while the first is being read does nothing. */
   const busy = useRef(false);
+  /**
+   * When F9 (or the Voice key) went down, while it is down; a held key, not the silence, ends the
+   * request. Kept apart from the recording: a quick tap is often let go before the microphone opens.
+   */
+  const pressed = useRef<number | null>(null);
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
   const currentRef = useRef(current);
@@ -99,7 +102,6 @@ export function useVoice(pages: readonly VoicePage[], current: string, open: (ha
       setVoice({ kind: 'failed', message: 'This screen has no microphone support' });
       return;
     }
-    const pressedAt = Date.now();
     let stream: MediaStream;
     try {
       // One channel, cleaned by the browser: the shop's fans and the street matter less to Whisper.
@@ -111,7 +113,8 @@ export function useVoice(pages: readonly VoicePage[], current: string, open: (ha
     }
     const recorder = new MediaRecorder(stream);
     const chunks: Blob[] = [];
-    const r: Recording = { recorder, pressedAt, drop: null, quit: () => {} };
+    const r: Recording = { recorder, drop: null, quit: () => {} };
+    const startedAt = Date.now();
     recorder.ondataavailable = (e) => chunks.push(e.data);
     recorder.onstop = () => {
       r.quit();
@@ -123,7 +126,7 @@ export function useVoice(pages: readonly VoicePage[], current: string, open: (ha
     r.quit = watchSpeech(stream, (heard) => {
       // Silence ends a tapped request; a held key ends when let go (or at the longest request).
       if (heard === 'nothing') end('nothing');
-      else if (r.pressedAt === null || Date.now() - pressedAt >= MAX_LISTEN_MS) end();
+      else if (pressed.current === null || Date.now() - startedAt >= MAX_LISTEN_MS) end();
     });
     rec.current = r;
     recorder.start();
@@ -132,19 +135,17 @@ export function useVoice(pages: readonly VoicePage[], current: string, open: (ha
 
   /** F9 or the Voice key went down: start listening, or send what is being said. */
   const start = useCallback(async () => {
-    const r = rec.current;
-    if (r) { end(); return; }
+    if (rec.current) { end(); return; }
     if (busy.current) return;
+    pressed.current = Date.now();
     await begin();
   }, [begin, end]);
 
   /** F9 or the Voice key came up: after a hold that sends; after a tap, listening carries on. */
   const stop = useCallback(() => {
-    const r = rec.current;
-    if (!r || r.pressedAt === null) return;
-    const held = Date.now() - r.pressedAt >= HOLD_MS;
-    r.pressedAt = null;
-    if (held) end();
+    const at = pressed.current;
+    pressed.current = null;
+    if (at !== null && Date.now() - at >= HOLD_MS) end();
   }, [end]);
 
   const back = useCallback(() => {
