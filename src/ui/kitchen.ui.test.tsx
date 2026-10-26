@@ -127,6 +127,7 @@ test('Remake: a burnt pizza is recorded as waste in two taps, and the line stays
   render(<><App /><Kitchen /></>);
   await sendOne(user);
   const ticket = within(kitchen().getByRole('article', { name: 'Order 1001' }));
+  expect(ticket.queryByRole('button', { name: 'Remake Devilled Chicken' })).toBeNull(); // not made yet: nothing to throw away
   await user.click(ticket.getByRole('button', { name: 'Start: Order 1001' }));
 
   await user.click(ticket.getByRole('button', { name: 'Remake Devilled Chicken' }));

@@ -231,8 +231,9 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                       </>
                     )}
                     {l.status === 'ok' && <LineBody v={l} />}
-                    {l.status !== 'cancelled' && (() => {
+                    {l.status !== 'cancelled' && t.startedAt !== undefined && (() => {
                       // Remake (SCRUM-177): this one went in the bin; it is waste, and is made again.
+                      // Only once the kitchen has started: nothing can be thrown away before it is made.
                       const line = t.lines.find((x) => x.id === l.key)!;
                       return (
                         <span className="ticket__remake">
