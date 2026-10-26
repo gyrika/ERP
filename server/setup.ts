@@ -52,6 +52,8 @@ export interface SetupContext {
   /** Ask the camera (server/onvif.ts) and the camera views (server/cvLive.ts); tests give fakes. */
   askCamera?: typeof askOnvif;
   views?: (source: Parameters<typeof liveViews>[0]['source'], ffmpeg: () => string | null) => LiveViews;
+  /** Development cameras (CV_DEV_CAMERAS): camera id -> a looping file the views show instead of the stream. */
+  dev?: ReadonlyMap<string, string>;
   fetch?: typeof fetch;
   now?: () => number;
 }
@@ -163,7 +165,7 @@ export function setupApi(ctx: SetupContext) {
     const cam = (await camerasNow()).find((c) => c.id === id);
     if (!cam) return null;
     const login = ctx.secrets?.get(id);
-    return { ip: cam.ip, rtspPath: cam.rtspPath, user: login?.user, password: login?.password };
+    return { ip: cam.ip, rtspPath: cam.rtspPath, user: login?.user, password: login?.password, ...(ctx.dev?.has(id) ? { file: ctx.dev.get(id) } : {}) };
   };
   const views = (ctx.views ?? ((source, ffmpeg) => liveViews({ source, ffmpeg })))(viewSource, packFfmpeg);
   /** Who may watch: a random key the owner's PIN opened, alive while it is used. Never the PIN in every poll. */

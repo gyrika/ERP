@@ -11,6 +11,7 @@ import { createFleet } from './fleet.ts';
 import { cvPack } from './cvPack.ts';
 import { cvSecrets } from './cvSecrets.ts';
 import { startVision } from './cvWorker.ts';
+import { devSources } from './cv/visionCore.ts';
 import { startReplicator } from './replicator.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
@@ -120,13 +121,15 @@ const fleet = process.env.CLOUD_ADMIN_KEY
   ? createFleet({ url: process.env.CLOUD_ADMIN_URL || 'https://cheesybeez-cloud.cheesybeez-cloud.workers.dev', key: process.env.CLOUD_ADMIN_KEY })
   : null;
 
+// Development only: CV_DEV_CAMERAS puts looping video or image files where cameras' streams would be.
+const devCameras = devSources(process.env.CV_DEV_CAMERAS);
 // The cameras' logins, encrypted in the data folder (C:\ProgramData\CheesyBeez on the shop PC).
 const secrets = cvSecrets(dataDir);
 // The setup endpoints, #cameras and #vision's camera views (SCRUM-180).
 const setup = setupApi({
   store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv,
   // The owner's setup is stored like a push.
-  secrets, ingest: (device, events) => server.ingest(device, events),
+  secrets, ingest: (device, events) => server.ingest(device, events), dev: devCameras,
 });
 const server = createApp({
   photos: photoFolder(`${dataDir}/photos`),
@@ -164,7 +167,7 @@ const server = createApp({
 });
 // The camera worker (SCRUM-170): runs in Shadow or Live while the CV pack is there; what it sees is stored through the server.
 const vision = startVision({
-  store, settings, packDir: () => cv.packDir(), login: (id) => secrets.get(id),
+  store, settings, packDir: () => cv.packDir(), login: (id) => secrets.get(id), dev: devCameras,
   ingest: (device, events) => server.ingest(device, events), logDir: `${dataDir}/logs`,
 });
 // After the server exists: the manager phones' inbox files events through it.
@@ -181,6 +184,7 @@ server.listen(port, '0.0.0.0', () => {
   if (fleet) console.log('  shops screen: on (CLOUD_ADMIN_KEY), on this computer only');
   const pack = cv.status();
   console.log(`  table detection (CV): ${pack.active ? pack.phase : 'off'}`);
+  if (devCameras.size) console.log(`  development cameras (CV_DEV_CAMERAS): ${[...devCameras.keys()].join(', ')}`);
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 

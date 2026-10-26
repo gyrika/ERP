@@ -1,7 +1,7 @@
 // The camera worker's rules (SCRUM-170), pure: frames, the motion gate, the crop, camera links,
 // the CPU guard, Live's floor and cleaning alerts. Time is passed in, never read, so all of it is
 // tested without a camera, ffmpeg or ONNX Runtime. server/cv/engine.ts puts them together.
-import { footPoint, pointInPolygon, staffSet, type TableState, type TableTracker, type VisionMode, type ZoneSpec } from '../../src/domain/tables.ts';
+import { footPoint, pointInPolygon, type TableState, type ZoneSpec } from '../../src/domain/tables.ts';
 import type { Box, Rect } from './yolox.ts';
 
 /** What the worker reads from each camera: 640x360 rgb24, one frame a second. */
@@ -46,10 +46,26 @@ export const BACKOFF_MAX_MS = 60_000;
 /** A worker that ran this long was well: the next restart waits BACKOFF_MIN_MS again. */
 export const STABLE_MS = 60_000;
 
-/** ffmpeg's arguments: the stream over TCP, one frame a second, raw rgb24 to stdout (memory only). */
-export const cameraArgs = (url: string): string[] => [
-  '-hide_banner', '-loglevel', 'error', '-nostats', '-threads', '1', '-timeout', '5000000', '-rtsp_transport', 'tcp',
-  '-i', url, '-an', '-sn', '-dn',
+/**
+ * How ffmpeg opens a source: a camera's RTSP stream over TCP, or, in development only
+ * (CV_DEV_CAMERAS), a video file looped at its own speed or a still image: a camera without a camera.
+ */
+export const inputArgs = (source: string): string[] =>
+  /^rtsps?:\/\//i.test(source) ? ['-timeout', '5000000', '-rtsp_transport', 'tcp', '-i', source]
+    : /\.(jpe?g|png|bmp)$/i.test(source) ? ['-re', '-loop', '1', '-framerate', '1', '-i', source]
+      : ['-re', '-stream_loop', '-1', '-i', source];
+
+/**
+ * Development cameras: CV_DEV_CAMERAS="front=C:\clips\cafe.mp4;back=C:\clips\empty.jpg" puts a looping
+ * file where a camera's stream would be. Read from the environment only, never from a screen.
+ */
+export const devSources = (value: string | undefined): Map<string, string> =>
+  new Map((value ?? '').split(';').map((pair) => pair.split('=')).flatMap(([id, ...file]) =>
+    (id?.trim() && file.join('=').trim() ? [[id.trim(), file.join('=').trim()] as [string, string]] : [])));
+
+/** ffmpeg's arguments: the source, one frame a second, raw rgb24 to stdout (memory only). */
+export const cameraArgs = (source: string): string[] => [
+  '-hide_banner', '-loglevel', 'error', '-nostats', '-threads', '1', ...inputArgs(source), '-an', '-sn', '-dn',
   '-vf', `fps=1,scale=${FRAME_W}:${FRAME_H}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
 ];
 
@@ -152,13 +168,6 @@ export const cpuPercent = (usedMicros: number, wallMs: number, cores: number): n
 
 /** A table on the shop's floor, as the server folds it. */
 export interface FloorState { state: TableState; since: number; alertId: string | null }
-
-/**
- * Live: staff changed the table (a newer state than the tracker's), so the tracker takes it and
- * holds until presence flips. Shadow: the floor follows staff only, the cameras keep their own count.
- */
-export const followFloor = (t: TableTracker, floor: FloorState | undefined, mode: VisionMode): TableTracker =>
-  mode === 'live' && floor && floor.state !== t.state && floor.since > t.since ? staffSet(t, floor.state, floor.since) : t;
 
 export type AlertFields =
   | { type: 'table.alert_raised'; tableId: string; alert: 'needs_cleaning' }

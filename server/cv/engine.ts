@@ -1,7 +1,7 @@
-import { cameraLost, newTracker, observe, type TableTracker } from '../../src/domain/tables.ts';
 import type { FromWorker, VisionFields, WorkerConfig } from './messages.ts';
+import { followFloor, lost, sample as trackSample, startTracker, type Tracker } from './tracker.ts';
 import {
-  alertsDue, checkEvery, cpuGuard, cpuPercent, CPU_SAMPLE_MS, followFloor, FRAME_H, FRAME_W, greyThumb, HEARTBEAT_MS, linkStep, presence,
+  alertsDue, checkEvery, cpuGuard, cpuPercent, CPU_SAMPLE_MS, FRAME_H, FRAME_W, greyThumb, HEARTBEAT_MS, linkStep, presence,
   shouldReuse, zoneBox, type Guard, type Link,
 } from './visionCore.ts';
 import type { Box, Rect } from './yolox.ts';
@@ -13,7 +13,7 @@ import type { Box, Rect } from './yolox.ts';
  *
  * Each frame: is a check due (1 s, or 2 s while the CPU guard has slowed it)? Then the motion gate
  * (zones' crop as a grey thumbnail) either reuses the last detection or runs `detect` on the crop;
- * each person's foot point in a zone is a presence sample for that table's tracker (tables.ts),
+ * each person's foot point in a zone is a presence sample for that table's tracker (./tracker.ts),
  * whose changes go out as `table.state_changed`. A table seen by two cameras is present if either
  * sees someone. `tick` (every second): camera links, Live's alerts and camera events, the CPU
  * guard, the heartbeat.
@@ -50,7 +50,7 @@ export function visionEngine(o: {
 }) {
   let cfg: EngineConfig | null = null;
   const cams = new Map<string, Cam>();
-  const trackers = new Map<string, TableTracker>();
+  const trackers = new Map<string, Tracker>();
   const sent = new Set<string>();
   let guard: Guard = { slowed: false, since: null };
   let cpu = 0;
@@ -66,8 +66,8 @@ export function visionEngine(o: {
   const sample = (tableId: string, at: number) => {
     if (!cfg) return;
     const present = [...cams.values()].some((c) => c.online && c.seen.get(tableId) === true);
-    const before = trackers.get(tableId) ?? newTracker(cfg.floor[tableId]?.state ?? 'free', cfg.floor[tableId]?.since ?? at);
-    const { tracker, change } = observe(before, { at, present }, { seatS: cfg.seatS, leaveS: cfg.leaveS });
+    const before = trackers.get(tableId) ?? startTracker(cfg.floor[tableId]?.state ?? 'free', cfg.floor[tableId]?.since ?? at);
+    const { tracker, change } = trackSample(before, at, present, cfg);
     trackers.set(tableId, tracker);
     if (change) event({ type: 'table.state_changed', tableId, from: change.from, to: change.to, confidence: change.confidence }, change.at);
   };
@@ -94,7 +94,7 @@ export function visionEngine(o: {
       for (const id of tables) {
         const f = next.floor[id];
         const tr = trackers.get(id);
-        trackers.set(id, tr ? followFloor(tr, f, next.mode) : newTracker(f?.state ?? 'free', f?.since ?? t));
+        trackers.set(id, tr ? followFloor(tr, f, next.mode) : startTracker(f?.state ?? 'free', f?.since ?? t));
       }
       if (limitWas !== undefined && limitWas !== next.cpuLimit) log(`CPU limit ${next.cpuLimit}%`);
     },
@@ -145,7 +145,7 @@ export function visionEngine(o: {
           for (const tableId of c.seen.keys()) {
             const other = [...cams.values()].some((x) => x !== c && x.online && x.seen.has(tableId));
             const tr = trackers.get(tableId);
-            if (!other && tr) trackers.set(tableId, cameraLost(tr));
+            if (!other && tr) trackers.set(tableId, lost(tr));
           }
         }
         if (r.emit && cfg.mode === 'live') event({ type: r.emit, cameraId: c.id }, t);

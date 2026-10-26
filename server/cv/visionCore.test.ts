@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newTracker, type ZoneSpec } from '../../src/domain/tables.ts';
+import type { ZoneSpec } from '../../src/domain/tables.ts';
+import { followFloor, startTracker } from './tracker.ts';
 import {
-  alertsDue, BACKOFF_MAX_MS, cameraArgs, CPU_GUARD_MS, cpuGuard, cpuPercent, checkEvery, CROP_MARGIN, followFloor, FRAME_BYTES, FRAME_H, FRAME_W, frameReader,
+  alertsDue, BACKOFF_MAX_MS, cameraArgs, devSources, CPU_GUARD_MS, cpuGuard, cpuPercent, checkEvery, CROP_MARGIN, FRAME_BYTES, FRAME_H, FRAME_W, frameReader,
   greyThumb, linkStep, meanAbsDiff, MOTION_H, MOTION_THRESHOLD, MOTION_W, NO_FRAMES_MS, OFFLINE_REPORT_MS, presence, restartDelay, REUSE_MS,
   shouldReuse, SLOW_CHECK_MS, CHECK_MS, zoneBox, type Guard, type Link,
 } from './visionCore.ts';
@@ -16,6 +17,16 @@ test('ffmpeg reads the stream over TCP at 1 fps, 640x360 raw rgb24 to stdout, ne
   assert.deepEqual(a.slice(a.indexOf('-vf'), a.indexOf('-vf') + 2), ['-vf', `fps=1,scale=${FRAME_W}:${FRAME_H}`]);
   assert.deepEqual(a.slice(-5), ['-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']);
   assert.equal(FRAME_BYTES, 640 * 360 * 3);
+});
+
+test('a development camera: a video file loops at its own speed, an image repeats; set only by CV_DEV_CAMERAS', () => {
+  const video = cameraArgs('C:\\clips\\cafe.mp4');
+  assert.deepEqual(video.slice(video.indexOf('-re'), video.indexOf('-re') + 5), ['-re', '-stream_loop', '-1', '-i', 'C:\\clips\\cafe.mp4']);
+  assert.equal(video.includes('-rtsp_transport'), false);
+  const still = cameraArgs('C:\\clips\\empty.jpg');
+  assert.deepEqual(still.slice(still.indexOf('-re'), still.indexOf('-re') + 6), ['-re', '-loop', '1', '-framerate', '1', '-i']);
+  assert.deepEqual([...devSources('front=C:\\clips\\a.mp4; back = C:\\b.jpg;;bad')], [['front', 'C:\\clips\\a.mp4'], ['back', 'C:\\b.jpg']]);
+  assert.equal(devSources(undefined).size, 0);
 });
 
 test('the frame reader hands over exact-size frames however the pipe cuts them', () => {
@@ -133,14 +144,14 @@ test('CPU share is of the whole PC', () => {
 });
 
 test('Live follows a staff change on the floor; Shadow keeps its own count', () => {
-  const t = newTracker('occupied', 1000);
+  const t = startTracker('occupied', 1000);
   const floor = { state: 'free' as const, since: 5000, alertId: null };
   const live = followFloor(t, floor, 'live');
   assert.equal(live.state, 'free');
   assert.ok(live.hold, 'held until presence flips');
   assert.equal(followFloor(t, floor, 'shadow'), t);
   // Its own change, come back from the server: nothing to do.
-  assert.equal(followFloor(newTracker('occupied', 5000), { state: 'occupied', since: 5000, alertId: null }, 'live').hold, null);
+  assert.equal(followFloor(startTracker('occupied', 5000), { state: 'occupied', since: 5000, alertId: null }, 'live').hold, null);
   assert.equal(followFloor(t, undefined, 'live'), t);
 });
 
