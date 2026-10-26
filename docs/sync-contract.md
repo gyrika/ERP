@@ -135,6 +135,19 @@ person asked for). `prep.released` (`ticketId`, `prepId`, `name`, `qty`, `unit`,
 held batch on the kitchen screen; only the shop server writes it (id `rel-<ticketId>`), a device's is
 refused. The kitchen fires a ticket from the release alone and ignores one for a batch taken back.
 
+Tables and cameras (CV Table Management, SCRUM-166; `TableEvent` / `VisionEvent` in `events.ts`, rules
+and fold in `tables.ts`). All have `orderNumber` 0 and an actor; the server takes exactly these fields,
+so no camera password or image can ride along:
+`table.layout_set {tables:[{id,label,seats}]}`, `table.state_changed {tableId,from,to,confidence}` (the
+camera; ignored by the fold when the table is no longer in `from`), `table.state_set {tableId,from,to}`
+(staff; holds until presence flips), `table.state_set_undone {tableId,undoneEventId}` (Undo, like
+`order.change_undone`), `table.alert_raised {tableId,alert:'needs_cleaning'}`,
+`table.alert_cleared {tableId,alertEventId}`, `vision.cameras_set {cameras:[{id,name,ip,rtspPath,enabled}]}`
+(at most 4; `ip` is a host only, `rtspPath` a path only), `vision.zones_set {cameraId,zones:[{id,tableId,points}]}`
+(points `{x,y}` normalised 0-1), `vision.settings_set {mode:'off'|'shadow'|'live',seatS,leaveS,cleanAlertS}`,
+`vision.camera_offline` / `vision.camera_online {cameraId}`, `vision.heartbeat {cameras:[{id,online,fps}],cpu}`.
+Who may record them (`mayRecord`, the `vision` role) comes with SCRUM-167; until then the server refuses them.
+
 ## Decision needed: where the server runs
 
 The internet at the shop is unreliable, and **the kitchen works from the screen only**. If the server

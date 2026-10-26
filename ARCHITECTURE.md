@@ -48,6 +48,9 @@
 - **Release on the server:** `releasesDue` (`src/domain/scheduler.ts`) runs on the shop server after every stored push (`server/scheduler.ts`), oldest first, and writes `prep.released` (id `rel-<ticket>`, so once). The server is on the counter PC, so it works offline; a device with no server (the demo) runs it itself. Devices cannot push a release. Chosen over releasing in each device's fold because the kitchen screen only folds a day of events and stock needs the whole history.
 - **Cost:** the server keeps the shop's history in memory for this and folds it only while a batch is held. Fine for one shop; a big history would want a snapshot.
 
+## CV tables (2026-10-26, SCRUM-164)
+- **Domain (SCRUM-166):** `src/domain/tables.ts`, pure. Free/reserved → occupied at 70% present over `seatS` (60 s); occupied → needs_cleaning at 90% absent over `leaveS` (180 s); only staff free a dirty table; a staff change holds until presence flips. `tablesFromEvents` folds the floor; `table.state_set_undone` is its Undo. Events carry no password or image (the server takes exactly their fields).
+
 ## Run
 `npm i && npm run dev` · `npm test` (domain + UI) · `npm run test:domain` · `npm run test:ui` · `npm run build` · demo: `/?demo` (manager PIN in `src/fake/data.ts`)
 
