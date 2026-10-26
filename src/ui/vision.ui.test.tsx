@@ -49,7 +49,7 @@ afterEach(() => { act(() => lock()); cleanup(); vi.unstubAllGlobals(); vi.unstub
 
 const radio = (name: string) => screen.getByRole('radio', { name });
 
-test('the owner switches to Shadow by keyboard: PIN in the line, the CV pack arrives, one event, Undo; Live waits for every zone', async () => {
+test('the owner switches to Shadow by keyboard: PIN in the line, the CV pack arrives, one event; Live waits for every zone', async () => {
   const server = fakeShopServer();
   addEvents(shop());
   history.replaceState(null, '', '/#vision');
@@ -59,8 +59,7 @@ test('the owner switches to Shadow by keyboard: PIN in the line, the CV pack arr
   const part = screen.getByRole('link', { name: 'Computer vision' });
   expect(part.getAttribute('aria-current')).toBe('page');
   expect(within(screen.getByRole('navigation', { name: 'Owner sections' })).getByText('Off')).toBeTruthy();
-  // The owner's guide, one tap from the page (SCRUM-182).
-  expect(screen.getByRole('link', { name: 'How to set up' }).getAttribute('href')).toBe('#vision/guide');
+  expect(screen.queryByRole('link', { name: 'How to set up' })).toBeNull();
 
   // Live: not until table 2 has a zone, said inline with the way to fix it.
   expect(radio('Live').getAttribute('aria-disabled')).toBe('true');
@@ -80,8 +79,7 @@ test('the owner switches to Shadow by keyboard: PIN in the line, the CV pack arr
   expect(server.settings).toEqual([{ ownerPin: '1234', mode: 'shadow', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15 }]);
   expect(radio('Shadow').getAttribute('aria-checked')).toBe('true');
 
-  await user.click(screen.getByRole('button', { name: 'Undo' }));
-  expect(server.settings[1]).toEqual({ ownerPin: '1234', mode: 'off', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15 });
+  expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
 
   // The CPU limit: 5% to 50% in steps of 5; one event once the slider settles.
   const cpu = screen.getByRole('slider');
@@ -89,7 +87,7 @@ test('the owner switches to Shadow by keyboard: PIN in the line, the CV pack arr
   fireEvent.change(cpu, { target: { value: '25' } });
   expect(await screen.findByText('CPU limit 25%.', {}, { timeout: 3000 })).toBeTruthy();
   expect(server.settings.at(-1)).toMatchObject({ cpuLimit: 25 });
-  expect(server.settings).toHaveLength(3);
+  expect(server.settings).toHaveLength(2);
 });
 
 test('the tables and cameras before the worker exists: tiles like F1, why each is so, "No camera data yet"', async () => {
@@ -111,7 +109,7 @@ test('the tables and cameras before the worker exists: tiles like F1, why each i
   expect(within(tiles).getAllByRole('option')[1].getAttribute('aria-label')).toMatch(/reserved/);
 });
 
-test('the demo: the Shadow week card goes to #vision with Live picked; Enter switches, with Undo', async () => {
+test('the demo: the Shadow week card goes to #vision with Live picked; Enter switches', async () => {
   history.replaceState(null, '', '/?demo#owner');
   const user = userEvent.setup();
   render(<Root />);
@@ -136,8 +134,6 @@ test('the demo: the Shadow week card goes to #vision with Live picked; Enter swi
   await user.keyboard('{Enter}');
   expect(await screen.findByText('Live on.')).toBeTruthy();
   expect(radio('Live').getAttribute('aria-checked')).toBe('true');
-  await user.click(screen.getByRole('button', { name: 'Undo' }));
-  await vi.waitFor(() => expect(radio('Shadow').getAttribute('aria-checked')).toBe('true'));
 });
 
 test("on the owner's phone the page is read only", async () => {
