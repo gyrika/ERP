@@ -143,7 +143,10 @@ suggests, and selling never waits for it.
   from the list it was sent, or `null`. The caller sends only what that person may already use, so
   the model cannot reach anything else; a reply outside the list counts as `null`.
 - **`POST /api/v1/ai/transcribe`** (body: the recording, `audio/*`, at most 1 MB) → `{ text }`
-  (Whisper). The recording is used once and never stored.
+  (Whisper large-v3-turbo, in English, with the shop's words as its starting prompt and its silence
+  filter on; "Thank you." and the like from a silent room come back as `''`). The recording is used
+  once and never stored. The counter sends one only after it heard speech: F9 starts listening, and it
+  stops about a second after the speaker does (`src/domain/speechEnd.ts`), or when F9 is let go.
 - **Who:** paired devices only (shop server, owner and manager phones).
 - **Cache:** the same question with the same list is answered from D1 (`ai_cache`), not the model.
 - **Daily cap:** 300 model calls per shop per Sri Lanka day (`ai_usage`; `AI_DAILY_CALLS` in
