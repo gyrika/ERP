@@ -253,7 +253,7 @@ test("a manager sees no recipes (no Recipe on a dish), and typing the address gi
   expect(nav.getByRole('link', { name: 'Items' })).toBeTruthy();
   const tabs = within(screen.getByRole('navigation', { name: 'Items' }));
   // Semi-processed items are items, not recipes: managers see them too; the finished dishes' recipes stay the owner's.
-  expect(tabs.getAllByRole('link').map((a) => a.textContent)).toEqual(['Raw materials', 'Semi-processed', 'Finished']);
+  expect(tabs.getAllByRole('link').map((a) => a.firstChild?.textContent)).toEqual(['Raw materials', 'Semi-processed', 'Finished']);
 
   act(() => { location.hash = '#recipes'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
   expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();
