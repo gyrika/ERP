@@ -1309,7 +1309,7 @@ test('Count happens inside the item sheet, then History shows it with the delive
   const items = within(sheet.getByRole('list', { name: 'History of Pizza Flour' })).getAllByRole('listitem');
   expect(items.map((li) => li.textContent?.replace(/^today · [A-Z][a-z]+/, ''))).toEqual([
     'Counted 37.5 kg · expected 50 kg · 12.5 kg short (Rs 3,200) · Spoiled or expired',
-    'Received 2 packs (50 kg)',
+    'Received 2 packs (50 kg) · Rs 12,800',
     'Counted 0 g · first count',
   ]);
   // Undo the count: back on Details, and it leaves the history.
