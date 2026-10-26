@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { setupClient, type CvStatus } from '../services/setupClient.ts';
 import { OwnerNav } from './OwnerNav.tsx';
 import { OwnerPin } from './SetupWizard.tsx';
+import { CameraSetup } from './cameras/CameraSetup.tsx';
 
 /**
  * #cameras (SCRUM-169), the owner's, on the shop PC. Serves the owner switching table detection
  * on: they know they want it; the one thing they need is to press Activate and see it arrive.
  * CV is off until then. Activate makes the shop server fetch the CV pack (server/cvPack.ts) in
  * the background; this screen shows its progress and, if it fails, why, with Retry beside it.
- * No restart. Slice 6 (SCRUM-171) adds the cameras, tables and zones here.
+ * No restart. Below it (SCRUM-171, cameras/CameraSetup.tsx): the cameras, tables, zones, timers and mode.
  * Lazy-loaded from Root, so the Register's bundle does not carry it.
  */
 const LOOK_MS = 1000;
@@ -76,6 +77,7 @@ export default function CamerasView({ onRegister }: { onRegister?: () => void })
           </p>
         )}
         {error && <p className="setup__error" role="alert">{error}</p>}
+        <CameraSetup pin={ownerPin} />
       </div>
     );
   }

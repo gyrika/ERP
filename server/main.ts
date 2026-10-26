@@ -9,6 +9,7 @@ import { dryRunPrinter, switchablePrinter, systemPrinter } from './printer.ts';
 import { startOnline, type Online } from './online.ts';
 import { createFleet } from './fleet.ts';
 import { cvPack } from './cvPack.ts';
+import { cvSecrets } from './cvSecrets.ts';
 import { startReplicator } from './replicator.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
@@ -144,7 +145,11 @@ const server = createApp({
   onStored: (tenantId, events) => { if (tenantId === cloudShop()) { replicator?.nudge(); online?.onEvents(events); } },
   online: () => online,
   cloudStatus: () => replicator?.status() ?? null,
-  setup: setupApi({ store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv }),
+  setup: setupApi({
+    store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv,
+    // The cameras' logins, encrypted in the data folder (C:\ProgramData\CheesyBeez on the shop PC); the owner's setup is stored like a push.
+    secrets: cvSecrets(dataDir), ingest: (device, events) => server.ingest(device, events),
+  }),
   version: updates.current,
   updating: () => activeUpdate(updates.status(), Date.now()),
   fleet,

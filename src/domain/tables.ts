@@ -20,8 +20,10 @@ export const DEFAULT_SEAT_S = 60;
 export const DEFAULT_LEAVE_S = 180;
 /** A table still waiting to be cleaned this long raises a cleaning alert. */
 export const DEFAULT_CLEAN_ALERT_S = 300;
-/** Wi-Fi cameras one shop PC can watch. */
+/** Wi-Fi cameras one shop PC can watch ("Use for CV" on). */
 export const MAX_CAMERAS = 4;
+/** Cameras the owner may set up in all, most of them off (SCRUM-171). */
+export const MAX_CAMERA_LIST = 16;
 
 export type VisionMode = 'off' | 'shadow' | 'live';
 export interface VisionSettings { mode: VisionMode; seatS: number; leaveS: number; cleanAlertS: number }
@@ -303,9 +305,9 @@ export const checkTableEvent = (e: Record<string, unknown>): string | null => {
       return id(e.tableId) && id(e.alertEventId) ? null : 'it does not say which alert';
     case 'vision.cameras_set': {
       const c = e.cameras;
-      if (!Array.isArray(c) || c.length > MAX_CAMERAS || !c.every((x) => isObj(x) && only(x, ['id', 'name', 'ip', 'rtspPath', 'enabled'])
+      if (!Array.isArray(c) || c.length > MAX_CAMERA_LIST || !c.every((x) => isObj(x) && only(x, ['id', 'name', 'ip', 'rtspPath', 'enabled'])
         && id(x.id) && id(x.name, 60) && host(x.ip) && rtspPath(x.rtspPath) && typeof x.enabled === 'boolean')
-        || !unique(c as CameraSpec[])) return 'the cameras are not valid';
+        || !unique(c as CameraSpec[]) || (c as CameraSpec[]).filter((x) => x.enabled).length > MAX_CAMERAS) return 'the cameras are not valid';
       return null;
     }
     case 'vision.zones_set': {

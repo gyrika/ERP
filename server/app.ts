@@ -218,7 +218,9 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/shop': setup.nameShop, '/printer': setup.setPrinter, '/staff': setup.addStaff, '/staff/list': setup.staff,
           '/staff/remove': setup.removeStaff, '/pair': setup.pair, '/cloud': setup.connectCloud, '/finish': () => setup.finish(),
           '/update/check': setup.checkUpdate, '/update/install': setup.installUpdate, '/update/status': setup.updateStatus,
-          '/cv/status': setup.cvStatus, '/cv/activate': setup.cvActivate,
+          '/cv/status': setup.cvStatus, '/cv/activate': setup.cvActivate, '/cv/setup': setup.cvSetup, '/cv/scan': setup.cvScan,
+          '/cv/test': setup.cvTest, '/cv/cameras': setup.cvCameras, '/cv/tables': setup.cvTables, '/cv/zones': setup.cvZones,
+          '/cv/settings': setup.cvSettings,
         };
         const route = routes[step];
         if (!route) throw new HttpError(404, 'server', 'no such setup step');

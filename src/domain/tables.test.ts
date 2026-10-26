@@ -305,6 +305,8 @@ test('the server accepts every well-formed table and vision event', () => {
     ev({ type: 'vision.camera_offline', cameraId: 'c1' }, 1),
     ev({ type: 'vision.camera_online', cameraId: 'c1' }, 1),
     ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 2.5 }], cpu: 37.5 }, 1),
+    // A 5th camera may be set up, as long as only 4 are used for CV (SCRUM-171).
+    ev({ type: 'vision.cameras_set', cameras: Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, name: 'C', ip: '192.168.1.20', rtspPath: '/s', enabled: i < 4 })) }, 1),
   ]) assert.equal(valid(e), null, (e as { type: string }).type);
 });
 
@@ -322,6 +324,7 @@ test('the server refuses malformed table and vision events, and any password or 
     ev({ type: 'vision.cameras_set', cameras: [{ id: 'c1', name: 'Front', ip: 'admin:secret@192.168.1.20', rtspPath: '/stream1', enabled: true }] }, 1),
     ev({ type: 'vision.cameras_set', cameras: [{ id: 'c1', name: 'Front', ip: '192.168.1.20', rtspPath: 'rtsp://admin:secret@x/stream1', enabled: true }] }, 1),
     ev({ type: 'vision.cameras_set', cameras: Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, name: 'C', ip: '192.168.1.20', rtspPath: '/s', enabled: true })) }, 1),
+    ev({ type: 'vision.cameras_set', cameras: Array.from({ length: 17 }, (_, i) => ({ id: `c${i}`, name: 'C', ip: '192.168.1.20', rtspPath: '/s', enabled: false })) }, 1),
     ev({ type: 'vision.zones_set', cameraId: 'c1', zones: [{ id: 'z', tableId: 't1', points: [{ x: 0, y: 0 }, { x: 1.2, y: 0 }, { x: 1, y: 1 }] }] }, 1),
     ev({ type: 'vision.zones_set', cameraId: 'c1', zones: [{ id: 'z', tableId: 't1', points: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }] }, 1),
     ev({ type: 'vision.settings_set', mode: 'on', seatS: 60, leaveS: 180, cleanAlertS: 300 }, 1),

@@ -26,6 +26,8 @@ export interface ShopSettings {
   managerInboxDevice?: string;
   /** The owner activated CV on #cameras (SCRUM-169): the CV pack is kept installed. */
   cvActive?: boolean;
+  /** The local device the owner's camera setup on #cameras is filed under (SCRUM-171). */
+  cvSetupDevice?: string;
 }
 
 export function settingsFile(file: string) {

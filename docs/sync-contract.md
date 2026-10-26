@@ -143,7 +143,7 @@ camera; ignored by the fold when the table is no longer in `from`), `table.state
 (staff; holds until presence flips), `table.state_set_undone {tableId,undoneEventId}` (Undo, like
 `order.change_undone`), `table.alert_raised {tableId,alert:'needs_cleaning'}`,
 `table.alert_cleared {tableId,alertEventId}`, `vision.cameras_set {cameras:[{id,name,ip,rtspPath,enabled}]}`
-(at most 4; `ip` is a host only, `rtspPath` a path only), `vision.zones_set {cameraId,zones:[{id,tableId,points}]}`
+(at most 16, at most 4 `enabled`; `ip` is a host only, `rtspPath` a path only), `vision.zones_set {cameraId,zones:[{id,tableId,points}]}`
 (points `{x,y}` normalised 0-1), `vision.settings_set {mode:'off'|'shadow'|'live',seatS,leaveS,cleanAlertS}`,
 `vision.camera_offline` / `vision.camera_online {cameraId}`, `vision.heartbeat {cameras:[{id,online,fps}],cpu}`.
 Who may record them (`mayRecord`, SCRUM-167): role `vision` only `table.state_changed`, `table.alert_raised`,

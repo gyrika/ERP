@@ -35,7 +35,7 @@ test("CV is off until the owner activates it; a damaged pack says why, and Retry
   await user.type(pin, '1234{Enter}');
 
   expect(await screen.findByText(/Table detection is off/)).toBeTruthy();
-  expect(server.asked).toEqual(['/cv/status', '/cv/status']); // looking only, nothing downloaded yet
+  expect(server.asked.filter((s) => s !== '/cv/setup')).toEqual(['/cv/status', '/cv/status']); // looking only, nothing downloaded yet
   await user.click(screen.getByRole('button', { name: 'Activate CV' }));
   expect(screen.getByRole('progressbar', { name: 'Downloading the CV pack' })).toBeTruthy();
   expect(screen.getByText('0.0 MB of 50 MB')).toBeTruthy();
