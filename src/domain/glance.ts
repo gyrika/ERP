@@ -4,13 +4,13 @@ import { stockFromEvents, stockStatus } from './inventory.ts';
 import { queue, ticketsFromEvents } from './kitchen.ts';
 import { menuItems } from './menu.ts';
 import { fmt, unitPrice } from './money.ts';
-import { PREP_STOCK } from './prep.ts';
 import { grnValueCents, purchasesFromEvents } from './purchaseOrders.ts';
 import { formatStock } from './itemStory.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, Tender } from './types.ts';
 import { valuationOf, valueAt } from './valuation.ts';
 import { wasteRecords } from './waste.ts';
+import { wasteCents } from './wasteInsights.ts';
 
 /**
  * Today at a glance (SCRUM-173): the whole shop in one look for the owner, and in words for
@@ -220,13 +220,10 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
         cost += c.cents * l.qty;
       }
     }
-    const wasteCents = wasteRecords(events, shop.items).filter((w) => w.at >= today && w.at <= now)
-      .reduce((n, w) => n + w.takes.reduce((m, t) => {
-        const id = t.inventoryId.startsWith(PREP_STOCK) ? `semi:${t.inventoryId.slice(PREP_STOCK.length)}` : `stock:${t.inventoryId}`;
-        return m + (unitCost.get(id) ?? 0) * t.qtyBaseUnits;
-      }, 0), 0);
+    const wasted = wasteRecords(events, shop.items).filter((w) => w.at >= today && w.at <= now)
+      .reduce((n, w) => n + wasteCents(w.takes, unitCost), 0);
     const food = priced > 0 ? Math.round((cost / priced) * 100) : 0;
-    const waste = Math.min(100 - food, Math.round((wasteCents / total) * 100));
+    const waste = Math.min(100 - food, Math.round((wasted / total) * 100));
     split = {
       food, waste, kept: Math.max(0, 100 - food - waste),
       explain: [
