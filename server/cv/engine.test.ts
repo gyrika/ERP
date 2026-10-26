@@ -86,6 +86,26 @@ test('over the CPU limit for 5 minutes: one check every 2 s, "slowed" in the hea
   assert.equal(s.beats().at(-1)!.slowed, false);
 });
 
+test('the watched camera only: what each check sees goes to the server, normalised, with when it was detected', async () => {
+  const s = setup();
+  s.engine.configure(config());
+  await s.run(2);
+  assert.equal(s.sent.filter((m) => m.type === 'seen').length, 0, 'nobody watching: nothing');
+  s.engine.watch('cam1');
+  const from = s.at();
+  await s.run(3);
+  const seen = s.sent.flatMap((m) => (m.type === 'seen' ? [m] : []));
+  assert.equal(seen.length, 3);
+  assert.deepEqual(seen[0].persons, [{ x1: 0.1875, y1: 0.2778, x2: 0.3125, y2: 0.9722, score: 0.9 }]);
+  assert.equal(seen[0].cameraId, 'cam1');
+  // Still frames: the motion gate reuses the first detection, so it gets older.
+  assert.equal(seen[2].at, from + 2000);
+  assert.ok(seen[2].detectedAt < from, 'detected before the watch began, reused since');
+  s.engine.watch(null);
+  await s.run(2);
+  assert.equal(s.sent.filter((m) => m.type === 'seen').length, 3);
+});
+
 test('a heartbeat every 30 s: each camera online and its frames a second', async () => {
   const s = setup();
   s.engine.configure(config());

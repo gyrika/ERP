@@ -1,14 +1,17 @@
+import type { Seen } from '../domain/tables.ts';
+import { FAKE_DETECTIONS } from '../fake/data.ts';
 import { isDemo } from '../ui/storage.ts';
 
 /**
  * Camera views on #vision (SCRUM-180). On the shop PC: the owner's PIN opens a key, then each view
  * is polled for its latest frame; the shop server runs ffmpeg only while it is asked
- * (server/cvLive.ts). The picture is a data URL in this screen's memory, never stored. The demo
- * has no shop server: it draws a test picture per camera, and its back camera is offline.
+ * (server/cvLive.ts). The picture is a data URL in this screen's memory, never stored. The large
+ * view's answer also carries what detection sees there, when the camera worker runs (SCRUM-175).
+ * The demo has no shop server: it draws a test picture per camera, and its back camera is offline.
  */
 export type ViewMode = 'tile' | 'live';
 export type ViewFrame =
-  | { state: 'frame'; seq: number; at: number; src: string }
+  | { state: 'frame'; seq: number; at: number; src: string; seen?: Seen }
   | { state: 'starting' | 'busy' | 'paused' | 'pack' | 'unknown' }
   | { state: 'offline'; message: string };
 
@@ -35,8 +38,8 @@ const shopServer: CameraViewsClient = {
   needsPin: true,
   open: (pin) => post('/cv/views/open', { ownerPin: pin }),
   async frame(key, cameraId, q) {
-    const f = await post<{ state: string; seq?: number; at?: number; jpeg?: string; message?: string }>('/cv/views/frame', { key, cameraId, ...q });
-    if (f.state === 'frame') return { state: 'frame', seq: f.seq!, at: f.at!, src: `data:image/jpeg;base64,${f.jpeg}` };
+    const f = await post<{ state: string; seq?: number; at?: number; jpeg?: string; message?: string; seen?: Seen }>('/cv/views/frame', { key, cameraId, ...q });
+    if (f.state === 'frame') return { state: 'frame', seq: f.seq!, at: f.at!, src: `data:image/jpeg;base64,${f.jpeg}`, ...(f.seen ? { seen: f.seen } : {}) };
     if (f.state === 'offline') return { state: 'offline', message: f.message ?? '' };
     return { state: f.state as Exclude<ViewFrame['state'], 'frame' | 'offline'> };
   },
@@ -72,7 +75,10 @@ const demo = (names: () => Map<string, string>): CameraViewsClient => ({
     if (DEMO_OFFLINE.has(cameraId)) return { state: 'offline', message: 'The camera did not answer: check the IP address, and turn RTSP on in the camera’s app.' };
     if (q.mode === 'live') await new Promise((r) => setTimeout(r, 250)); // 4 frames a second, as the shop's
     const at = Date.now();
-    return { state: 'frame', seq: ++demoSeq, at, src: testPicture(cameraId, names().get(cameraId) ?? cameraId, at, q.mode) };
+    const src = testPicture(cameraId, names().get(cameraId) ?? cameraId, at, q.mode);
+    const persons = q.mode === 'live' ? FAKE_DETECTIONS[cameraId] : undefined;
+    // Detected afresh every 12 s; in between the motion gate reuses it, so "last checked" grows.
+    return { state: 'frame', seq: ++demoSeq, at, src, ...(persons ? { seen: { at, detectedAt: at - (at % 12_000), persons } } : {}) };
   },
   close: () => {},
 });

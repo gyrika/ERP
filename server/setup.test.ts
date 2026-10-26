@@ -253,7 +253,11 @@ test('#vision camera views: the PIN opens a key; frames come from the camera lis
   const sources: unknown[] = [];
   let stops = 0;
   let server: ReturnType<typeof createApp> | null = null;
+  const watched: (string | null)[] = [];
+  const people = { at: 9, detectedAt: 6, persons: [{ x1: 0.1, y1: 0.2, x2: 0.3, y2: 0.9, score: 0.87 }] };
   const setup = setupApi({
+    // What detection sees on the camera open large (SCRUM-175), from the camera worker.
+    detections: { watch: (id) => { watched.push(id); }, seen: (id) => (id === 'front-2' ? people : null) },
     store, settings, usePrinter: () => {}, printsDir: join(dir, 'prints'), port: 8080, cloud: () => null, cloudUrl: 'https://cloud.test', cv,
     secrets: cvSecrets(dir), ingest: (device, events) => server!.ingest(device, events),
     discover: async () => [{ ip: '192.168.1.31', name: 'Tiandy TC-C32', xaddr: 'http://192.168.1.31:8080/onvif/device_service' }],
@@ -299,13 +303,18 @@ test('#vision camera views: the PIN opens a key; frames come from the camera lis
   assert.equal(packReady, true);
   await assert.rejects(setup.cvViewsFrame({ key: 'guess', cameraId: 'front-2' }), /PIN is needed again/);
   const f = await setup.cvViewsFrame({ key, cameraId: 'front-2', mode: 'live', use: true });
-  assert.deepEqual(f, { state: 'frame', seq: 1, at: 5, jpeg: '/9j/2Q==' });
+  assert.deepEqual(f, { state: 'frame', seq: 1, at: 5, jpeg: '/9j/2Q==', seen: people }, 'the large view carries what detection sees');
+  assert.deepEqual(watched, ['front-2']);
+  const tile = await setup.cvViewsFrame({ key, cameraId: 'front-2', mode: 'tile' });
+  assert.equal('seen' in tile, false, 'a tile never does');
+  assert.deepEqual(watched, ['front-2', null], 'back to the tiles: the worker stops sending');
   assert.deepEqual(sources[0], {
     src: { ip: '192.168.1.31', rtspPath: '/2/2', user: 'admin', password: 'Sup3r-secret' },
     ffmpeg: join(dir, 'cv-pack', CV_PACK_VERSION, 'ffmpeg.exe'),
   });
   await setup.cvViewsClose({ key });
   assert.equal(stops, 2, 'leaving the page stops every view');
+  assert.equal(watched.at(-1), null);
   await assert.rejects(setup.cvViewsFrame({ key, cameraId: 'front-2' }), /PIN is needed again/);
 
   // Over HTTP too, from the shop PC; never from the LAN (isLocal, tested above).

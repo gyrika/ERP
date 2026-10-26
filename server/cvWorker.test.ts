@@ -104,7 +104,7 @@ test('the shop server runs the worker in Shadow, stores what it says as vision, 
   const ingested: SyncEvent[] = [];
   let packDir: string | null = dir;
   const vision = startVision({
-    store, settings, packDir: () => packDir, login: () => ({ user: 'admin', password: 'secret1' }), logDir: join(dir, 'logs'), script: FAKE, checkMs: 50,
+    store, settings, packDir: () => packDir, login: () => ({ user: 'admin', password: 'secret1' }), logDir: join(dir, 'logs'), script: FAKE, checkMs: 50, watchMs: 200,
     ingest: async (d: Device, events: SyncEvent[]) => {
       const r = await store.push(d, events, Date.now());
       ingested.push(...r.stored.map((s) => s.event));
@@ -118,6 +118,15 @@ test('the shop server runs the worker in Shadow, stores what it says as vision, 
     assert.deepEqual((online as { actor: unknown }).actor, { id: 'vision', name: 'Cameras', role: 'vision' });
     assert.equal(online.shopId, SHOP);
     assert.ok(vision.running());
+    // The owner opens the front camera large: its detections come, in memory only, and stop with the view.
+    vision.watch('cam1');
+    await until(() => vision.seen('cam1') !== null);
+    assert.deepEqual(vision.seen('cam1'), { at: 2000, detectedAt: 1000, persons: [{ x1: 0.1, y1: 0.2, x2: 0.3, y2: 0.9, score: 0.87 }] });
+    assert.equal(vision.seen('cam2'), null);
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(vision.seen('cam1'), null, 'no poll for WATCH_MS: closed');
+    await until(() => readFileSync(join(dir, 'logs', 'cv.log'), 'utf8').includes('unwatched'));
+    assert.equal(ingested.some((e) => JSON.stringify(e).includes('0.87')), false, 'never an event');
     // Pausing for a new CV pack stops it; the pack back starts it again.
     packDir = null;
     await until(() => !vision.running());

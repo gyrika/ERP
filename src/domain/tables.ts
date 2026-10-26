@@ -150,6 +150,14 @@ export const pointInPolygon = (point: Point, polygon: readonly Point[]): boolean
 export const footPoint = (box: { x1: number; y1: number; x2: number; y2: number }): Point =>
   ({ x: (box.x1 + box.x2) / 2, y: box.y1 + 0.8 * (box.y2 - box.y1) });
 
+/** A person box detection found, normalised 0-1 to the frame, with its score (SCRUM-175). */
+export interface SeenBox { x1: number; y1: number; x2: number; y2: number; score: number }
+/**
+ * What detection saw on the camera the owner watches large: its people, and when they were
+ * detected (older while the motion gate reuses a result). Shop PC memory only: never an event.
+ */
+export interface Seen { at: number; detectedAt: number; persons: SeenBox[] }
+
 // ----- The floor, folded from events -----
 
 export interface Vision {

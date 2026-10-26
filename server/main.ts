@@ -127,6 +127,8 @@ const setup = setupApi({
   store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv,
   // The owner's setup is stored like a push.
   secrets, ingest: (device, events) => server.ingest(device, events),
+  // The large camera view draws what detection sees (SCRUM-175).
+  detections: { watch: (id) => vision.watch(id), seen: (id) => vision.seen(id) },
 });
 const server = createApp({
   photos: photoFolder(`${dataDir}/photos`),

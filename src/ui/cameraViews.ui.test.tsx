@@ -21,7 +21,7 @@ const cameras = [
 const JPEG = 'iVBORw0KGgo='; // any bytes: the screen only shows them
 
 /** The shop server's camera views: the PIN opens a key; the store room is offline; frames count up. */
-function fakeShopServer(o: { packReady?: boolean; pauseAfter?: number } = {}) {
+function fakeShopServer(o: { packReady?: boolean; pauseAfter?: number; seen?: () => unknown } = {}) {
   const s = { asks: [] as { step: string; body: Record<string, unknown> }[], frames: 0, closed: [] as string[], beacons: 0 };
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const step = String(url).replace('/api/v1/setup', '');
@@ -37,7 +37,8 @@ function fakeShopServer(o: { packReady?: boolean; pauseAfter?: number } = {}) {
       if (body.cameraId === 'store') return Response.json({ state: 'offline', cause: 'rtsp', message: 'The camera did not answer: check the IP address, and turn RTSP on in the camera’s app.' });
       if (body.mode === 'live') await new Promise((r) => setTimeout(r, 40));
       s.frames += 1;
-      return Response.json({ state: 'frame', seq: s.frames, at: Date.now(), jpeg: JPEG });
+      const seen = body.mode === 'live' ? o.seen?.() : undefined;
+      return Response.json({ state: 'frame', seq: s.frames, at: Date.now(), jpeg: JPEG, ...(seen ? { seen } : {}) });
     }
     if (step === '/cv/views/close') { s.closed.push(body.key); return Response.json({ closed: true }); }
     return new Response('{}', { status: 404 });
@@ -93,6 +94,49 @@ test('the owner watches every camera: PIN once, a tile per lens, Enter opens one
   // Leaving the page stops every view on the shop server.
   await user.click(screen.getByRole('link', { name: 'Today' }));
   await waitFor(() => expect(server.closed).toEqual(['k-1']));
+});
+
+test('the large view draws what detection sees: zones in their table colour, people with score and foot point, how old the check is', async () => {
+  const detectedAt = Date.now() - 3000; // the motion gate has reused it for 3 s
+  fakeShopServer({ seen: () => ({ at: Date.now(), detectedAt, persons: [
+    { x1: 0.1, y1: 0.2, x2: 0.2, y2: 0.9, score: 0.87 },
+    { x1: 0.6, y1: 0.1, x2: 0.7, y2: 0.8, score: 0.42 },
+  ] }) });
+  const box = (x: number) => [{ x, y: 0.3 }, { x: x + 0.3, y: 0.3 }, { x: x + 0.3, y: 0.95 }, { x, y: 0.95 }];
+  addEvents([
+    ev({ type: 'table.layout_set', tables: [{ id: 't1', label: '1', seats: 2 }, { id: 't2', label: '2', seats: 4 }, { id: 't3', label: '3', seats: 4 }] }),
+    ev({ type: 'vision.cameras_set', cameras }),
+    ev({ type: 'vision.zones_set', cameraId: 'front-1', zones: [{ id: 'z1', tableId: 't1', points: box(0.05) }, { id: 'z2', tableId: 't2', points: box(0.55) }] }),
+    ev({ type: 'table.state_set', tableId: 't2', from: 'free', to: 'occupied' }),
+  ]);
+  history.replaceState(null, '', '/#vision');
+  const user = userEvent.setup();
+  render(<Root />);
+  const part = await screen.findByRole('region', { name: 'Camera views' });
+  await user.click(within(part).getByRole('button', { name: 'Watch the cameras' }));
+  await user.type(within(part).getByLabelText("The owner's PIN to watch the cameras"), '1234{Enter}');
+  await user.click(await within(part).findByRole('button', { name: 'Front garden 1, Online. Open large' }));
+  const large = await within(part).findByRole('figure', { name: 'Front garden 1, large' });
+
+  const overlay = await within(large).findByRole('img', { name: /^Detection: 2 people\. Table 1 free\. Table 2 occupied$/ });
+  // Each zone in its table's colour; the table without a zone on this camera is not drawn.
+  const zones = [...overlay.querySelectorAll('.overlay__zone')];
+  expect(zones.map((z) => [z.getAttribute('data-table'), z.getAttribute('class')])).toEqual([
+    ['t1', 'overlay__zone overlay__zone--free'], ['t2', 'overlay__zone overlay__zone--occupied'],
+  ]);
+  expect(within(large).getByText('Table 2')).toBeTruthy();
+  // Each person: the box, its score, and the foot point (centre, 80% down).
+  expect(within(large).getByText('87%')).toBeTruthy();
+  expect(within(large).getByText('42%')).toBeTruthy();
+  const feet = [...overlay.querySelectorAll('circle')];
+  expect(feet).toHaveLength(2);
+  expect(Number(feet[0].getAttribute('cx'))).toBeCloseTo(150);
+  expect(Number(feet[0].getAttribute('cy'))).toBeCloseTo((0.2 + 0.8 * 0.7) * 562.5);
+  expect(within(large).getByText(/^Last checked [34] s ago · 2 people$/)).toBeTruthy();
+
+  // Back to the tiles: no overlay there.
+  await user.keyboard('{Escape}');
+  expect(within(part).queryByRole('img', { name: /^Detection/ })).toBeNull();
 });
 
 test('without the CV pack the section says so, with Activate CV inline; untouched for 2 minutes it pauses until a touch', async () => {

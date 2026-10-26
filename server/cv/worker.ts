@@ -111,6 +111,7 @@ function quit(code = 0): never {
 process.on('message', (m: ToWorker) => {
   if (m.type === 'stop') quit(0);
   else if (m.type === 'config') configure(m.config);
+  else if (m.type === 'watch') engine.watch(m.cameraId);
 });
 process.on('disconnect', () => quit(0)); // the server went: never leave ffmpeg running
 setInterval(() => engine.tick(), 1000);

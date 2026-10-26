@@ -6,7 +6,7 @@ import { mayRecord, type Actor } from '../src/domain/auth.ts';
 import { rtspUrl } from '../src/domain/cameraSetup.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
 import { MAX_CAMERAS, tablesFromEvents, visionFromEvents } from '../src/domain/tables.ts';
-import type { FromWorker, Heartbeat, ToWorker, VisionFields, WorkerConfig } from './cv/messages.ts';
+import type { FromWorker, Heartbeat, Seen, ToWorker, VisionFields, WorkerConfig } from './cv/messages.ts';
 import { HEARTBEAT_KEEP_MS, restartDelay, STABLE_MS } from './cv/visionCore.ts';
 import { cvLog } from './cvLog.ts';
 import type { CameraLogin } from './cvSecrets.ts';
@@ -30,6 +30,8 @@ const WORKER = fileURLToPath(new URL('./cv/worker.ts', import.meta.url));
 export const VISION_ACTOR: Actor = { id: 'vision', name: 'Cameras', role: 'vision' };
 /** A worker asked to stop that has not gone in this long is killed. */
 const STOP_MS = 2000;
+/** The large view polls several times a second; nobody asked for this long: it was closed (as cvLive's IDLE_MS). */
+export const WATCH_MS = 8_000;
 
 /** What the worker needs from the shop's events: null while it should not run. */
 export const workerConfig = (events: readonly SyncEvent[], packDir: string | null, login: (cameraId: string) => CameraLogin | null): WorkerConfig | null => {
@@ -145,6 +147,8 @@ export function workerProcess(o: {
       if (!child && !timer) launch();
       else sendConfig();
     },
+    /** A message for the running worker (dropped while it restarts). */
+    send: (m: ToWorker) => { if (ready) send(m); },
     running: () => child !== null,
     pid: () => child?.pid ?? null,
     /** The server stops. */
@@ -166,6 +170,8 @@ export function startVision(o: {
   script?: string;
   /** How often the pack and the shop are looked at again. */
   checkMs?: number;
+  /** The large view's detections expire after this long without a poll. */
+  watchMs?: number;
   now?: () => number;
 }) {
   const now = o.now ?? Date.now;
@@ -176,6 +182,10 @@ export function startVision(o: {
   let kept: { at: number; beat: Heartbeat } | null = null;
   let writes: Promise<unknown> = Promise.resolve();
   let stopped = false;
+  /** The camera the owner watches large (SCRUM-175) and its latest detections: memory only, while it is watched. */
+  let watching: { cameraId: string; until: number; told: number; seen: Seen | null } | null = null;
+  const watchMs = o.watchMs ?? WATCH_MS;
+  const unwatch = () => { if (watching) { watching = null; worker.send({ type: 'watch', cameraId: null }); } };
 
   const ours = (e: SyncEvent) => e.type.startsWith('table.') || e.type.startsWith('vision.');
   const load = async (tenantId: string): Promise<SyncEvent[]> => {
@@ -209,6 +219,9 @@ export function startVision(o: {
     log: (text) => log.write(text),
     onMessage(m) {
       if (m.type === 'log') log.write(`worker: ${m.text}`);
+      else if (m.type === 'seen') {
+        if (watching?.cameraId === m.cameraId) watching.seen = { at: m.at, detectedAt: m.detectedAt, persons: m.persons };
+      }
       else if (m.type === 'event') store(m.fields, m.at);
       else if (m.type === 'heartbeat') {
         const beat: Heartbeat = { cameras: m.cameras, cpu: m.cpu, slowed: m.slowed };
@@ -228,6 +241,7 @@ export function startVision(o: {
     const events = history ? await history.catch(() => { history = null; return null; }) : null;
     if (stopped) return;
     worker.set(events ? workerConfig(events, o.packDir(), o.login) : null);
+    if (watching && now() > watching.until) unwatch();
   };
   let checking: Promise<void> = Promise.resolve();
   const check = () => { checking = checking.then(refresh).catch((e: unknown) => log.write(`check failed: ${e instanceof Error ? e.message : String(e)}`)); };
@@ -245,6 +259,23 @@ export function startVision(o: {
         return [...log, ...events.filter((e) => ours(e) && !known.has(e.id))];
       });
       check();
+    },
+    /**
+     * The owner's large view asks for a frame (null: it closed). The worker sends each check's
+     * people for this camera until no poll came for WATCH_MS. Told again now and then, in case
+     * the worker restarted.
+     */
+    watch(cameraId: string | null) {
+      if (!cameraId) { unwatch(); return; }
+      const t = now();
+      if (watching?.cameraId !== cameraId) watching = { cameraId, until: 0, told: 0, seen: null };
+      watching.until = t + watchMs;
+      if (t - watching.told >= 2000) { watching.told = t; worker.send({ type: 'watch', cameraId }); }
+    },
+    /** The latest detections on the watched camera, or null. */
+    seen(cameraId: string): Seen | null {
+      if (watching && now() > watching.until) unwatch();
+      return watching?.cameraId === cameraId ? watching.seen : null;
     },
     running: () => worker.running(),
     async stop() {

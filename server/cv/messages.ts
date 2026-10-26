@@ -1,6 +1,6 @@
 // The messages between the shop server and the camera worker (SCRUM-170), over Node IPC only.
 // The worker never touches storage: it says what the cameras saw; the server stamps, checks and stores it.
-import type { TableState, ZoneSpec } from '../../src/domain/tables.ts';
+import type { Seen, TableState, ZoneSpec } from '../../src/domain/tables.ts';
 import type { AlertFields, FloorState } from './visionCore.ts';
 
 /** A camera the worker watches. `url` carries the login: it lives in the two processes' memory only. */
@@ -22,7 +22,10 @@ export interface WorkerConfig {
   offline: string[];
 }
 
-export type ToWorker = { type: 'config'; config: WorkerConfig } | { type: 'stop' };
+/** `watch`: the owner opened this camera large on #vision (SCRUM-175): send what each check sees; null: stop. */
+export type ToWorker = { type: 'config'; config: WorkerConfig } | { type: 'watch'; cameraId: string | null } | { type: 'stop' };
+
+export type { Seen, SeenBox } from '../../src/domain/tables.ts';
 
 /** An event's own fields; the server adds id, shopId, actor (role vision) and orderNumber 0. */
 export type VisionFields =
@@ -36,5 +39,7 @@ export type FromWorker =
   | { type: 'ready' }
   | { type: 'event'; at: number; fields: VisionFields }
   | ({ type: 'heartbeat'; at: number } & Heartbeat)
+  /** Only for the watched camera, only to the owner's open view: never stored, logged or sent to the cloud. */
+  | ({ type: 'seen'; cameraId: string } & Seen)
   /** A line for cv.log: never an image or a password (the server masks logins again). */
   | { type: 'log'; text: string };

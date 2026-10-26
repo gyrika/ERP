@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import type { CameraSpec } from '../../domain/tables.ts';
+import type { CameraSpec, FloorTable, ZoneSpec } from '../../domain/tables.ts';
 import { cameraViewsClient, type CameraViewsClient, type ViewFrame } from '../../services/cameraViews.ts';
 import type { CvStatus } from '../../services/setupClient.ts';
 import { visionClient } from '../../services/visionClient.ts';
 import { CvProgress } from '../cameras/CvProgress.tsx';
 import { columns } from '../floor/FloorTile.tsx';
+import { useNow } from '../Kitchen.tsx';
+import { checkedLine, DetectionOverlay } from './DetectionOverlay.tsx';
 import { PinLine } from './PinLine.tsx';
 
 /**
@@ -15,7 +17,8 @@ import { PinLine } from './PinLine.tsx';
  * seconds; Enter or a tap opens one large at a few frames a second, Esc goes back. The shop
  * server runs ffmpeg only while this is on screen and touched (server/cvLive.ts); after 2 minutes
  * untouched it pauses until the next touch. Shop PC only, behind the owner's PIN: the cloud and
- * owner-phone builds leave this file out.
+ * owner-phone builds leave this file out. The large view also draws what detection sees there
+ * (SCRUM-175): the zones in their table's colour, people boxes, scores and foot points.
  */
 
 const TILE_MS = 3000;
@@ -48,9 +51,12 @@ function useTouches(onTouch: () => void) {
   return useCallback(() => { const t = touched.current; touched.current = false; return t; }, []);
 }
 
-export default function CameraViews({ cameras, pin, onPin, client: given }: {
+export default function CameraViews({ cameras, zones = {}, tables = [], pin, onPin, client: given }: {
   /** Every camera in Cameras setup, used for CV or not. */
   cameras: CameraSpec[];
+  /** Each camera's zones and the floor, for the large view's overlay. */
+  zones?: Record<string, ZoneSpec[]>;
+  tables?: FloorTable[];
   /** The owner's PIN, once typed on this page (shared with the Off / Shadow / Live switch). */
   pin: string | null;
   onPin: (pin: string) => void;
@@ -67,6 +73,8 @@ export default function CameraViews({ cameras, pin, onPin, client: given }: {
   const [large, setLarge] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [cv, setCv] = useState<CvStatus | null>(null);
+  const [aspect, setAspect] = useState(16 / 9);
+  const now = useNow(1000);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const takeTouch = useTouches(() => { if (pausedRef.current) setPaused(false); });
@@ -213,9 +221,15 @@ export default function CameraViews({ cameras, pin, onPin, client: given }: {
           <Status f={f} live />
         </div>
         <div className="views__frame views__frame--large">
-          {f?.src ? <img src={f.src} alt={`${cam?.name ?? 'The camera'} now`} /> : <div className="skeleton" aria-hidden="true" />}
+          {f?.src ? <>
+            <img src={f.src} alt={`${cam?.name ?? 'The camera'} now`}
+              onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth && i.naturalHeight) setAspect(i.naturalWidth / i.naturalHeight); }} />
+            <DetectionOverlay zones={zones[large] ?? []} tables={tables} seen={f.state === 'frame' ? f.seen : undefined} aspect={aspect} />
+          </> : <div className="skeleton" aria-hidden="true" />}
         </div>
-        {f?.state === 'offline' && <figcaption className="setup__error">{f.message}</figcaption>}
+        {f?.state === 'offline'
+          ? <figcaption className="setup__error">{f.message}</figcaption>
+          : <figcaption className="views__checked num">{checkedLine(f?.state === 'frame' ? f.seen : undefined, now)}</figcaption>}
       </figure>
     );
   } else {

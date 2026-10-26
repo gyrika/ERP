@@ -18,6 +18,7 @@ import type { Settings } from './settings.ts';
 import { PinTaken, type Device, type EventStore, type StaffMember } from './store.ts';
 import type { UpdatesApi } from './updates.ts';
 import type { CvPackApi } from './cvPack.ts';
+import type { Seen } from './cv/messages.ts';
 
 /**
  * The setup wizard's side of the server: the shop, the printer, the staff and
@@ -52,6 +53,11 @@ export interface SetupContext {
   /** Ask the camera (server/onvif.ts) and the camera views (server/cvLive.ts); tests give fakes. */
   askCamera?: typeof askOnvif;
   views?: (source: Parameters<typeof liveViews>[0]['source'], ffmpeg: () => string | null) => LiveViews;
+  /**
+   * What the camera worker's detection sees (SCRUM-175, server/cvWorker.ts): the large view watches
+   * one camera (null: none) and its answer carries the latest people boxes. Memory only.
+   */
+  detections?: { watch: (cameraId: string | null) => void; seen: (cameraId: string) => Seen | null };
   fetch?: typeof fetch;
   now?: () => number;
 }
@@ -416,14 +422,18 @@ export function setupApi(ctx: SetupContext) {
       if (typeof body.cameraId !== 'string') throw new SetupError(400, 'invalid', 'which camera?');
       const mode: ViewMode = body.mode === 'live' ? 'live' : 'tile';
       const after = typeof body.after === 'number' && Number.isSafeInteger(body.after) ? body.after : 0;
+      // The large view also shows what detection sees there (SCRUM-175); tiles stop it.
+      ctx.detections?.watch(mode === 'live' ? body.cameraId : null);
       const f = await views.frame(body.cameraId, { mode, after, use: body.use === true });
-      return f.state === 'frame' ? { state: 'frame', seq: f.seq, at: f.at, jpeg: f.jpeg.toString('base64') } : f;
+      if (f.state !== 'frame') return f;
+      const seen = mode === 'live' ? ctx.detections?.seen(body.cameraId) ?? null : null;
+      return { state: 'frame', seq: f.seq, at: f.at, jpeg: f.jpeg.toString('base64'), ...(seen ? { seen } : {}) };
     },
 
     /** The page was left: every view stops now. */
     async cvViewsClose(body: { key?: unknown }) {
       if (typeof body.key === 'string') viewKeys.delete(body.key);
-      if (!viewKeys.size) views.stop();
+      if (!viewKeys.size) { views.stop(); ctx.detections?.watch(null); }
       return { closed: true };
     },
 

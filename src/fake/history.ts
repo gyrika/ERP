@@ -158,15 +158,19 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
   const events: SyncEvent[] = [];
   const start = today - 36 * DAY;
   const base = { shopId, orderNumber: 0 as const };
-  const zone = (tableId: string) => ({ id: `zone-${tableId}`, tableId, points: [{ x: 0.1, y: 0.1 }, { x: 0.9, y: 0.1 }, { x: 0.9, y: 0.9 }, { x: 0.1, y: 0.9 }] });
+  /** Each camera sees its three tables side by side: the first third, the middle, the last. */
+  const zone = (tableId: string, i: number) => {
+    const x = 0.04 + (i % 3) * 0.32;
+    return { id: `zone-${tableId}`, tableId, points: [{ x, y: 0.3 }, { x: x + 0.28, y: 0.3 }, { x: x + 0.28, y: 0.95 }, { x, y: 0.95 }] };
+  };
   events.push(
     { ...base, type: 'table.layout_set', id: id('layout'), at: start, actor: owner, tables: FAKE_TABLES },
     { ...base, type: 'vision.cameras_set', id: id('cams'), at: start, actor: owner, cameras: [
       { id: 'demo-cam-front', name: 'Front', ip: '192.168.1.21', rtspPath: '/stream1', enabled: true },
       { id: 'demo-cam-back', name: 'Back', ip: '192.168.1.22', rtspPath: '/stream1', enabled: true },
     ] },
-    { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-front', zones: FRONT.map(zone) },
-    { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-back', zones: FAKE_TABLES.filter((t) => !FRONT.includes(t.id)).map((t) => zone(t.id)) },
+    { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-front', zones: FRONT.map((t, i) => zone(t, i)) },
+    { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-back', zones: FAKE_TABLES.filter((t) => !FRONT.includes(t.id)).map((t, i) => zone(t.id, i)) },
     { ...base, type: 'vision.settings_set', id: id('vset'), at: start, actor: owner, mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300 },
   );
   const backOffline = now - 40 * MIN;

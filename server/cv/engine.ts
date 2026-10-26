@@ -1,5 +1,5 @@
 import { cameraLost, newTracker, observe, type TableTracker } from '../../src/domain/tables.ts';
-import type { FromWorker, VisionFields, WorkerConfig } from './messages.ts';
+import type { FromWorker, SeenBox, VisionFields, WorkerConfig } from './messages.ts';
 import {
   alertsDue, checkEvery, cpuGuard, cpuPercent, CPU_SAMPLE_MS, followFloor, FRAME_H, FRAME_W, greyThumb, HEARTBEAT_MS, linkStep, presence,
   shouldReuse, zoneBox, type Guard, type Link,
@@ -22,6 +22,10 @@ export type EngineConfig = Omit<WorkerConfig, 'packDir' | 'cameras'> & { cameras
 
 /** Frames closer together than a check's interval minus this are skipped (frames come about 1 s apart). */
 const SLACK_MS = 250;
+const round4 = (v: number) => Math.round(v * 10_000) / 10_000;
+/** A box in frame pixels as a share of the frame, for the owner's overlay. */
+const share = (b: Box): SeenBox =>
+  ({ x1: round4(b.x1 / FRAME_W), y1: round4(b.y1 / FRAME_H), x2: round4(b.x2 / FRAME_W), y2: round4(b.y2 / FRAME_H), score: Math.round(b.score * 100) / 100 });
 
 interface Cam {
   id: string;
@@ -53,6 +57,8 @@ export function visionEngine(o: {
   const trackers = new Map<string, TableTracker>();
   const sent = new Set<string>();
   let guard: Guard = { slowed: false, since: null };
+  /** The camera the owner watches large (SCRUM-175), or null. */
+  let watched: string | null = null;
   let cpu = 0;
   const start = o.now();
   let cpuAt = start, cpuUsed = o.cpuMicros(), beatAt = start;
@@ -122,6 +128,7 @@ export function visionEngine(o: {
           c.last = { thumb, at: t, persons };
         }
         if (cams.get(cameraId) !== c) return; // the zones changed meanwhile
+        if (watched === cameraId) o.send({ type: 'seen', cameraId, at: t, detectedAt: c.last!.at, persons: persons.map(share) });
         c.seen = presence(persons, c.zones, FRAME_W, FRAME_H);
         for (const tableId of c.seen.keys()) sample(tableId, t);
       } catch (e) {
@@ -171,6 +178,9 @@ export function visionEngine(o: {
         o.send({ type: 'heartbeat', at: t, cameras, cpu: Math.min(100, cpu), slowed: guard.slowed });
       }
     },
+
+    /** The owner opened this camera large (null: closed): each check's people go to the server for the overlay. */
+    watch(cameraId: string | null) { watched = cameraId; },
 
     slowed: () => guard.slowed,
   };
