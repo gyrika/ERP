@@ -51,12 +51,14 @@ function useTouches(onTouch: () => void) {
   return useCallback(() => { const t = touched.current; touched.current = false; return t; }, []);
 }
 
-export default function CameraViews({ cameras, zones = {}, tables = [], pin, onPin, client: given }: {
+export default function CameraViews({ cameras, zones = {}, tables = [], detecting = true, pin, onPin, client: given }: {
   /** Every camera in Cameras setup, used for CV or not. */
   cameras: CameraSpec[];
   /** Each camera's zones and the floor, for the large view's overlay. */
   zones?: Record<string, ZoneSpec[]>;
   tables?: FloorTable[];
+  /** CV is in Shadow or Live, so the worker checks what the large view shows. */
+  detecting?: boolean;
   /** The owner's PIN, once typed on this page (shared with the Off / Shadow / Live switch). */
   pin: string | null;
   onPin: (pin: string) => void;
@@ -229,7 +231,7 @@ export default function CameraViews({ cameras, zones = {}, tables = [], pin, onP
         </div>
         {f?.state === 'offline'
           ? <figcaption className="setup__error">{f.message}</figcaption>
-          : <figcaption className="views__checked num">{checkedLine(f?.state === 'frame' ? f.seen : undefined, now)}</figcaption>}
+          : <figcaption className="views__checked num">{checkedLine(f?.state === 'frame' ? f.seen : undefined, now, detecting)}</figcaption>}
       </figure>
     );
   } else {

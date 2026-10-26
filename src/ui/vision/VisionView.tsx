@@ -272,7 +272,7 @@ export default function VisionView({ onRegister, phone = false, focusLive = fals
 
         {CameraViews && !phone && (canChange
           ? <Suspense fallback={<div className="skeleton vision__skeleton" aria-hidden="true" />}>
-            <CameraViews cameras={vision?.cameras ?? []} zones={vision?.zones} tables={tables} pin={pin} onPin={setPin} />
+            <CameraViews cameras={vision?.cameras ?? []} zones={vision?.zones} tables={tables} detecting={settings.mode !== 'off'} pin={pin} onPin={setPin} />
           </Suspense>
           : (
             <section className="vision__part" aria-labelledby="vision-views">

@@ -85,6 +85,7 @@ test('the owner watches every camera: PIN once, a tile per lens, Enter opens one
   expect(document.activeElement).toBe(within(large).getByRole('button', { name: /Back/ }));
   expect(await within(large).findByText('Live')).toBeTruthy();
   expect(within(large).getByRole('img', { name: 'Front garden 1 now' })).toBeTruthy();
+  expect(within(large).getByText(/^Detection is Off: Shadow or Live/)).toBeTruthy(); // CV is Off in this shop
   await waitFor(() => expect(server.asks.filter((a) => a.step === '/cv/views/frame' && a.body.mode === 'live').length).toBeGreaterThan(2));
   expect(server.asks.filter((a) => a.body.mode === 'live').every((a) => a.body.cameraId === 'front-1')).toBe(true);
   await user.keyboard('{Escape}');

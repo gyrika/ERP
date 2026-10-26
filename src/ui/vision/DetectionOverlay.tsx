@@ -53,9 +53,12 @@ export function DetectionOverlay({ zones, tables, seen, aspect = 16 / 9 }: {
   );
 }
 
-/** "Last checked N s ago": how old the detection is, growing while the motion gate reuses it. */
-export const checkedLine = (seen: Seen | undefined, now: number): string => {
-  if (!seen) return 'Not checked yet: detection runs in Shadow and Live.';
+/**
+ * "Last checked N s ago": how old the detection is, growing while the motion gate reuses it.
+ * Nothing yet: the worker's next check is a second or two away, or CV is Off.
+ */
+export const checkedLine = (seen: Seen | undefined, now: number, detecting = true): string => {
+  if (!seen) return detecting ? 'Checking…' : 'Detection is Off: Shadow or Live shows what the cameras see.';
   const s = Math.max(0, Math.round((now - seen.detectedAt) / 1000));
   const n = seen.persons.length;
   return `Last checked ${s} s ago · ${n} ${n === 1 ? 'person' : 'people'}`;
