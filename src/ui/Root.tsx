@@ -204,6 +204,10 @@ export function Root() {
   if ((hash === '#items' || hash === '#items/raw' || hash === '#items/low' || hash === '#inventory') && mayManageStock) {
     return <InventoryView onFindSupplier={findSupplier} onRegister={() => go('')} lowFirst={hash === '#items/low'} />;
   }
+  // #items/item/<id>: one raw material's sheet, on its History (Visual Flow's Stock view links here).
+  if (hash.startsWith('#items/item/') && mayManageStock) {
+    return <InventoryView key={hash} onFindSupplier={findSupplier} onRegister={() => go('')} openId={decodeURIComponent(hash.slice('#items/item/'.length))} />;
+  }
   // The owner changes the menu; managers can mark items sold out during service.
   if ((hash === '#items/finished' || hash === '#menu') && (!needsLogin || (staff !== null && seesTakings(staff.role)))) {
     return <MenuView owner={isOwnerHere} onBack={() => go('')} />;
