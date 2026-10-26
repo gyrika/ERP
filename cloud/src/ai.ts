@@ -1,5 +1,6 @@
 import type { CloudDevice, D1Like, Kind } from './cloud.ts';
 import { HttpError, json, sha256Hex } from './http.ts';
+import { VOICE_HINT } from '../../src/domain/voicePages.ts';
 
 /**
  * The language model (SCRUM-142/144), on Cloudflare Workers AI: free within its daily allowance,
@@ -19,16 +20,18 @@ export interface AiLike {
  * 2026-10-24, with example phrases in the page labels: mistral-small-3.1-24b 23/24 right and
  * never a wrong page (~0.5 s); llama-3.3-70b 21/24; llama-3.1-8b-instruct-fp8 20/24 with three
  * wrong pages (~0.2 s); llama-3.2-3b and granite mostly answered nothing; the "thinking"
- * models (glm-4.7-flash, gemma-4) are too slow. A wrong page is worse than none. Whisper: ~1 s.
+ * models (glm-4.7-flash, gemma-4) are too slow. A wrong page is worse than none.
+ * Speech (SCRUM-181): whisper-large-v3-turbo instead of the first Whisper, because it takes a
+ * starting prompt (the shop's words), a language and its own silence filter; ~1 s.
  * Workers AI retires models (llama-3.1-8b-instruct went 2026-05-30): a retired model makes the
  * endpoints answer 503, and the screens work as before.
  */
 export const COMMAND_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct';
-export const SPEECH_MODEL = '@cf/openai/whisper';
+export const SPEECH_MODEL = '@cf/openai/whisper-large-v3-turbo';
 
 /** Model calls per shop per day (cache hits are free). A bug cannot burn the free allowance. */
 export const AI_DAILY_CALLS = 300;
-/** About 30 seconds of compressed speech; a push-to-talk command is a few seconds. */
+/** About 30 seconds of compressed speech; a spoken command is a few seconds (the counter stops at 10). */
 export const MAX_AUDIO_BYTES = 1_000_000;
 const MAX_COMMANDS = 80;
 const TEXT_MAX = 200;
@@ -114,10 +117,43 @@ export const pickCommand = (reply: unknown, commands: readonly PageCommand[]): s
   return named.length === 1 ? named[0].id : null;
 };
 
-/** The words Whisper heard, tidied; empty when nothing usable came back. */
+/**
+ * What Whisper is asked. English, because the pages are found by their English words: staff mix
+ * Sinhala and English ("stock eka pennanna"), and in English mode the English nouns come back as
+ * written words instead of Sinhala script. The starting prompt is the shop's words, so "GRN" and
+ * "margherita" come back spelled right; the silence filter drops the fans and the oven.
+ */
+export const speechInput = (audio: Uint8Array) => ({
+  audio: base64(audio),
+  language: 'en',
+  initial_prompt: VOICE_HINT,
+  vad_filter: true,
+  condition_on_previous_text: false,
+});
+
+const base64 = (bytes: Uint8Array): string => {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+};
+
+const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** What Whisper says when it heard only a room: never a request. */
+const NOT_SPEECH = new Set(['you', 'thank you', 'thanks', 'thanks for watching', 'thank you for watching', 'bye', 'okay', 'hmm', 'uh', 'um']);
+
+/**
+ * The words Whisper heard, tidied; empty when nothing usable came back: no text, a word it says to
+ * silence, or its starting prompt read back (it does that to a near-silent recording).
+ */
 export const heardText = (reply: unknown): string => {
-  const text = typeof reply === 'object' && reply !== null ? (reply as { text?: unknown }).text : undefined;
-  return typeof text === 'string' ? tidy(text).slice(0, TEXT_MAX) : '';
+  const raw = typeof reply === 'object' && reply !== null ? (reply as { text?: unknown }).text : undefined;
+  if (typeof raw !== 'string') return '';
+  const text = tidy(raw).slice(0, TEXT_MAX);
+  const plain = words(text);
+  if (!plain || NOT_SPEECH.has(plain)) return '';
+  if (plain.length > 30 && words(VOICE_HINT).includes(plain)) return '';
+  return text;
 };
 
 export async function aiRoutes(req: Request, url: URL, c: AiContext): Promise<Response | null> {
@@ -164,7 +200,7 @@ export async function aiRoutes(req: Request, url: URL, c: AiContext): Promise<Re
     if (audio.length === 0) throw new HttpError(400, 'invalid_event', 'the recording is empty');
     if (audio.length > MAX_AUDIO_BYTES) throw new HttpError(413, 'invalid_event', 'the recording is too long');
     // The recording is used for this answer only and never stored.
-    return json(200, { text: heardText(await model(SPEECH_MODEL, { audio: [...audio] })) });
+    return json(200, { text: heardText(await model(SPEECH_MODEL, speechInput(audio))) });
   }
 
   throw new HttpError(404, 'server', 'no such endpoint');

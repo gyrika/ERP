@@ -1,5 +1,5 @@
 /**
- * How well the language model opens pages by voice (SCRUM-145): 24 requests, said the way staff
+ * How well the language model opens pages by voice (SCRUM-145/181): 34 requests, said the way staff
  * say them, against the POS's real page list. Run it before changing the model, the prompt or the
  * page labels, and keep the change only if the score does not drop (a wrong page is worse than none).
  *
@@ -13,12 +13,16 @@ if (!token) { console.error('usage: npm run ai-eval -- <device token> [cloud add
 
 const CASES: [string, string | null][] = [
   ['open stock', 'items'], ['how much did we sell today', 'owner'], ['show me the cheese', 'items'],
-  ['change the price of margherita', 'menu'], ['any new orders from the website', null], ['I want to order flour from the supplier', 'order'],
+  ['change the price of margherita', 'menu'], ['any new orders from the website', 'register'], ['I want to order flour from the supplier', 'order'],
   ['what is the food cost of a burger', 'recipes'], ['show the kitchen', 'kitchen'], ['give a refund', null], ['check for updates', 'setup'],
-  ['how many pizzas did we make', 'owner'], ['is the mozzarella running low', 'items'], ['open the till', 'register'], ['what time is it', null],
+  ['how many pizzas did we make', 'owner'], ['is the mozzarella running low', 'low'], ['open the till', 'register'], ['what time is it', null],
   ['a delivery just came', 'receive'], ['we need more dough made', 'semi'], ['add a new cashier', 'setup'], ['mark the seafood pizza sold out', 'menu'],
   ['how much is left of the bbq sauce', 'items'], ['the supplier phone number', 'suppliers'], ['take an order', 'register'], ['what should I buy today', 'order'],
   ['count the cheese', 'count'], ["show me today's money", 'owner'],
+  // SCRUM-181: low stock as its own page, the brief's requests, and Sinhala-English as staff say it.
+  ['show low-stock ingredients', 'low'], ['what is running out', 'low'], ['open inventory', 'items'], ['go to production', 'flow'],
+  ['return to dashboard', 'owner'], ['stock eka pennanna', 'items'], ['ada sales keeyada', 'owner'], ['chicken van eka awa', 'receive'],
+  ['cheese madi da', 'low'], ['kitchen eka balanna', 'kitchen'],
 ];
 
 const pages = voicePages({ seesOwner: true, managesStock: true, owner: true, setup: true });

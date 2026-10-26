@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COMMAND_MODEL, MAX_AUDIO_BYTES, pickCommand, readCommandAsk, SPEECH_MODEL, type AiLike } from './ai.ts';
+import { COMMAND_MODEL, heardText, MAX_AUDIO_BYTES, pickCommand, readCommandAsk, SPEECH_MODEL, type AiLike } from './ai.ts';
+import { VOICE_HINT } from '../../src/domain/voicePages.ts';
 import { createCloud, sha256Hex } from './cloud.ts';
 import { fakeD1 } from './fakeD1.ts';
 
@@ -92,7 +93,8 @@ test('a recording becomes words; empty, too long or not audio is refused', async
   const { hear } = await setup(ai);
   assert.deepEqual(await (await hear(new Uint8Array([1, 2, 3]))).json(), { text: 'open stock' });
   assert.equal(calls[0].model, SPEECH_MODEL);
-  assert.deepEqual(calls[0].input, { audio: [1, 2, 3] });
+  // Turbo Whisper: the recording as base64, in English, told the shop's words, silence filtered.
+  assert.deepEqual(calls[0].input, { audio: 'AQID', language: 'en', initial_prompt: VOICE_HINT, vad_filter: true, condition_on_previous_text: false });
   assert.equal((await hear(new Uint8Array())).status, 400);
   assert.equal((await hear(new Uint8Array(MAX_AUDIO_BYTES + 1))).status, 413);
   assert.equal((await hear(new Uint8Array([1]), 'text/plain')).status, 400);
@@ -108,4 +110,24 @@ test('reading the reply: the id alone, or exactly one id named in a sentence', (
   assert.equal(pickCommand({ choices: [{ message: { content: 'owner' } }] }, COMMANDS), 'owner');
   assert.equal(pickCommand({ choices: [{ message: { content: null } }] }, COMMANDS), null);
   assert.equal(typeof readCommandAsk({ text: 'x'.repeat(201), commands: COMMANDS }), 'string');
+});
+
+test("what Whisper says to a silent room is nothing, not a request", () => {
+  assert.equal(heardText({ text: ' Thank you. ' }), '');
+  assert.equal(heardText({ text: 'you' }), '');
+  assert.equal(heardText({ text: 'Thanks for watching!' }), '');
+  assert.equal(heardText({ text: '' }), '');
+  assert.equal(heardText({ vtt: 'x' }), '');
+  // Its starting prompt read back is not a request either; the short commands in it still are.
+  assert.equal(heardText({ text: VOICE_HINT.slice(0, 60) }), '');
+  assert.equal(heardText({ text: 'Open stock.' }), 'Open stock.');
+  assert.equal(heardText({ text: 'Thank you, open the kitchen' }), 'Thank you, open the kitchen');
+});
+
+test('a large recording is sent whole, as base64', async () => {
+  const { ai, calls } = fakeAi(() => ({ text: 'open stock' }));
+  const { hear } = await setup(ai);
+  const audio = new Uint8Array(100_000).map((_, i) => i % 256);
+  assert.equal((await hear(audio)).status, 200);
+  assert.equal(Buffer.from(calls[0].input.audio as string, 'base64').equals(Buffer.from(audio)), true);
 });
