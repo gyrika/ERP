@@ -42,6 +42,8 @@ test('the worker\'s config: Shadow or Live only, the cameras in use with their l
   assert.equal(c.cameras[0].url, 'rtsp://admin:p%40ss@192.168.1.20:554/stream2');
   assert.deepEqual(c.cameras[0].zones, [zone]);
   assert.deepEqual(c.floor, { t1: { state: 'free', since: 1000, alertId: null } });
+  // A development camera: the file, no login.
+  assert.equal(workerConfig(setUp('shadow'), 'C:/pack', login, new Map([['cam1', 'C:/clips/cafe.mp4']]))!.cameras[0].url, 'C:/clips/cafe.mp4');
 });
 
 test('the server stamps worker events as the vision role, and checks them like a push', () => {

@@ -13,7 +13,10 @@
     "server:device": "node --experimental-strip-types --env-file-if-exists=server/.env server/addDevice.ts",
     "server:staff": "node --experimental-strip-types --env-file-if-exists=server/.env server/staff.ts",
     "server:migrate": "node --experimental-strip-types --env-file-if-exists=server/.env.migrate server/migrate.ts",
-    "build:cloud": "vite build --mode cloud --outDir dist-cloud"
+    "build:cloud": "vite build --mode cloud --outDir dist-cloud",
+    "cv:clips": "node --experimental-strip-types --no-warnings scripts/cv-clips.ts",
+    "cv:replay": "node --test --test-timeout=600000 --experimental-strip-types --no-warnings server/cv/replay.test.ts",
+    "cv:live": "node --experimental-strip-types --no-warnings scripts/cv-live.ts"
   },
   "dependencies": {
     "@fontsource/dm-sans": "^5.3.0",

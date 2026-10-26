@@ -34,10 +34,16 @@ const STOP_MS = 2000;
 export const WATCH_MS = 8_000;
 
 /** What the worker needs from the shop's events: null while it should not run. */
-export const workerConfig = (events: readonly SyncEvent[], packDir: string | null, login: (cameraId: string) => CameraLogin | null): WorkerConfig | null => {
+export const workerConfig = (
+  events: readonly SyncEvent[], packDir: string | null, login: (cameraId: string) => CameraLogin | null,
+  /** Development cameras (CV_DEV_CAMERAS): a file instead of the stream. */
+  dev: ReadonlyMap<string, string> = new Map(),
+): WorkerConfig | null => {
   const v = visionFromEvents(events);
   if (v.settings.mode === 'off' || !packDir) return null;
   const cameras = v.cameras.filter((c) => c.enabled).slice(0, MAX_CAMERAS).map((c) => {
+    const file = dev.get(c.id);
+    if (file) return { id: c.id, url: file, zones: v.zones[c.id] ?? [] };
     const l = login(c.id);
     return { id: c.id, url: rtspUrl({ ip: c.ip, rtspPath: c.rtspPath, user: l?.user, password: l?.password }), zones: v.zones[c.id] ?? [] };
   });
@@ -163,6 +169,8 @@ export function startVision(o: {
   /** The CV pack folder; null while CV is not activated, or a new pack is on its way. */
   packDir: () => string | null;
   login: (cameraId: string) => CameraLogin | null;
+  /** Development cameras (CV_DEV_CAMERAS): camera id -> a looping video or image file. */
+  dev?: ReadonlyMap<string, string>;
   /** Stores events and streams them, as a push would (app.ts `ingest`). */
   ingest: (device: Device, events: SyncEvent[]) => Promise<number>;
   /** <data>\logs: cv.log is written here. */
@@ -240,7 +248,7 @@ export function startVision(o: {
     if (tenantId !== shop) { shop = tenantId; history = tenantId ? load(tenantId) : null; }
     const events = history ? await history.catch(() => { history = null; return null; }) : null;
     if (stopped) return;
-    worker.set(events ? workerConfig(events, o.packDir(), o.login) : null);
+    worker.set(events ? workerConfig(events, o.packDir(), o.login, o.dev) : null);
     if (watching && now() > watching.until) unwatch();
   };
   let checking: Promise<void> = Promise.resolve();

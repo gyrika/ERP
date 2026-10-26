@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { rtspUrl, testFailure, type TestCause } from '../src/domain/cameraSetup.ts';
 import type { Spawn } from './cvCameras.ts';
+import { inputArgs } from './cv/visionCore.ts';
 
 /**
  * Camera views on #vision (SCRUM-180): the owner watches every camera, live, before trusting CV.
@@ -30,11 +31,11 @@ const MAX_STDERR = 16_000;
 
 export type ViewMode = 'tile' | 'live';
 
-/** ffmpeg's arguments: the sub-stream over TCP, one decoder thread, JPEGs as multipart on stdout. */
+/** ffmpeg's arguments: the sub-stream over TCP (or a development file), one decoder thread, JPEGs as multipart on stdout. */
 export const viewArgs = (url: string, mode: ViewMode): string[] => [
-  '-hide_banner', '-loglevel', 'error', '-rtsp_transport', 'tcp', '-timeout', '5000000', '-threads', '1',
+  '-hide_banner', '-loglevel', 'error', '-threads', '1',
   ...(mode === 'tile' ? ['-skip_frame', 'nokey'] : []),
-  '-i', url, '-an', '-sn', '-dn',
+  ...inputArgs(url), '-an', '-sn', '-dn',
   ...(mode === 'tile'
     ? ['-fps_mode', 'passthrough', '-vf', "scale='min(480,iw)':-2", '-q:v', '7']
     : ['-vf', `fps=${LIVE_FPS},scale='min(960,iw)':-2`, '-q:v', '5']),
@@ -62,7 +63,8 @@ export const mpjpegReader = (onFrame: (jpeg: Buffer) => void): ((chunk: Buffer) 
   };
 };
 
-export interface ViewSource { ip: string; rtspPath: string; user?: string; password?: string }
+/** `file`: a development camera (CV_DEV_CAMERAS) instead of the stream. */
+export interface ViewSource { ip: string; rtspPath: string; user?: string; password?: string; file?: string }
 
 export type ViewFrame =
   | { state: 'frame'; seq: number; jpeg: Buffer; at: number }
@@ -129,7 +131,7 @@ export function liveViews(o: {
     if (!sweeper && (o.sweepMs ?? 2000) > 0) { sweeper = setInterval(sweep, o.sweepMs ?? 2000); sweeper.unref?.(); }
     let err = '';
     let child: Child;
-    try { child = run(ffmpeg, viewArgs(rtspUrl(src), mode)); } catch {
+    try { child = run(ffmpeg, viewArgs(src.file ?? rtspUrl(src), mode)); } catch {
       v.failed = { ...testFailure('could not start ffmpeg'), at: t };
       return v;
     }
