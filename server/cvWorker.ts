@@ -41,7 +41,8 @@ export const workerConfig = (
 ): WorkerConfig | null => {
   const v = visionFromEvents(events);
   if (v.settings.mode === 'off' || !packDir) return null;
-  const cameras = v.cameras.filter((c) => c.enabled).slice(0, MAX_CAMERAS).map((c) => {
+  // A camera playing a test video is watched even when it is not in use for CV (TEMPORARY).
+  const cameras = v.cameras.filter((c) => c.enabled || dev.has(c.id)).slice(0, MAX_CAMERAS).map((c) => {
     const file = dev.get(c.id);
     if (file) return { id: c.id, url: file, zones: v.zones[c.id] ?? [] };
     const l = login(c.id);
@@ -285,6 +286,8 @@ export function startVision(o: {
       if (watching && now() > watching.until) unwatch();
       return watching?.cameraId === cameraId ? watching.seen : null;
     },
+    /** A camera's source changed (a test video): look again now. */
+    refresh: () => check(),
     running: () => worker.running(),
     async stop() {
       stopped = true;

@@ -8,7 +8,7 @@ import { createInflateRaw } from 'node:zlib';
 
 /**
  * The CV pack (SCRUM-169): what table detection needs that CheesyBeez Station does not ship,
- * fetched only when the owner presses "Activate CV" on #cameras. ffmpeg.exe, ONNX Runtime
+ * fetched only when the owner presses "Activate CV" on #vision. ffmpeg.exe, ONNX Runtime
  * (node_modules/onnxruntime-node, loaded later with createRequire(<pack>/), so the Station's own
  * node_modules never change), the YOLOX nano model and their licences. CI builds it
  * (.github/workflows/station.yml, deploy/cv-pack/build.ps1) and attaches it to every release.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Actor } from './auth.ts';
 import type { SyncEvent } from './sync.ts';
 import { tablesFromEvents, visionFromEvents } from './tables.ts';
-import { cameraHealth, tablesToday, visionPart, whyState } from './visionPage.ts';
+import { cameraHealth, lastOnMode, parseVisionPick, tablesToday, visionHash, visionPart, whyState } from './visionPage.ts';
 
 const MIN = 60_000;
 const now = new Date(2026, 9, 9, 20, 30).getTime();
@@ -122,4 +122,24 @@ test("the sidebar's line: a camera offline first, else the mode and the floor", 
   assert.deepEqual(visionPart(setup('shadow'), now), { preview: 'Shadow · day 1 of 7', badge: 0 });
   const offline = [...live, ev({ type: 'vision.camera_offline', cameraId: 'c2' }, at(20, 20))];
   assert.deepEqual(visionPart(offline, now), { preview: 'Back camera offline', badge: 1 });
+});
+
+test('the side panel is in the address: a camera, a table, adding one, or the overview; every pick round-trips', () => {
+  assert.deepEqual(parseVisionPick('#vision'), { kind: 'overview' });
+  assert.deepEqual(parseVisionPick('#vision/live'), { kind: 'overview', focusLive: true }, 'the Shadow week card');
+  assert.deepEqual(parseVisionPick('#vision/camera-cam-1a2b'), { kind: 'camera', id: 'cam-1a2b' });
+  assert.deepEqual(parseVisionPick('#vision/table-t%2F1'), { kind: 'table', id: 't/1' });
+  assert.deepEqual(parseVisionPick('#vision/add-camera'), { kind: 'add-camera' });
+  assert.deepEqual(parseVisionPick('#vision/nonsense'), { kind: 'overview' });
+  assert.deepEqual(parseVisionPick('#vision/table-%E0%A4'), { kind: 'overview' }, 'a broken address is the overview');
+  for (const p of [{ kind: 'camera', id: 'c 1' }, { kind: 'table', id: 't1' }, { kind: 'add-table' }, { kind: 'overview' }] as const) {
+    assert.deepEqual(parseVisionPick(visionHash(p)), p);
+  }
+});
+
+test('On goes back to the last mode before Off; Shadow the first time', () => {
+  assert.equal(lastOnMode([]), 'shadow');
+  assert.equal(lastOnMode(setup('off')), 'shadow');
+  assert.equal(lastOnMode([...setup('live'), ...setup('off')]), 'live');
+  assert.equal(lastOnMode([...setup('live'), ...setup('shadow'), ...setup('off')]), 'shadow');
 });

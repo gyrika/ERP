@@ -1,7 +1,10 @@
 import { isStaffRole, managesRole, mayRecord } from '../src/domain/auth.ts';
+import { createWriteStream, mkdirSync, rmSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import type { Actor, Role } from '../src/domain/auth.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
@@ -41,7 +44,7 @@ export interface SetupContext {
   onCloudConnected?: () => void;
   /** CheesyBeez Station's versions ("Update now"). */
   updates?: UpdatesApi;
-  /** The CV pack (server/cvPack.ts), off until the owner activates it on #cameras. */
+  /** The CV pack (server/cvPack.ts), off until the owner activates it on #vision. */
   cv?: CvPackApi;
   /** The cameras' logins (server/cvSecrets.ts), in the data folder. */
   secrets?: CvSecrets;
@@ -58,8 +61,16 @@ export interface SetupContext {
    * one camera (null: none) and its answer carries the latest people boxes. Memory only.
    */
   detections?: { watch: (cameraId: string | null) => void; seen: (cameraId: string) => Seen | null };
-  /** Development cameras (CV_DEV_CAMERAS): camera id -> a looping file the views show instead of the stream. */
-  dev?: ReadonlyMap<string, string>;
+  /**
+   * Development cameras (CV_DEV_CAMERAS): camera id -> a looping file the views show instead of the
+   * stream. A test video (below) changes it while the server runs; the worker reads the same map.
+   */
+  dev?: Map<string, string>;
+  /**
+   * TEMPORARY (owner, 2026-10-27): a test video in place of a camera's stream, from #vision's camera
+   * panel. Uploads are kept in `dir` until Stop or the next start; `onChange` tells the worker.
+   */
+  testVideos?: { dir: string; onChange: () => void };
   fetch?: typeof fetch;
   now?: () => number;
 }
@@ -190,6 +201,30 @@ export function setupApi(ctx: SetupContext) {
   const cameraOf = (c: Record<string, unknown>) => ({
     id: text(c.id, 64), name: text(c.name, 60), ip: text(c.ip, 253), rtspPath: text(c.rtspPath, 200), enabled: c.enabled === true,
   });
+
+  // ----- TEMPORARY: a test video in place of a camera's stream (owner, 2026-10-27) -----
+
+  /** What CV_DEV_CAMERAS set, put back when a test stops. */
+  const fromEnv = new Map(ctx.dev ?? []);
+  /** Camera id -> the video's name, for the screen. */
+  const testing = new Map<string, string>();
+  // A test ends with the server: the last run's uploads go.
+  if (ctx.testVideos) rmSync(ctx.testVideos.dir, { recursive: true, force: true });
+  const testState = () => ({ testVideos: Object.fromEntries(testing) });
+  const testCamera = async (cameraId: unknown): Promise<string> => {
+    if (!ctx.testVideos || !ctx.dev) throw new SetupError(409, 'not_ready', 'test videos are not on here');
+    const id = typeof cameraId === 'string' ? cameraId : '';
+    if (!(await camerasNow()).some((c) => c.id === id)) throw new SetupError(404, 'invalid', 'save the camera first');
+    return id;
+  };
+  const fileFor = (id: string, ext: string) => join(ctx.testVideos!.dir, `${id.replace(/[^\w-]/g, '_')}${ext}`);
+  const stopTest = (id: string) => {
+    const file = ctx.dev!.get(id);
+    if (testing.has(id) && file) rmSync(file, { force: true });
+    testing.delete(id);
+    if (fromEnv.has(id)) ctx.dev!.set(id, fromEnv.get(id)!); else ctx.dev!.delete(id);
+  };
+  const testChanged = () => { views.stop(); ctx.testVideos!.onChange(); };
 
   const choosePrinter = (name: string | null) => {
     ctx.usePrinter(name ? systemPrinter(name) : dryRunPrinter(ctx.printsDir));
@@ -457,6 +492,53 @@ export function setupApi(ctx: SetupContext) {
       return r.ok ? { ok: true, jpeg: r.jpeg.toString('base64') } : r;
     },
 
+    /**
+     * TEMPORARY: a video file, streamed from the request to the data folder (never all in memory),
+     * plays in place of this camera's stream for the views and the worker until Stop.
+     */
+    async cvTestVideoUpload(req: IncomingMessage, q: { ownerPin?: unknown; cameraId?: unknown; name?: unknown }) {
+      await owner(q.ownerPin);
+      const id = await testCamera(q.cameraId);
+      const name = text(q.name, 120);
+      const ext = extname(name).toLowerCase();
+      if (!TEST_VIDEO_TYPES.includes(ext)) throw new SetupError(400, 'invalid', `pick a video (${TEST_VIDEO_TYPES.join(' ')})`);
+      const tooBig = () => new SetupError(413, 'invalid', `the video is over ${TEST_VIDEO_MAX_BYTES / 1024 / 1024} MB: pick a shorter one`);
+      if (Number(req.headers['content-length'] ?? 0) > TEST_VIDEO_MAX_BYTES) throw tooBig();
+      stopTest(id);
+      mkdirSync(ctx.testVideos!.dir, { recursive: true });
+      const file = fileFor(id, ext);
+      let size = 0;
+      const count = new Transform({
+        transform(chunk: Buffer, _enc, done) {
+          size += chunk.length;
+          done(size > TEST_VIDEO_MAX_BYTES ? tooBig() : null, chunk);
+        },
+      });
+      try { await pipeline(req, count, createWriteStream(file)); } catch (e) {
+        rmSync(file, { force: true });
+        throw e instanceof SetupError ? e : new SetupError(400, 'invalid', 'the video did not arrive whole: try again');
+      }
+      if (!size) { rmSync(file, { force: true }); throw new SetupError(400, 'invalid', 'the video is empty'); }
+      ctx.dev!.set(id, file);
+      testing.set(id, name);
+      testChanged();
+      return testState();
+    },
+
+    /** TEMPORARY: the camera goes back to its own stream. */
+    async cvTestVideoStop(body: { ownerPin?: unknown; cameraId?: unknown }) {
+      await owner(body.ownerPin);
+      stopTest(await testCamera(body.cameraId));
+      testChanged();
+      return testState();
+    },
+
+    /** TEMPORARY: which cameras play a test video now. */
+    async cvTestVideos(body: { ownerPin?: unknown }) {
+      await owner(body.ownerPin);
+      return testState();
+    },
+
     /** The camera list: where each one is (an event) and its login (kept here, encrypted). */
     async cvCameras(body: { ownerPin?: unknown; cameras?: unknown }) {
       const actor = await owner(body.ownerPin);
@@ -509,3 +591,7 @@ export function setupApi(ctx: SetupContext) {
   };
 }
 export type SetupApi = ReturnType<typeof setupApi>;
+
+/** TEMPORARY test videos: what may be picked, and how big. */
+export const TEST_VIDEO_TYPES = ['.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm'];
+export const TEST_VIDEO_MAX_BYTES = 200 * 1024 * 1024;

@@ -182,3 +182,33 @@ export const visionPart = (events: readonly SyncEvent[], now: number): PartLine 
   const dirty = tables.filter((t) => t.state === 'needs_cleaning').length;
   return { preview: `Live · ${floorSummary(tables).free} free${dirty ? `, ${dirty} to clean` : ''}`, badge: 0 };
 };
+
+/** What the page's side panel shows: the address after #vision, so Back and a link both work. */
+export type VisionPick =
+  | { kind: 'overview'; focusLive?: boolean }
+  | { kind: 'camera'; id: string }
+  | { kind: 'table'; id: string }
+  | { kind: 'add-camera' }
+  | { kind: 'add-table' };
+
+/** #vision → the overview; #vision/live (the Shadow week card) → the overview with Live picked; #vision/camera-<id>, #vision/table-<id>, #vision/add-camera, #vision/add-table. */
+export const parseVisionPick = (hash: string): VisionPick => {
+  const rest = hash.startsWith('#vision/') ? hash.slice('#vision/'.length) : '';
+  if (rest === 'live') return { kind: 'overview', focusLive: true };
+  if (rest === 'add-camera' || rest === 'add-table') return { kind: rest };
+  const m = /^(camera|table)-(.+)$/.exec(rest);
+  if (m) { try { return { kind: m[1] as 'camera' | 'table', id: decodeURIComponent(m[2]) }; } catch { /* a broken address: the overview */ } }
+  return { kind: 'overview' };
+};
+
+export const visionHash = (p: VisionPick): string =>
+  p.kind === 'overview' ? '#vision' : p.kind === 'camera' || p.kind === 'table' ? `#vision/${p.kind}-${encodeURIComponent(p.id)}` : `#vision/${p.kind}`;
+
+/** The mode the On switch goes back to: the last one before Off, or Shadow (it watches without changing the floor). */
+export const lastOnMode = (events: readonly SyncEvent[]): 'shadow' | 'live' => {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const e = events[i];
+    if (e.type === 'vision.settings_set' && e.mode !== 'off') return e.mode;
+  }
+  return 'shadow';
+};

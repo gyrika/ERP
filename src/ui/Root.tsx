@@ -30,7 +30,6 @@ import { navData, navigate, onNavigate, startNav, useBackKeys } from './nav.ts';
 const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
 /** The floor (SCRUM-168): loaded when it is opened, so the Register does not grow. */
 const FloorView = lazy(() => import('./floor/FloorView.tsx'));
-const CamerasView = lazy(() => import('./CamerasView.tsx'));
 /** Computer vision (SCRUM-174): the owner's page, on the counter and the owner's phone. */
 const VisionView = lazy(() => import('./vision/VisionView.tsx'));
 
@@ -188,8 +187,8 @@ export function Root() {
   if (isCloudSite()) {
     if (!(ownerToken() || isDemo() || adminShop())) return <OwnerWelcome />;
     // The Shadow week card opens Computer vision: read-only on the phone.
-    if (hash === '#vision' || hash === '#vision/live') {
-      return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionView key={hash} phone focusLive={hash === '#vision/live'} /></Suspense>;
+    if (hash === '#vision' || hash.startsWith('#vision/')) {
+      return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionView hash={hash} phone /></Suspense>;
     }
     return <OwnerView phone />;
   }
@@ -248,13 +247,10 @@ export function Root() {
   if (hash === TABLES && seesFloor) {
     return <Suspense fallback={<div className="floor" aria-busy="true" />}><FloorView onBack={() => go('')} /></Suspense>;
   }
-  // Computer vision (SCRUM-174): owners and managers see it; only the owner changes it. #vision/live: from the Shadow week card.
-  if ((hash === '#vision' || hash === '#vision/live') && seesOwner) {
-    return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionView key={hash} focusLive={hash === '#vision/live'} onRegister={() => go('')} /></Suspense>;
-  }
-  // Table detection (SCRUM-169): the owner's PIN, on the shop PC.
-  if (hash === '#cameras' && seesOwner) {
-    return <Suspense fallback={<div className="setup" aria-busy="true" />}><CamerasView onRegister={() => go('')} /></Suspense>;
+  // Computer vision (SCRUM-174): owners and managers see it; only the owner changes it. One page: what the side panel
+  // shows is in the address (#vision/camera-<id>, #vision/live from the Shadow week card). #cameras, its old setup, opens it too.
+  if ((hash === '#vision' || hash.startsWith('#vision/') || hash === '#cameras') && seesOwner) {
+    return <Suspense fallback={<div className="setup" aria-busy="true" />}><VisionView hash={hash === '#cameras' ? '#vision' : hash} onRegister={() => go('')} /></Suspense>;
   }
   if ((hash === '#suppliers' || hash === '#items/suppliers') && mayManageStock) {
     return <SupplierView filterIngredientId={filterIngredientId} onRegister={() => go('')} />;

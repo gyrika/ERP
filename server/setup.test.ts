@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -329,6 +329,82 @@ test('#vision camera views: the PIN opens a key; frames come from the camera lis
   assert.equal(((await frame.json()) as { state: string }).state, 'frame');
   const ask = await fetch(`${base}/cv/ask`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...pin, ip: '192.168.1.31' }) });
   assert.equal(ask.status, 200);
+  await new Promise((done) => server!.close(done));
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('TEMPORARY test video: the owner uploads one for a saved camera; views and worker play it until Stop; wrong type, empty, wrong PIN refused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cb-setup-video-'));
+  const settings = settingsFile(join(dir, 'settings.json'));
+  const store = memoryStore();
+  const dev = new Map([['back', 'C:\clips\env.jpg']]);
+  const sources: unknown[] = [];
+  let stops = 0, changes = 0;
+  let server: ReturnType<typeof createApp> | null = null;
+  const testDir = join(dir, 'cv-test');
+  mkdirSync(testDir, { recursive: true });
+  writeFileSync(join(testDir, 'old.mp4'), 'left from the last run');
+  const setup = setupApi({
+    store, settings, usePrinter: () => {}, printsDir: join(dir, 'prints'), port: 8080, cloud: () => null, cloudUrl: 'https://cloud.test',
+    secrets: cvSecrets(dir), ingest: (device, events) => server!.ingest(device, events), dev,
+    testVideos: { dir: testDir, onChange: () => { changes += 1; } },
+    views: (source) => ({
+      async frame(id) { sources.push(await source(id)); return { state: 'starting' }; },
+      stop: () => { stops += 1; }, sweep: () => {}, running: () => [],
+    }),
+  });
+  assert.equal(existsSync(join(testDir, 'old.mp4')), false, 'a test ends with the server');
+  server = createApp({ store, setup });
+  await setup.nameShop({ name: 'CheesyBeez', place: 'Thalwila' });
+  await setup.addStaff({ name: 'Nisal Vimukthi', role: 'owner', pin: '1234' });
+  await setup.addStaff({ name: 'Mala', role: 'manager', pin: '2222' });
+  await setup.finish();
+  await setup.cvCameras({ ownerPin: '1234', cameras: [
+    { id: 'front', name: 'Front', ip: '192.168.1.20', rtspPath: '/stream2', enabled: false },
+    { id: 'back', name: 'Back', ip: '192.168.1.21', rtspPath: '/stream2', enabled: true },
+  ] });
+  await new Promise<void>((done) => server!.listen(0, '127.0.0.1', done));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/setup`;
+  const upload = (pin: string, cameraId: string, name: string, body: Uint8Array<ArrayBuffer>) =>
+    fetch(`${base}/cv/test-video/upload?cameraId=${cameraId}&name=${encodeURIComponent(name)}`, {
+      method: 'POST', headers: { 'x-owner-pin': pin, 'content-type': 'application/octet-stream' }, body: new Blob([body]),
+    });
+  const video = new Uint8Array(300_000).fill(7);
+
+  assert.equal((await upload('2222', 'front', 'cafe.mp4', video)).status, 401, "the owner's only");
+  assert.equal((await upload('1234', 'front', 'notes.txt', video)).status, 400, 'a video only');
+  assert.equal((await upload('1234', 'side', 'cafe.mp4', video)).status, 404, 'a saved camera only');
+  assert.equal((await upload('1234', 'front', 'cafe.mp4', new Uint8Array(0))).status, 400, 'not empty');
+
+  const r = await upload('1234', 'front', 'cafe.mp4', video);
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { testVideos: { front: 'cafe.mp4' } });
+  const file = join(testDir, 'front.mp4');
+  assert.equal(readFileSync(file).length, 300_000, 'kept whole in the data folder');
+  assert.equal(dev.get('front'), file, 'the views and the worker read the file now');
+  assert.equal(changes, 1, 'the worker is told at once');
+  const stopsBefore = stops;
+  await setup.cvViewsFrame({ key: (await setup.cvViewsOpen({ ownerPin: '1234' })).key, cameraId: 'front' });
+  assert.equal((sources.at(-1) as { file?: string }).file, file);
+  assert.ok(stops >= stopsBefore);
+  assert.deepEqual(await setup.cvTestVideos({ ownerPin: '1234' }), { testVideos: { front: 'cafe.mp4' } });
+
+  // The worker watches it although "Use for CV" is off.
+  const { workerConfig } = await import('./cvWorker.ts');
+  const events = (await store.pull(settings.get().shopId!, 0, 500)).map((x) => x.event);
+  const shadow = { ...events.at(-1)!, id: 'mode', type: 'vision.settings_set', mode: 'shadow', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 } as unknown as typeof events[number];
+  assert.deepEqual(workerConfig([...events, shadow], 'C:\pack', () => null, dev)?.cameras.map((c) => [c.id, c.url]),
+    [['front', file], ['back', 'C:\clips\env.jpg']]);
+
+  // Stop: the stream again, the file gone; a camera from CV_DEV_CAMERAS keeps its file.
+  assert.deepEqual(await setup.cvTestVideoStop({ ownerPin: '1234', cameraId: 'front' }), { testVideos: {} });
+  assert.equal(dev.has('front'), false);
+  assert.equal(existsSync(file), false);
+  await upload('1234', 'back', 'b.webm', video);
+  assert.equal(dev.get('back'), join(testDir, 'back.webm'));
+  await setup.cvTestVideoStop({ ownerPin: '1234', cameraId: 'back' });
+  assert.equal(dev.get('back'), 'C:\clips\env.jpg', 'back to what the environment said');
+
   await new Promise((done) => server!.close(done));
   rmSync(dir, { recursive: true, force: true });
 });

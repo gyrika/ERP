@@ -71,7 +71,7 @@ const updates = updatesApi({
   statusFile: `${dataDir}/update-status.json`,
   nowFile: `${dataDir}/update-now.txt`,
 });
-// Table detection's downloads (SCRUM-169): off until the owner activates CV on #cameras.
+// Table detection's downloads (SCRUM-169): off until the owner activates CV on #vision.
 const cv = cvPack({
   dir: `${dataDir}/cv-pack`,
   appVersion: updates.current,
@@ -130,6 +130,8 @@ const setup = setupApi({
   store, settings, usePrinter: printer.use, printsDir, port, cloud: cloudLink, cloudUrl, onCloudConnected: startCloud, updates, cv,
   // The owner's setup is stored like a push.
   secrets, ingest: (device, events) => server.ingest(device, events), dev: devCameras,
+  // TEMPORARY: the owner's test video plays in place of a camera; the worker hears of it at once.
+  testVideos: { dir: `${dataDir}/cv-test`, onChange: () => vision.refresh() },
   // The large camera view draws what detection sees (SCRUM-175).
   detections: { watch: (id) => vision.watch(id), seen: (id) => vision.seen(id) },
 });

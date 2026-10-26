@@ -213,6 +213,12 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       try {
         if (step === '' && req.method === 'GET') { json(res, 200, await setup.state()); return; }
         if (req.method !== 'POST') throw new HttpError(405, 'server', 'method not allowed');
+        // TEMPORARY: a test video arrives as the body itself, too big for readBody; the PIN in a header.
+        if (step === '/cv/test-video/upload') {
+          const q = url.searchParams;
+          json(res, 200, await setup.cvTestVideoUpload(req, { ownerPin: req.headers['x-owner-pin'], cameraId: q.get('cameraId'), name: q.get('name') }));
+          return;
+        }
         const body = ((await readBody(req)) ?? {}) as Record<string, unknown>;
         const routes: Record<string, (b: Record<string, unknown>) => Promise<unknown>> = {
           '/shop': setup.nameShop, '/printer': setup.setPrinter, '/staff': setup.addStaff, '/staff/list': setup.staff,
@@ -222,6 +228,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/cv/test': setup.cvTest, '/cv/cameras': setup.cvCameras, '/cv/tables': setup.cvTables, '/cv/zones': setup.cvZones,
           '/cv/settings': setup.cvSettings, '/cv/ask': setup.cvAsk,
           '/cv/views/open': setup.cvViewsOpen, '/cv/views/frame': setup.cvViewsFrame, '/cv/views/close': setup.cvViewsClose,
+          '/cv/test-video/stop': setup.cvTestVideoStop, '/cv/test-video': setup.cvTestVideos,
         };
         const route = routes[step];
         if (!route) throw new HttpError(404, 'server', 'no such setup step');
