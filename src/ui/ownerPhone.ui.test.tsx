@@ -50,8 +50,10 @@ test("the owner's link: kept on the phone, taken out of the address bar, then th
   expect(localStorage.getItem('cb.owner.token')).toBe('secret-owner-token');
 
   render(<Root />);
-  expect(await screen.findByText('Rs 5,000')).toBeTruthy();
-  expect(screen.getByText('2 orders · average Rs 2,500')).toBeTruthy();
+  expect(await screen.findByRole('button', { name: /^Sales today Rs 5,000/ })).toBeTruthy();
+  expect(await screen.findByText('2 orders', undefined, { timeout: 3000 })).toBeTruthy(); // once counted up
+  // No counter screens on a phone: the black screen explains, but links nowhere.
+  expect(screen.queryByRole('link', { name: /See the records/ })).toBeNull();
   expect(screen.queryByRole('navigation', { name: 'Owner sections' })).toBeNull(); // no counter screens on a phone
   expect(screen.getByText(/^Updated /)).toBeTruthy();
 });

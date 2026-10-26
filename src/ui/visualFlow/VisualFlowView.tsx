@@ -23,7 +23,8 @@ import { useMenu } from '../menuStore.ts';
 import { OwnerNav } from '../OwnerNav.tsx';
 import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
-import { EDGE_TYPES, NODE_TYPES, nodeShare, type VfEdge, type VfNode } from './FlowParts.tsx';
+import { EDGE_TYPES, NODE_TYPES, nodeShare, type CanvasView, type VfEdge, type VfNode, type Worth } from './FlowParts.tsx';
+import { valuationOf } from '../../domain/valuation.ts';
 import './visualFlow.css';
 
 /**
@@ -32,7 +33,8 @@ import './visualFlow.css';
  * to change it where he sees it. One item in focus at a time (a dish, an extra, or a batch), drawn
  * from his recipes as they stand: what is bought on the left, flowing through what his kitchen
  * makes, into the dish on the right. Three views of the same drawing: Material (how much),
- * Cost (what it costs, lines as thick as the money) and Financial (what it earns).
+ * Cost (what it costs, lines as thick as the money) and Financial (what it earns); and Stock
+ * (SCRUM-163): what each card holds in money now, the same values as Items.
  *
  * Every change is a draft at once, with Undo; Publish makes the drafts his recipes (one new version
  * each), so what was made before keeps the recipe it was made with. The recipes are his alone, like
@@ -51,10 +53,11 @@ export default function VisualFlowView({ onRegister }: { onRegister?: () => void
   );
 }
 
-const VIEWS: { id: FlowView; label: string }[] = [
+const VIEWS: { id: CanvasView; label: string }[] = [
   { id: 'material', label: 'Material' },
   { id: 'cost', label: 'Cost' },
   { id: 'financial', label: 'Financial' },
+  { id: 'stock', label: 'Stock' },
 ];
 /** What the drawing picks out; the rest is drawn faintly, so the flow stays whole. */
 type Filter = 'all' | 'attention' | 'out' | 'raw' | 'semi' | 'finished';
@@ -91,7 +94,9 @@ function Studio({ owner }: { owner: Actor }) {
   const ctx = useMemo(() => ({ items: published.items, answers }), [published.items, answers]);
   const options = useMemo(() => focusOptions(menu, answers), [menu, answers]);
   const [focus, setFocusState] = useState(() => focusFromHash() ?? DEFAULT_FOCUS);
-  const [view, setView] = useState<FlowView>('material');
+  const [view, setView] = useState<CanvasView>('material');
+  // Stock is drawn on the Material drawing: how much goes in, and what each card holds in money.
+  const drawn: FlowView = view === 'stock' ? 'material' : view;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [sel, setSel] = useState<Selection>(null);
   const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>({});
@@ -116,8 +121,8 @@ function Studio({ owner }: { owner: Actor }) {
 
   const sold = useMemo(() => soldUnits(events, current, Date.now()), [events, current]);
   const graph = useMemo(
-    () => viewOf(buildFlow({ focus: current, ctx, menu, sold, collapsed, drafts }), view),
-    [current, ctx, menu, sold, collapsed, drafts, view],
+    () => viewOf(buildFlow({ focus: current, ctx, menu, sold, collapsed, drafts }), drawn),
+    [current, ctx, menu, sold, collapsed, drafts, drawn],
   );
   const positions = useMemo(() => layout(graph), [graph]);
   const plan = useMemo(() => publishPlan(published.answers, drafts), [published.answers, drafts]);
@@ -131,6 +136,21 @@ function Studio({ owner }: { owner: Actor }) {
     for (const n of graph.nodes) { const st = itemStockOf(n.id, stock); if (st) m.set(n.id, st); }
     return m;
   }, [graph.nodes, stock]);
+  // Stock value: his published recipes, as Items counts it. Each card's share is of the stock
+  // behind the item in focus. Cheese is behind every pizza, so these are never added across
+  // dishes: the shop's total is on Items.
+  const valuation = useMemo(() => valuationOf(stock, published.answers), [stock, published.answers]);
+  const { worths, behind } = useMemo(() => {
+    const byId = new Map(valuation.items.map((v) => [v.id, v]));
+    const known = graph.nodes.flatMap((n) => (n.id !== current && byId.get(n.id)?.cents != null ? [byId.get(n.id)!.cents!] : []));
+    const total = known.reduce((sum, c) => sum + c, 0);
+    const m = new Map<string, Worth & { unitCents: number | null; unit: string }>();
+    for (const n of graph.nodes) {
+      const v = byId.get(n.id);
+      if (v) m.set(n.id, { cents: v.cents, share: total > 0 && v.cents !== null ? v.cents / total : 0, unitCents: v.unitCents, unit: v.unit });
+    }
+    return { worths: m, behind: known.length ? total : null };
+  }, [valuation, graph.nodes, current]);
   const matches = useCallback((id: string, kind: string) => {
     const st = stocks.get(id);
     if (filter === 'all') return true;
@@ -236,8 +256,9 @@ function Studio({ owner }: { owner: Actor }) {
       node: n, view, focus: n.id === current, focusName,
       takes: !!n.recipe?.editable, onToggle: actions.toggle,
       stock: stocks.get(n.id) ?? null, dim: !matches(n.id, n.kind), share: nodeShare(n, answers),
+      worth: view !== 'stock' ? undefined : n.id === current ? { cents: behind, share: 0 } : worths.get(n.id),
     },
-  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers]);
+  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind]);
   const edges: VfEdge[] = useMemo(() => graph.edges.map((e) => ({
     id: e.id, source: e.source, target: e.target, type: 'vf', selected: sel?.kind === 'edge' && sel.id === e.id,
     deletable: e.kind !== 'money',
@@ -271,7 +292,7 @@ function Studio({ owner }: { owner: Actor }) {
     return () => clearTimeout(t);
   }, [fitKey, flow]);
 
-  // Keys: 1 2 3 the views, F fits, Esc lets go, Ctrl+Z undoes, Ctrl+P publishes.
+  // Keys: 1 2 3 4 the views, F fits, Esc lets go, Ctrl+Z undoes, Ctrl+P publishes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -351,7 +372,7 @@ function Studio({ owner }: { owner: Actor }) {
           )}
         </div>
         <FlowPanel
-          graph={graph} view={view} sel={sel} ctx={ctx} menu={menu} events={events} drafts={drafts} plan={plan}
+          graph={graph} view={drawn} worths={worths} behind={behind} sel={sel} ctx={ctx} menu={menu} events={events} drafts={drafts} plan={plan}
           focusName={focusName} actions={actions} stocks={stocks} makesOf={(key) => prepItems(published.answers).find((p) => p.key === key)?.makes ?? null} sent={sent}
           ordering={ordering} buying={buying}
         />

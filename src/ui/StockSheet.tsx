@@ -12,6 +12,7 @@ import { ItemOrder } from './OrderSheet.tsx';
 import type { DueCount } from '../domain/counting.ts';
 import type { HistoryEntry } from '../domain/itemStory.ts';
 import { wasteReasonLabel } from '../domain/waste.ts';
+import { rawValue } from '../domain/valuation.ts';
 import { NumberInput } from './NumberInput.tsx';
 import { OwnerPin } from './OwnerPin.tsx';
 import { isManagerPhone } from '../services/pairing.ts';
@@ -77,7 +78,8 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  const story = useItemStory(item.id, item.packQty);
+  const story = useItemStory(item.id, item.packQty, item.workingPriceCents);
+  const value = rawValue(item);
   const photo = usePhotoUrl(story.lastCount?.photo);
   const sources = suppliers.filter((x) => item.supplierIds.includes(x.id));
   const now = Date.now();
@@ -124,6 +126,12 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
                       .filter(Boolean).map((t) => <span key={String(t)}>{t}</span>)}</>}
               </dd>
             </div>
+            {value.cents !== null && !countDue && (
+              <div>
+                <dt>Value</dt>
+                <dd><strong className="num">Rs {fmt(value.cents)}</strong></dd>
+              </div>
+            )}
             <div>
               <dt>Last count</dt>
               <dd>
@@ -306,9 +314,9 @@ function History({ item, entries }: { item: InventoryRow; entries: HistoryEntry[
         <li key={i} className={`history__item history__item--${h.kind}`}>
           <span className="history__when">{daysAgo(h.at, now)} · {h.by}</span>
           {h.kind === 'count' && <HistoryCount item={item} h={h} q={q} />}
-          {h.kind === 'delivery' && <span>Received {formatInUnit(h.packs, unit, item.packQty)}{unit.id === 'pack' && ` (${q(h.packs * item.packQty)})`}</span>}
+          {h.kind === 'delivery' && <span>Received {formatInUnit(h.packs, unit, item.packQty)}{unit.id === 'pack' && ` (${q(h.packs * item.packQty)})`}{h.valueCents !== undefined && <> · Rs {fmt(h.valueCents)}</>}</span>}
           {h.kind === 'waste' && (
-            <span>Wasted {q(h.qty)}{h.from !== item.name && <> · from {h.from}</>} · {h.note ? `${wasteReasonLabel(h.reason)}: ${h.note}` : wasteReasonLabel(h.reason)}</span>
+            <span>Wasted {q(h.qty)}{h.valueCents !== undefined && <> (Rs {fmt(h.valueCents)})</>}{h.from !== item.name && <> · from {h.from}</>} · {h.note ? `${wasteReasonLabel(h.reason)}: ${h.note}` : wasteReasonLabel(h.reason)}</span>
           )}
           {h.kind === 'price' && (
             <span>Price Rs {rs(h.before)} → <b>Rs {rs(h.after)}</b> {per}
