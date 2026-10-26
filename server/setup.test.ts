@@ -49,6 +49,7 @@ test('a new shop: name it (this PC becomes the counter), add staff, finish only 
   assert.equal((await s.post('/finish')).status, 409, 'no owner yet');
   assert.equal((await s.post('/staff', { name: 'Kamal', role: 'cashier', pin: '1111' })).status, 409, 'PIN taken');
   assert.equal((await s.post('/staff', { name: 'X', role: 'boss', pin: '1234' })).status, 400);
+  assert.equal((await s.post('/staff', { name: 'X', role: 'vision', pin: '1234' })).status, 400, 'vision is the camera worker, never a person');
   const added = await s.post('/staff', { name: 'Nisal Vimukthi', role: 'owner', pin: '1234' });
   assert.deepEqual(added.body.staff.map((m: { name: string }) => m.name).sort(), ['Nimal', 'Nisal Vimukthi']);
   assert.equal((await s.post('/finish')).status, 200);

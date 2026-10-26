@@ -2,7 +2,7 @@ import { createReadStream, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { managesRole, mayRecord } from '../src/domain/auth.ts';
+import { isStaffRole, managesRole, mayRecord } from '../src/domain/auth.ts';
 import {
   PULL_LIMIT, type ApiError, type LoginResponse, type PullResponse, type PushResponse, type StreamMessage, type SyncEvent, type SyncedEvent,
 } from '../src/domain/sync.ts';
@@ -148,6 +148,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     if (e.type === 'stock.numbered') return 'only the shop server numbers documents';
     // Held batches go to the kitchen when the shop server sees their inputs on hand, never on a device's word.
     if (e.type === 'prep.released') return 'only the shop server sends held batches to the kitchen';
+    // What the cameras saw comes from the camera worker on this PC (SCRUM-170), stamped by the server, never from a device.
+    if ('actor' in e && e.actor?.role === 'vision') return 'only the shop server records what the cameras see';
     if (e.type.startsWith('kitchen.')) return device.kind === 'owner' || device.kind === 'manager' ? 'not from this device' : null;
     // The manager's phone counts and receives stock (SCRUM-94); orders, menu and recipes stay on the counter.
     if (device.kind === 'manager' && !e.type.startsWith('stock.')) return 'the manager phone records stock only';
@@ -237,7 +239,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       const staff = isPin(body?.pin) ? await store.staffByPin(device.tenantId, body.pin) : null;
       // A cashier's own PIN in the manager box is simply a wrong PIN: it says nothing about who exists.
       // The same on the manager's phone: it opens for managers and owners only (SCRUM-94).
-      if (!staff || ((purpose === 'manager' || device.kind === 'manager') && !managesRole(staff.role))) {
+      if (!staff || !isStaffRole(staff.role) || ((purpose === 'manager' || device.kind === 'manager') && !managesRole(staff.role))) {
         const count = (w?.count ?? 0) + 1;
         wrong.set(device.id, count >= MAX_WRONG ? { count: 0, until: t + WRONG_WAIT_MS } : { count, until: 0 });
         throw new HttpError(401, 'wrong_pin', 'wrong PIN');

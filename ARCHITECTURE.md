@@ -50,6 +50,7 @@
 
 ## CV tables (2026-10-26, SCRUM-164)
 - **Domain (SCRUM-166):** `src/domain/tables.ts`, pure. Free/reserved → occupied at 70% present over `seatS` (60 s); occupied → needs_cleaning at 90% absent over `leaveS` (180 s); only staff free a dirty table; a staff change holds until presence flips. `tablesFromEvents` folds the floor; `table.state_set_undone` is its Undo. Events carry no password or image (the server takes exactly their fields).
+- **Vision role (SCRUM-167, 2026-10-26):** `vision` is a `Role` but never a person (`STAFF_ROLES` excludes it; setup, `server:staff` and PIN login refuse it). It may record only what the camera sees (`VISION_RECORDS` in auth.ts) and staff may not record those. No device push may carry it: the camera worker (SCRUM-170) hands its events to the server over IPC, and the server stamps `vision` and stores them itself, the way `server/scheduler.ts` stores `prep.released` with `store.push(device, made, now())` after the push, past `refusal` (then broadcast like the scheduler's releases).
 
 ## Run
 `npm i && npm run dev` · `npm test` (domain + UI) · `npm run test:domain` · `npm run test:ui` · `npm run build` · demo: `/?demo` (manager PIN in `src/fake/data.ts`)

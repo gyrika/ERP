@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { createPool } from 'mysql2/promise';
-import type { Role } from '../src/domain/auth.ts';
+import { isStaffRole, STAFF_ROLES, type Role } from '../src/domain/auth.ts';
 import { isPin } from './pins.ts';
 import { PinTaken, mysqlStore } from './store.ts';
 
@@ -22,7 +22,6 @@ const { values, positionals } = parseArgs({
   },
 });
 const [command] = positionals;
-const roles: Role[] = ['cashier', 'manager', 'owner', 'kitchen'];
 const fail = (msg: string): never => { console.error(msg); process.exit(1); };
 
 if (!process.env.DATABASE_URL) fail('Set DATABASE_URL first (see docs/server-setup.md).');
@@ -37,7 +36,7 @@ try {
   } else if (command === 'add') {
     const name = values.name?.trim() || fail('--name is required.');
     const role = values.role as Role;
-    if (!roles.includes(role)) fail(`--role must be one of ${roles.join(', ')}.`);
+    if (!isStaffRole(role)) fail(`--role must be one of ${STAFF_ROLES.join(', ')}.`);
     if (!isPin(values.pin)) fail('--pin must be exactly 4 digits.');
     const s = await store.addStaff(shop, name, role, values.pin!);
     console.log(`Added ${s.name} (${s.role}), id ${s.id}.`);

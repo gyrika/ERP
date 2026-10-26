@@ -146,7 +146,11 @@ camera; ignored by the fold when the table is no longer in `from`), `table.state
 (at most 4; `ip` is a host only, `rtspPath` a path only), `vision.zones_set {cameraId,zones:[{id,tableId,points}]}`
 (points `{x,y}` normalised 0-1), `vision.settings_set {mode:'off'|'shadow'|'live',seatS,leaveS,cleanAlertS}`,
 `vision.camera_offline` / `vision.camera_online {cameraId}`, `vision.heartbeat {cameras:[{id,online,fps}],cpu}`.
-Who may record them (`mayRecord`, the `vision` role) comes with SCRUM-167; until then the server refuses them.
+Who may record them (`mayRecord`, SCRUM-167): role `vision` only `table.state_changed`, `table.alert_raised`,
+`table.alert_cleared`, `vision.camera_offline`/`camera_online`/`heartbeat`, and nobody else may; `table.state_set` and its
+Undo any signed-in role but `kitchen`; `table.layout_set`, `vision.cameras_set`/`zones_set`/`settings_set` the owner.
+`vision` is never a person (no staff row, no PIN login): the server refuses any device push whose actor is `vision`;
+only the server stamps it on the camera worker's events (SCRUM-170).
 
 ## Decision needed: where the server runs
 

@@ -1,4 +1,4 @@
-import { managesRole } from '../src/domain/auth.ts';
+import { isStaffRole, managesRole } from '../src/domain/auth.ts';
 import type { IncomingMessage } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
@@ -54,7 +54,6 @@ export class SetupError extends Error {
   }
 }
 
-const ROLES: Role[] = ['cashier', 'manager', 'owner', 'kitchen'];
 const LOCAL = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 export const isLocal = (req: IncomingMessage): boolean => LOCAL.has(req.socket.remoteAddress ?? '');
 
@@ -149,7 +148,7 @@ export function setupApi(ctx: SetupContext) {
       const s = requireShop();
       const name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : '';
       if (!name) throw new SetupError(400, 'invalid', 'a name is needed');
-      if (!ROLES.includes(body.role as Role)) throw new SetupError(400, 'invalid', 'pick a role');
+      if (!isStaffRole(body.role)) throw new SetupError(400, 'invalid', 'pick a role');
       if (!isPin(body.pin)) throw new SetupError(400, 'invalid', 'the PIN must be 4 digits');
       try {
         await ctx.store.addStaff(s.id, name, body.role as Role, body.pin);
