@@ -1,15 +1,16 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react';
-import { liveBlocked } from '../../domain/cameraSetup.ts';
+import { liveBlocked, unzonedNote } from '../../domain/cameraSetup.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
 import {
-  CPU_LIMIT_STEP, MAX_CPU_LIMIT, MIN_CPU_LIMIT, tablesFromEvents, visionFromEvents, type VisionMode, type VisionSettings,
+  CPU_LIMIT_STEP, MAX_CPU_LIMIT, MIN_CPU_LIMIT, tablesFromEvents, visionFromEvents, type FloorTable, type TableState, type VisionSettings,
 } from '../../domain/tables.ts';
 import {
-  cameraHealth, lastOnMode, parseVisionPick, tablesToday, visionHash, whyState, type TableDay, type VisionPick,
+  cameraHealth, parseVisionPick, tablesToday, visionHash, whyState, type TableDay, type VisionPick,
 } from '../../domain/visionPage.ts';
 import { usesLogin } from '../../services/auth.ts';
 import { useShopEvents } from '../../services/ownerData.ts';
 import { signedIn, subscribeAuth } from '../../services/serverAuth.ts';
+import type { ViewsPerf } from '../../services/cameraViews.ts';
 import type { CvStatus } from '../../services/setupClient.ts';
 import { visionClient } from '../../services/visionClient.ts';
 import { readAll, subscribeEvents } from '../eventLog.ts';
@@ -18,6 +19,7 @@ import { back, navigate, replace } from '../nav.ts';
 import { OwnerNav } from '../OwnerNav.tsx';
 import { CvProgress } from '../cameras/CvProgress.tsx';
 import { columns, FloorTile, WORD } from '../floor/FloorTile.tsx';
+import { setTable, undoTable } from '../tablesStore.ts';
 import { PinLine } from './PinLine.tsx';
 import { PinCancelled, TableForm, TimerFields, type WithPin } from './setupParts.tsx';
 import './vision.css';
@@ -29,25 +31,21 @@ const CameraViews = import.meta.env.VITE_SITE === 'cloud' ? null : lazy(() => im
 /**
  * Computer vision (#vision, SCRUM-174), in the owner's sidebar: one screen, no scrolling. Mind:
  * the owner. They know where their tables and cameras are; the single next thing they need is
- * whether CV is on and whether it sees the shop right. At the top, CV on or off (one switch);
- * then every camera in a strip, then the tables. Picking a camera or a table opens it in the side
- * panel, with its details and its setup (once #cameras); with nothing picked the panel holds the
- * settings: Shadow or Live, the CPU limit, the timers. What is picked is in the address
+ * whether CV is on and whether it sees the shop right. At the top, CV on or off (one switch; On is
+ * Live: Shadow went 2026-10-27); then every camera in a strip, then the tables. A picked camera
+ * opens large in the camera section (zones are drawn there) with its details in the side panel; a
+ * table opens in the panel; with nothing picked the panel holds Performance (live while the owner
+ * watches), the CPU limit and the timers. What is picked is in the address
  * (#vision/camera-<id>, …), so Esc and Back close it. Managers and the owner's phone see it
  * read-only; the owner changes it with their PIN, asked once, in the page's line.
  */
 
-const MODES: { mode: Exclude<VisionMode, 'off'>; label: string; hint: string }[] = [
-  { mode: 'shadow', label: 'Shadow', hint: 'The cameras watch and learn; the floor changes only when staff set it.' },
-  { mode: 'live', label: 'Live', hint: 'The cameras set the floor: occupied, needs cleaning.' },
-];
 const LOOK_MS = 1000;
 /** The CPU slider records once the owner stops moving it. */
 const SETTLE_MS = 700;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const clock = (t: number) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const busy = (s: CvStatus | null) => s?.phase === 'downloading' || s?.phase === 'verifying';
-const modeLabel = (m: VisionMode) => (m === 'off' ? 'Off' : MODES.find((x) => x.mode === m)!.label);
 
 /** The shop's history, with this device's own camera and table changes shown at once (before the server or demo has them). */
 function useVisionEvents(): { events: SyncEvent[] | undefined; at: number } {
@@ -90,7 +88,9 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
   const health = useMemo(() => (events ? cameraHealth(events) : null), [events]);
   const settings = vision?.settings;
   const blocked = vision ? liveBlocked(tables, vision.cameras, vision.zones) : null;
-  const onMode = useMemo(() => (events ? lastOnMode(events) : 'shadow'), [events]);
+  const unzoned = vision ? unzonedNote(tables, vision.cameras, vision.zones) : null;
+  /** The camera worker's numbers now, from the camera views while the owner watches. */
+  const [perf, setPerf] = useState<ViewsPerf | null>(null);
 
   // ----- what the panel shows: in the address, so Esc and Back close it -----
   const pick = parseVisionPick(hash);
@@ -157,18 +157,19 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
     }
     setWaiting(null);
     await client.save(p, { ...settings, ...patch });
-    setSaid(patch.mode ? (patch.mode === 'off' ? 'Computer vision is off.' : `${modeLabel(patch.mode)} on.`) : `CPU limit ${patch.cpuLimit}%.`);
+    setSaid(patch.mode ? (patch.mode === 'off' ? 'Computer vision is off.' : 'Computer vision is on.') : `CPU limit ${patch.cpuLimit}%.`);
   }, [client, settings]);
 
   const change = (patch: Partial<VisionSettings>) => {
     if (!canChange || !settings) return;
     if (patch.mode === settings.mode && patch.cpuLimit === undefined) return;
     if (patch.mode === 'live' && blocked) return;
-    const what = patch.mode ? (patch.mode === 'off' ? 'turn computer vision off' : `switch to ${modeLabel(patch.mode)}`) : `set the CPU limit to ${patch.cpuLimit}%`;
+    const what = patch.mode ? (patch.mode === 'off' ? 'turn computer vision off' : 'turn computer vision on') : `set the CPU limit to ${patch.cpuLimit}%`;
     withPin(what, (p) => run(p, patch)).catch((e: unknown) => { if (!(e instanceof PinCancelled)) setError(message(e)); });
   };
   const on = settings ? settings.mode !== 'off' : false;
-  const toggle = () => change({ mode: on ? 'off' : onMode === 'live' && blocked ? 'shadow' : onMode });
+  // On is Live (Shadow is gone, owner 2026-10-27): the cameras set the floor.
+  const toggle = () => change({ mode: on ? 'off' : 'live' });
 
   // The CV pack is on its way: look again each second, then make the change it was waiting for.
   useEffect(() => {
@@ -181,6 +182,13 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
     }, LOOK_MS);
     return () => clearTimeout(t);
   }, [waiting, cv, client, pin, run]);
+
+  // ----- a table's state, set from the panel as on the Register's floor: one `table.state_set`, with Undo -----
+  const [tableSet, setTableSet] = useState<{ tableId: string; eventId: string; said: string } | null>(null);
+  const setState = (t: FloorTable, to: TableState) => {
+    if (t.state === to) return;
+    setTableSet({ tableId: t.id, eventId: setTable(t, to), said: `Table ${t.label}: ${WORD[to].en.toLowerCase()}.` });
+  };
 
   // ----- the tables: arrows move, Enter (or a tap) opens one in the panel -----
   const grid = useRef<HTMLDivElement>(null);
@@ -248,6 +256,23 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
           <span className={`vtable__state vtable__state--${table.noCamera ? 'nocam' : table.state}`}>{WORD[table.state].en}</span>
         </PanelTitle>
         <p className="vision__why" aria-live="polite">{whyState(table, events, settings, now)}</p>
+        {!phone && (
+          <div className="vpanel__group">
+            <span className="vpanel__label" id="vision-table-state">Set it</span>
+            <div className="vstates" role="radiogroup" aria-labelledby="vision-table-state">
+              {(['occupied', 'needs_cleaning', 'free', 'reserved'] as const).map((to) => (
+                <button key={to} type="button" role="radio" aria-checked={table.state === to} className={`vstates__pick vstates__pick--${to}`}
+                  onClick={() => setState(table, to)}>{WORD[to].en}</button>
+              ))}
+            </div>
+            {tableSet?.tableId === table.id && (
+              <p className="vision__line" role="status">
+                <span>{tableSet.said}</span>
+                <button type="button" className="chip" onClick={() => { undoTable(tableSet.tableId, tableSet.eventId); setTableSet(null); }}>Undo</button>
+              </p>
+            )}
+          </div>
+        )}
         <p className="vpanel__text">{dayLine(days.get(table.id))} · {table.seats} seats</p>
         <div className="vpanel__row">
           {zonedOn.length
@@ -274,9 +299,8 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
     );
   } else {
     body = (
-      <Overview settings={settings} canChange={canChange} lockedWhy={lockedWhy} blocked={blocked} onMode={onMode} focusLive={pick.kind === 'overview' && Boolean(pick.focusLive)}
-        health={health} phone={phone} client={client} withPin={withPin} onChange={change}
-        onBlockedTable={(id) => go({ kind: 'table', id })} tables={tables} cameras={vision.cameras} zones={vision.zones} />
+      <Overview settings={settings} canChange={canChange} lockedWhy={lockedWhy} blocked={blocked} unzoned={unzoned}
+        health={health} perf={perf} phone={phone} client={client} withPin={withPin} onChange={change} cameras={vision.cameras} />
     );
   }
 
@@ -288,9 +312,9 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
           <header className="vpage__bar">
             <h1>Computer vision</h1>
             {pack !== undefined && !needsActivate && <>
-              <span className="vpage__mode">{on ? modeLabel(settings.mode) : ''}</span>
-              <button type="button" role="switch" aria-checked={on} className="vtoggle" disabled={!canChange}
-                aria-label="Computer vision" aria-describedby={!canChange ? 'vision-locked' : undefined} onClick={toggle}>
+              <button type="button" role="switch" aria-checked={on} className="vtoggle" disabled={!canChange || (!on && blocked !== null)}
+                aria-label="Computer vision" title={!on && blocked ? blocked : undefined}
+                aria-describedby={!canChange ? 'vision-locked' : undefined} onClick={toggle}>
                 <span className="vtoggle__track" aria-hidden="true"><span className="vtoggle__knob" /></span>
                 <span className="vtoggle__word">{on ? 'On' : 'Off'}</span>
               </button>
@@ -325,7 +349,7 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
           {CameraViews && !phone && (ownerCameras
             ? <Suspense fallback={<div className="skeleton vstrip__skeleton" aria-hidden="true" />}>
               <CameraViews cameras={vision.cameras} zones={vision.zones} tables={tables} detecting={on} pin={pin} client={client} withPin={withPin}
-                pick={pick} onPick={go} onClose={close} panel={panel} />
+                pick={pick} onPick={go} onClose={close} panel={panel} onPerf={setPerf} />
             </Suspense>
             : (
               <section className="vision__part vstrip" aria-labelledby="vision-views">
@@ -334,7 +358,8 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
               </section>
             ))}
 
-          <section className="vision__part vtables" aria-labelledby="vision-tables">
+          {/* A camera open large takes the room; Esc brings the tables back. */}
+          {!(camera && ownerCameras) && <section className="vision__part vtables" aria-labelledby="vision-tables">
             <div className="vpage__sechead">
               <h2 id="vision-tables">Tables <span className="vpage__count num">{tables.length}</span></h2>
               {canChange && <button type="button" className="chip" aria-pressed={pick.kind === 'add-table'} onClick={() => go({ kind: 'add-table' })}>+ Add table</button>}
@@ -352,7 +377,7 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
                 })}
               </div>
             ) : <p className="setup__hint">No tables yet.{canChange && ' Add one to start.'}</p>}
-          </section>
+          </section>}
         </div>
         <aside ref={setPanel} className={`vpanel${pick.kind === 'overview' ? '' : ' vpanel--picked'}`} aria-label="Details">
           {body}
@@ -372,31 +397,19 @@ function PanelTitle({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
-/** The panel with nothing picked: how CV is doing, Shadow or Live, the CPU limit, the timers. */
-function Overview({ settings, canChange, lockedWhy, blocked, onMode, focusLive, health, phone, client, withPin, onChange, onBlockedTable, tables, cameras, zones }: {
-  settings: VisionSettings; canChange: boolean; lockedWhy: string; blocked: string | null; onMode: 'shadow' | 'live'; focusLive: boolean;
-  health: ReturnType<typeof cameraHealth>; phone: boolean;
+/** The panel with nothing picked: how CV is doing now (Performance), the CPU limit, the timers. */
+function Overview({ settings, canChange, lockedWhy, blocked, unzoned, health, perf, phone, client, withPin, onChange, cameras }: {
+  settings: VisionSettings; canChange: boolean; lockedWhy: string;
+  /** Why CV cannot be turned on yet, and the tables the cameras cannot see. */
+  blocked: string | null; unzoned: string | null;
+  health: ReturnType<typeof cameraHealth>;
+  /** The worker's numbers now, while the owner watches (null: not watching, or the worker is not running). */
+  perf: ViewsPerf | null;
+  phone: boolean;
   client: ReturnType<typeof visionClient>; withPin: WithPin;
   onChange: (patch: Partial<VisionSettings>) => void;
-  onBlockedTable: (id: string) => void;
-  tables: ReturnType<typeof tablesFromEvents>; cameras: ReturnType<typeof visionFromEvents>['cameras']; zones: ReturnType<typeof visionFromEvents>['zones'];
+  cameras: ReturnType<typeof visionFromEvents>['cameras'];
 }) {
-  const shown = settings.mode === 'off' ? onMode : settings.mode;
-  // ----- Shadow / Live: arrows move, Enter (or a tap) chooses -----
-  const modes = useRef<HTMLDivElement>(null);
-  const current = MODES.findIndex((m) => m.mode === shown);
-  const [focusMode, setFocusMode] = useState<number>(focusLive ? 1 : -1);
-  const tab = focusMode >= 0 ? focusMode : current;
-  useEffect(() => { if (focusLive) (modes.current?.children[1] as HTMLElement | undefined)?.focus(); }, [focusLive]);
-  const onModeKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -1, ArrowDown: 1 }[e.key];
-    if (step === undefined) return;
-    e.preventDefault();
-    const next = (tab + step + MODES.length) % MODES.length;
-    setFocusMode(next);
-    (modes.current?.children[next] as HTMLElement | undefined)?.focus();
-  };
-
   // ----- the CPU limit: the slider settles, then one event -----
   const [cpuDraft, setCpuDraft] = useState<number | null>(null);
   const commitCpu = useRef((_: number) => {});
@@ -407,46 +420,50 @@ function Overview({ settings, canChange, lockedWhy, blocked, onMode, focusLive, 
     return () => clearTimeout(t);
   }, [cpuDraft]);
 
-  // The first table with no zone, for "Live: Table 2 has no zone yet."
-  const missing = tables.find((t) => !cameras.some((c) => c.enabled && zones[c.id]?.some((z) => z.tableId === t.id)));
-  const online = health?.cameras.filter((c) => c.online).length ?? 0;
-  const live = MODES[1];
+  const name = (id: string) => cameras.find((c) => c.id === id)?.name ?? id;
+  const now = perf?.perf ?? null;
+  // Now (live, every 2 s) when the owner watches; else the last heartbeat the shop kept.
+  const rows = now
+    ? now.cameras.map((c) => ({ id: c.id, online: c.online, fps: c.fps, checks: c.checksPerS, ms: c.detectMs }))
+    : (health?.cameras ?? []).map((c) => ({ id: c.id, online: c.online, fps: c.fps, checks: null, ms: null }));
+  const cpu = now ? now.cpu : health?.cpu ?? null;
+  const slowed = now ? now.slowed : health?.slowed ?? false;
+  const share = cpu === null ? 0 : Math.min(100, Math.round((cpu / Math.max(1, settings.cpuLimit)) * 100));
 
   return (
     <div className="vpanel__body">
       <header className="vpanel__head"><h2>Settings</h2></header>
-      <p className="vpanel__text">
-        {health ? `${online} of ${health.cameras.length} ${health.cameras.length === 1 ? 'camera' : 'cameras'} online` : 'No camera data yet.'}
-        {health?.cpu != null && ` · using ${health.cpu}% now`}
-        {health?.slowed && ' · Slowed to protect the Register'}
-      </p>
+      {settings.mode === 'off' && (blocked
+        ? <p className="vision__line vision__note">{blocked}</p>
+        : <p className="setup__hint">Turn CV on: the cameras set the floor (occupied, needs cleaning).</p>)}
+      {unzoned && <p className="setup__hint">{unzoned}</p>}
 
-      <div className="vpanel__group">
-        <span className="vpanel__label">Mode</span>
-        <div ref={modes} className="vision__modes" role="radiogroup" aria-label="Computer vision mode" onKeyDown={onModeKey}
-          aria-describedby={!canChange ? 'vision-locked' : undefined}>
-          {MODES.map((m, i) => {
-            const off = !canChange || (m === live && blocked !== null);
-            return (
-              <button key={m.mode} type="button" role="radio" aria-checked={shown === m.mode} tabIndex={i === tab ? 0 : -1}
-                aria-disabled={off || undefined} aria-describedby={m === live && blocked ? 'vision-live-why' : undefined}
-                className="vision__mode" onFocus={() => setFocusMode(i)} onClick={() => !off && onChange({ mode: m.mode })}>
-                {m.label}
-              </button>
-            );
-          })}
+      <section className="vpanel__group" aria-labelledby="vision-perf">
+        <div className="vpanel__row">
+          <h3 id="vision-perf" className="vpanel__label">Performance</h3>
+          <span className="vperf__when">{now ? <><span className="vperf__live" aria-hidden="true" />Live</> : health?.at ? `at ${clock(health.at)}` : ''}</span>
         </div>
-        <p className="setup__hint" role="status">
-          {focusLive && settings.mode !== 'live' && canChange && !blocked ? 'Enter switches to Live.'
-            : settings.mode === 'off' ? `${MODES[current].hint} Picking one turns CV on.` : MODES[current].hint}
-        </p>
-        {blocked && (
-          <p id="vision-live-why" className="vision__line vision__note">
-            <span>Live: {blocked}</span>
-            {missing && !phone && <button type="button" className="chip" onClick={() => onBlockedTable(missing.id)}>Table {missing.label}</button>}
-          </p>
-        )}
-      </div>
+        {cpu === null && !rows.length ? <p className="setup__hint">{settings.mode === 'off' ? 'CV is off: nothing runs.' : 'No numbers yet: the cameras start in a few seconds.'}</p> : <>
+          <div className="vperf__cpu">
+            <span>CPU <b className="num">{cpu ?? '–'}%</b> of {settings.cpuLimit}%{slowed && ' · slowed to protect the Register'}</span>
+            <span className={`vperf__bar${share >= 100 ? ' vperf__bar--over' : ''}`} aria-hidden="true"><span style={{ width: `${share}%` }} /></span>
+          </div>
+          <table className="vperf__table">
+            <thead><tr><th scope="col">Camera</th><th scope="col">fps</th><th scope="col">checks/s</th><th scope="col">detect</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className={r.online ? '' : 'vperf__off'}>
+                  <th scope="row"><span className={`views__status views__status--${r.online ? 'ok' : 'bad'}`}>{name(r.id)}</span></th>
+                  <td className="num">{r.fps}</td>
+                  <td className="num">{r.checks ?? '–'}</td>
+                  <td className="num">{r.ms === null ? '–' : `${r.ms} ms`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {now && perf && <p className="setup__hint">{perf.views} {perf.views === 1 ? 'view' : 'views'} open on this page.</p>}
+        </>}
+      </section>
 
       <label className="vpanel__group vision__cpu">
         <span className="vpanel__label">CPU limit <b className="num">{cpuDraft ?? settings.cpuLimit}%</b></span>

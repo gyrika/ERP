@@ -171,6 +171,7 @@ function demoTables(today: number, now: number, shopId: string, id: (p: string) 
     ] },
     { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-front', zones: FRONT.map((t, i) => zone(t, i)) },
     { ...base, type: 'vision.zones_set', id: id('zones'), at: start, actor: owner, cameraId: 'demo-cam-back', zones: FAKE_TABLES.filter((t) => !FRONT.includes(t.id)).map((t, i) => zone(t.id, i)) },
+    // A shop that ran the old Shadow mode (gone 2026-10-27): CV shows Off; the cameras' changes are history the cards read.
     { ...base, type: 'vision.settings_set', id: id('vset'), at: start, actor: owner, mode: 'shadow', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 },
   );
   const backOffline = now - 40 * MIN;

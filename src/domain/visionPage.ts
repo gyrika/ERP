@@ -1,6 +1,6 @@
 import type { PartLine } from './ownerParts.ts';
 import type { SyncEvent } from './sync.ts';
-import { MIN_SHADOW_CHANGES, offlineCameras, SHADOW_DAYS, shadowAgreement, visitsFrom } from './tableInsights.ts';
+import { offlineCameras, visitsFrom } from './tableInsights.ts';
 import {
   autoFreeAt, floorSummary, tableChanges, tablesFromEvents, visionFromEvents, type FloorTable, type TableChange, type VisionSettings,
 } from './tables.ts';
@@ -12,7 +12,6 @@ import {
  */
 
 const MIN = 60_000;
-const DAY_MS = 24 * 60 * MIN;
 const startOfDay = (t: number): number => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 const clock = (t: number): string => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const WORD: Record<FloorTable['state'], string> = { free: 'Free', occupied: 'Occupied', needs_cleaning: 'Needs cleaning', reserved: 'Reserved' };
@@ -44,8 +43,8 @@ const cameraSaw = (table: FloorTable, c: TableChange, previous: TableChange | un
 /**
  * Why a table is in its state, in one sentence: what the cameras saw, by the owner's rules
  * (`observe` in tables.ts: seen, left after a visit, frees itself), or who set it and what ends a
- * staff hold (`staffSet`: the next time presence flips). In Shadow, what the cameras saw last is
- * said beside it. The tracker's 10 s left check is not an event, so it is never shown as running.
+ * staff hold (`staffSet`: the next time presence flips). Camera changes from the old Shadow mode
+ * moved nothing, so they are left out. The tracker's 10 s left check is not an event, so it is never shown as running.
  */
 export const whyState = (table: FloorTable, events: readonly SyncEvent[], settings: VisionSettings, now: number): string => {
   const mine = tableChanges(events).filter((c) => c.tableId === table.id);
@@ -55,7 +54,6 @@ export const whyState = (table: FloorTable, events: readonly SyncEvent[], settin
   if (staffSaid && staffSaid.type === 'table.state_set' && staffSaid.at > (last?.at ?? -Infinity)) {
     last = { tableId: table.id, from: staffSaid.from, to: staffSaid.to, at: staffSaid.at, by: 'staff' };
   }
-  const cameraLast = settings.mode === 'shadow' ? [...mine].reverse().find((c) => c.by === 'camera') : undefined;
   const find = <T extends SyncEvent['type']>(type: T, at: number) =>
     [...events].reverse().find((e) => e.type === type && e.at === at && 'tableId' in e && e.tableId === table.id) as Extract<SyncEvent, { type: T }> | undefined;
 
@@ -72,10 +70,6 @@ export const whyState = (table: FloorTable, events: readonly SyncEvent[], settin
   const set = `Set by ${find('table.state_set', last.at)?.actor.name ?? 'staff'} at ${clock(last.at)}`;
   if (settings.mode === 'off') return `${set}.`;
   if (!table.watched) return `${set}; no camera watches this table.`;
-  if (settings.mode === 'shadow') {
-    const seen = cameraLast ? ` They saw ${cameraLast.to === 'occupied' ? 'people' : 'it empty'} at ${clock(cameraLast.at)}.` : '';
-    return `${set}; in Shadow the cameras only watch.${seen}`;
-  }
   return `${set}; holds until ${table.state === 'occupied' ? 'the table empties' : 'someone sits down'}.`;
 };
 
@@ -160,8 +154,7 @@ export const cameraHealth = (events: readonly SyncEvent[]): CameraHealth | null 
 };
 
 /**
- * The sidebar's line: a camera offline first (the floor is guessing), else the mode with the
- * floor (Live), how far into the Shadow week, or how right the cameras were.
+ * The sidebar's line: a camera offline first (the floor is guessing), else Off, or Live with the floor.
  */
 export const visionPart = (events: readonly SyncEvent[], now: number): PartLine => {
   const down = offlineCameras(events, now);
@@ -171,13 +164,6 @@ export const visionPart = (events: readonly SyncEvent[], now: number): PartLine 
   }
   const { mode } = visionFromEvents(events).settings;
   if (mode === 'off') return { preview: 'Off', badge: 0 };
-  if (mode === 'shadow') {
-    const a = shadowAgreement(events, now);
-    const day = a ? Math.floor((now - a.since) / DAY_MS) + 1 : 1;
-    const preview = a && a.changes >= MIN_SHADOW_CHANGES ? `Shadow · right ${a.pct}%`
-      : day <= SHADOW_DAYS ? `Shadow · day ${day} of ${SHADOW_DAYS}` : `Shadow · ${a?.changes ?? 0} changes seen`;
-    return { preview, badge: 0 };
-  }
   const tables = tablesFromEvents(events);
   const dirty = tables.filter((t) => t.state === 'needs_cleaning').length;
   return { preview: `Live · ${floorSummary(tables).free} free${dirty ? `, ${dirty} to clean` : ''}`, badge: 0 };
@@ -185,16 +171,15 @@ export const visionPart = (events: readonly SyncEvent[], now: number): PartLine 
 
 /** What the page's side panel shows: the address after #vision, so Back and a link both work. */
 export type VisionPick =
-  | { kind: 'overview'; focusLive?: boolean }
+  | { kind: 'overview' }
   | { kind: 'camera'; id: string }
   | { kind: 'table'; id: string }
   | { kind: 'add-camera' }
   | { kind: 'add-table' };
 
-/** #vision → the overview; #vision/live (the Shadow week card) → the overview with Live picked; #vision/camera-<id>, #vision/table-<id>, #vision/add-camera, #vision/add-table. */
+/** #vision → the overview (and #vision/live, the old Shadow week card's link); #vision/camera-<id>, #vision/table-<id>, #vision/add-camera, #vision/add-table. */
 export const parseVisionPick = (hash: string): VisionPick => {
   const rest = hash.startsWith('#vision/') ? hash.slice('#vision/'.length) : '';
-  if (rest === 'live') return { kind: 'overview', focusLive: true };
   if (rest === 'add-camera' || rest === 'add-table') return { kind: rest };
   const m = /^(camera|table)-(.+)$/.exec(rest);
   if (m) { try { return { kind: m[1] as 'camera' | 'table', id: decodeURIComponent(m[2]) }; } catch { /* a broken address: the overview */ } }
@@ -203,12 +188,3 @@ export const parseVisionPick = (hash: string): VisionPick => {
 
 export const visionHash = (p: VisionPick): string =>
   p.kind === 'overview' ? '#vision' : p.kind === 'camera' || p.kind === 'table' ? `#vision/${p.kind}-${encodeURIComponent(p.id)}` : `#vision/${p.kind}`;
-
-/** The mode the On switch goes back to: the last one before Off, or Shadow (it watches without changing the floor). */
-export const lastOnMode = (events: readonly SyncEvent[]): 'shadow' | 'live' => {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const e = events[i];
-    if (e.type === 'vision.settings_set' && e.mode !== 'off') return e.mode;
-  }
-  return 'shadow';
-};

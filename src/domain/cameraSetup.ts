@@ -79,7 +79,7 @@ export const LIMIT_TEXT = `Limit ${MAX_CAMERAS} cameras - turn one off first`;
 export const mayUse = (cameras: readonly Pick<CameraSpec, 'id' | 'enabled'>[], id: string): boolean =>
   cameras.filter((c) => c.enabled && c.id !== id).length < MAX_CAMERAS;
 
-// ----- Live needs every table in a zone -----
+// ----- Live needs a camera and a zone; tables without one are staff's -----
 
 /** Tables no enabled camera has a zone on. */
 export const tablesWithoutZone = (tables: readonly TableSpec[], cameras: readonly CameraSpec[], zones: Record<string, readonly ZoneSpec[]>): TableSpec[] => {
@@ -87,14 +87,27 @@ export const tablesWithoutZone = (tables: readonly TableSpec[], cameras: readonl
   return tables.filter((t) => !seen.has(t.id));
 };
 
-/** Why Live cannot be chosen yet, or null. */
+const tableNames = (ts: readonly TableSpec[]) => {
+  const names = ts.map((t) => t.label);
+  return `${ts.length === 1 ? 'Table' : 'Tables'} ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]}`;
+};
+
+/**
+ * Why CV cannot be turned on yet, or null. With Shadow gone (owner, 2026-10-27) On is Live, so it
+ * needs one table the cameras can see, not every table: the others stay staff's (`unzonedNote`).
+ */
 export const liveBlocked = (tables: readonly TableSpec[], cameras: readonly CameraSpec[], zones: Record<string, readonly ZoneSpec[]>): string | null => {
   if (!tables.length) return 'Add the tables first.';
   if (!cameras.some((c) => c.enabled)) return 'Turn on "Use for CV" for a camera first.';
+  if (tablesWithoutZone(tables, cameras, zones).length === tables.length) return 'Draw a zone on a table first.';
+  return null;
+};
+
+/** The tables the cameras cannot see, said plainly: staff set them on the floor. Null when every table has a zone. */
+export const unzonedNote = (tables: readonly TableSpec[], cameras: readonly CameraSpec[], zones: Record<string, readonly ZoneSpec[]>): string | null => {
   const missing = tablesWithoutZone(tables, cameras, zones);
-  if (!missing.length) return null;
-  const names = missing.map((t) => t.label);
-  return `${missing.length === 1 ? 'Table' : 'Tables'} ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]} ${missing.length === 1 ? 'has' : 'have'} no zone yet.`;
+  if (!missing.length || missing.length === tables.length) return null;
+  return `${tableNames(missing)} ${missing.length === 1 ? 'has' : 'have'} no zone: staff set ${missing.length === 1 ? 'it' : 'them'}.`;
 };
 
 // ----- Drawing a zone -----

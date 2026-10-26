@@ -221,16 +221,16 @@ test('#cameras: the owner sets up cameras, tables, zones and settings as events;
   await setup.cvTables({ ...pin, tables: [{ id: 't1', label: '1', seats: 4 }, { id: 't2', label: '2', seats: 2 }] });
   await setup.cvZones({ ...pin, cameraId: 'c1', zones: [{ id: 'z1', tableId: 't1', points: [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.3, y: 0.6 }] }] });
   await assert.rejects(setup.cvZones({ ...pin, cameraId: 'c1', zones: [{ id: 'z1', tableId: 't1', points: [{ x: 0.1, y: 0.1 }, { x: 2, y: 0 }, { x: 0, y: 1 }] }] }), /not valid/);
-  await setup.cvSettings({ ...pin, mode: 'shadow', shortVisitS: 120, leftCheckS: 10, autoFreeS: 300, cpuLimit: 25 });
-  await assert.rejects(setup.cvSettings({ ...pin, mode: 'shadow', shortVisitS: 120, leftCheckS: 10, autoFreeS: 300, cpuLimit: 80 }), /not valid/, 'the CPU limit stops at 50%');
-  await assert.rejects(setup.cvSettings({ ...pin, mode: 'shadow', shortVisitS: 120, leftCheckS: 0, autoFreeS: 300 }), /not valid/, 'a left check of 0 s would end a visit on one missed frame');
-  await assert.rejects(setup.cvSettings({ ...pin, mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300 } as never), /not valid/, 'the old timers are no longer saved');
+  await setup.cvSettings({ ...pin, mode: 'live', shortVisitS: 120, leftCheckS: 10, autoFreeS: 300, cpuLimit: 25 });
+  await assert.rejects(setup.cvSettings({ ...pin, mode: 'live', shortVisitS: 120, leftCheckS: 10, autoFreeS: 300, cpuLimit: 80 }), /not valid/, 'the CPU limit stops at 50%');
+  await assert.rejects(setup.cvSettings({ ...pin, mode: 'live', shortVisitS: 120, leftCheckS: 0, autoFreeS: 300 }), /not valid/, 'a left check of 0 s would end a visit on one missed frame');
+  await assert.rejects(setup.cvSettings({ ...pin, mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 } as never), /not valid/, 'the old timers are no longer saved');
 
   const stored = (await store.pull(named.shopId, 0, 100)).map((s) => s.event);
   assert.deepEqual(stored.map((e) => e.type), ['vision.cameras_set', 'table.layout_set', 'vision.zones_set', 'vision.settings_set']);
   assert.ok(stored.every((e) => e.shopId === named.shopId && 'actor' in e && e.actor.role === 'owner' && e.actor.name === 'Nisal Vimukthi'));
   const v = visionFromEvents(stored);
-  assert.equal(v.settings.mode, 'shadow');
+  assert.equal(v.settings.mode, 'live');
   assert.equal(v.settings.cpuLimit, 25);
   assert.equal(v.settings.shortVisitS, 120);
   assert.deepEqual(tablesFromEvents(stored).map((t) => [t.id, t.watched]), [['t1', true], ['t2', false]]);
@@ -392,8 +392,8 @@ test('TEMPORARY test video: the owner uploads one for a saved camera; views and 
   // The worker watches it although "Use for CV" is off.
   const { workerConfig } = await import('./cvWorker.ts');
   const events = (await store.pull(settings.get().shopId!, 0, 500)).map((x) => x.event);
-  const shadow = { ...events.at(-1)!, id: 'mode', type: 'vision.settings_set', mode: 'shadow', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 } as unknown as typeof events[number];
-  assert.deepEqual(workerConfig([...events, shadow], 'C:\pack', () => null, dev)?.cameras.map((c) => [c.id, c.url]),
+  const live = { ...events.at(-1)!, id: 'mode', type: 'vision.settings_set', mode: 'live', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 } as unknown as typeof events[number];
+  assert.deepEqual(workerConfig([...events, live], 'C:\pack', () => null, dev)?.cameras.map((c) => [c.id, c.url]),
     [['front', file], ['back', 'C:\clips\env.jpg']]);
 
   // Stop: the stream again, the file gone; a camera from CV_DEV_CAMERAS keeps its file.

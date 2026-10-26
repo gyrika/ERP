@@ -11,7 +11,7 @@ import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine, Tender } from './types.ts';
 import { lineItemName } from './halves.ts';
 import { stockValueCard } from './valuation.ts';
-import { camerasOffline, shadowToLive, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
+import { camerasOffline, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
 import { wasteAboveUsual, wasteReasonRepeats } from './wasteInsights.ts';
 
 /**
@@ -469,7 +469,6 @@ export const rulesSuggestions: SuggestionsService = {
       costsToAnswer(events, stock, now),
       grnApprovals(events, stock, now),
       stockValueCard(events, stock, now),
-      shadowToLive(events, now),
       visitLength(events, now),
       tableUse(events, now),
       notSelling(events, sales, now),

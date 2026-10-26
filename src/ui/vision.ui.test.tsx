@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { Actor } from '../domain/auth.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { lock } from '../services/serverAuth.ts';
-import { addEvents } from './eventLog.ts';
+import { addEvents, readAll } from './eventLog.ts';
 import { Root } from './Root.tsx';
 
 const owner: Actor = { id: 'owner-1', name: 'Nisal Vimukthi', role: 'owner' };
@@ -50,11 +50,10 @@ function fakeShopServer() {
 beforeEach(() => { localStorage.clear(); });
 afterEach(() => { act(() => lock()); cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); history.replaceState(null, '', '/'); });
 
-const radio = (name: string) => screen.getByRole('radio', { name });
 const toggle = () => screen.getByRole('switch', { name: 'Computer vision' });
 const panel = () => screen.getByRole('complementary', { name: 'Details' });
 
-test('one page: the switch turns CV on (PIN in the line, the CV pack arrives, Shadow), Live waits for every zone, the CPU limit is one event', async () => {
+test('one page: the switch turns CV on (PIN in the line, the CV pack arrives): On is Live; the CPU limit is one event; Off again', async () => {
   const server = fakeShopServer();
   addEvents(shop());
   history.replaceState(null, '', '/#vision');
@@ -62,28 +61,23 @@ test('one page: the switch turns CV on (PIN in the line, the CV pack arrives, Sh
   render(<Root />);
   expect(await screen.findByRole('heading', { name: 'Computer vision' })).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Computer vision' }).getAttribute('aria-current')).toBe('page');
-  expect(screen.queryByRole('link', { name: 'How to set up' })).toBeNull();
-  // Off: the switch says so (red); the panel holds the settings.
+  // Off: the switch says so (red); the panel holds the settings; no Shadow, no mode to pick.
   expect((await screen.findByRole('switch', { name: 'Computer vision' })).getAttribute('aria-checked')).toBe('false');
   expect(within(toggle()).getByText('Off')).toBeTruthy();
   expect(within(panel()).getByRole('heading', { name: 'Settings' })).toBeTruthy();
+  expect(screen.queryByRole('radio', { name: 'Shadow' })).toBeNull();
+  // One table seen is enough; the other is said, and stays staff's.
+  expect(within(panel()).getByText('Table 2 has no zone: staff set it.')).toBeTruthy();
 
-  // Live: not until table 2 has a zone, said in the panel with the way to it.
-  expect(radio('Live').getAttribute('aria-disabled')).toBe('true');
-  expect(screen.getByText('Live: Table 2 has no zone yet.')).toBeTruthy();
-  await user.click(radio('Live'));
-  expect(screen.queryByLabelText(/owner's PIN/)).toBeNull();
-
-  // On: the owner's PIN in the page's line, no dialog; the pack downloads; then Shadow, the first time.
+  // On: the owner's PIN in the page's line, no dialog; the pack downloads; then Live.
   await user.click(toggle());
-  const pin = await screen.findByLabelText("The owner's PIN to switch to Shadow");
+  const pin = await screen.findByLabelText("The owner's PIN to turn computer vision on");
   expect(screen.queryByRole('dialog')).toBeNull();
   await user.type(pin, '1234{Enter}');
   expect(await screen.findByRole('progressbar', { name: 'Downloading the CV pack' })).toBeTruthy();
-  expect(await screen.findByText('Shadow on.', {}, { timeout: 4000 })).toBeTruthy();
-  expect(server.settings).toEqual([{ ownerPin: '1234', mode: 'shadow', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15 }]);
+  expect(await screen.findByText('Computer vision is on.', {}, { timeout: 4000 })).toBeTruthy();
+  expect(server.settings).toEqual([{ ownerPin: '1234', mode: 'live', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15 }]);
   expect(toggle().getAttribute('aria-checked')).toBe('true');
-  expect(radio('Shadow').getAttribute('aria-checked')).toBe('true');
   expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
 
   // The CPU limit: 5% to 50% in steps of 5; one event once the slider settles; the PIN is known now.
@@ -100,6 +94,16 @@ test('one page: the switch turns CV on (PIN in the line, the CV pack arrives, Sh
   expect(server.settings).toHaveLength(3);
 }, 15_000);
 
+test('the switch waits for a zone: with no table the cameras can see, it says what to do', async () => {
+  fakeShopServer();
+  addEvents(shop().filter((e) => e.type !== 'vision.zones_set'));
+  history.replaceState(null, '', '/#vision');
+  render(<Root />);
+  const sw = await screen.findByRole('switch', { name: 'Computer vision' });
+  expect((sw as HTMLButtonElement).disabled).toBe(true);
+  expect(within(panel()).getByText('Draw a zone on a table first.')).toBeTruthy();
+});
+
 test('a table opens in the panel: why it is so, its day, its zone; Esc closes it; the owner edits and adds tables there', async () => {
   const server = fakeShopServer();
   addEvents([...shop(), ev({ type: 'table.state_set', tableId: 't2', from: 'free', to: 'reserved', actor: { id: 'n', name: 'Nimal', role: 'cashier' } })]);
@@ -109,7 +113,7 @@ test('a table opens in the panel: why it is so, its day, its zone; Esc closes it
   const tiles = await screen.findByRole('listbox', { name: 'Tables by number' });
   expect(within(tiles).getAllByRole('option').map((o) => o.getAttribute('aria-label')?.split(',').slice(0, 2).join(','))).toEqual(['Table 1, free', 'Table 2, reserved']);
   expect(within(tiles).getAllByText('no zone')).toHaveLength(1);
-  expect(screen.getByText('No camera data yet.')).toBeTruthy();
+  expect(screen.getByText('CV is off: nothing runs.')).toBeTruthy();
 
   // Arrows move, Enter opens it in the panel; the address says which.
   within(tiles).getAllByRole('option')[0].focus();
@@ -154,28 +158,25 @@ test('the old #cameras address opens Computer vision', async () => {
   expect(await screen.findByRole('heading', { name: 'Computer vision' })).toBeTruthy();
 });
 
-test('the demo: the Shadow week card goes to #vision with Live picked; Enter switches', async () => {
+test('the demo: a shop that ran the old Shadow is Off; On is Live, and Performance shows the cameras now', async () => {
   history.replaceState(null, '', '/?demo#owner');
   const user = userEvent.setup();
   render(<Root />);
-  const card = await screen.findByRole('article', { name: /^Cameras were right \d+% of the time this week$/ });
-  // Today's To do shows the title; tapping it explains it on the black screen (SCRUM-173).
-  await user.click(within(card).getByRole('button', { name: /^Cameras were right/ }));
-  expect(within(screen.getByRole('region', { name: 'Shop screen' })).getByText(/Switch to Live\?/)).toBeTruthy();
-  await user.click(within(card).getByRole('button', { name: 'Switch to Live' }));
-
+  // The Shadow week card is gone from Today.
+  await screen.findByRole('article', { name: /^Back camera offline/ });
+  expect(screen.queryByRole('article', { name: /^Cameras were right/ })).toBeNull();
+  act(() => { location.hash = '#vision'; });
   expect(await screen.findByRole('heading', { name: 'Computer vision' })).toBeTruthy();
-  expect(location.hash).toBe('#vision/live');
-  await screen.findByText('Enter switches to Live.');
-  expect(document.activeElement).toBe(radio('Live'));
-  expect(radio('Shadow').getAttribute('aria-checked')).toBe('true');
-  expect(toggle().getAttribute('aria-checked')).toBe('true');
-  // The demo heartbeat: the front camera works, the back one is offline.
-  expect(within(panel()).getByText(/1 of 2 cameras online · using 11% now/)).toBeTruthy();
-
-  await user.keyboard('{Enter}');
-  expect(await screen.findByText('Live on.')).toBeTruthy();
-  expect(radio('Live').getAttribute('aria-checked')).toBe('true');
+  expect((await screen.findByRole('switch', { name: 'Computer vision' })).getAttribute('aria-checked')).toBe('false');
+  await user.click(toggle());
+  expect(await screen.findByText('Computer vision is on.')).toBeTruthy();
+  // Performance: live while the owner watches (the demo's numbers): CPU against the limit, each camera.
+  const perf = within(await within(panel()).findByRole('region', { name: 'Performance' }));
+  expect(await perf.findByText('Live', {}, { timeout: 4000 })).toBeTruthy();
+  expect(perf.getByText(/of 15%/)).toBeTruthy();
+  const rows = perf.getAllByRole('row').slice(1).map((r) => r.textContent);
+  expect(rows[0]).toMatch(/^Front[\d.]+1\d+ ms$/);
+  expect(rows[1]).toMatch(/^Back00–$/);
 }, 15_000);
 
 test("on the owner's phone the page is read only, without the cameras' pictures", async () => {
@@ -186,7 +187,6 @@ test("on the owner's phone the page is read only, without the cameras' pictures"
   expect(screen.queryByRole('navigation', { name: 'Owner sections' })).toBeNull();
   expect(screen.getAllByText('Change it on the shop PC.').length).toBeGreaterThan(0);
   expect((toggle() as HTMLButtonElement).disabled).toBe(true);
-  expect(radio('Live').getAttribute('aria-disabled')).toBe('true');
   expect((screen.getByRole('slider') as HTMLInputElement).disabled).toBe(true);
   expect(screen.queryByRole('button', { name: '+ Add table' })).toBeNull();
   expect(screen.queryByRole('button', { name: /Open in the panel/ })).toBeNull();
@@ -196,11 +196,11 @@ test('the camera worker slowed itself for the CPU limit: the panel says so', asy
   addEvents([...shop(), ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 0.5 }], cpu: 17, slowed: true })]);
   history.replaceState(null, '', '/#vision');
   render(<Root />);
-  expect(await screen.findByText(/Slowed to protect the Register/)).toBeTruthy();
-  expect(screen.getByText(/using 17% now/)).toBeTruthy();
+  expect(await screen.findByText(/slowed to protect the Register/)).toBeTruthy();
+  expect(screen.getByText(/of 15%/).textContent).toMatch(/^CPU 17% of 15%/);
 });
 
-test('a manager sees the page but cannot change CV, the mode, the CPU limit or the tables', async () => {
+test('a manager sees the page but cannot change CV, the CPU limit or the tables', async () => {
   localStorage.setItem('cb.sync.token', 'device-token');
   localStorage.setItem('cb.sync.kind', 'counter');
   const stored = shop();
@@ -221,8 +221,7 @@ test('a manager sees the page but cannot change CV, the mode, the CPU limit or t
   expect(await screen.findByRole('heading', { name: 'Computer vision' })).toBeTruthy();
   expect(screen.getAllByText('Only the owner changes this.').length).toBeGreaterThan(0);
   expect((toggle() as HTMLButtonElement).disabled).toBe(true);
-  for (const m of ['Shadow', 'Live']) expect(radio(m).getAttribute('aria-disabled')).toBe('true');
-  await user.click(radio('Shadow'));
+  await user.click(toggle());
   expect(screen.queryByLabelText(/owner's PIN/)).toBeNull();
   expect((screen.getByRole('slider') as HTMLInputElement).disabled).toBe(true);
   expect(screen.getByText('Only the owner watches the cameras, on the shop PC.')).toBeTruthy();
@@ -262,3 +261,44 @@ test('the first time: Activate computer vision downloads the pack with its progr
   expect(toggle().getAttribute('aria-checked')).toBe('false'); // activated, still off: the owner turns it on
   expect(server.settings).toEqual([]);
 }, 15_000);
+
+test('the owner sets a table from the panel: occupied, needs cleaning, free or reserved, one event each, with Undo', async () => {
+  fakeShopServer();
+  addEvents(shop());
+  history.replaceState(null, '', '/#vision/table-t1');
+  const user = userEvent.setup();
+  render(<Root />);
+  const states = within(await within(await screen.findByRole('complementary', { name: 'Details' })).findByRole('radiogroup', { name: 'Set it' }));
+  expect(states.getAllByRole('radio').map((r) => r.textContent)).toEqual(['Occupied', 'Needs cleaning', 'Free', 'Reserved']);
+  expect(states.getByRole('radio', { name: 'Free' }).getAttribute('aria-checked')).toBe('true');
+  await user.click(states.getByRole('radio', { name: 'Reserved' }));
+  expect(states.getByRole('radio', { name: 'Reserved' }).getAttribute('aria-checked')).toBe('true');
+  expect(screen.getByRole('option', { name: /^Table 1, reserved/ })).toBeTruthy();
+  expect(within(panel()).getByText('Table 1: reserved.')).toBeTruthy();
+  const set = readAll().filter((e) => e.type === 'table.state_set');
+  expect(set.map((e) => e.type === 'table.state_set' && [e.tableId, e.from, e.to])).toEqual([['t1', 'free', 'reserved']]);
+  await user.click(within(panel()).getByRole('button', { name: 'Undo' }));
+  expect(states.getByRole('radio', { name: 'Free' }).getAttribute('aria-checked')).toBe('true');
+  expect(readAll().some((e) => e.type === 'table.state_set_undone')).toBe(true);
+});
+
+test('each timer is shown in seconds or minutes, as the owner picks; the time saved is the same', async () => {
+  const server = fakeShopServer();
+  addEvents(shop());
+  history.replaceState(null, '', '/#vision');
+  const user = userEvent.setup();
+  render(<Root />);
+  await user.click(await within(await screen.findByRole('complementary', { name: 'Details' })).findByText('Timers'));
+  const visit = screen.getByLabelText('A visit shorter than this needs no cleaning') as HTMLInputElement;
+  expect(visit.value).toBe('3');
+  await user.click(within(screen.getByRole('radiogroup', { name: 'A visit shorter than this needs no cleaning: in' })).getByRole('radio', { name: 's' }));
+  expect(visit.value).toBe('180');
+  await user.clear(visit);
+  await user.type(visit, '90');
+  const left = screen.getByLabelText('Empty this long counts as left') as HTMLInputElement;
+  await user.click(within(screen.getByRole('radiogroup', { name: 'Empty this long counts as left: in' })).getByRole('radio', { name: 'min' }));
+  expect(left.value).toBe('0.17');
+  await user.click(screen.getByRole('button', { name: 'Save timers' }));
+  await user.type(await screen.findByLabelText("The owner's PIN to save the timers"), '1234{Enter}');
+  await vi.waitFor(() => expect(server.settings.at(-1)).toMatchObject({ shortVisitS: 90, leftCheckS: 10, autoFreeS: 300 }));
+});

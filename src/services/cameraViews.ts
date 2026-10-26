@@ -1,4 +1,13 @@
 import type { Seen } from '../domain/tables.ts';
+
+/** How the camera worker is doing now (server/cv/messages.ts `Perf`), and how many views run: memory only. */
+export interface ViewsPerf {
+  perf: {
+    at: number; cpu: number; cpuLimit: number; slowed: boolean;
+    cameras: { id: string; online: boolean; fps: number; checksPerS: number; detectMs: number | null }[];
+  } | null;
+  views: number;
+}
 import { FAKE_DETECTIONS } from '../fake/data.ts';
 import { isDemo } from '../ui/storage.ts';
 
@@ -21,6 +30,8 @@ export interface CameraViewsClient {
   frame(key: string, cameraId: string, q: { mode: ViewMode; after: number; use: boolean }): Promise<ViewFrame>;
   /** The page was left: every view stops. Also works while the page unloads. */
   close(key: string): void;
+  /** #vision's Performance, polled while the owner watches. */
+  perf(key: string): Promise<ViewsPerf>;
 }
 
 class ViewsFailed extends Error {}
@@ -43,6 +54,7 @@ const shopServer: CameraViewsClient = {
     if (f.state === 'offline') return { state: 'offline', message: f.message ?? '' };
     return { state: f.state as Exclude<ViewFrame['state'], 'frame' | 'offline'> };
   },
+  perf: (key) => post<ViewsPerf>('/cv/views/perf', { key }),
   close(key) {
     const body = JSON.stringify({ key });
     if (!navigator.sendBeacon?.('/api/v1/setup/cv/views/close', new Blob([body], { type: 'application/json' }))) {
@@ -81,6 +93,14 @@ const demo = (names: () => Map<string, string>): CameraViewsClient => ({
     return { state: 'frame', seq: ++demoSeq, at, src, ...(persons ? { seen: { at, detectedAt: at - (at % 12_000), persons } } : {}) };
   },
   close: () => {},
+  // The demo: the front camera works (5 fps, a check a second), the back one is offline; numbers wobble so it reads live.
+  async perf() {
+    const w = (n: number, by: number) => Math.round((n + (Math.random() - 0.5) * by) * 10) / 10;
+    return { views: 2, perf: { at: Date.now(), cpu: Math.round(w(11, 4)), cpuLimit: 15, slowed: false, cameras: [
+      { id: 'demo-cam-front', online: true, fps: w(5, 0.4), checksPerS: 1, detectMs: Math.round(w(42, 10)) },
+      { id: 'demo-cam-back', online: false, fps: 0, checksPerS: 0, detectMs: null },
+    ] } };
+  },
 });
 
 export const cameraViewsClient = (names: () => Map<string, string>): CameraViewsClient => (isDemo() ? demo(names) : shopServer);

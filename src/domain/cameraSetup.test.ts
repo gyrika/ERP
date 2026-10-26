@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addPoint, brandOf, CAUSE_TEXT, hostPort, closePolygon, ffmpegCause, LIMIT_TEXT, liveBlocked, maskLogins, mayUse, normalisePoint, presetPath,
-  rtspUrl, tablesWithoutZone, testFailure,
+  rtspUrl, tablesWithoutZone, testFailure, unzonedNote,
 } from './cameraSetup.ts';
 import type { CameraSpec, TableSpec, ZoneSpec } from './tables.ts';
 
@@ -64,12 +64,15 @@ const tables: TableSpec[] = [{ id: 't1', label: '1', seats: 4 }, { id: 't2', lab
 const cam = (id: string, enabled = true): CameraSpec => ({ id, name: id, ip: '192.168.1.20', rtspPath: '/stream2', enabled });
 const zone = (tableId: string): ZoneSpec => ({ id: `z-${tableId}`, tableId, points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }] });
 
-test('Live waits until every table has a zone on a camera in use', () => {
+test("On (Live) needs a camera in use and one table with a zone; the tables without one are said, and stay staff's", () => {
   assert.equal(liveBlocked([], [cam('c1')], {}), 'Add the tables first.');
   assert.equal(liveBlocked(tables, [cam('c1', false)], { c1: [zone('t1')] }), 'Turn on "Use for CV" for a camera first.');
-  assert.equal(liveBlocked(tables, [cam('c1')], { c1: [zone('t1')] }), 'Tables 2 and 3 have no zone yet.');
-  assert.equal(liveBlocked(tables, [cam('c1'), cam('c2', false)], { c1: [zone('t1'), zone('t2')], c2: [zone('t3')] }), 'Table 3 has no zone yet.',
-    "a camera not in use does not count");
+  assert.equal(liveBlocked(tables, [cam('c1')], {}), 'Draw a zone on a table first.');
+  assert.equal(liveBlocked(tables, [cam('c1', false), cam('c2')], { c1: [zone('t1')] }), 'Draw a zone on a table first.', 'a camera not in use does not count');
+  // One table seen is enough to turn it on; the others are said, and stay staff's.
+  assert.equal(liveBlocked(tables, [cam('c1')], { c1: [zone('t1')] }), null);
+  assert.equal(unzonedNote(tables, [cam('c1')], { c1: [zone('t1')] }), 'Tables 2 and 3 have no zone: staff set them.');
+  assert.equal(unzonedNote(tables, [cam('c1'), cam('c2', false)], { c1: [zone('t1'), zone('t2')], c2: [zone('t3')] }), 'Table 3 has no zone: staff set it.');
   assert.equal(liveBlocked(tables, [cam('c1'), cam('c2')], { c1: [zone('t1'), zone('t2')], c2: [zone('t3')] }), null);
   assert.deepEqual(tablesWithoutZone(tables, [cam('c1')], { c1: [zone('t2')] }).map((t) => t.id), ['t1', 't3']);
 });

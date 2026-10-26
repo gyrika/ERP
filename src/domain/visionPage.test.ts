@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Actor } from './auth.ts';
 import type { SyncEvent } from './sync.ts';
 import { tablesFromEvents, visionFromEvents } from './tables.ts';
-import { cameraHealth, lastOnMode, parseVisionPick, tablesToday, visionHash, visionPart, whyState } from './visionPage.ts';
+import { cameraHealth, parseVisionPick, tablesToday, visionHash, visionPart, whyState } from './visionPage.ts';
 
 const MIN = 60_000;
 const now = new Date(2026, 9, 9, 20, 30).getTime();
@@ -63,11 +63,13 @@ test('why staff set a table: who, when, and what ends it in Live', () => {
   assert.equal(why([...setup('off'), set('t1', 'free', 'occupied', at(13))], 't1'), 'Set by Nimal at 13:00.');
 });
 
-test('why in Shadow: staff set the floor, and what the cameras saw is said beside it', () => {
+test('Shadow is gone: a shop left in Shadow is Off, and its old camera changes moved nothing', () => {
   const events = [...setup('shadow'), saw('t1', 'free', 'occupied', at(12)), set('t1', 'free', 'occupied', at(12, 1)),
     saw('t1', 'occupied', 'needs_cleaning', at(12, 40), 0.95)];
-  assert.equal(why(events, 't1'), 'Set by Nimal at 12:01; in Shadow the cameras only watch. They saw it empty at 12:40.');
-  assert.equal(why([...setup('shadow'), set('t1', 'free', 'reserved', at(12, 1))], 't1'), 'Set by Nimal at 12:01; in Shadow the cameras only watch.');
+  assert.equal(visionFromEvents(events).settings.mode, 'off');
+  assert.equal(tablesFromEvents(events).find((t) => t.id === 't1')?.state, 'occupied', 'only staff moved it');
+  assert.equal(why(events, 't1'), 'Set by Nimal at 12:01.');
+  assert.deepEqual(visionPart(setup('shadow'), now), { preview: 'Off', badge: 0 });
 });
 
 test('why: untouched since setup, an Undo, and a camera offline', () => {
@@ -119,14 +121,13 @@ test("the sidebar's line: a camera offline first, else the mode and the floor", 
   assert.deepEqual(visionPart(live, now), { preview: 'Live · 2 free, 1 to clean', badge: 0 });
   assert.deepEqual(visionPart(setup('live'), now), { preview: 'Live · 3 free', badge: 0 });
   assert.deepEqual(visionPart(setup('off'), now), { preview: 'Off', badge: 0 });
-  assert.deepEqual(visionPart(setup('shadow'), now), { preview: 'Shadow · day 1 of 7', badge: 0 });
   const offline = [...live, ev({ type: 'vision.camera_offline', cameraId: 'c2' }, at(20, 20))];
   assert.deepEqual(visionPart(offline, now), { preview: 'Back camera offline', badge: 1 });
 });
 
 test('the side panel is in the address: a camera, a table, adding one, or the overview; every pick round-trips', () => {
   assert.deepEqual(parseVisionPick('#vision'), { kind: 'overview' });
-  assert.deepEqual(parseVisionPick('#vision/live'), { kind: 'overview', focusLive: true }, 'the Shadow week card');
+  assert.deepEqual(parseVisionPick('#vision/live'), { kind: 'overview' }, 'the old Shadow week card');
   assert.deepEqual(parseVisionPick('#vision/camera-cam-1a2b'), { kind: 'camera', id: 'cam-1a2b' });
   assert.deepEqual(parseVisionPick('#vision/table-t%2F1'), { kind: 'table', id: 't/1' });
   assert.deepEqual(parseVisionPick('#vision/add-camera'), { kind: 'add-camera' });
@@ -135,11 +136,4 @@ test('the side panel is in the address: a camera, a table, adding one, or the ov
   for (const p of [{ kind: 'camera', id: 'c 1' }, { kind: 'table', id: 't1' }, { kind: 'add-table' }, { kind: 'overview' }] as const) {
     assert.deepEqual(parseVisionPick(visionHash(p)), p);
   }
-});
-
-test('On goes back to the last mode before Off; Shadow the first time', () => {
-  assert.equal(lastOnMode([]), 'shadow');
-  assert.equal(lastOnMode(setup('off')), 'shadow');
-  assert.equal(lastOnMode([...setup('live'), ...setup('off')]), 'live');
-  assert.equal(lastOnMode([...setup('live'), ...setup('shadow'), ...setup('off')]), 'shadow');
 });

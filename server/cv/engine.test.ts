@@ -159,3 +159,17 @@ test('Live follows staff: a table staff freed while people sit stays free until 
   await s.run(30);
   assert.equal(s.events().length, 1, 'held: still the same people');
 });
+
+test('Performance every 2 s, never stored: CPU against the limit, and per camera frames and checks a second and a detection\'s time', async () => {
+  const s = setup();
+  s.engine.configure(config());
+  await s.run(12, (i) => 40 + (i * 37) % 180); // the picture changes: the motion gate does not reuse, each check detects
+  const perf = s.sent.flatMap((m) => (m.type === 'perf' ? [m] : []));
+  assert.ok(perf.length >= 5, 'one every 2 s');
+  const last = perf.at(-1)!;
+  assert.equal(last.cpuLimit, 15);
+  assert.equal(last.slowed, false);
+  assert.equal(last.cameras.length, 1);
+  assert.deepEqual({ ...last.cameras[0], detectMs: typeof last.cameras[0].detectMs }, { id: 'cam1', online: true, fps: 1, checksPerS: 1, detectMs: 'number' });
+  assert.equal(s.events().filter((e) => (e.type as string) === 'perf').length, 0, 'never an event');
+});

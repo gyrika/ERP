@@ -6,7 +6,7 @@ import { mayRecord, type Actor } from '../src/domain/auth.ts';
 import { rtspUrl } from '../src/domain/cameraSetup.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
 import { MAX_CAMERAS, tablesFromEvents, visionFromEvents } from '../src/domain/tables.ts';
-import type { FromWorker, Heartbeat, Seen, ToWorker, VisionFields, WorkerConfig } from './cv/messages.ts';
+import type { FromWorker, Heartbeat, Perf, Seen, ToWorker, VisionFields, WorkerConfig } from './cv/messages.ts';
 import { HEARTBEAT_KEEP_MS, restartDelay, STABLE_MS } from './cv/visionCore.ts';
 import { cvLog } from './cvLog.ts';
 import type { CameraLogin } from './cvSecrets.ts';
@@ -189,6 +189,8 @@ export function startVision(o: {
   let shop: string | null = null;
   let history: Promise<SyncEvent[]> | null = null;
   let kept: { at: number; beat: Heartbeat } | null = null;
+  /** How the worker is doing now (PERF_MS), for #vision's Performance: memory only. */
+  let perf: ({ at: number } & Perf) | null = null;
   let writes: Promise<unknown> = Promise.resolve();
   let stopped = false;
   /** The camera the owner watches large (SCRUM-175) and its latest detections: memory only, while it is watched. */
@@ -228,6 +230,7 @@ export function startVision(o: {
     log: (text) => log.write(text),
     onMessage(m) {
       if (m.type === 'log') log.write(`worker: ${m.text}`);
+      else if (m.type === 'perf') { const { type: _t, ...p } = m; perf = p; }
       else if (m.type === 'seen') {
         if (watching?.cameraId === m.cameraId) watching.seen = { at: m.at, detectedAt: m.detectedAt, persons: m.persons };
       }
@@ -289,6 +292,8 @@ export function startVision(o: {
     /** A camera's source changed (a test video): look again now. */
     refresh: () => check(),
     running: () => worker.running(),
+    /** The worker's latest numbers, or null when it is not running or has said nothing for 10 s. */
+    perf: () => (worker.running() && perf && now() - perf.at < 10_000 ? perf : null),
     async stop() {
       stopped = true;
       clearInterval(timer);

@@ -1,7 +1,7 @@
 import type { FromWorker, SeenBox, VisionFields, WorkerConfig } from './messages.ts';
 import { followFloor, lost, sample as trackSample, startTracker, type Tracker } from './tracker.ts';
 import {
-  checkEvery, cpuGuard, cpuPercent, CPU_SAMPLE_MS, FRAME_H, FRAME_W, greyThumb, HEARTBEAT_MS, linkStep, presence,
+  checkEvery, cpuGuard, cpuPercent, CPU_SAMPLE_MS, FRAME_H, FRAME_W, greyThumb, HEARTBEAT_MS, linkStep, PERF_MS, PERF_WINDOW_MS, presence,
   shouldReuse, zoneBox, type Guard, type Link, type Presence,
 } from './visionCore.ts';
 import type { Box, Rect } from './yolox.ts';
@@ -41,6 +41,9 @@ interface Cam {
   busy: boolean;
   /** Each of its tables: is someone there, at the last check, and how sure? */
   seen: Map<string, Presence>;
+  /** For Performance: when each check ran, and each detection's time (the motion gate's reuses are checks, not detections). */
+  checks: number[];
+  detects: { at: number; ms: number }[];
 }
 
 export function visionEngine(o: {
@@ -60,7 +63,7 @@ export function visionEngine(o: {
   let watched: string | null = null;
   let cpu = 0;
   const start = o.now();
-  let cpuAt = start, cpuUsed = o.cpuMicros(), beatAt = start;
+  let cpuAt = start, cpuUsed = o.cpuMicros(), beatAt = start, perfAt = start;
   /** One detection at a time: one ONNX session, one core. */
   let detecting: Promise<unknown> = Promise.resolve();
 
@@ -94,6 +97,7 @@ export function visionEngine(o: {
           id: c.id, zones: c.zones, zonesKey, box: zoneBox(c.zones, FRAME_W, FRAME_H),
           link: had?.link ?? { started: t, lastFrame: null, reported: next.offline.includes(c.id) ? 'offline' : null },
           online: had?.online ?? false, frames: had?.frames ?? [], lastCheck: null, last: null, busy: false, seen: new Map(),
+          checks: had?.checks ?? [], detects: had?.detects ?? [],
         });
       }
       const tables = new Set(next.cameras.flatMap((c) => c.zones.map((z) => z.tableId)));
@@ -116,6 +120,7 @@ export function visionEngine(o: {
       c.online = true;
       if (c.busy || !c.box || (c.lastCheck !== null && t - c.lastCheck < checkEvery(guard) - SLACK_MS)) return;
       c.lastCheck = t;
+      c.checks.push(t);
       c.busy = true;
       try {
         const thumb = greyThumb(rgb, FRAME_W, FRAME_H, c.box);
@@ -123,7 +128,10 @@ export function visionEngine(o: {
         if (c.last && shouldReuse(c.last, thumb, t)) persons = c.last.persons;
         else {
           const box = c.box;
-          const run = detecting.then(() => o.detect(rgb, box));
+          const run = detecting.then(async () => {
+            const began = performance.now();
+            try { return await o.detect(rgb, box); } finally { c.detects.push({ at: t, ms: performance.now() - began }); }
+          });
           detecting = run.catch(() => undefined);
           persons = await run;
           c.last = { thumb, at: t, persons };
@@ -167,6 +175,19 @@ export function visionEngine(o: {
         const was = guard.slowed;
         guard = cpuGuard(guard, t, cpu, cfg.cpuLimit);
         if (guard.slowed !== was) log(guard.slowed ? `slowed to one check every 2 s: over ${cfg.cpuLimit}% CPU for 5 minutes` : 'back to one check a second');
+      }
+
+      if (t - perfAt >= PERF_MS) {
+        perfAt = t;
+        const since = t - PERF_WINDOW_MS;
+        const perS = (times: number[]) => Math.round((times.filter((at) => at > since).length / (PERF_WINDOW_MS / 1000)) * 10) / 10;
+        const cameras = [...cams.values()].map((c) => {
+          c.checks = c.checks.filter((at) => at > since);
+          c.detects = c.detects.filter((d) => d.at > since);
+          const ms = c.detects.map((d) => d.ms);
+          return { id: c.id, online: c.online, fps: perS(c.frames), checksPerS: perS(c.checks), detectMs: ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) / ms.length) : null };
+        });
+        o.send({ type: 'perf', at: t, cpu: Math.min(100, cpu), cpuLimit: cfg.cpuLimit, slowed: guard.slowed, cameras });
       }
 
       if (t - beatAt >= HEARTBEAT_MS) {
