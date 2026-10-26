@@ -110,7 +110,9 @@ test('the demo: the Shadow week card goes to #vision with Live picked; Enter swi
   const user = userEvent.setup();
   render(<Root />);
   const card = await screen.findByRole('article', { name: /^Cameras were right \d+% of the time this week$/ });
-  expect(within(card).getByText(/Switch to Live\?/)).toBeTruthy();
+  // Today's To do shows the title; tapping it explains it on the black screen (SCRUM-173).
+  await user.click(within(card).getByRole('button', { name: /^Cameras were right/ }));
+  expect(within(screen.getByRole('region', { name: 'Shop screen' })).getByText(/Switch to Live\?/)).toBeTruthy();
   await user.click(within(card).getByRole('button', { name: 'Switch to Live' }));
 
   expect(await screen.findByRole('heading', { name: 'Computer vision' })).toBeTruthy();

@@ -20,6 +20,8 @@ import { RejectionNotices } from './Rejections.tsx';
 import { ReleaseNotices } from './ProductionNotices.tsx';
 import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, receiveUnitOf, tiersOf, unitName } from '../domain/counting.ts';
+import { fmt } from '../domain/money.ts';
+import { rawValue } from '../domain/valuation.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
@@ -44,19 +46,22 @@ export function InventoryView({
   onFindSupplier,
   onRegister,
   lowFirst = false,
+  openId,
 }: {
   onFindSupplier?: (id: string) => void;
   onRegister?: () => void;
   /** Opened to order (#items/low, from Orders' Order by item): out first, then low, then the rest. */
   lowFirst?: boolean;
+  /** Opens this item's sheet on its History (#items/item/<id>). */
+  openId?: string;
 } = {}) {
   const [showAdd, setShowAdd] = useState(false);
   const [archived, setArchived] = useState<{ id: string; name: string } | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   /** The item whose sheet is open, and on which tab. */
-  const [updating, setUpdating] = useState<string | null>(null);
-  const [sheetTab, setSheetTab] = useState<SheetTab>('details');
+  const [updating, setUpdating] = useState<string | null>(openId ?? null);
+  const [sheetTab, setSheetTab] = useState<SheetTab>(openId ? 'history' : 'details');
   /** What the list shows: everything, or only what needs a look. */
   const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'order'>('all');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -219,7 +224,8 @@ export function InventoryView({
                      it is due, the amount stays hidden until it is counted, and says so. */}
                  {item.counted && (dueIds.has(item.id)
                    ? <strong>Count due · hidden</strong>
-                   : <strong>{formatStock(item.onHandBaseUnits, item)}</strong>)}
+                   : <><strong>{formatStock(item.onHandBaseUnits, item)}</strong>
+                     {rawValue(item).cents !== null && <span className="inv-row__value num">Rs {fmt(rawValue(item).cents!)}</span>}</>)}
                  {!item.counted && <span className="inv-row__lasts">{receiveUnitOf(item).id === 'pack' ? `${formatQuantity(item.packQty, item.baseUnit)} a pack` : `Bought by ${unitName(receiveUnitOf(item))}`}</span>}
                  {item.reservedBaseUnits > 0 && <span className="inv-row__lasts">{formatQuantity(item.reservedBaseUnits, item.baseUnit)} held for the kitchen</span>}
                  {item.shortBaseUnits > 0 && <span className="inv-row__lasts inv-row__short">Kitchen waits for {formatQuantity(item.shortBaseUnits, item.baseUnit)} more</span>}
