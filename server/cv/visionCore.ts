@@ -124,11 +124,17 @@ export const meanAbsDiff = (a: Uint8Array, b: Uint8Array): number => {
 export const shouldReuse = (last: { thumb: Uint8Array; at: number } | null, thumb: Uint8Array, now: number): boolean =>
   last !== null && now - last.at < REUSE_MS && meanAbsDiff(last.thumb, thumb) < MOTION_THRESHOLD;
 
+/** One table's word from one check: someone's foot point in its zone, and the best score of those people (0 when none). */
+export interface Presence { present: boolean; confidence: number }
+
 /** Each zone's table: is someone's foot point in it? (A table with two zones is present if either is.) */
-export const presence = (persons: readonly Box[], zones: readonly ZoneSpec[], width: number, height: number): Map<string, boolean> => {
-  const feet = persons.map((b) => { const f = footPoint(b); return { x: f.x / width, y: f.y / height }; });
-  const out = new Map<string, boolean>();
-  for (const z of zones) out.set(z.tableId, (out.get(z.tableId) ?? false) || feet.some((f) => pointInPolygon(f, z.points)));
+export const presence = (persons: readonly Box[], zones: readonly ZoneSpec[], width: number, height: number): Map<string, Presence> => {
+  const feet = persons.map((b) => { const f = footPoint(b); return { x: f.x / width, y: f.y / height, score: b.score }; });
+  const out = new Map<string, Presence>();
+  for (const z of zones) {
+    const best = Math.max(out.get(z.tableId)?.confidence ?? 0, ...feet.filter((f) => pointInPolygon(f, z.points)).map((f) => f.score));
+    out.set(z.tableId, { present: best > 0, confidence: best });
+  }
   return out;
 };
 
@@ -168,29 +174,3 @@ export const cpuPercent = (usedMicros: number, wallMs: number, cores: number): n
 
 /** A table on the shop's floor, as the server folds it. */
 export interface FloorState { state: TableState; since: number; alertId: string | null }
-
-export type AlertFields =
-  | { type: 'table.alert_raised'; tableId: string; alert: 'needs_cleaning' }
-  | { type: 'table.alert_cleared'; tableId: string; alertEventId: string };
-
-/**
- * Live's cleaning alerts from the floor: raised for a table dirty `cleanAlertS` (0: never) with no
- * alert open, cleared once it is no longer dirty. `sent` remembers what went to the server, so
- * nothing is sent twice while the server stores it.
- */
-export const alertsDue = (floor: Record<string, FloorState>, now: number, cleanAlertS: number, sent: Set<string>): AlertFields[] => {
-  const out: AlertFields[] = [];
-  for (const [tableId, f] of Object.entries(floor)) {
-    if (f.state === 'needs_cleaning') {
-      const key = `raise:${tableId}:${f.since}`;
-      if (!f.alertId && cleanAlertS > 0 && now - f.since >= cleanAlertS * 1000 && !sent.has(key)) {
-        sent.add(key);
-        out.push({ type: 'table.alert_raised', tableId, alert: 'needs_cleaning' });
-      }
-    } else if (f.alertId && !sent.has(`clear:${f.alertId}`)) {
-      sent.add(`clear:${f.alertId}`);
-      out.push({ type: 'table.alert_cleared', tableId, alertEventId: f.alertId });
-    }
-  }
-  return out;
-};

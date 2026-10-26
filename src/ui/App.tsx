@@ -40,6 +40,8 @@ type Sheet =
 
 /** The Tables chip carries the floor's fold (SCRUM-168): loaded beside the Register, so the Register does not grow. */
 const TablesChip = lazy(() => import('./TablesChip.tsx'));
+/** "Table N needs cleaning" for 5 s (the owner's exception to "no banners", 2026-10-26): from the same chunk. */
+const CleaningNote = lazy(() => import('./TablesChip.tsx').then((m) => ({ default: m.CleaningNote })));
 
 const isTypingTarget = (el: EventTarget | null): boolean =>
   el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
@@ -406,6 +408,8 @@ export function App({
       )}
       {palette && manager && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
 
+      {/* Hidden under an open sheet, like the toasts: it never covers the sheet, the order or the primary action. */}
+      {onTables && !sheet && !palette && <Suspense fallback={null}><CleaningNote /></Suspense>}
       {/* Hidden under an open sheet: it would cover the sheet's buttons (e.g. Card). */}
       {wasted && manager && !sheet && !palette && (
         <div className="toast" role="status" key={`waste-${wasted.id}`}>

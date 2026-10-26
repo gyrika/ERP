@@ -2,7 +2,7 @@ import type { PartLine } from './ownerParts.ts';
 import type { SyncEvent } from './sync.ts';
 import { MIN_SHADOW_CHANGES, offlineCameras, SHADOW_DAYS, shadowAgreement, visitsFrom } from './tableInsights.ts';
 import {
-  floorSummary, LEAVE_SHARE, SEAT_SHARE, tableChanges, tablesFromEvents, visionFromEvents, type FloorTable, type TableState, type VisionSettings,
+  autoFreeAt, floorSummary, tableChanges, tablesFromEvents, visionFromEvents, type FloorTable, type TableChange, type VisionSettings,
 } from './tables.ts';
 
 /**
@@ -15,27 +15,39 @@ const MIN = 60_000;
 const DAY_MS = 24 * 60 * MIN;
 const startOfDay = (t: number): number => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 const clock = (t: number): string => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
-const WORD: Record<TableState, string> = { free: 'Free', occupied: 'Occupied', needs_cleaning: 'Needs cleaning', reserved: 'Reserved' };
-/** The fewest seconds of a window that count, by the tracker's own rule (42 of 60 at 70%). */
-const needed = (share: number, seconds: number): number => Math.ceil(share * seconds - 1e-9);
+const WORD: Record<FloorTable['state'], string> = { free: 'Free', occupied: 'Occupied', needs_cleaning: 'Needs cleaning', reserved: 'Reserved' };
+/** Whole minutes, rounded down: "12 min". */
+const mins = (ms: number): string => `${Math.max(0, Math.floor(ms / MIN))} min`;
 
-/** What one camera change says, from its confidence: the seconds it saw against the seconds needed. */
-const cameraSaw = (to: TableState, confidence: number, at: number, s: VisionSettings): string => {
-  if (to === 'occupied') {
-    return `Cameras saw people in ${Math.round(confidence * s.seatS)} of the last ${s.seatS} s at ${clock(at)}; ${needed(SEAT_SHARE, s.seatS)} count as occupied.`;
+/**
+ * What one camera change says, by the owner's rules (`observe` in tables.ts, 2026-10-26): when
+ * the cameras saw people, when they saw the table left and how long the visit was (a short one
+ * needs no cleaning), and when a table waiting to be cleaned frees itself.
+ */
+const cameraSaw = (table: FloorTable, c: TableChange, previous: TableChange | undefined, s: VisionSettings, now: number): string => {
+  if (c.to === 'occupied') return `Seen at ${clock(c.at)}; occupied ${mins(now - c.at)}.`;
+  if (c.from === 'occupied') {
+    // The visit ends at the table's first empty frame, the left check before the change.
+    const visit = previous?.to === 'occupied' ? ` after ${mins(c.at - s.leftCheckS * 1000 - previous.at)}` : '';
+    if (c.to === 'free') return `Left at ${clock(c.at)}${visit}, a short visit (under ${Math.round(s.shortVisitS / 60)} min): no cleaning needed.`;
+    if (c.to === 'needs_cleaning') {
+      const frees = autoFreeAt(table, s);
+      const then = table.state !== 'needs_cleaning' ? '' : frees === null ? '; waits for staff to clean it'
+        : frees - now <= MIN ? '; frees itself in under a minute' : `; frees itself in ${Math.ceil((frees - now) / MIN)} min`;
+      return `Left at ${clock(c.at)}${visit}${then}.`;
+    }
   }
-  if (to === 'needs_cleaning') {
-    return `Cameras saw it empty for ${Math.round(confidence * s.leaveS)} of the last ${s.leaveS} s at ${clock(at)}; ${needed(LEAVE_SHARE, s.leaveS)} count as left.`;
-  }
-  return `Set by the cameras at ${clock(at)}.`;
+  if (c.from === 'needs_cleaning' && c.to === 'free') return `Freed itself at ${clock(c.at)}, ${Math.round(s.autoFreeS / 60)} min after it needed cleaning.`;
+  return `Set by the cameras at ${clock(c.at)}.`;
 };
 
 /**
- * Why a table is in its state, in one sentence: what the cameras saw against what the tracker
- * needs (`observe` in tables.ts), or who set it and what ends a staff hold (`staffSet`: the next
- * time presence flips). In Shadow, what the cameras saw last is said beside it.
+ * Why a table is in its state, in one sentence: what the cameras saw, by the owner's rules
+ * (`observe` in tables.ts: seen, left after a visit, frees itself), or who set it and what ends a
+ * staff hold (`staffSet`: the next time presence flips). In Shadow, what the cameras saw last is
+ * said beside it. The tracker's 10 s left check is not an event, so it is never shown as running.
  */
-export const whyState = (table: FloorTable, events: readonly SyncEvent[], settings: VisionSettings): string => {
+export const whyState = (table: FloorTable, events: readonly SyncEvent[], settings: VisionSettings, now: number): string => {
   const mine = tableChanges(events).filter((c) => c.tableId === table.id);
   let last = [...mine].reverse().find((c) => !(c.by === 'camera' && c.shadow));
   // Staff setting the state it already had (cleaned a free table) moves nothing, but it is the latest word.
@@ -52,8 +64,8 @@ export const whyState = (table: FloorTable, events: readonly SyncEvent[], settin
     return `${WORD[table.state]} since the tables were set up${laid ? ` at ${clock(laid.at)}` : ''}.`;
   }
   if (last.by === 'camera') {
-    const e = find('table.state_changed', last.at);
-    const saw = cameraSaw(last.to, e?.confidence ?? 0, last.at, settings);
+    const previous = mine.filter((c) => c.at < last!.at && !(c.by === 'camera' && c.shadow)).at(-1);
+    const saw = cameraSaw(table, last, previous, settings, now);
     return table.noCamera ? `Camera offline: this is the last thing it saw. ${saw}` : saw;
   }
   if (last.by === 'undo') return `Put back by ${find('table.state_set_undone', last.at)?.actor.name ?? 'staff'}’s Undo at ${clock(last.at)}.`;
@@ -157,7 +169,7 @@ export const visionPart = (events: readonly SyncEvent[], now: number): PartLine 
     const name = down[0].camera?.name ?? down[0].id;
     return { preview: down.length === 1 ? `${/camera$/i.test(name) ? name : `${name} camera`} offline` : `${down.length} cameras offline`, badge: down.length };
   }
-  const { mode, cleanAlertS } = visionFromEvents(events).settings;
+  const { mode } = visionFromEvents(events).settings;
   if (mode === 'off') return { preview: 'Off', badge: 0 };
   if (mode === 'shadow') {
     const a = shadowAgreement(events, now);
@@ -168,5 +180,5 @@ export const visionPart = (events: readonly SyncEvent[], now: number): PartLine 
   }
   const tables = tablesFromEvents(events);
   const dirty = tables.filter((t) => t.state === 'needs_cleaning').length;
-  return { preview: `Live · ${floorSummary(tables, now, cleanAlertS).free} free${dirty ? `, ${dirty} to clean` : ''}`, badge: 0 };
+  return { preview: `Live · ${floorSummary(tables).free} free${dirty ? `, ${dirty} to clean` : ''}`, badge: 0 };
 };

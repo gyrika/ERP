@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cameraLost, checkTableEvent, CPU_LIMIT_STEP, DEFAULT_CPU_LIMIT, DEFAULT_LEAVE_S, DEFAULT_SEAT_S, DEFAULT_VISION_SETTINGS, footPoint, LEAVE_SHARE, newTracker,
-  floorSummary, MAX_CPU_LIMIT, MIN_CPU_LIMIT, observe, pointInPolygon, SEAT_SHARE, staffSet, tableChanges, tablesFromEvents, visionFromEvents, type FloorTable, type Sample, type TableTracker,
+  autoFreeAt, cameraLost, checkTableEvent, CPU_LIMIT_STEP, DEFAULT_AUTO_FREE_S, DEFAULT_CPU_LIMIT, DEFAULT_LEFT_CHECK_S, DEFAULT_SHORT_VISIT_S,
+  DEFAULT_TIMERS, DEFAULT_VISION_SETTINGS, footPoint, newTracker, floorSummary, MAX_CPU_LIMIT, MIN_CPU_LIMIT, newlyDirty, observe, pointInPolygon,
+  staffSet, tableChanges, tablesFromEvents, timersOf, visionFromEvents, type Change, type FloorTable, type TableTracker,
 } from './tables.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Actor } from './auth.ts';
@@ -11,115 +12,137 @@ const S = 1000;
 const owner: Actor = { id: 'owner-1', name: 'Anton', role: 'owner' };
 const cashier: Actor = { id: 'cashier-1', name: 'Kasun', role: 'cashier' };
 
-/** One sample a second from `from` to `to` seconds (both included); `present(i)` says who is there. */
-const run = (t: TableTracker, from: number, to: number, present: (second: number) => boolean) => {
-  const changes = [];
+/** One frame a second from `from` to `to` seconds (both included); `present(i)` says who is there. */
+const run = (t: TableTracker, from: number, to: number, present: (second: number) => boolean, timers = DEFAULT_TIMERS) => {
+  const changes: Change[] = [];
   for (let s = from; s <= to; s++) {
-    const r = observe(t, { at: s * S, present: present(s) });
+    const r = observe(t, { at: s * S, present: present(s) }, timers);
     t = r.tracker;
     if (r.change) changes.push(r.change);
   }
   return { tracker: t, changes };
 };
 
-/** `n` of the 60 samples in (0, 60] s are present (the last ones), on a tracker watching since 0. */
-const seated = (n: number) => run(newTracker('free', 0), 0, 60, (s) => s > 60 - n);
+/** A visit: people at the table for seconds [0, lastPresent], then empty until `until`. */
+const visit = (lastPresent: number, until = lastPresent + 60) => run(newTracker('free', 0), 0, until, (s) => s <= lastPresent);
 
-test('the rules are named constants with the agreed defaults', () => {
-  assert.equal(SEAT_SHARE, 0.7);
-  assert.equal(LEAVE_SHARE, 0.9);
-  assert.equal(DEFAULT_SEAT_S, 60);
-  assert.equal(DEFAULT_LEAVE_S, 180);
-  assert.deepEqual({ seatS: DEFAULT_VISION_SETTINGS.seatS, leaveS: DEFAULT_VISION_SETTINGS.leaveS, mode: DEFAULT_VISION_SETTINGS.mode },
-    { seatS: 60, leaveS: 180, mode: 'off' });
+test('the owner\'s timers (2026-10-26) are named constants: a 3 min short visit, a 10 s left check, free again after 5 min', () => {
+  assert.deepEqual([DEFAULT_SHORT_VISIT_S, DEFAULT_LEFT_CHECK_S, DEFAULT_AUTO_FREE_S], [180, 10, 300]);
+  assert.deepEqual(DEFAULT_TIMERS, { shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 });
+  assert.deepEqual(DEFAULT_VISION_SETTINGS, { mode: 'off', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15 });
+  assert.deepEqual(timersOf(DEFAULT_VISION_SETTINGS), DEFAULT_TIMERS);
 });
 
-test('free becomes occupied at 70% present over the last 60 s: 41 of 60 stays free, 42 of 60 is occupied', () => {
-  const at41 = seated(41);
-  assert.equal(at41.tracker.state, 'free');
-  assert.deepEqual(at41.changes, []);
-  const at42 = seated(42);
-  assert.equal(at42.tracker.state, 'occupied');
-  assert.deepEqual(at42.changes, [{ from: 'free', to: 'occupied', confidence: 0.7, at: 60 * S }]);
-  assert.equal(at42.tracker.since, 60 * S);
-});
-
-test('nothing changes before a whole window has been watched', () => {
-  // 59 s of people all present: not yet a full minute of evidence.
-  const r = run(newTracker('free', 0), 0, 59, () => true);
-  assert.equal(r.tracker.state, 'free');
-  const next = observe(r.tracker, { at: 60 * S, present: true });
-  assert.deepEqual(next.change, { from: 'free', to: 'occupied', confidence: 1, at: 60 * S });
-});
-
-test('reserved also becomes occupied when people sit', () => {
-  const r = run(newTracker('reserved', 0), 0, 60, () => true);
+test('free becomes occupied on the first frame with a person: no waiting window', () => {
+  let r = observe(newTracker('free', 0), { at: 5 * S, present: false });
+  assert.equal(r.change, null);
+  r = observe(r.tracker, { at: 6 * S, present: true });
+  assert.deepEqual(r.change, { from: 'free', to: 'occupied', confidence: 1, at: 6 * S });
   assert.equal(r.tracker.state, 'occupied');
-  assert.equal(r.changes[0].from, 'reserved');
+  assert.equal(r.tracker.since, 6 * S);
+  // The detector's confidence rides along when the worker gives it.
+  assert.equal(observe(newTracker('free', 0), { at: S, present: true, confidence: 0.834 }).change?.confidence, 0.83);
 });
 
-test('occupied becomes needs_cleaning at 90% absent over the last 180 s; just under stays occupied', () => {
-  // 162 of 180 absent = 90%; 161 = 89.4%.
-  const leave = (absent: number) => run(newTracker('occupied', 0), 0, 180, (s) => s <= 180 - absent);
-  const under = leave(161);
-  assert.equal(under.tracker.state, 'occupied');
-  const at = leave(162);
-  assert.equal(at.tracker.state, 'needs_cleaning');
-  assert.deepEqual(at.changes, [{ from: 'occupied', to: 'needs_cleaning', confidence: 0.9, at: 180 * S }]);
+test('reserved becomes occupied when someone sits there', () => {
+  const r = observe(newTracker('reserved', 0), { at: 40 * S, present: true });
+  assert.deepEqual(r.change, { from: 'reserved', to: 'occupied', confidence: 1, at: 40 * S });
 });
 
-test('samples older than the window are dropped', () => {
-  const r = run(newTracker('occupied', 0), 0, 400, () => true);
-  assert.ok(r.tracker.samples.every((x: Sample) => x.at > 400 * S - DEFAULT_LEAVE_S * S));
-  assert.equal(r.tracker.samples.length, DEFAULT_LEAVE_S);
+test('left is confirmed after 10 s empty, not on the first empty frame', () => {
+  // Present for [0, 199]; empty from 200. Left at 210, 10 s after the first empty frame.
+  const r = run(newTracker('free', 0), 0, 209, (s) => s < 200);
+  assert.equal(r.tracker.state, 'occupied', '9 s empty: still checking');
+  assert.equal(r.tracker.emptySince, 200 * S);
+  const left = observe(r.tracker, { at: 210 * S, present: false });
+  assert.deepEqual(left.change, { from: 'occupied', to: 'needs_cleaning', confidence: 1, at: 210 * S });
+  assert.equal(left.tracker.emptySince, null);
 });
 
-test('needs_cleaning never frees itself: only staff (C or F) frees it', () => {
-  const dirty = run(newTracker('needs_cleaning', 0), 0, 600, () => false);
-  assert.equal(dirty.tracker.state, 'needs_cleaning');
-  // People sitting at a dirty table do not make it occupied either.
-  const sat = run(dirty.tracker, 601, 700, () => true);
-  assert.equal(sat.tracker.state, 'needs_cleaning');
-  assert.equal(staffSet(sat.tracker, 'free', 701 * S).state, 'free');
+test('a missed frame shorter than the check does not end the visit', () => {
+  const r = run(newTracker('free', 0), 0, 400, (s) => s !== 100 && !(s >= 250 && s <= 255));
+  assert.deepEqual(r.changes.map((c) => c.to), ['occupied']);
+  assert.equal(r.tracker.state, 'occupied');
+  assert.equal(r.tracker.emptySince, null);
 });
 
-test('a staff change holds until presence next flips, then the rules act again on fresh evidence', () => {
-  // Cleaned: the table is empty when staff press C.
-  const empty = run(newTracker('needs_cleaning', 0), 0, 100, () => false).tracker;
-  let t = staffSet(empty, 'free', 101 * S);
-  assert.equal(t.state, 'free');
-  assert.equal(t.since, 101 * S);
-  // Staff mark it occupied for a group not yet seen; absence alone does not undo that while it holds.
-  t = staffSet(t, 'occupied', 102 * S);
-  let r = run(t, 103, 500, () => false);
-  assert.equal(r.tracker.state, 'occupied', 'still absent: no flip, the staff change holds');
-  // People arrive (absent → present): the hold ends, and leaving now needs a full 180 s of evidence.
-  r = run(r.tracker, 501, 510, () => true);
-  assert.equal(r.tracker.hold, null);
-  r = run(r.tracker, 511, 600, () => false);
-  assert.equal(r.tracker.state, 'occupied', 'not yet 180 s since the flip');
-  r = run(r.tracker, 601, 700, () => false);
+test('a person back within the check: the visit goes on, and the check starts again from the next empty frame', () => {
+  // Empty 200-208, back at 209, empty again from 300: left at 310, measured from 300.
+  const r = run(newTracker('free', 0), 0, 320, (s) => s < 200 || (s >= 209 && s < 300));
+  assert.deepEqual(r.changes.map((c) => [c.to, c.at]), [['occupied', 0], ['needs_cleaning', 310 * S]]);
+});
+
+test('a visit of 2:59 is short: straight back to free, no cleaning; 3:00 needs cleaning', () => {
+  // Occupied at 0; the visit ends at the first empty frame.
+  const short = visit(178); // empty from 179: 2:59
+  assert.deepEqual(short.changes.map((c) => [c.from, c.to, c.at]), [['free', 'occupied', 0], ['occupied', 'free', 189 * S]]);
+  assert.equal(short.tracker.state, 'free');
+  const long = visit(179); // empty from 180: 3:00
+  assert.deepEqual(long.changes.map((c) => [c.from, c.to, c.at]), [['free', 'occupied', 0], ['occupied', 'needs_cleaning', 190 * S]]);
+});
+
+test('needs cleaning frees itself after 5 min: still dirty at 4:59, free at 5:00', () => {
+  const dirty = visit(299, 310).tracker; // needs_cleaning since 310 s
+  assert.equal(dirty.state, 'needs_cleaning');
+  assert.equal(dirty.since, 310 * S);
+  const at459 = run(dirty, 311, 310 + 299, () => false);
+  assert.equal(at459.tracker.state, 'needs_cleaning');
+  assert.deepEqual(at459.changes, []);
+  const at5 = observe(at459.tracker, { at: (310 + 300) * S, present: false });
+  assert.deepEqual(at5.change, { from: 'needs_cleaning', to: 'free', confidence: 1, at: 610 * S });
+});
+
+test('someone sitting at a table that needs cleaning does not make it occupied; once it frees itself, the next frame does', () => {
+  const dirty = visit(299, 310).tracker;
+  let r = run(dirty, 311, 609, () => true);
   assert.equal(r.tracker.state, 'needs_cleaning');
+  r = run(r.tracker, 610, 611, () => true);
+  assert.deepEqual(r.changes.map((c) => [c.from, c.to, c.at]), [['needs_cleaning', 'free', 610 * S], ['free', 'occupied', 611 * S]]);
 });
 
-test('staff free a table people still sit at: it stays free until they leave and someone sits again', () => {
-  let r = run(newTracker('free', 0), 0, 60, () => true);
-  assert.equal(r.tracker.state, 'occupied');
-  let t = staffSet(r.tracker, 'free', 61 * S);
-  r = run(t, 62, 200, () => true);
+test('staff free a dirty table during the 5 min (C or F): it is free at once, and the next guest makes it occupied', () => {
+  const dirty = visit(299, 310).tracker;
+  let t = run(dirty, 311, 400, () => false).tracker;
+  t = staffSet(t, 'free', 401 * S);
+  assert.deepEqual([t.state, t.since], ['free', 401 * S]);
+  // No auto-free is pending on a free table.
+  let r = run(t, 402, 800, () => false);
+  assert.deepEqual(r.changes, []);
+  r = run(r.tracker, 801, 801, () => true);
+  assert.deepEqual(r.changes.map((c) => [c.from, c.to]), [['free', 'occupied']]);
+});
+
+test('a staff change holds until presence next flips; that frame is then judged by the rules', () => {
+  // Staff free a table people still sit at (e.g. the camera takes a waiter for a guest): it holds.
+  const seated = run(newTracker('free', 0), 0, 60, () => true).tracker;
+  let t = staffSet(seated, 'free', 61 * S);
+  let r = run(t, 62, 200, () => true);
   assert.equal(r.tracker.state, 'free', 'present all along: no flip, it holds');
   r = run(r.tracker, 201, 205, () => false);
   assert.equal(r.tracker.hold, null, 'they left: the hold ends');
-  r = run(r.tracker, 206, 260, () => true);
-  assert.equal(r.tracker.state, 'free', 'the window after the flip is not full yet');
-  r = run(r.tracker, 261, 270, () => true);
+  r = run(r.tracker, 206, 206, () => true);
+  assert.deepEqual(r.changes.map((c) => [c.to, c.at]), [['occupied', 206 * S]], 'the next guest: occupied at once');
+  // Staff seat a group not yet seen (O): absence alone does not end it.
+  t = staffSet(newTracker('free', 0), 'occupied', 10 * S);
+  t = observe(t, { at: 11 * S, present: false }).tracker;
+  r = run(t, 12, 500, () => false);
   assert.equal(r.tracker.state, 'occupied');
-  t = r.tracker;
-  assert.equal(r.changes[0].at, 261 * S);
-  assert.equal(t.since, 261 * S);
+  // They sit (the flip), the visit counts from the staff change, and they leave after 3 min.
+  r = run(r.tracker, 501, 600, () => true);
+  r = run(r.tracker, 601, 611, () => false);
+  assert.deepEqual(r.changes.map((c) => [c.from, c.to, c.at]), [['occupied', 'needs_cleaning', 611 * S]]);
 });
 
-test('a staff change with no samples yet takes the first sample as where presence stands', () => {
+test('staff reserve an empty table: someone sitting there makes it occupied', () => {
+  let t = run(newTracker('free', 0), 0, 5, () => false).tracker;
+  t = staffSet(t, 'reserved', 6 * S);
+  let r = run(t, 7, 100, () => false);
+  assert.equal(r.tracker.state, 'reserved');
+  r = run(r.tracker, 101, 101, () => true);
+  assert.deepEqual(r.changes, [{ from: 'reserved', to: 'occupied', confidence: 1, at: 101 * S }]);
+});
+
+test('a staff change with no frames yet takes the first frame as where presence stands', () => {
   let t = staffSet(newTracker('free', 0), 'reserved', 5 * S);
   t = observe(t, { at: 6 * S, present: true }).tracker;
   assert.deepEqual(t.hold, { present: true });
@@ -127,30 +150,49 @@ test('a staff change with no samples yet takes the first sample as where presenc
   assert.equal(t.state, 'reserved', 'present since the change: holds');
 });
 
-test('a table whose camera is lost reports noCamera and keeps its state; it starts afresh when the camera returns', () => {
-  const r = run(newTracker('free', 0), 0, 60, () => true);
-  let t = cameraLost(r.tracker);
-  assert.equal(t.noCamera, true);
-  assert.equal(t.state, 'occupied');
-  assert.deepEqual(t.samples, []);
-  // Back after ten minutes: one absent sample is not 180 s of evidence.
-  const back = observe(t, { at: 700 * S, present: false });
-  t = back.tracker;
-  assert.equal(t.noCamera, false);
-  assert.equal(back.change, null);
-  t = run(t, 701, 879, () => false).tracker;
-  assert.equal(t.state, 'occupied');
-  t = observe(t, { at: 880 * S, present: false }).tracker;
-  assert.equal(t.state, 'needs_cleaning');
+test('staff mark a table to clean: it still frees itself after 5 min, hold or not', () => {
+  let t = run(newTracker('free', 0), 0, 30, () => true).tracker;
+  t = staffSet(t, 'needs_cleaning', 31 * S);
+  const r = run(t, 32, 331, () => true);
+  assert.deepEqual(r.changes.map((c) => [c.from, c.to, c.at]), [['needs_cleaning', 'free', 331 * S]]);
+});
+
+test('a table whose camera is lost says noCamera and keeps its state, with no left check or auto-free; it judges afresh when frames come back', () => {
+  let t = run(newTracker('free', 0), 0, 205, (s) => s < 200).tracker; // occupied, 6 s into a left check
+  t = cameraLost(t);
+  assert.deepEqual([t.noCamera, t.state, t.emptySince], [true, 'occupied', null]);
+  // Back ten minutes later, empty: the check starts again from that frame.
+  let r = run(t, 800, 809, () => false);
+  assert.equal(r.tracker.noCamera, false);
+  assert.equal(r.tracker.state, 'occupied');
+  r = run(r.tracker, 810, 810, () => false);
+  assert.deepEqual(r.changes.map((c) => [c.to, c.at]), [['needs_cleaning', 810 * S]]);
+  // A dirty table does not free itself while its camera is away (no frames come), and does on the first frame back.
+  const away = cameraLost(r.tracker);
+  r = run(away, 2000, 2000, () => false);
+  assert.deepEqual(r.changes.map((c) => [c.from, c.to]), [['needs_cleaning', 'free']]);
 });
 
 test('custom timers', () => {
-  const r = run(newTracker('free', 0), 0, 20, () => true);
-  assert.equal(r.tracker.state, 'free');
-  let t = newTracker('free', 0);
-  for (let s = 0; s <= 20; s++) t = observe(t, { at: s * S, present: true }, { seatS: 20, leaveS: 30 }).tracker;
-  assert.equal(t.state, 'occupied');
+  const timers = { shortVisitS: 60, leftCheckS: 3, autoFreeS: 120 };
+  const r = run(newTracker('free', 0), 0, 200, (s) => s < 60, timers);
+  assert.deepEqual(r.changes.map((c) => [c.to, c.at]), [['occupied', 0], ['needs_cleaning', 63 * S], ['free', 183 * S]]);
+  assert.deepEqual(run(newTracker('free', 0), 0, 70, (s) => s < 59, timers).changes.map((c) => c.to), ['occupied', 'free'], '59 s: a short visit');
 });
+
+test('time-zone safe: the tracker reads no clock, so a visit across local midnight in any zone comes out the same', () => {
+  // 2026-10-26 23:58:00 UTC; whatever TZ the test runs in, only the differences count.
+  const base = Date.UTC(2026, 9, 26, 23, 58, 0);
+  let t = newTracker('free', base);
+  const changes: Change[] = [];
+  for (let s = 0; s <= 400; s++) {
+    const r = observe(t, { at: base + s * S, present: s < 240 });
+    t = r.tracker;
+    if (r.change) changes.push(r.change);
+  }
+  assert.deepEqual(changes.map((c) => [c.to, (c.at - base) / S]), [['occupied', 0], ['needs_cleaning', 250]]);
+});
+
 
 // ----- Points and polygons -----
 
@@ -246,6 +288,24 @@ test('Undo of a staff change puts back the state and since-when it replaced; an 
   assert.equal(tablesFromEvents([...base, ev({ type: 'table.state_set_undone', tableId: 't1', undoneEventId: 'nope' }, 305)])[0].state, 'free');
 });
 
+test('the new rules in the fold: a short visit, a staff free during the 5 min with its Undo, and the auto-free', () => {
+  const live = ev({ type: 'vision.settings_set', mode: 'live', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 }, 1);
+  const seen = (at: number, from: string, to: string) => ev({ type: 'table.state_changed', tableId: 't1', from, to, confidence: 1 }, at * S);
+  // A short visit: occupied, then straight back to free.
+  assert.deepEqual(tablesFromEvents([layout(), live, seen(10, 'free', 'occupied'), seen(100, 'occupied', 'free')]).map((t) => [t.state, t.since])[0], ['free', 100 * S]);
+  // A long one: needs cleaning; the cashier wipes it at 400 s (C), then undoes it.
+  const wiped = ev({ type: 'table.state_set', tableId: 't1', from: 'needs_cleaning', to: 'free' }, 400 * S, cashier);
+  const base = [layout(), live, seen(10, 'free', 'occupied'), seen(300, 'occupied', 'needs_cleaning'), wiped];
+  assert.equal(tablesFromEvents(base)[0].state, 'free');
+  // The camera's auto-free at 600 s is stale after the wipe: the table is already free.
+  assert.deepEqual(tableChanges([...base, seen(600, 'needs_cleaning', 'free')]).map((c) => [c.to, c.by]),
+    [['occupied', 'camera'], ['needs_cleaning', 'camera'], ['free', 'staff']]);
+  const undone = [...base, ev({ type: 'table.state_set_undone', tableId: 't1', undoneEventId: (wiped as { id: string }).id }, 405 * S, cashier)];
+  assert.deepEqual([tablesFromEvents(undone)[0].state, tablesFromEvents(undone)[0].since], ['needs_cleaning', 300 * S], 'Undo puts back the wait, and its start');
+  // With the wipe undone, the auto-free applies.
+  assert.deepEqual([tablesFromEvents([...undone, seen(600, 'needs_cleaning', 'free')])[0].state], ['free']);
+});
+
 test('a cleaning alert stays open until it is cleared by its own id', () => {
   const raised = ev({ type: 'table.alert_raised', tableId: 't1', alert: 'needs_cleaning' }, 500);
   const id = (raised as { id: string }).id;
@@ -282,11 +342,22 @@ test('noCamera: a watched table whose cameras are all offline keeps its last sta
 test('vision settings, cameras and zones fold to their latest values', () => {
   assert.deepEqual(visionFromEvents([]).settings, DEFAULT_VISION_SETTINGS);
   const v = visionFromEvents([cameras(), zones('c1', ['t1']), zones('c1', ['t2']),
-    ev({ type: 'vision.settings_set', mode: 'shadow', seatS: 90, leaveS: 240, cleanAlertS: 120 }, 10)]);
-  assert.deepEqual(v.settings, { mode: 'shadow', seatS: 90, leaveS: 240, cleanAlertS: 120, cpuLimit: DEFAULT_CPU_LIMIT }, 'no cpuLimit: the default');
+    ev({ type: 'vision.settings_set', mode: 'shadow', shortVisitS: 120, leftCheckS: 15, autoFreeS: 600 }, 10)]);
+  assert.deepEqual(v.settings, { mode: 'shadow', shortVisitS: 120, leftCheckS: 15, autoFreeS: 600, cpuLimit: DEFAULT_CPU_LIMIT }, 'no cpuLimit: the default');
   assert.deepEqual(v.cameras.map((c) => c.id), ['c1', 'c2']);
   assert.deepEqual(v.zones.c1.map((z) => z.tableId), ['t2']);
   assert.deepEqual([...v.offline], []);
+});
+
+test('an event from before the new rules (seatS, leaveS, cleanAlertS) still folds: its mode and CPU limit, the default timers', () => {
+  const old = visionFromEvents([ev({ type: 'vision.settings_set', mode: 'live', seatS: 90, leaveS: 240, cleanAlertS: 120, cpuLimit: 25 }, 10)]);
+  assert.deepEqual(old.settings, { mode: 'live', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 25 });
+  // A newer event after it wins, as always.
+  const both = visionFromEvents([
+    ev({ type: 'vision.settings_set', mode: 'live', seatS: 90, leaveS: 240, cleanAlertS: 120 }, 10),
+    ev({ type: 'vision.settings_set', mode: 'shadow', shortVisitS: 60, leftCheckS: 5, autoFreeS: 120, cpuLimit: 20 }, 20),
+  ]);
+  assert.deepEqual(both.settings, { mode: 'shadow', shortVisitS: 60, leftCheckS: 5, autoFreeS: 120, cpuLimit: 20 });
 });
 
 // ----- What the server accepts -----
@@ -304,6 +375,9 @@ test('the server accepts every well-formed table and vision event', () => {
     ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 }, 1),
     ev({ type: 'vision.settings_set', mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 5 }, 1),
     ev({ type: 'vision.settings_set', mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 50 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'off', shortVisitS: 0, leftCheckS: 1, autoFreeS: 60 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'off', shortVisitS: 3600, leftCheckS: 300, autoFreeS: 7200 }, 1),
     ev({ type: 'vision.camera_offline', cameraId: 'c1' }, 1),
     ev({ type: 'vision.camera_online', cameraId: 'c1' }, 1),
     ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: true, fps: 2.5 }], cpu: 37.5 }, 1),
@@ -336,6 +410,15 @@ test('the server refuses malformed table and vision events, and any password or 
     ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 51 }, 1),
     ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 12.5 }, 1),
     ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: '15' }, 1),
+    // The new timers: all three, whole seconds, in range, and never mixed with the old ones.
+    ev({ type: 'vision.settings_set', mode: 'live', shortVisitS: 180, leftCheckS: 10 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', shortVisitS: 180, leftCheckS: 0, autoFreeS: 300 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', shortVisitS: 180, leftCheckS: 10, autoFreeS: 59 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', shortVisitS: -1, leftCheckS: 10, autoFreeS: 300 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', shortVisitS: 180.5, leftCheckS: 10, autoFreeS: 300 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, seatS: 60 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300, autoFreeS: 300 }, 1),
+    ev({ type: 'vision.settings_set', mode: 'live' }, 1),
     ev({ type: 'vision.heartbeat', cameras: [{ id: 'c1', online: 'yes', fps: 2 }], cpu: 40 }, 1),
     ev({ type: 'vision.heartbeat', cameras: [], cpu: 40, frame: 'data:image/jpeg;base64,AAAA' }, 1),
     ev({ type: 'vision.heartbeat', cameras: [], cpu: 40, slowed: 'yes' }, 1),
@@ -350,15 +433,30 @@ test('the server refuses malformed table and vision events, and any password or 
 const tile = (state: FloorTable['state'], sinceS: number, alertId: string | null = null): FloorTable =>
   ({ id: `t-${state}-${sinceS}`, label: '1', seats: 4, state, since: sinceS * S, watched: false, noCamera: false, alertId });
 
-test('the chip counts free tables, and takes the colour of the most urgent one', () => {
-  assert.deepEqual(floorSummary([], 0), { free: 0, tone: null });
-  assert.deepEqual(floorSummary([tile('free', 0), tile('occupied', 0), tile('reserved', 0), tile('free', 0)], 10 * S), { free: 2, tone: null });
-  // A dirty table is amber while it is new, red once it has waited the cleaning-alert time (300 s), or an alert is open.
-  assert.deepEqual(floorSummary([tile('free', 0), tile('needs_cleaning', 0)], 299 * S), { free: 1, tone: 'warn' });
-  assert.deepEqual(floorSummary([tile('needs_cleaning', 0)], 300 * S), { free: 0, tone: 'bad' });
-  assert.deepEqual(floorSummary([tile('needs_cleaning', 100, 'alert-1'), tile('needs_cleaning', 100)], 101 * S), { free: 0, tone: 'bad' });
-  assert.deepEqual(floorSummary([tile('needs_cleaning', 0)], 60 * S, 60), { free: 0, tone: 'bad' }, 'the owner\'s own alert time');
-  assert.deepEqual(floorSummary([tile('needs_cleaning', 0)], 60 * S, 0), { free: 0, tone: 'warn' }, '0: no cleaning alert');
+test('the chip counts free tables, and is red while any table needs cleaning', () => {
+  assert.deepEqual(floorSummary([]), { free: 0, dirty: 0, tone: null });
+  assert.deepEqual(floorSummary([tile('free', 0), tile('occupied', 0), tile('reserved', 0), tile('free', 0)]), { free: 2, dirty: 0, tone: null });
+  assert.deepEqual(floorSummary([tile('free', 0), tile('needs_cleaning', 0)]), { free: 1, dirty: 1, tone: 'bad' }, 'red at once, not after a wait');
+  assert.deepEqual(floorSummary([tile('needs_cleaning', 100, 'alert-1'), tile('needs_cleaning', 100)]), { free: 0, dirty: 2, tone: 'bad' });
+});
+
+test('a dirty table frees itself 5 min after it began, in Live with a camera on it; otherwise staff free it', () => {
+  const live = { ...DEFAULT_VISION_SETTINGS, mode: 'live' as const };
+  const watched = { ...tile('needs_cleaning', 100), watched: true };
+  assert.equal(autoFreeAt(watched, live), 400 * S);
+  assert.equal(autoFreeAt(watched, { ...live, autoFreeS: 600 }), 700 * S);
+  assert.equal(autoFreeAt(tile('needs_cleaning', 100), live), null, 'no camera on it');
+  assert.equal(autoFreeAt({ ...watched, noCamera: true }, live), null, 'its camera is offline');
+  assert.equal(autoFreeAt(watched, { ...live, mode: 'shadow' }), null, 'Shadow: the floor is staff\'s');
+  assert.equal(autoFreeAt({ ...watched, state: 'occupied' }, live), null);
+});
+
+test('the tables that have just come to need cleaning (the Register\'s note)', () => {
+  const a = { ...tile('occupied', 0), id: 'a', label: '3' };
+  const b = { ...tile('needs_cleaning', 0), id: 'b', label: '5' };
+  assert.deepEqual(newlyDirty([a, b], [{ ...a, state: 'needs_cleaning' }, b]).map((t) => t.label), ['3']);
+  assert.deepEqual(newlyDirty([a, b], [a, b]), [], 'still dirty is not news');
+  assert.deepEqual(newlyDirty([], [b]), [], 'a table new to the layout is not news');
 });
 
 test('the changes the floor took, in order and by whom: stale camera changes are left out, an Undo says so', () => {

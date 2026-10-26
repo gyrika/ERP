@@ -24,7 +24,7 @@ const setUp = (mode: 'off' | 'shadow' | 'live') => [
     { id: 'cam2', name: 'Store room', ip: '192.168.1.21', rtspPath: '/stream2', enabled: false },
   ] }),
   ev({ type: 'vision.zones_set', cameraId: 'cam1', zones: [zone] }),
-  ev({ type: 'vision.settings_set', mode, seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 20 }),
+  ev({ type: 'vision.settings_set', mode, shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 20 }),
 ];
 const until = async (ok: () => boolean, ms = 5000) => {
   const end = Date.now() + ms;
@@ -38,6 +38,7 @@ test('the worker\'s config: Shadow or Live only, the cameras in use with their l
   const c = workerConfig(setUp('shadow'), 'C:/pack', login)!;
   assert.equal(c.mode, 'shadow');
   assert.equal(c.cpuLimit, 20);
+  assert.deepEqual([c.shortVisitS, c.leftCheckS, c.autoFreeS], [180, 10, 300], 'the owner\'s table rules');
   assert.deepEqual(c.cameras.map((x) => x.id), ['cam1'], 'only "Use for CV" cameras');
   assert.equal(c.cameras[0].url, 'rtsp://admin:p%40ss@192.168.1.20:554/stream2');
   assert.deepEqual(c.cameras[0].zones, [zone]);
@@ -56,7 +57,7 @@ test('the server stamps worker events as the vision role, and checks them like a
   // Anything else riding along (an image, a password) is refused, and so is any event vision may not record.
   assert.ok('reason' in stampEvent({ type: 'vision.camera_offline', cameraId: 'cam1', frame: 'AAAA' } as never, 1, SHOP, 'id2'));
   assert.ok('reason' in stampEvent({ type: 'table.state_set', tableId: 't1', from: 'free', to: 'reserved' } as never, 1, SHOP, 'id3'));
-  assert.ok('reason' in stampEvent({ type: 'vision.settings_set', mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 } as never, 1, SHOP, 'id4'));
+  assert.ok('reason' in stampEvent({ type: 'vision.settings_set', mode: 'live', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 } as never, 1, SHOP, 'id4'));
 });
 
 test('one heartbeat kept per 5 minutes, or at once when a camera or "slowed" changes', () => {
@@ -72,7 +73,7 @@ test('one heartbeat kept per 5 minutes, or at once when a camera or "slowed" cha
 test('the worker process: spawned at below-normal priority with IPC both ways, restarted with doubling backoff, stopped for good', async () => {
   const got: FromWorker[] = [];
   const delays: number[] = [];
-  const config = { packDir: 'x', mode: 'shadow', seatS: 60, leaveS: 180, cleanAlertS: 300, cpuLimit: 15, cameras: [{ id: 'cam1', url: 'rtsp://x', zones: [] }], floor: {}, offline: [] } satisfies WorkerConfig;
+  const config = { packDir: 'x', mode: 'shadow', shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 15, cameras: [{ id: 'cam1', url: 'rtsp://x', zones: [] }], floor: {}, offline: [] } satisfies WorkerConfig;
   const crashing = workerProcess({
     script: FAKE, env: { FAKE_WORKER_CRASH: '1' }, onMessage: (m) => got.push(m), log: () => {},
     backoff: (failures) => { const d = 40 * 2 ** failures; delays.push(d); return d; },

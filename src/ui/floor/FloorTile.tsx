@@ -36,7 +36,7 @@ export function FloorTile({ t, now, selected, onPick, children }: {
       className={`floor__tile floor__tile--${t.noCamera ? 'nocam' : t.state}`} onClick={onPick}>
       <span className="floor__num">{t.label}</span>
       <span className="floor__state">{WORD[t.state].en}{t.noCamera && ' · no camera'}</span>
-      <span className="floor__time num">{time}</span>
+      <span className="floor__time num">{t.state === 'needs_cleaning' ? `waiting ${time}` : t.state === 'occupied' ? `seated ${time}` : time}</span>
       {children}
     </button>
   );

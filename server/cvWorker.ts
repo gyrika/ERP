@@ -47,8 +47,8 @@ export const workerConfig = (
   });
   if (!cameras.length) return null;
   const floor = Object.fromEntries(tablesFromEvents(events).map((t) => [t.id, { state: t.state, since: t.since, alertId: t.alertId }]));
-  const { mode, seatS, leaveS, cleanAlertS, cpuLimit } = v.settings;
-  return { packDir, mode, seatS, leaveS, cleanAlertS, cpuLimit, cameras, floor, offline: [...v.offline] };
+  const { mode, shortVisitS, leftCheckS, autoFreeS, cpuLimit } = v.settings;
+  return { packDir, mode, shortVisitS, leftCheckS, autoFreeS, cpuLimit, cameras, floor, offline: [...v.offline] };
 };
 
 /** A worker message's fields as a whole event, or why it is refused. */

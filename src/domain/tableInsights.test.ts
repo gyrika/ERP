@@ -184,7 +184,7 @@ test('a camera offline with no "online" after it: named, how long, ranked first'
 
 // ----- The Shadow week → Live card (SCRUM-174) -----
 
-const mode = (m: 'off' | 'shadow' | 'live', at: number) => ev({ type: 'vision.settings_set', mode: m, seatS: 60, leaveS: 180, cleanAlertS: 300 }, at, owner);
+const mode = (m: 'off' | 'shadow' | 'live', at: number) => ev({ type: 'vision.settings_set', mode: m, shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 }, at, owner);
 const saw = (tableId: string, from: string, to: string, at: number) => ev({ type: 'table.state_changed', tableId, from, to, confidence: 0.8 }, at);
 const staff = (tableId: string, to: string, at: number) => ev({ type: 'table.state_set', tableId, from: 'free', to }, at, cashier);
 /** `count` camera changes a day for 8 days, staff agreeing: seated (O) a minute after the camera saw people, wiped after they left. */
@@ -220,6 +220,20 @@ test('agreement: a staff change within 5 minutes that says the opposite of the c
   assert.deepEqual(a.misses.map((m) => [m.tableId, m.camera, m.staff]), [['t3', 'needs_cleaning', 'occupied'], ['t2', 'occupied', 'free']], 'in time order');
   assert.equal(a.pct, 67, '1 − 2/6');
   assert.equal(a.since, day(9));
+});
+
+test('the new rules in the Shadow week: a short visit back to free is judged, a dirty table freeing itself is not', () => {
+  const at = day(1) + 12 * 60 * MIN;
+  const events = byTime([...setup(), mode('shadow', day(9)),
+    // A waiter for 2 min: the camera says occupied, then free (no cleaning); staff agree it is free.
+    saw('t1', 'free', 'occupied', at), saw('t1', 'occupied', 'free', at + 2 * MIN), staff('t1', 'free', at + 3 * MIN),
+    // A long visit, wiped by no one: the table frees itself 5 min after; that is not a camera's word.
+    saw('t2', 'free', 'occupied', at), saw('t2', 'occupied', 'needs_cleaning', at + 40 * MIN), saw('t2', 'needs_cleaning', 'free', at + 45 * MIN),
+    staff('t2', 'occupied', at + 43 * MIN),
+  ]);
+  const a = shadowAgreement(events, friday)!;
+  assert.equal(a.changes, 4, 'the auto-free is left out');
+  assert.deepEqual(a.misses.map((m) => [m.tableId, m.camera, m.staff]), [['t2', 'needs_cleaning', 'occupied']], 'staff\'s word still answers the camera\'s "left"');
 });
 
 test('only the first staff change after a camera change counts, and one undone is a slip, not a verdict', () => {

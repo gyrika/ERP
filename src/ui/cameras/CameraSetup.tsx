@@ -3,7 +3,8 @@ import {
   addPoint, ASK_BRANDS, asksCamera, brandOf, closePolygon, LIMIT_TEXT, mayUse, normalisePoint, presetPath, RTSP_PRESETS, type Brand,
 } from '../../domain/cameraSetup.ts';
 import {
-  DEFAULT_VISION_SETTINGS, tablesFromEvents, visionFromEvents, type CameraSpec, type Point, type TableSpec, type VisionSettings, type ZoneSpec,
+  DEFAULT_VISION_SETTINGS, TIMER_LIMITS, tablesFromEvents, timersOf, visionFromEvents, type CameraSpec, type Point, type TableSpec, type Timers,
+  type VisionSettings, type ZoneSpec,
 } from '../../domain/tables.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
 import { cameraClient, type CameraLogins } from '../../services/setupClient.ts';
@@ -378,14 +379,16 @@ function Zones({ pin, cameras, zones, tables, shots }: {
 
 // ----- Timers -----
 
-const TIMERS: { key: 'seatS' | 'leaveS' | 'cleanAlertS'; label: string; min: number }[] = [
-  { key: 'seatS', label: 'Seated after (seconds of people at the table)', min: 10 },
-  { key: 'leaveS', label: 'Left after (seconds of an empty table)', min: 10 },
-  { key: 'cleanAlertS', label: 'Cleaning alert after (seconds; 0 never)', min: 0 },
+/** The owner's three timers (2026-10-26), in plain words; minutes where minutes are meant. */
+const TIMERS: { key: keyof Timers; label: string; unit: 'min' | 's' }[] = [
+  { key: 'shortVisitS', label: 'A visit shorter than this needs no cleaning', unit: 'min' },
+  { key: 'leftCheckS', label: 'Empty this long counts as left', unit: 's' },
+  { key: 'autoFreeS', label: 'Free again by itself after', unit: 'min' },
 ];
+const per = (unit: 'min' | 's') => (unit === 'min' ? 60 : 1);
 
-function Timers({ pin, settings }: { pin: string; settings: VisionSettings }) {
-  const [timers, setTimers] = useState({ seatS: settings.seatS, leaveS: settings.leaveS, cleanAlertS: settings.cleanAlertS });
+function TimerFields({ pin, settings }: { pin: string; settings: VisionSettings }) {
+  const [timers, setTimers] = useState<Timers>(() => timersOf(settings));
   const [dirty, setDirty] = useState(false);
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
@@ -393,15 +396,17 @@ function Timers({ pin, settings }: { pin: string; settings: VisionSettings }) {
     setError('');
     try { addEvents((await cameraClient.saveSettings(pin, next)).events); setDirty(false); setNote(saved); } catch (e) { setError(message(e)); }
   };
-  const valid = TIMERS.every((t) => Number.isSafeInteger(timers[t.key]) && timers[t.key] >= t.min && timers[t.key] <= (t.key === 'cleanAlertS' ? 7200 : 3600));
+  const valid = TIMERS.every((t) => Number.isSafeInteger(timers[t.key]) && timers[t.key] >= TIMER_LIMITS[t.key][0] && timers[t.key] <= TIMER_LIMITS[t.key][1]);
   return (
     <section className="cvs" aria-labelledby="cvs-timers">
       <h2 id="cvs-timers">Timers</h2>
+      <p className="setup__hint">Someone at a table makes it occupied at once. After a visit, these decide the rest.</p>
       <div className="cvs__timers">
         {TIMERS.map((t) => (
-          <label key={t.key} className="setup__field"><span>{t.label}</span>
-            <input type="number" min={t.min} value={timers[t.key]}
-              onChange={(e) => { setTimers((v) => ({ ...v, [t.key]: Math.round(Number(e.target.value)) })); setDirty(true); setNote(''); }} /></label>
+          <label key={t.key} className="setup__field"><span>{t.label} ({t.unit})</span>
+            <input type="number" inputMode="decimal" min={TIMER_LIMITS[t.key][0] / per(t.unit)} max={TIMER_LIMITS[t.key][1] / per(t.unit)}
+              step={t.unit === 'min' ? 0.5 : 1} value={timers[t.key] / per(t.unit)}
+              onChange={(e) => { setTimers((v) => ({ ...v, [t.key]: Math.round(Number(e.target.value) * per(t.unit)) })); setDirty(true); setNote(''); }} /></label>
         ))}
       </div>
       <div className="setup__foot">
@@ -431,7 +436,7 @@ export function CameraSetup({ pin }: { pin: string }) {
       <Cameras pin={pin} cameras={vision.cameras} logins={logins} onLogins={setLogins} shots={shots} onShot={(id, t) => setShots((s) => ({ ...s, [id]: t }))} />
       <Tables pin={pin} tables={tables} />
       <Zones pin={pin} cameras={vision.cameras.filter((c) => c.enabled)} zones={vision.zones} tables={tables} shots={shots} />
-      <Timers key={`${settings.seatS}-${settings.leaveS}-${settings.cleanAlertS}`} pin={pin} settings={settings} />
+      <TimerFields key={`${settings.shortVisitS}-${settings.leftCheckS}-${settings.autoFreeS}`} pin={pin} settings={settings} />
     </>
   );
 }

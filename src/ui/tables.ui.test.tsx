@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { TableEvent } from '../domain/events.ts';
@@ -113,4 +113,35 @@ test('works with no cameras: Seated (O) marks a table taken by hand', async () =
   expect(floor().getByRole('option', { name: /^Table 1, occupied/ })).toBeTruthy();
   await user.keyboard('{F1}');
   expect(await screen.findByRole('button', { name: 'Tables: 2 of 3 free' })).toBeTruthy();
+});
+
+test('a table coming to need cleaning: the chip turns red, and "Table N needs cleaning" shows for 5 s with no key or focus', async () => {
+  layout();
+  seen('t2', 'free', 'occupied');
+  render(<Root />);
+  const chip = await screen.findByRole('button', { name: 'Tables: 2 of 3 free' });
+  expect(chip.className).not.toMatch(/kchip--bad/);
+  // Already dirty when the Register opens: no note.
+  await act(async () => { await import('./TablesChip.tsx'); });
+  expect(screen.queryByText(/needs cleaning/)).toBeNull();
+
+  const focused = document.activeElement;
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    act(() => { seen('t2', 'occupied', 'needs_cleaning'); });
+    const note = screen.getByText('Table 2 needs cleaning').closest('.toast')!;
+    expect(note.getAttribute('aria-live')).toBe('polite');
+    expect(note.querySelector('button')).toBeNull();
+    expect(document.activeElement).toBe(focused);
+    expect(screen.getByRole('button', { name: 'Tables: 2 of 3 free, 1 to clean' }).className).toMatch(/kchip--bad/);
+    // The order and its primary action are all still there.
+    expect(screen.getByRole('complementary', { name: 'Current order' })).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(4900); });
+    expect(screen.queryByText('Table 2 needs cleaning')).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(screen.queryByText('Table 2 needs cleaning')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Tables: 2 of 3 free, 1 to clean' }).className).toMatch(/kchip--bad/); // red while it waits
+  } finally {
+    vi.useRealTimers();
+  }
 });

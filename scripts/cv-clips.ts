@@ -34,7 +34,7 @@ Add your own: 3-4 phone videos of the shop, 2-5 minutes each, filmed from a high
 camera would be, with their zones and what happens at each table.
 `);
 
-for (const clip of REPLAY_CLIPS) {
+for (const clip of REPLAY_CLIPS.filter((c) => !c.file)) {
   const dir = join(CLIPS_DIR, clip.name);
   mkdirSync(dir, { recursive: true });
   const source = join(dir, 'source.mp4');

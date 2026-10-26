@@ -21,7 +21,7 @@ const seconds = Number(process.env.CV_LIVE_SECONDS ?? 120);
 const count = Number(process.env.CV_LIVE_CAMERAS ?? 4);
 const clips = fileURLToPath(new URL('../test-assets/cv-clips/', import.meta.url));
 const cameras = Array.from({ length: count }, (_, i) => {
-  const clip = REPLAY_CLIPS[i % REPLAY_CLIPS.length];
+  const clip = REPLAY_CLIPS.filter((c) => !c.file)[i % 3];
   const file = join(clips, clip.name, 'clip.mp4');
   if (!existsSync(file)) { console.error(`${file} is missing: run npm run cv:clips first.`); process.exit(2); }
   return { id: `${clip.name}-${i + 1}`, url: file, zones: clip.zones.map((z) => ({ ...z, tableId: `${z.tableId}-${i + 1}` })) };
@@ -35,7 +35,7 @@ const cpuSeconds = (pid: number): { worker: number; ffmpeg: number } => {
 };
 
 const config: WorkerConfig = {
-  packDir: pack, mode: 'shadow', seatS: 10, leaveS: 20, cleanAlertS: 0, cpuLimit: 50, cameras, offline: [],
+  packDir: pack, mode: 'shadow', shortVisitS: 20, leftCheckS: 10, autoFreeS: 60, cpuLimit: 50, cameras, offline: [],
   floor: Object.fromEntries(cameras.flatMap((c) => c.zones.map((z) => [z.tableId, { state: 'free' as const, since: Date.now(), alertId: null }]))),
 };
 const worker = workerProcess({
