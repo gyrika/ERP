@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App.tsx';
 import { Kitchen } from './Kitchen.tsx';
+import { readAll } from './eventLog.ts';
 
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
@@ -119,4 +120,25 @@ test('the register shows Waiting until Start, Cooking until Done, next to Paid /
   const paid = within(panel().getByRole('region', { name: 'Paid today' }));
   expect(paid.getByText('Cooking')).toBeTruthy();
   expect(paid.getByText('Paid · Cash')).toBeTruthy();
+});
+
+test('Remake: a burnt pizza is recorded as waste in two taps, and the line stays on the ticket to make again (SCRUM-177)', async () => {
+  const user = userEvent.setup();
+  render(<><App /><Kitchen /></>);
+  await sendOne(user);
+  const ticket = within(kitchen().getByRole('article', { name: 'Order 1001' }));
+  await user.click(ticket.getByRole('button', { name: 'Start: Order 1001' }));
+
+  await user.click(ticket.getByRole('button', { name: 'Remake Devilled Chicken' }));
+  await user.click(within(ticket.getByRole('group', { name: 'Why remake Devilled Chicken?' })).getByRole('button', { name: 'Burnt' }));
+  expect(readAll().at(-1)).toMatchObject({
+    type: 'stock.wasted', what: { kind: 'dish', itemId: 'devilled-chicken', size: 'L' }, qty: 1, reason: 'burnt', lineId: expect.any(String), ticketId: expect.any(String),
+  });
+  expect(ticket.getByText('Remake ×1')).toBeTruthy();
+  expect(ticket.getByRole('button', { name: 'Done: Order 1001' })).toBeTruthy(); // still to make
+
+  const toast = screen.getAllByRole('status').find((el) => el.textContent?.includes('remake · Burnt'))!;
+  await user.click(within(toast).getByRole('button', { name: 'Undo' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.waste_undone' });
+  expect(ticket.queryByText('Remake ×1')).toBeNull();
 });

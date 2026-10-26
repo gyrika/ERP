@@ -14,6 +14,8 @@ export interface KitchenLine extends OrderLine {
   /** What this line was before the latest manager change. */
   was?: OrderLine;
   cancelled?: boolean;
+  /** Thrown away and being made again (the kitchen's Remake, SCRUM-177): how many times. */
+  remade?: number;
 }
 
 /**
@@ -185,6 +187,8 @@ export interface TicketLine extends LineView {
   status: 'ok' | 'changed' | 'cancelled';
   /** For a changed line: the old version, shown struck through beside the new one. */
   was?: LineView;
+  /** Remade this many times (SCRUM-177). */
+  remade?: number;
 }
 
 const view = (l: OrderLine): LineView => {
@@ -208,6 +212,7 @@ export const ticketLines = (t: KitchenTicket): TicketLine[] =>
     ...view(l),
     status: l.cancelled ? 'cancelled' : l.was ? 'changed' : 'ok',
     ...(l.was && !l.cancelled ? { was: view(l.was) } : {}),
+    ...(l.remade ? { remade: l.remade } : {}),
   }));
 
 /** Events older than this cannot hold a ticket worth showing; skipping them keeps the fold cheap. */
@@ -227,6 +232,13 @@ const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
   let t: KitchenTicket[] = [];
   const before = new Map<string, KitchenLine>(); // change event id → the kitchen's line before it
   const recalled = new Set<string>(); // prep tickets taken back
+  const remakes = new Map<string, { ticketId: string; lineId: string }>(); // waste id → the line remade
+  /** A line's remake count, up or down (an Undo). */
+  const remake = (ticketId: string, lineId: string, by: number) => {
+    t = t.map((x) => (x.id !== ticketId ? x : {
+      ...x, lines: x.lines.map((l) => (l.id !== lineId ? l : { ...l, remade: Math.max(0, (l.remade ?? 0) + by) })),
+    }));
+  };
   for (const e of events) {
     switch (e.type) {
       case 'order.sent':
@@ -262,6 +274,15 @@ const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
       case 'kitchen.unstarted': t = unstart(t, e.ticketId); break;
       case 'kitchen.bumped': t = bump(t, e.ticketId, e.at); break;
       case 'kitchen.unbumped': t = unbump(t, e.ticketId); break;
+      // The kitchen's Remake (SCRUM-177): the line stays to make again, marked so.
+      case 'stock.wasted':
+        if (e.ticketId && e.lineId) { remakes.set(e.id, { ticketId: e.ticketId, lineId: e.lineId }); remake(e.ticketId, e.lineId, 1); }
+        break;
+      case 'stock.waste_undone': {
+        const r = remakes.get(e.wasteId);
+        if (r) { remakes.delete(e.wasteId); remake(r.ticketId, r.lineId, -1); }
+        break;
+      }
       default: break; // payments and price changes do not concern the kitchen
     }
   }

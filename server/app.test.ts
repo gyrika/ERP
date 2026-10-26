@@ -212,6 +212,23 @@ test('the server checks roles: a cashier cannot discount, even by sending the ev
   await s.stop();
 });
 
+test('a cashier records a kitchen Remake and its Undo, but not the bin\'s waste (SCRUM-177)', async () => {
+  const s = await staffed();
+  await s.login('1111');
+  const nimal = { id: s.cashier.id, name: 'Nimal', role: 'cashier' };
+  const waste = (id: string, extra: Record<string, unknown>) => ({
+    ...order(id, 'stock.wasted', nimal), orderNumber: 0, what: { kind: 'dish', itemId: 'margherita', size: 'L' }, name: 'Margherita · Large', qty: 1, reason: 'burnt', ...extra,
+  });
+  const r = await (await s.push(s.tokens.counter, [
+    waste('remake', { ticketId: 't1', lineId: 'L1' }),
+    { ...order('undo', 'stock.waste_undone', nimal), orderNumber: 0, wasteId: 'remake', ticketId: 't1' },
+    waste('bin', { ticketId: undefined }),
+  ])).json();
+  assert.deepEqual(r.accepted.map((a: { id: string }) => a.id), ['remake', 'undo']);
+  assert.deepEqual(r.rejected.map((x: { id: string }) => x.id), ['bin']);
+  await s.stop();
+});
+
 test('a session covers its own time only, and only on the device it was opened on', async () => {
   const s = await staffed();
   await s.login('1111');
