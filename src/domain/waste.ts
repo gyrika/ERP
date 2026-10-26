@@ -4,6 +4,7 @@ import type { SyncEvent } from './sync.ts';
 import type { InventoryItem } from './inventoryData.ts';
 import { PREPS } from './recipeBook.ts';
 import { prepTracker } from './prep.ts';
+import { dishKey, dishesMade } from './kitchen.ts';
 import type { MenuItem, SizeId } from './types.ts';
 
 /**
@@ -131,4 +132,21 @@ export const wasteRecords = (events: readonly SyncEvent[], items: readonly Pick<
     } else if (e.type === 'stock.waste_undone') out.delete(e.wasteId);
   }
   return [...out.values()];
+};
+
+/**
+ * How many of each dish could be in the bin today (SCRUM-183): what the kitchen made since
+ * midnight, less what is already wasted. A pizza never made cannot be thrown away.
+ */
+export const dishesLeftToWaste = (events: readonly SyncEvent[], now: number): Map<string, number> => {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  const left = dishesMade(events, d.getTime());
+  for (const w of wasteRecords(events)) {
+    if (w.what.kind !== 'dish' || w.at < d.getTime()) continue;
+    const k = dishKey(w.what.itemId, w.what.size);
+    left.set(k, (left.get(k) ?? 0) - w.qty);
+  }
+  for (const [k, n] of left) if (n <= 0) left.delete(k);
+  return left;
 };

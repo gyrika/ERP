@@ -1,20 +1,24 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { dishKey } from '../domain/kitchen.ts';
 import type { Actor } from '../domain/auth.ts';
 import { menuItems } from '../domain/menu.ts';
 import { formatQuantity } from '../domain/quantity.ts';
 import type { BaseUnit } from '../domain/inventoryData.ts';
 import { wasteUsage } from '../domain/stockUsage.ts';
 import {
-  WASTE_REASONS, checkWaste, matchesWaste, wasteChoices, type WasteChoice, type WasteReason,
+  WASTE_REASONS, checkWaste, dishesLeftToWaste, matchesWaste, wasteChoices, type WasteChoice, type WasteReason,
 } from '../domain/waste.ts';
 import { recordWaste, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { NumberInput } from './NumberInput.tsx';
+import { readAll, subscribeEvents } from './eventLog.ts';
 
 /**
  * The bin (manager mode). Serves the manager: something was burnt, dropped or went off,
  * and stock must know. Already knows what it was; needs only: what, how much, why.
  * Type to find it (dish, semi-processed or raw), set the amount, tap a reason, Waste.
  * Stock goes down through the recipes, like a sale; Undo in the toast.
+ * Finished dishes are made to order, so the bin offers only those the kitchen made today, up to
+ * how many are left (SCRUM-183): a pizza never made cannot be thrown away.
  */
 export const BinIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -25,6 +29,14 @@ export const BinIcon = () => (
 const UNIT_WORD: Record<string, string> = { pcs: 'pcs', g: 'g', ml: 'ml', sheets: 'sheets' };
 const isBase = (u: string): u is BaseUnit => u in UNIT_WORD;
 
+/** Dishes made today and not yet wasted, kept fresh as the kitchen works. */
+function useDishesLeft(): Map<string, number> {
+  const [left, setLeft] = useState(() => dishesLeftToWaste(readAll(), Date.now()));
+  useEffect(() => subscribeEvents(() => setLeft(dishesLeftToWaste(readAll(), Date.now()))), []);
+  return left;
+}
+const keyOf = (c: WasteChoice) => (c.what.kind === 'dish' ? dishKey(c.what.itemId, c.what.size) : null);
+
 export function WasteSheet({ actor, onClose, onWasted }: {
   actor: Actor;
   onClose: () => void;
@@ -33,7 +45,12 @@ export function WasteSheet({ actor, onClose, onWasted }: {
 }) {
   const { answers } = useCostContext();
   const { items } = useCatalog(); // the price list, without archived items
-  const choices = useMemo(() => wasteChoices(menuItems(), answers, items), [answers, items]);
+  const left = useDishesLeft();
+  const choices = useMemo(
+    () => wasteChoices(menuItems(), answers, items).filter((c) => { const k = keyOf(c); return k === null || left.has(k); }),
+    [answers, items, left],
+  );
+  const leftOf = (c: WasteChoice) => { const k = keyOf(c); return k === null ? null : left.get(k) ?? 0; };
   const [query, setQuery] = useState('');
   /** One kind at a time when tapped, else everything; typing searches within it. */
   const [group, setGroup] = useState<WasteChoice['group'] | null>(null);
@@ -55,7 +72,10 @@ export function WasteSheet({ actor, onClose, onWasted }: {
     () => (picked && amount > 0 ? wasteUsage(picked.what, amount, answers) : []),
     [picked, amount, answers],
   );
-  const problem = picked ? checkWaste(picked.what, amount, reason, reason === 'other' ? note : undefined, picked.name) : 'Choose what was thrown away';
+  const most = picked ? leftOf(picked) : null;
+  const problem = !picked ? 'Choose what was thrown away'
+    : most !== null && amount > most ? `Only ${most} made today`
+    : checkWaste(picked.what, amount, reason, reason === 'other' ? note : undefined, picked.name);
 
   const pick = (c: WasteChoice) => {
     setPicked(c);
@@ -123,11 +143,13 @@ export function WasteSheet({ actor, onClose, onWasted }: {
                       onClick={() => pick(c)}
                     >
                       <span>{c.name}</span>
-                      <span className="waste__group">{c.group}</span>
+                      <span className="waste__group">{leftOf(c) !== null ? `${leftOf(c)} made today` : c.group}</span>
                     </button>
                   </li>
                 ))}
-                {found.length === 0 && <li className="waste__none">Nothing called that</li>}
+                {found.length === 0 && (
+                  <li className="waste__none">{group === 'Finished' && left.size === 0 ? 'No dish made today yet' : 'Nothing called that'}</li>
+                )}
               </ul>
             </section>
           ) : (
