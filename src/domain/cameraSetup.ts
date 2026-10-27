@@ -140,3 +140,17 @@ export const closePolygon = (points: readonly Point[]): Point[] | null => {
   for (let i = 0, j = ps.length - 1; i < ps.length; j = i++) area += (ps[j].x + ps[i].x) * (ps[j].y - ps[i].y);
   return Math.abs(area) / 2 > 1e-6 ? ps : null;
 };
+
+/** The corner the pointer is on (within `px` screen pixels, however the picture is shown), the nearest if two are close, or -1. */
+export const cornerAt = (points: readonly Point[], p: Point, frame: { width: number; height: number }, px = 12): number => {
+  let best = -1, bestD = Infinity;
+  points.forEach((q, i) => {
+    const d = Math.hypot((p.x - q.x) * frame.width, (p.y - q.y) * frame.height);
+    if (d <= px && d < bestD) { best = i; bestD = d; }
+  });
+  return best;
+};
+
+/** Drags corner `i` to `p`, held inside the frame. */
+export const movePoint = (points: readonly Point[], i: number, p: Point): Point[] =>
+  points.map((q, j) => (j === i ? { x: round4(clamp01(p.x)), y: round4(clamp01(p.y)) } : q));

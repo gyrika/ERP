@@ -266,15 +266,34 @@ test('Add camera in the panel: scan, log in, test, save; then it opens and its z
   const frame = within(strip()).getByRole('application', { name: /TP-IPC C200: click the corners/ });
   expect(document.activeElement).toBe(frame);
   await user.keyboard('{ArrowLeft>5/}{ArrowUp>5/} {ArrowRight>10/} {ArrowDown>10/} {ArrowLeft>3/} {Backspace}');
-  expect(within(strip()).getByText('3 corners · Enter closes the zone')).toBeTruthy();
+  // Its controls are in the side panel, beside the picture.
+  expect(within(panel()).getByText('3 corners · Enter closes the zone')).toBeTruthy();
+  expect(within(strip()).queryByRole('button', { name: 'Close zone' })).toBeNull();
   await user.keyboard('{Enter}');
-  await user.click(within(within(strip()).getByRole('group', { name: 'Pick its table' })).getByRole('button', { name: 'Table 1' }));
+  await user.click(within(within(panel()).getByRole('group', { name: 'Pick its table' })).getByRole('button', { name: 'Table 1' }));
   const zones = (await vi.waitFor(() => server.asks.find((a) => a.step === '/cv/zones')!)).body;
   expect(zones.zones).toEqual([{ id: expect.any(String), tableId: 't1', points: [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.4 }, { x: 0.6, y: 0.6 }] }]);
-  expect(await within(strip()).findByRole('button', { name: 'Remove the zone of table 1' })).toBeTruthy();
+  expect(await within(panel()).findByRole('button', { name: 'Remove the zone of table 1' })).toBeTruthy();
+
+  // By mouse: the clicks place corners, right click takes one back, a corner drags, a click on the first corner closes.
+  vi.spyOn(frame, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 500, height: 500, right: 500, bottom: 500, x: 0, y: 0, toJSON: () => ({}) });
+  const at = (clientX: number, clientY: number) => ({ target: frame, coords: { clientX, clientY } });
+  for (const [x, y] of [[100, 100], [300, 100], [300, 300], [200, 400]]) await user.pointer({ keys: '[MouseLeft]', ...at(x, y) });
+  expect(within(panel()).getByText('4 corners · Enter closes the zone')).toBeTruthy();
+  await user.pointer({ keys: '[MouseRight]', ...at(200, 400) });
+  expect(within(panel()).getByText('3 corners · Enter closes the zone')).toBeTruthy();
+  await user.pointer([{ keys: '[MouseLeft>]', ...at(302, 298) }, at(330, 330), at(350, 350), { keys: '[/MouseLeft]', ...at(350, 350) }]);
+  await user.pointer(at(103, 98));
+  expect(within(panel()).getByText('Click the first corner to close the zone')).toBeTruthy();
+  await user.pointer({ keys: '[MouseLeft]', ...at(103, 98) });
+  await user.click(within(within(panel()).getByRole('group', { name: 'Pick its table' })).getByRole('button', { name: 'Table 1' }));
+  await vi.waitFor(() => expect(server.asks.filter((a) => a.step === '/cv/zones')).toHaveLength(2));
+  const both = server.asks.filter((a) => a.step === '/cv/zones')[1].body;
+  expect((both.zones as { points: unknown }[])[1].points).toEqual([{ x: 0.2, y: 0.2 }, { x: 0.6, y: 0.2 }, { x: 0.7, y: 0.7 }]);
+  frame.focus();
   // Esc with nothing drawn leaves the drawing; the panel stays.
   await user.keyboard('{Escape}');
-  expect(within(panel()).getByText('Table 1')).toBeTruthy();
+  expect(within(panel()).getByText('Table 1, Table 1')).toBeTruthy();
   expect(within(strip()).getByRole('figure', { name: /, large$/ })).toBeTruthy();
   expect(location.hash).toBe(`#vision/camera-${saved[0].id}`);
 }, 15_000);

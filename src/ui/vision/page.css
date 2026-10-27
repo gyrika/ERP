@@ -137,7 +137,7 @@
 .vlarge--drawing { align-items: stretch; overflow-y: auto; }
 .vlarge--drawing .zone { align-items: center; }
 /* As wide as the column allows, but never taller than the room left: a 16:9 picture. */
-.vlarge--drawing .zone__frame { align-self: center; width: min(100%, calc((100dvh - 430px) * 16 / 9)); }
+.vlarge--drawing .zone__frame { align-self: center; width: min(100%, calc((100dvh - 300px) * 16 / 9)); }
 .vlarge--drawing .zone__frame img { width: 100%; height: auto; max-width: none; }
 
 /* Performance: live while the owner watches. */
