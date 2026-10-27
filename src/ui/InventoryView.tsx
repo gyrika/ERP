@@ -5,7 +5,7 @@ import {
   archiveInventoryItem,
   restoreInventoryItem,
   useInventory,
-  useWarehouses,
+  useWarehouseStock,
   usePurchases,
   type StockStatus,
 } from '../services/inventoryStore.ts';
@@ -24,6 +24,8 @@ import { countsDue, receiveUnitOf, tiersOf, unitName } from '../domain/counting.
 import { fmt } from '../domain/money.ts';
 import { rawValue } from '../domain/valuation.ts';
 import { homeName } from './WarehousesView.tsx';
+import { activeWarehouses, livesIn } from '../domain/warehouses.ts';
+import { passes, toggleChip } from '../domain/filters.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
@@ -64,13 +66,13 @@ export function InventoryView({
   /** The item whose sheet is open, and on which tab. */
   const [updating, setUpdating] = useState<string | null>(openId ?? null);
   const [sheetTab, setSheetTab] = useState<SheetTab>(openId ? 'history' : 'details');
-  /** What the list shows: everything, or only what needs a look. */
-  const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'order'>('all');
+  /** What the list shows (SCRUM-187): chips that combine, Low or Out, and in Warehouse 2 (filters.ts); none: everything. */
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const searchRef = useRef<HTMLInputElement>(null);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo?: () => void; href?: string } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
-  const warehouses = useWarehouses();
+  const { warehouses, places } = useWarehouseStock();
   const purchases = usePurchases();
   const coming = useMemo(() => {
     const packs = onOrder(purchases.open);
@@ -93,19 +95,22 @@ export function InventoryView({
   // An item opens on Order (Details where there is no Order tab, the manager's phone).
   const openItem = (id: string) => { setUpdating(id); setSheetTab('order'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
-  const FILTERS = [['all', 'All'], ['low', 'Low'], ['out', 'Out'], ['order', 'On order']] as const;
-  const matches = (item: (typeof items)[number], which: typeof filter) =>
-    which === 'all' || (which === 'order' ? coming.packs.has(item.id) : stockStatus(item) === which);
+  const FILTERS = [['status:low', 'Low'], ['status:out', 'Out'], ['status:order', 'On order']] as const;
+  const rooms = activeWarehouses(warehouses);
+  const matches = (item: (typeof items)[number]) => passes(picked, {
+    status: [stockStatus(item), ...(coming.packs.has(item.id) ? ['order'] : [])],
+    wh: livesIn(warehouses, places, `stock:${item.id}`, item.counted ? item.onHandBaseUnits : null),
+  });
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     const byText = !q ? items : items.filter((item) => [item.name, item.category, ...item.supplierIds.map((id) => supplierNames.get(id) ?? '')]
       .some((text) => text.toLowerCase().includes(q)));
-    const found = byText.filter((item) => matches(item, filter));
+    const found = byText.filter((item) => matches(item));
     if (!lowFirst) return found;
     const rank = (item: (typeof items)[number]) => ({ out: 0, low: 1 } as Record<string, number>)[stockStatus(item)] ?? 2;
     return [...found].sort((a, b) => rank(a) - rank(b)); // stable: the usual order within each
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, query, supplierNames, filter, coming, lowFirst]);
+  }, [items, query, supplierNames, picked, coming, lowFirst, warehouses, places]);
   const updatingItem = items.find((item) => item.id === updating) ?? null;
   // Today's count: what the money says to count, and since when.
   const tiers = useMemo(() => tiersOf(items), [items]);
@@ -185,8 +190,12 @@ export function InventoryView({
         />
       </label>
       <div className="chips chips--tight inv-filters" role="group" aria-label="Show">
+        <button type="button" className="chip" aria-pressed={picked.size === 0} onClick={() => setPicked(new Set())}>All</button>
         {FILTERS.map(([id, label]) => (
-          <button key={id} type="button" className="chip" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>
+          <button key={id} type="button" className="chip" aria-pressed={picked.has(id)} onClick={() => setPicked(toggleChip(picked, id))}>{label}</button>
+        ))}
+        {rooms.length > 1 && rooms.map((w) => (
+          <button key={w.id} type="button" className="chip" aria-pressed={picked.has(`wh:${w.id}`)} onClick={() => setPicked(toggleChip(picked, `wh:${w.id}`))}>{w.name}</button>
         ))}
       </div>
 
