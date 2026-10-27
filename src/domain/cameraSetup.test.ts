@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addPoint, brandOf, CAUSE_TEXT, hostPort, closePolygon, ffmpegCause, LIMIT_TEXT, liveBlocked, maskLogins, mayUse, normalisePoint, presetPath,
-  rtspUrl, tablesWithoutZone, testFailure, unzonedNote,
+  addPoint, brandOf, CAUSE_TEXT, hostPort, closePolygon, cornerAt, ffmpegCause, LIMIT_TEXT, liveBlocked, maskLogins, mayUse, normalisePoint, presetPath,
+  movePoint, rtspUrl, tablesWithoutZone, testFailure, unzonedNote,
 } from './cameraSetup.ts';
 import type { CameraSpec, TableSpec, ZoneSpec } from './tables.ts';
 
@@ -101,4 +101,13 @@ test('a phone app streams on its own port: the IP takes it ("192.168.1.5:8080");
   assert.equal(rtspUrl({ ip: '192.168.1.5:8080', rtspPath: presetPath('phone')! }), 'rtsp://192.168.1.5:8080/h264_ulaw.sdp');
   assert.equal(rtspUrl({ ip: '192.168.1.5:8080', rtspPath: '/h264_ulaw.sdp', user: 'me', password: 'pw' }), 'rtsp://me:pw@192.168.1.5:8080/h264_ulaw.sdp');
   assert.equal(brandOf('/h264_ulaw.sdp'), 'phone');
+});
+
+test('the pointer is on a corner within 12 screen pixels, on a frame of any shape; dragging moves only that corner', () => {
+  const wide = { width: 800, height: 200 };
+  const tri = [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.3, y: 0.6 }];
+  assert.equal(cornerAt(tri, { x: 0.51, y: 0.1 }, wide), 1, '8 px across');
+  assert.equal(cornerAt(tri, { x: 0.5, y: 0.17 }, wide), -1, '14 px down on a short frame');
+  assert.equal(cornerAt([{ x: 0.5, y: 0.5 }, { x: 0.51, y: 0.5 }], { x: 0.509, y: 0.5 }, wide), 1, 'the nearer of two');
+  assert.deepEqual(movePoint(tri, 2, { x: 1.2, y: 0.33333 }), [tri[0], tri[1], { x: 1, y: 0.3333 }]);
 });

@@ -93,6 +93,8 @@ export default function CameraViews({
   const [perf, setPerf] = useState<ViewsPerf | null>(null);
   /** Drawing a zone on the large view: the frame it is drawn on, held still. */
   const [drawing, setDrawing] = useState<string | null>(null);
+  /** The side panel's place for the zone controls while a zone is drawn. */
+  const [zoneSlot, setZoneSlot] = useState<HTMLElement | null>(null);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const takeTouch = useTouches(() => { if (pausedRef.current) setPaused(false); });
@@ -260,13 +262,14 @@ export default function CameraViews({
 
       {cam && (
         <LargeView key={cam.id} camera={cam} f={seen[cam.id]} zones={zones[cam.id] ?? []} tables={tables} detecting={detecting}
-          video={testing[cam.id]} drawing={drawing} onDrawn={() => setDrawing(null)} client={vc} withPin={withPin} />
+          video={testing[cam.id]} drawing={drawing} onDrawn={() => setDrawing(null)} client={vc} withPin={withPin}
+          controls={panel ? zoneSlot : undefined} />
       )}
 
       {panel && cam && createPortal(
         <CameraDetails key={cam.id} camera={cam} f={seen[cam.id]} zones={zones[cam.id] ?? []} tables={tables}
           cameras={cameras} logins={logins} onLogins={setLogins} client={vc} withPin={withPin} video={testing[cam.id]} onTesting={setTesting}
-          perf={perfOf(cam.id)} drawing={drawing !== null} onDraw={() => { const src = seen[cam.id]?.src; if (src) setDrawing(src); }}
+          perf={perfOf(cam.id)} drawing={drawing !== null} onDraw={() => { const src = seen[cam.id]?.src; if (src) setDrawing(src); }} onZoneSlot={setZoneSlot}
           onClose={onClose} onRemoved={onClose} />, panel)}
       {panel && addPicked && createPortal(
         <div className="vpanel__body">
@@ -304,11 +307,13 @@ function Picture({ id, f, alt, onAspect }: { id: string; f: Seen | undefined; al
  * sees; while a zone is drawn, the frame held still with the zone editor on it, big enough to
  * place corners on a table. Its details are in the side panel.
  */
-function LargeView({ camera, f, zones, tables, detecting, video, drawing, onDrawn, client, withPin }: {
+function LargeView({ camera, f, zones, tables, detecting, video, drawing, onDrawn, client, withPin, controls }: {
   camera: CameraSpec; f: Seen | undefined; zones: ZoneSpec[]; tables: FloorTable[]; detecting: boolean; video: string | undefined;
   /** The frame a zone is being drawn on, or null. */
   drawing: string | null; onDrawn: () => void;
   client: VisionClient; withPin: WithPin;
+  /** Where the zone controls go: the side panel (undefined: no panel, under the picture). */
+  controls: HTMLElement | null | undefined;
 }) {
   const now = useNow(1000);
   const [aspect, setAspect] = useState(16 / 9);
@@ -316,7 +321,7 @@ function LargeView({ camera, f, zones, tables, detecting, video, drawing, onDraw
   if (drawing) {
     return (
       <div className="vlarge vlarge--drawing">
-        <ZoneEditor client={client} withPin={withPin} camera={camera} src={drawing} zones={zones} tables={specs} onDone={onDrawn} />
+        <ZoneEditor client={client} withPin={withPin} camera={camera} src={drawing} zones={zones} tables={specs} onDone={onDrawn} controls={controls} />
       </div>
     );
   }
@@ -336,7 +341,7 @@ function LargeView({ camera, f, zones, tables, detecting, video, drawing, onDraw
 }
 
 /** One camera's details in the side panel: how it is doing now, its zones, its test video, its connection. */
-function CameraDetails({ camera, f, zones, tables, cameras, logins, onLogins, client, withPin, video, onTesting, perf, drawing, onDraw, onClose, onRemoved }: {
+function CameraDetails({ camera, f, zones, tables, cameras, logins, onLogins, client, withPin, video, onTesting, perf, drawing, onDraw, onZoneSlot, onClose, onRemoved }: {
   camera: CameraSpec; f: Seen | undefined; zones: ZoneSpec[]; tables: FloorTable[];
   cameras: CameraSpec[]; logins: CameraLogins; onLogins: (l: CameraLogins) => void;
   client: VisionClient; withPin: WithPin;
@@ -344,10 +349,20 @@ function CameraDetails({ camera, f, zones, tables, cameras, logins, onLogins, cl
   /** This camera's numbers now (undefined: the worker is not running or does not watch it). */
   perf: { fps: number; checksPerS: number; detectMs: number | null } | undefined;
   drawing: boolean; onDraw: () => void;
+  /** While a zone is drawn the panel holds only its controls (Close zone, Undo corner, its table): the editor puts them here. */
+  onZoneSlot: (el: HTMLElement | null) => void;
   onClose: () => void; onRemoved: () => void;
 }) {
   const label = (id: string) => tables.find((t) => t.id === id)?.label ?? '?';
   const picture = isDemo() && demoVideos.has(camera.id) ? null : f?.src ?? null;
+  if (drawing) {
+    return (
+      <div className="vpanel__body">
+        <PanelHead title={camera.name} onClose={onClose}><Status f={f} video={video} live /></PanelHead>
+        <div ref={onZoneSlot} className="vpanel__zone" />
+      </div>
+    );
+  }
   return (
     <div className="vpanel__body">
       <PanelHead title={camera.name} onClose={onClose}><Status f={f} video={video} live /></PanelHead>
