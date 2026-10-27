@@ -1845,3 +1845,10 @@ button.glance__card:disabled { cursor: default; }
 .wh-homes__row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-height: 64px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .wh-homes__name { display: flex; align-items: baseline; gap: 8px; font-weight: 500; }
 .wh-homes__said { margin: 0; }
+/* Order › Items › + Add an item (SCRUM-185): find any other item, or add a new one, without leaving the order. */
+.order-add { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.order-add__said { margin: 0; }
+.order-add__find { display: flex; flex-direction: column; gap: 6px; }
+.order-add__list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.order-add__item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 56px; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background 150ms var(--ease); }
+.order-add__item:hover, .order-add__item:focus-visible { background: var(--chip); }
