@@ -5,6 +5,7 @@ import { purchasesFromEvents } from '../src/domain/purchaseOrders.ts';
 import { SEED_INVENTORY } from '../src/domain/inventoryData.ts';
 import { STOCK_DEFAULTS } from '../src/domain/stockSettings.ts';
 import type { GrnLine, SyncEvent } from '../src/domain/sync.ts';
+import { warehousesFromEvents } from '../src/domain/warehouses.ts';
 import { createStockRules, stockFacts, stockRuleProblem } from './stockRules.ts';
 import { memoryStore, type StaffMember } from './store.ts';
 
@@ -22,7 +23,7 @@ const grn = (id: string, orderId: string, lines: GrnLine[], extra: object = {}, 
 
 /** What the server would say about `e` once `history` is stored, at time `now`. */
 const ask = (history: SyncEvent[], e: SyncEvent, now = 2 * HOUR) =>
-  stockRuleProblem(e, { state: purchasesFromEvents(history), settings: STOCK_DEFAULTS, staff, now, items: stockFacts(history) });
+  stockRuleProblem(e, { state: purchasesFromEvents(history), settings: STOCK_DEFAULTS, staff, now, items: stockFacts(history), warehouses: warehousesFromEvents(history) });
 
 test('an edit or cancel needs an order that is there and has had no goods', () => {
   const edit = (orderId: string): SyncEvent => ({ ...base, id: 'e', at: 1, type: 'stock.order_edited', orderId, lines: [{ itemId: 'flour', packs: 3 }] });
@@ -116,7 +117,7 @@ test('a count far from what was expected must say why, by the owner\'s numbers; 
   assert.equal(ask(before, count(5900, 6000, -5000, null)), null, 'under both allowances');
   assert.match(ask(before, count(99000, 100000, -260000, null)) ?? '', /Count again/, 'only 1% but over Rs 2,000');
   // The owner raised the allowance: the same count now needs no reason.
-  assert.equal(stockRuleProblem(count(4000, 6000, -50000, null), { state: purchasesFromEvents([]), settings: { ...STOCK_DEFAULTS, countGapShare: 0.5 }, staff, now: 1, items: stockFacts(before) }), null);
+  assert.equal(stockRuleProblem(count(4000, 6000, -50000, null), { state: purchasesFromEvents([]), settings: { ...STOCK_DEFAULTS, countGapShare: 0.5 }, staff, now: 1, items: stockFacts(before), warehouses: warehousesFromEvents(before) }), null);
 });
 
 test('a count: the first one is opening stock; below zero is still checked; the value is the server\'s', () => {
@@ -212,4 +213,22 @@ test('records that are not purchasing rules are passed through untouched', async
   const out = await s.push([adjust]);
   assert.deepEqual(out.rejected, []);
   assert.deepEqual(await s.stored(), ['a1']);
+});
+
+test('warehouses (SCRUM-184): stock goes only into one that is here and open; names stay apart', () => {
+  const owner: Actor = { id: 'o', name: 'Owner', role: 'owner' };
+  const set = (id: string, warehouseId: string, before: { name: string; archived: boolean } | null, after: { name: string; archived: boolean }): SyncEvent =>
+    ({ ...base, actor: owner, id, at: 1, type: 'stock.warehouse_set', warehouseId, before, after });
+  const archived = set('a', 'wh-3', { name: 'Warehouse 3', archived: false }, { name: 'Warehouse 3', archived: true });
+  assert.equal(ask([], set('n', 'wh-x', null, { name: 'Freezer', archived: false })), null);
+  assert.match(ask([], set('n', 'wh-2', null, { name: 'Freezer', archived: false })) ?? '', /already here/);
+  assert.match(ask([], set('r', 'wh-2', { name: 'Warehouse 2', archived: false }, { name: 'warehouse 1', archived: false })) ?? '', /has that name/);
+  assert.match(ask([], set('k', 'wh-1', { name: 'Warehouse 1', archived: false }, { name: 'Warehouse 1', archived: true })) ?? '', /next to the kitchen/);
+  const move = (to: string): SyncEvent => ({ ...base, id: 'm', at: 2, type: 'stock.moved', stockKey: 'stock:flour', from: 'wh-1', to, qty: 5 });
+  assert.equal(ask([], move('wh-3')), null);
+  assert.match(ask([archived], move('wh-3')) ?? '', /archived/);
+  assert.match(ask([], move('wh-9')) ?? '', /not here/);
+  const into = (warehouseId: string) => grn('g', 'p1', [{ ...line(2, 2), warehouseId }]);
+  assert.equal(ask([po('p1')], into('wh-2')), null);
+  assert.match(ask([po('p1'), archived], into('wh-3')) ?? '', /archived/);
 });

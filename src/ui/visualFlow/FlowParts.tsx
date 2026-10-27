@@ -1,5 +1,5 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, Handle, Position, type Edge, type EdgeProps, type Node, type NodeProps } from '@xyflow/react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { fmt } from '../../domain/money.ts';
 import type { ItemStock } from '../../domain/itemStock.ts';
 import { andList } from '../../domain/production.ts';
@@ -23,10 +23,14 @@ export const amount = (qty: number, unit: string) => `${Number(qty.toFixed(qty <
 export const pct = (share: number) => `${Math.round(share * 100)}%`;
 
 /**
- * The canvas's views: the drawing's own three, and Stock (SCRUM-163), the money on the shelves
- * behind this item, drawn on the Material drawing.
+ * The canvas's views: the drawing's own three, Stock (SCRUM-163), the money on the shelves
+ * behind this item, and Warehouse (SCRUM-184), where each ingredient is kept; both drawn on the
+ * Material drawing.
  */
-export type CanvasView = FlowView | 'stock';
+export type CanvasView = FlowView | 'stock' | 'warehouse';
+
+/** A card's place (Warehouse view): its home, and how its stock is split, by warehouse index for the shade. */
+export type Place = { home: string; homeIndex: number; split: { id: string; name: string; index: number; qty: number }[] };
 
 /** A card's stock value: cents null when not known; share of the value behind the item in focus. */
 export type Worth = { cents: number | null; share: number };
@@ -48,6 +52,8 @@ export type NodeData = {
   share: string | null;
   /** Its stock value, in the Stock view; the item in focus carries the total behind it. */
   worth?: Worth;
+  /** Where it is kept, in the Warehouse view; missing: not stock (a dish, a resource). */
+  place?: Place;
 };
 export type VfNode = Node<NodeData, 'vf'>;
 
@@ -68,6 +74,13 @@ export const worthValue = (n: FlowNode, focus: boolean, worth: Worth | undefined
   if (n.kind !== 'raw' && n.kind !== 'semi') return 'Not stock';
   if (worth?.cents != null) return `${rs(worth.cents)} · ${pct(worth.share)}`;
   return stock && !stock.known ? (n.kind === 'raw' ? 'Not counted' : 'None made') : 'No cost yet';
+};
+
+/** The Warehouse view's line: where it is kept. */
+export const placeValue = (n: FlowNode, place: Place | undefined): ReactNode => {
+  if (n.kind === 'finished') return 'Made to order';
+  if (!place) return 'Not stock';
+  return <><span className={`wh-dot wh-seg--${place.homeIndex % 4}`} aria-hidden="true" />{place.home}</>;
 };
 
 /** The card's one number, for this view. */
@@ -104,7 +117,7 @@ export const stockNote = (s: ItemStock): string | null => {
 };
 
 export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
-  const { node: n, view, focus, takes, onToggle, stock, dim, share, worth } = data;
+  const { node: n, view, focus, takes, onToggle, stock, dim, share, worth, place } = data;
   const folds = n.recipe !== null && !focus && n.inputs > 0;
   const gap = n.missing.length > 0;
   // Being made or waiting is in hand (blue); red only when it is short and nothing is coming.
@@ -115,7 +128,7 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
   return (
     <div
       className={`vf-node vf-node--${n.kind}${focus ? ' vf-node--focus' : ''}${selected ? ' vf-node--on' : ''}${gap ? ' vf-node--gap' : ''}${alert ? ` vf-node--${alert}` : ''}${dim ? ' vf-node--dim' : ''}`}
-      style={{ '--share': view === 'material' ? 0 : view === 'stock' ? (focus ? 0 : worth?.share ?? 0) : n.share } as CSSProperties}
+      style={{ '--share': view === 'material' || view === 'warehouse' ? 0 : view === 'stock' ? (focus ? 0 : worth?.share ?? 0) : n.share } as CSSProperties}
     >
       {(takes || n.kind === 'profit') && <Handle type="target" position={Position.Left} className="vf-handle" isConnectable={takes} />}
       <div className="vf-node__top">
@@ -125,9 +138,14 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
       </div>
       <div className="vf-node__name">{n.name}</div>
       <div className="vf-node__value num">
-        {view === 'stock' ? worthValue(n, focus, worth, stock) : nodeValue(n, view, focus, share)}
+        {view === 'warehouse' ? placeValue(n, place) : view === 'stock' ? worthValue(n, focus, worth, stock) : nodeValue(n, view, focus, share)}
         {n.kind === 'profit' && n.qty > 0 && <span className="vf-node__sub"> · {amount(n.qty, 'sold')} in 28 days</span>}
       </div>
+      {view === 'warehouse' && place && place.split.length > 0 && (
+        <div className="vf-place" aria-label={place.split.map((x) => `${x.name} ${stock ? stockAmount(stock, x.qty) : x.qty}`).join(', ')}>
+          {place.split.map((x) => <span key={x.id} className={`wh-seg wh-seg--${x.index % 4}`} style={{ flexGrow: x.qty }} />)}
+        </div>
+      )}
       {stock && <div className="vf-node__stock num">{stockLine(stock)}</div>}
       {note && <div className={`vf-node__alert${alert ? ` vf-node__alert--${alert}` : ''}`}>{note}</div>}
       {folds && (
@@ -149,7 +167,7 @@ export type VfEdge = Edge<EdgeData, 'vf'>;
 
 const edgeLabel = (e: FlowEdge, view: CanvasView, share: string | null): string => {
   if (e.kind === 'money') return `${e.cents < 0 ? '−' : '+'}${rs(Math.abs(e.cents))}`;
-  if (view !== 'material' && view !== 'stock') return rs(e.cents);
+  if (view !== 'material' && view !== 'stock' && view !== 'warehouse') return rs(e.cents);
   if (e.kind === 'resource') return e.unit === 'Rs' ? rs(e.qty * 100) : amount(e.qty, e.unit);
   const waste = e.line?.waste ? ` · ${pct(e.line.waste)} waste` : '';
   return `${share ?? amount(e.qty, e.unit)}${waste}`;
@@ -160,7 +178,7 @@ export function FlowLine({ id, sourceX, sourceY, targetX, targetY, sourcePositio
   if (!data) return null;
   const { edge: e, view, total } = data;
   // In money views a line is as thick as what flows along it, like a river.
-  const share = view === 'material' || view === 'stock' || total <= 0 ? 0 : Math.min(1, Math.abs(e.cents) / total);
+  const share = view === 'material' || view === 'stock' || view === 'warehouse' || total <= 0 ? 0 : Math.min(1, Math.abs(e.cents) / total);
   const width = 1.5 + share * 9;
   return (
     <>

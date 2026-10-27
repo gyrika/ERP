@@ -24,6 +24,7 @@ import type { WasteChoice, WasteReason } from '../domain/waste.ts';
 import { prepItems, type PrepItem, type PrepStock } from '../domain/prep.ts';
 import { draftEvent, draftsFromEvents, type Draft, type PublishStep } from '../domain/recipeDrafts.ts';
 import { trendDays, valuationOf, valueAt, type Valuation } from '../domain/valuation.ts';
+import { byWarehouse, checkMove, checkWarehouseName, shownSplit, warehousesFromEvents, type StockEntry, type WarehouseStock, type Warehouses } from '../domain/warehouses.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -235,12 +236,15 @@ export const adjustStock = (itemId: string, deltaPacks: number, reason?: 'waste'
  */
 export const recordCount = (
   row: InventoryRow, entries: CountEntry[], counted: number, reason: GapReason | null, tier: Tier, photo: string | null = null, note: string | null = null,
+  /** Counting one warehouse (SCRUM-184): which, and what the app expects there. */
+  where: { warehouseId: string; expected: number } | null = null,
 ): (() => void) => {
-  const expected = row.onHandBaseUnits;
+  const expected = where ? where.expected : row.onHandBaseUnits;
   const { valueCents } = gapOf(expected, counted, row);
   const e = appendEvent({
     type: 'stock.counted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: row.id,
     counted, expected, entries, reason, valueCents, tier, ...(photo ? { photo } : {}), ...(note?.trim() ? { note: note.trim() } : {}),
+    ...(where ? { warehouseId: where.warehouseId } : {}),
   });
   return () => { appendEvent({ type: 'stock.count_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), countId: e.id }); };
 };
@@ -489,6 +493,88 @@ export const setStockSetting = <K extends keyof StockSettings>(
   if (why) return why;
   appendEvent({ type: 'stock.settings_set', at: Date.now(), orderNumber: 0, actor: owner, key, value });
   return () => { appendEvent({ type: 'stock.settings_set', at: Date.now(), orderNumber: 0, actor: owner, key, value: before }); };
+};
+
+/** The warehouses and every item's home (SCRUM-184), from the whole history. */
+export function useWarehouses(): Warehouses {
+  const events = useShopHistory();
+  return useMemo(() => warehousesFromEvents(events), [events]);
+}
+
+/**
+ * Where every raw and semi-processed item is (SCRUM-184): each warehouse with what it holds, and
+ * each item's split by stock key, from the same stock as Items and Visual Flow.
+ */
+export function useWarehouseStock(): { warehouses: Warehouses; rows: WarehouseStock[]; entries: StockEntry[]; splitOf: (key: string) => { id: string; qty: number }[] } {
+  const events = useShopHistory();
+  return useMemo(() => {
+    const stock = stockFromEvents(SEED_INVENTORY, events);
+    const answers = answersFromEvents(events);
+    const values = new Map(valuationOf(stock, answers).items.map((v) => [v.id, v]));
+    const preps = new Map(stock.preps.map((p) => [p.key, p]));
+    const entries: StockEntry[] = [
+      ...stock.rows.filter((r) => !r.archived).map((r): StockEntry => ({
+        key: `stock:${r.id}`, kind: 'raw', name: r.name, total: r.counted ? r.onHandBaseUnits : null, unit: r.baseUnit, unitCents: values.get(`stock:${r.id}`)?.unitCents ?? null,
+      })),
+      ...prepItems(answers).map((p): StockEntry => {
+        const s = preps.get(p.key);
+        return { key: `semi:${p.key}`, kind: 'semi', name: p.name, total: s?.tracked ? s.onHand : null, unit: s?.tracked ? s.unit : p.unit, unitCents: values.get(`semi:${p.key}`)?.unitCents ?? null };
+      }),
+    ];
+    const totals = new Map(entries.map((e) => [e.key, e.total]));
+    const splitOf = (key: string) => { const t = totals.get(key); return t === null || t === undefined ? [] : shownSplit(stock.warehouses, stock.places, key, t); };
+    return { warehouses: stock.warehouses, rows: byWarehouse(stock.warehouses, stock.places, entries), entries, splitOf };
+  }, [events]);
+}
+
+const now = () => Date.now();
+
+/** The owner adds a warehouse; returns what is wrong in plain words, or the Undo (it is archived again). */
+export const addWarehouse = (w: Warehouses, name: string, owner: Actor): string | (() => void) => {
+  const why = checkWarehouseName(name) ?? nameTaken(w, name, null);
+  if (why) return why;
+  const warehouseId = `wh-${newLineId()}`;
+  const after = { name: name.trim(), archived: false };
+  appendEvent({ type: 'stock.warehouse_set', at: now(), orderNumber: 0, actor: owner, warehouseId, before: null, after });
+  return () => { appendEvent({ type: 'stock.warehouse_set', at: now(), orderNumber: 0, actor: owner, warehouseId, before: after, after: { ...after, archived: true } }); };
+};
+
+const nameTaken = (w: Warehouses, name: string, id: string | null): string | null =>
+  w.list.some((x) => x.id !== id && !x.archived && x.name.trim().toLowerCase() === name.trim().toLowerCase()) ? 'Another warehouse has that name.' : null;
+
+/** The owner renames, archives or restores one; returns what is wrong, or the Undo. */
+export const editWarehouse = (w: Warehouses, warehouseId: string, change: { name?: string; archived?: boolean }, owner: Actor): string | (() => void) => {
+  const was = w.list.find((x) => x.id === warehouseId);
+  if (!was) return 'That warehouse is not here.';
+  const after = { name: (change.name ?? was.name).trim(), archived: change.archived ?? was.archived };
+  const why = checkWarehouseName(after.name) ?? (after.archived ? null : nameTaken(w, after.name, warehouseId));
+  if (why) return why;
+  if (after.archived && w.kitchenSide === warehouseId) return 'This one is next to the kitchen. Pick another one for the kitchen first.';
+  const before = { name: was.name, archived: was.archived };
+  appendEvent({ type: 'stock.warehouse_set', at: now(), orderNumber: 0, actor: owner, warehouseId, before, after });
+  return () => { appendEvent({ type: 'stock.warehouse_set', at: now(), orderNumber: 0, actor: owner, warehouseId, before: after, after: before }); };
+};
+
+/** The warehouse next to the kitchen, which sales take from first. Returns the Undo. */
+export const setKitchenSide = (w: Warehouses, warehouseId: string, owner: Actor): (() => void) => {
+  const before = w.kitchenSide;
+  appendEvent({ type: 'stock.kitchen_side_set', at: now(), orderNumber: 0, actor: owner, before, after: warehouseId });
+  return () => { appendEvent({ type: 'stock.kitchen_side_set', at: now(), orderNumber: 0, actor: owner, before: warehouseId, after: before }); };
+};
+
+/** An item's home warehouse, by stock key (`stock:<id>`, `semi:<key>`); managers and the owner. Returns the Undo. */
+export const setHome = (w: Warehouses, stockKey: string, warehouseId: string, actor: Actor = currentCashier()): (() => void) => {
+  const before = w.homes.get(stockKey) ?? null;
+  appendEvent({ type: 'stock.home_set', at: now(), orderNumber: 0, actor, stockKey, before, after: warehouseId });
+  return () => { appendEvent({ type: 'stock.home_set', at: now(), orderNumber: 0, actor, stockKey, before: warehouseId, after: before }); };
+};
+
+/** Stock carried between warehouses (the total stays); returns what is wrong, or the Undo. */
+export const moveStock = (w: Warehouses, stockKey: string, from: string, to: string, qty: number, actor: Actor = currentCashier()): string | (() => void) => {
+  const why = checkMove(w, stockKey, from, to, qty);
+  if (why) return why;
+  const e = appendEvent({ type: 'stock.moved', at: now(), orderNumber: 0, actor, stockKey, from, to, qty });
+  return () => { appendEvent({ type: 'stock.move_undone', at: now(), orderNumber: 0, actor, moveId: e.id }); };
 };
 
 /** Open purchase orders, delivery times and the next numbers, from the whole history. */

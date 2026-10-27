@@ -104,3 +104,21 @@ test('Stock (4): each card shows what it holds in money, the dish what stands be
   expect(panel().getAllByText('Rs 12,800').length).toBeGreaterThan(0);
   expect(panel().getByRole('link', { name: 'History' }).getAttribute('href')).toBe('#items/item/inv-0001');
 });
+
+test('Warehouse view: each ingredient says where it is kept; picking one shows its split and sets its home (SCRUM-184)', async () => {
+  const user = userEvent.setup();
+  adjustStock('inv-0001', 2); // in Warehouse 1, its home
+  render(<Root />);
+  await screen.findByRole('main', { name: 'Visual Flow' });
+  await user.keyboard('5');
+  expect(screen.getByRole('button', { name: 'Warehouse' }).getAttribute('aria-pressed')).toBe('true');
+  const flour = (await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 })).closest('.vf-node')!;
+  expect(flour.querySelector('.vf-node__value')?.textContent).toBe('Warehouse 1');
+  expect(flour.querySelector('.vf-place')?.getAttribute('aria-label')).toBe('Warehouse 1 50 kg');
+  fireEvent.click(flour);
+  const key = within(screen.getByRole('complementary', { name: 'Warehouses' }));
+  expect(key.getByText('Warehouse 1 50 kg')).toBeTruthy();
+  await user.click(within(key.getByRole('group', { name: 'Where Pizza Flour is kept' })).getByRole('button', { name: 'Warehouse 2' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.home_set', stockKey: 'stock:inv-0001', after: 'wh-2' });
+  expect(flour.querySelector('.vf-node__value')?.textContent).toBe('Warehouse 2');
+});

@@ -8,7 +8,8 @@ import {
   compareDelivery, expectedBy, grnValueCents, settleGrn, undoCheck, UNDO_REASONS, type GrnDecisions, type PurchaseGrn, type PurchaseOrder, type PurchaseState,
 } from '../domain/purchaseOrders.ts';
 import type { StockSettings } from '../domain/stockSettings.ts';
-import { receiveGoods, undoGrn, type InventoryRow } from '../services/inventoryStore.ts';
+import { receiveGoods, undoGrn, useWarehouses, type InventoryRow } from '../services/inventoryStore.ts';
+import { activeWarehouses, homeOf } from '../domain/warehouses.ts';
 import { ChoiceCard } from './flow/ChoiceCard.tsx';
 import { DoneStep } from './flow/DoneStep.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
@@ -126,6 +127,19 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   const [undoing, setUndoing] = useState<{ grn: PurchaseGrn; manager: Actor | null } | null>(null);
   /** The GRN open as a document in history. */
   const [viewing, setViewing] = useState<string | null>(null);
+  /** Where each line goes (SCRUM-184), by item; missing: the item's home. */
+  const [into, setInto] = useState<Record<string, string>>({});
+  const warehouses = useWarehouses();
+  const openWarehouses = activeWarehouses(warehouses);
+  const goesTo = (itemId: string) => {
+    const picked = into[itemId];
+    if (picked && openWarehouses.some((x) => x.id === picked)) return picked;
+    const home = homeOf(warehouses, `stock:${itemId}`);
+    return openWarehouses.some((x) => x.id === home) ? home : openWarehouses[0]?.id ?? home;
+  };
+  const warehouseName = (id: string) => warehouses.list.find((x) => x.id === id)?.name ?? id;
+  /** The next open warehouse after this one: one tap changes where a line goes. */
+  const nextWarehouse = (id: string) => openWarehouses[(openWarehouses.findIndex((x) => x.id === id) + 1) % openWarehouses.length]?.id ?? id;
 
   const supplierName = (id: string) => suppliers.find((s) => s.id === id)?.name ?? 'Supplier';
   const order: PurchaseOrder | null = open.find((o) => o.id === orderId) ?? null;
@@ -161,7 +175,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
       if (n === null) { setError(`Type the amount of ${l.row.name} as a number, like 2 or 1.5.`); return null; }
       const unitPriceCents = priceFor(l);
       if (unitPriceCents === null) { setError(`Type the delivered price for ${l.row.name} in rupees, like 6400 or 6400.50.`); return null; }
-      out.push({ itemId: l.row.id, ordered: l.expected, received: round(toPacks(n, l.unit, l.row.packQty)), unitPriceCents });
+      out.push({ itemId: l.row.id, ordered: l.expected, received: round(toPacks(n, l.unit, l.row.packQty)), unitPriceCents, warehouseId: goesTo(l.row.id) });
     }
     return out;
   };
@@ -216,8 +230,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   };
 
   /** Back to the list of deliveries, fresh. */
-  const toList = () => { setOrderId(null); setStep('pick'); setTicked(new Set()); setAmounts({}); setPriceAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); setNote(''); };
-  const pick = (id: string) => { setOrderId(id); setStep('check'); setTicked(new Set()); setAmounts({}); setPriceAmounts({}); setError(''); setSaved(null); };
+  const toList = () => { setOrderId(null); setStep('pick'); setTicked(new Set()); setAmounts({}); setPriceAmounts({}); setInto({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); setNote(''); };
+  const pick = (id: string) => { setOrderId(id); setStep('check'); setTicked(new Set()); setAmounts({}); setPriceAmounts({}); setInto({}); setError(''); setSaved(null); };
 
   const finish = (approvedBy: Actor | null) => {
     const got = received();
@@ -330,7 +344,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           extra={!shown.undone && undoCheck(purchases, shown.id, Date.now(), settings.grnUndoHours) === null
             ? <button type="button" className="linkbtn flow__back" aria-label={`Undo ${shown.grnNo}`} onClick={() => startUndo(shown)}>Undo</button> : undefined}>
           <RejectionNotices />
-          <GrnDocument grn={shown} supplier={supplier} itemName={itemName} unitOf={unitOf} />
+          <GrnDocument grn={shown} supplier={supplier} itemName={itemName} unitOf={unitOf} warehouseName={warehouseName} />
         </FlowSheet>
         {pins}
       </>
@@ -408,6 +422,15 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
             : { label: check.needsApproval ? 'Manager approves' : 'Save GRN', onClick: toApproval, disabled: lines.length === 0 }}>
           <RejectionNotices />
           <p className="flow-hint num">{done} of {lines.length} checked</p>
+          {openWarehouses.length > 1 && (
+            <div className="chips chips--tight grn-into" role="group" aria-label="Put all in">
+              <span className="grn-into__label">Put all in</span>
+              {openWarehouses.map((w) => (
+                <button key={w.id} type="button" className="chip" aria-pressed={lines.length > 0 && lines.every((l) => goesTo(l.row.id) === w.id)}
+                  onClick={() => setInto(Object.fromEntries(lines.map((l) => [l.row.id, w.id])))}>{w.name}</button>
+              ))}
+            </div>
+          )}
           <table className="bill grn-bill grn-check" aria-label="Delivery bill">
             <thead>
               <tr>
@@ -428,6 +451,12 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
                     </td>
                     <td>
                       <span className="bill__name">{l.row.name}</span>
+                      {openWarehouses.length > 1 && (
+                        <button type="button" className="grn-wh" aria-label={`${l.row.name} goes to ${warehouseName(goesTo(l.row.id))}. Change`}
+                          onClick={() => setInto({ ...into, [l.row.id]: nextWarehouse(goesTo(l.row.id)) })}>
+                          → {warehouseName(goesTo(l.row.id))}
+                        </button>
+                      )}
                       <span className="bill__sub num">{l.orderPriceCents === undefined ? 'Order price not recorded' : <>Ordered at <span className="nowrap">Rs {fmt(unitPrice(l.orderPriceCents, l.unit, l.row.packQty))} / {unitName(l.unit)}</span></>}</span>
                     </td>
                     {/* Its own column, so a row keeps its height when it is ticked. */}

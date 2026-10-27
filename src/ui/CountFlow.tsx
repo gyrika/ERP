@@ -5,7 +5,7 @@ import {
 import { formatQuantity } from '../domain/quantity.ts';
 import { fmt } from '../domain/money.ts';
 import { MAX_NOTE } from '../domain/gapReview.ts';
-import { learnUnit, recordCount, useStockSettings, type InventoryRow } from '../services/inventoryStore.ts';
+import { learnUnit, recordCount, useStockSettings, useWarehouseStock, type InventoryRow } from '../services/inventoryStore.ts';
 import { isManagerPhone } from '../services/pairing.ts';
 import { keepPhoto, newPhotoId, shrinkPhoto } from '../services/photos.ts';
 import { NumberInput } from './NumberInput.tsx';
@@ -108,6 +108,12 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   const [other, setOther] = useState<string | null>(null);
   const settings = useStockSettings();
   const [error, setError] = useState('');
+  // Kept in more than one warehouse (SCRUM-184): one of them can be counted on its own.
+  const { warehouses, splitOf } = useWarehouseStock();
+  const split = row.counted ? splitOf(`stock:${row.id}`) : [];
+  const [where, setWhere] = useState<string | null>(null);
+  const expected = where ? split.find((x) => x.id === where)?.qty ?? 0 : row.onHandBaseUnits;
+  const counting = where ? { warehouseId: where, expected } : null;
 
   const packUnitInfo = units.find((u) => u.id === packUnit)!;
   const entries = (): CountEntry[] | null => {
@@ -128,16 +134,16 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
     event.preventDefault();
     if (!typed || !touched) return setError('Type what is on the shelf. Nothing there? Type 0 packs.');
     const counted = total!;
-    const gap = gapOf(row.onHandBaseUnits, counted, row, settings);
+    const gap = gapOf(expected, counted, row, settings);
     if (row.counted && gap.big) { setWhy({ counted, entries: typed }); return; }
-    onSaved(gap.valueCents, false, recordCount(row, typed, counted, null, due.tier));
+    onSaved(gap.valueCents, false, recordCount(row, typed, counted, null, due.tier, null, null, counting));
   };
 
   const saveWith = (reason: GapReason, photo: string | null = null, note: string | null = null) => {
-    const gap = gapOf(row.onHandBaseUnits, why!.counted, row, settings);
+    const gap = gapOf(expected, why!.counted, row, settings);
     let photoId: string | null = null;
     if (photo) { photoId = newPhotoId(); keepPhoto(photoId, photo); }
-    onSaved(gap.valueCents, true, recordCount(row, why!.entries, why!.counted, reason, due.tier, photoId, note));
+    onSaved(gap.valueCents, true, recordCount(row, why!.entries, why!.counted, reason, due.tier, photoId, note, counting));
   };
   const choose = (reason: GapReason, note: string | null = null) => (photoRequired ? setProof({ reason, note, photo: null, busy: false }) : saveWith(reason, null, note));
 
@@ -173,7 +179,7 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   );
 
   if (why && proof) {
-    const gap = gapOf(row.onHandBaseUnits, why.counted, row, settings);
+    const gap = gapOf(expected, why.counted, row, settings);
     return (
       <div className="count__why">
         {head}
@@ -198,14 +204,14 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   }
 
   if (why) {
-    const gap = gapOf(row.onHandBaseUnits, why.counted, row, settings);
+    const gap = gapOf(expected, why.counted, row, settings);
     return (
       <div className="count__why">
         {head}
         <p className={`count__gap count__gap--${gap.delta < 0 ? 'short' : 'over'} num`}>
           {formatQuantity(Math.abs(gap.delta), row.baseUnit)} {gap.delta < 0 ? 'short' : 'more than expected'} · Rs {fmt(Math.abs(gap.valueCents))}
         </p>
-        <p className="count__hint">You counted {formatQuantity(why.counted, row.baseUnit)}; sales and deliveries say {formatQuantity(Math.max(0, row.onHandBaseUnits), row.baseUnit)}. Why?</p>
+        <p className="count__hint">You counted {formatQuantity(why.counted, row.baseUnit)}; sales and deliveries say {formatQuantity(Math.max(0, expected), row.baseUnit)}{where ? ` in ${warehouses.list.find((x) => x.id === where)?.name}` : ''}. Why?</p>
         {other === null ? (
           <div className="chips" role="group" aria-label="Why">
             {reasonsFor(gap.delta).map((r) => (
@@ -232,6 +238,20 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   return (
     <form className="count__item" onSubmit={next} aria-label={`Count ${row.name}`}>
       {head}
+
+      {split.length > 1 && (
+        <div className="count__row">
+          <span className="count__label">Counting</span>
+          <div className="chips" role="group" aria-label="Which warehouse">
+            <button type="button" className="chip" aria-pressed={where === null} onClick={() => { setWhere(null); setError(''); }}>All warehouses</button>
+            {split.map((x) => (
+              <button key={x.id} type="button" className="chip" aria-pressed={where === x.id} onClick={() => { setWhere(x.id); setError(''); }}>
+                {warehouses.list.find((w) => w.id === x.id)?.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="count__row">
         <label className="count__field">

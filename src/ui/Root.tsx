@@ -20,6 +20,7 @@ import { ShopsView } from './ShopsView.tsx';
 import { ReceiptPreview } from './ReceiptPreview.tsx';
 import { RecipesView } from './RecipesView.tsx';
 import { SemiView } from './SemiView.tsx';
+import { WarehousesView } from './WarehousesView.tsx';
 import { SetupWizard } from './SetupWizard.tsx';
 import { SupplierView } from './SupplierView.tsx';
 import { OrderView, ReceiveView } from './WorkViews.tsx';
@@ -236,6 +237,8 @@ export function Root() {
   // the dish (#items/recipe/<id>), all of them (#items/recipe, or the old #recipes), and what the kitchen makes.
   // Semi-processed items are items, not recipes: no PIN; the owner changes them.
   if (hash === '#items/semi' && mayManageStock) return <SemiView onRegister={() => go('')} />;
+  // Where the raw and semi-processed items are kept (SCRUM-184); the owner edits the warehouses with his PIN.
+  if (hash === '#items/warehouses' && mayManageStock) return <WarehousesView onRegister={() => go('')} />;
   if ((hash === '#items/recipe' || hash === '#recipes') && isOwnerHere) return <RecipesView onRegister={() => go('')} />;
   if (hash.startsWith('#items/recipe/') && isOwnerHere) {
     return <RecipesView key={hash} focus={decodeURIComponent(hash.slice('#items/recipe/'.length))} onRegister={() => go('')} />;
