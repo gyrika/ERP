@@ -9,6 +9,7 @@ import { learnUnit, recordCount, useStockSettings, useWarehouseStock, type Inven
 import { isManagerPhone } from '../services/pairing.ts';
 import { keepPhoto, newPhotoId, shrinkPhoto } from '../services/photos.ts';
 import { NumberInput } from './NumberInput.tsx';
+import { activeWarehouses, homeOf, placedIn, roundsByWarehouse } from '../domain/warehouses.ts';
 
 /**
  * Count day (SCRUM-89). Serves the manager in front of the shelf: one item per
@@ -26,15 +27,30 @@ const TIER_LABEL: Record<Tier, string> = { daily: 'Daily', weekly: 'Weekly', mon
 const number = (raw: string): number | null => (/^\d+(\.\d{1,3})?$/.test(raw.trim()) ? Number(raw.trim()) : null);
 
 interface Done { name: string; gapCents: number; big: boolean; undo: () => void; index: number }
+type Round = { id: string; name: string; items: DueCount[] };
 
+/**
+ * Counting goes warehouse by warehouse (SCRUM-186): the manager says which one they are standing
+ * in and counts only what is kept there; then the next. Asked only when the items to count live
+ * in more than one warehouse. An item kept in two is counted in each.
+ */
 export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone() }: {
   due: DueCount[]; rows: InventoryRow[]; onClose: () => void;
   /** A big gap needs a shelf photo (the manager's phone). */
   photoRequired?: boolean;
 }) {
+  const { warehouses, places } = useWarehouseStock();
+  // Fixed when counting starts, so the list never shifts while it is being counted.
+  const [rounds] = useState<Round[]>(() => roundsByWarehouse(warehouses, places, due.map((d) => {
+    const row = rows.find((r) => r.id === d.id);
+    return { ...d, key: `stock:${d.id}`, total: row?.counted ? row.onHandBaseUnits : null };
+  })));
+  const [where, setWhere] = useState<string | null>(() => (rounds.length === 1 ? rounds[0].id : null));
   const [index, setIndex] = useState(0);
   const [last, setLast] = useState<Done | null>(null);
   const [results, setResults] = useState<{ big: boolean; cents: number }[]>([]);
+  /** What was counted where in this round ("wh-1:inv-0001"), so the next warehouse offers only what is left. */
+  const [counted, setCounted] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -42,9 +58,14 @@ export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone()
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const current = due[index];
+  const round = rounds.find((r) => r.id === where) ?? null;
+  const list = round ? round.items : due;
+  const current = list[index];
   const row = current && rows.find((r) => r.id === current.id);
   const short = results.filter((r) => r.cents < 0).reduce((s, r) => s + r.cents, 0);
+  const left = (r: Round) => r.items.filter((i) => !counted.has(`${r.id}:${i.id}`)).length;
+  const others = rounds.filter((r) => r.id !== where && left(r) > 0);
+  const start = (id: string) => { setWhere(id); setIndex(0); setLast(null); };
 
   return (
     <div className="inv-modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -55,28 +76,54 @@ export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone()
             {last.name}: {last.big ? `gap of Rs ${fmt(Math.abs(last.gapCents))} saved` : 'matches'}.
             <button type="button" className="linkbtn" onClick={() => {
               last.undo(); setResults(results.slice(0, -1)); setIndex(last.index); setLast(null);
+              if (where) setCounted((c) => { const n = new Set(c); n.delete(`${where}:${list[last.index]?.id}`); return n; });
             }}>Undo</button>
           </p>
         )}
-        {row ? (
+        {rounds.length > 1 && where === null ? (
+          <div className="count__where">
+            <h2>Which warehouse are you in?</h2>
+            <p className="count__hint">Count what is on the shelves there; then the next one.</p>
+            <div className="count__rooms" role="group" aria-label="Which warehouse">
+              {rounds.map((r) => (
+                <button key={r.id} type="button" className="flow-card count__room" onClick={() => start(r.id)}>
+                  <span className="flow-card__name">{r.name}</span>
+                  <span className="flow-card__line num">{r.items.length} to count</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : row ? (
           <CountItem
-            key={`${row.id}-${index}`} row={row} due={current} position={`${index + 1} of ${due.length}`} photoRequired={photoRequired}
+            key={`${where}-${row.id}-${index}`} row={row} due={current} position={`${index + 1} of ${list.length}`} photoRequired={photoRequired}
+            warehouseId={where ?? undefined}
             onSaved={(gapCents, big, undo) => {
               setResults([...results, { big, cents: gapCents }]);
               setLast({ name: row.name, gapCents, big, undo, index });
+              if (where) setCounted((c) => new Set(c).add(`${where}:${row.id}`));
               setIndex(index + 1);
             }}
             onSkip={() => { setLast(null); setIndex(index + 1); }}
           />
         ) : (
           <div className="count__done">
-            <h2>All counted</h2>
+            <h2>{round && rounds.length > 1 ? `${round.name} counted` : 'All counted'}</h2>
             <p>
               {results.length} {results.length === 1 ? 'item' : 'items'} counted
               {results.some((r) => r.big) ? `, ${results.filter((r) => r.big).length} with a gap` : ', no gaps'}
               {short < 0 ? ` · Rs ${fmt(-short)} short in all` : ''}.
             </p>
-            <button type="button" className="insight__action" autoFocus onClick={onClose}>Close</button>
+            {others.length > 0 && (
+              <div className="count__rooms" role="group" aria-label="Count the next warehouse">
+                {others.map((r) => (
+                  <button key={r.id} type="button" className="flow-card count__room" onClick={() => start(r.id)}>
+                    <span className="flow-card__name">Count {r.name}</span>
+                    <span className="flow-card__line num">{left(r)} to count</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button type="button" className={others.length ? 'linkbtn' : 'insight__action'} autoFocus={!others.length} onClick={onClose}>{others.length ? 'Stop for now' : 'Close'}</button>
           </div>
         )}
       </section>
@@ -88,10 +135,12 @@ export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone()
  * One item's count. Also used inside the item's own sheet (SCRUM-97: `embedded`, no
  * header of its own and no Skip), so counting one item never leaves that item.
  */
-export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, embedded = false }: {
+export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, embedded = false, warehouseId }: {
   row: InventoryRow; due: DueCount; position: string; photoRequired: boolean;
   onSaved: (gapCents: number, big: boolean, undo: () => void) => void; onSkip?: () => void;
   embedded?: boolean;
+  /** The warehouse being counted (a count round); without it the item's own sheet asks, its home first. */
+  warehouseId?: string;
 }) {
   const units = unitsOf(row);
   const loose = units.filter((u) => !u.id.startsWith('unit:') && u.id !== 'pack');
@@ -108,12 +157,15 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   const [other, setOther] = useState<string | null>(null);
   const settings = useStockSettings();
   const [error, setError] = useState('');
-  // Kept in more than one warehouse (SCRUM-184): one of them can be counted on its own.
-  const { warehouses, splitOf } = useWarehouseStock();
-  const split = row.counted ? splitOf(`stock:${row.id}`) : [];
-  const [where, setWhere] = useState<string | null>(null);
-  const expected = where ? split.find((x) => x.id === where)?.qty ?? 0 : row.onHandBaseUnits;
-  const counting = where ? { warehouseId: where, expected } : null;
+  // Every count is of one warehouse (SCRUM-186): what is on that shelf, compared with what is placed there.
+  const { warehouses, places } = useWarehouseStock();
+  const key = `stock:${row.id}`;
+  const [picked, setPicked] = useState(() => homeOf(warehouses, key));
+  const where = warehouseId ?? picked;
+  const whereName = warehouses.list.find((x) => x.id === where)?.name ?? '';
+  const expected = placedIn(warehouses, places, key, row.onHandBaseUnits, where);
+  const counting = { warehouseId: where, expected };
+  const pickable = activeWarehouses(warehouses);
 
   const packUnitInfo = units.find((u) => u.id === packUnit)!;
   const entries = (): CountEntry[] | null => {
@@ -173,7 +225,7 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
 
   const head = embedded ? null : (
     <header className="count__head">
-      <span className="count__pos num">{position} · {TIER_LABEL[due.tier]}{due.state === 'overdue' ? ' · overdue' : due.state === 'never' ? ' · first count' : ''}</span>
+      <span className="count__pos num">{position} · {TIER_LABEL[due.tier]}{due.state === 'overdue' ? ' · overdue' : due.state === 'never' ? ' · first count' : ''}{warehouseId ? ` · in ${whereName}` : ''}</span>
       <h2 className="count__name">{row.name}</h2>
     </header>
   );
@@ -211,7 +263,7 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
         <p className={`count__gap count__gap--${gap.delta < 0 ? 'short' : 'over'} num`}>
           {formatQuantity(Math.abs(gap.delta), row.baseUnit)} {gap.delta < 0 ? 'short' : 'more than expected'} · Rs {fmt(Math.abs(gap.valueCents))}
         </p>
-        <p className="count__hint">You counted {formatQuantity(why.counted, row.baseUnit)}; sales and deliveries say {formatQuantity(Math.max(0, expected), row.baseUnit)}{where ? ` in ${warehouses.list.find((x) => x.id === where)?.name}` : ''}. Why?</p>
+        <p className="count__hint">You counted {formatQuantity(why.counted, row.baseUnit)}; sales and deliveries say {formatQuantity(Math.max(0, expected), row.baseUnit)} in {whereName}. Why?</p>
         {other === null ? (
           <div className="chips" role="group" aria-label="Why">
             {reasonsFor(gap.delta).map((r) => (
@@ -239,15 +291,12 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
     <form className="count__item" onSubmit={next} aria-label={`Count ${row.name}`}>
       {head}
 
-      {split.length > 1 && (
+      {warehouseId === undefined && pickable.length > 1 && (
         <div className="count__row">
-          <span className="count__label">Counting</span>
+          <span className="count__label">Counting in</span>
           <div className="chips" role="group" aria-label="Which warehouse">
-            <button type="button" className="chip" aria-pressed={where === null} onClick={() => { setWhere(null); setError(''); }}>All warehouses</button>
-            {split.map((x) => (
-              <button key={x.id} type="button" className="chip" aria-pressed={where === x.id} onClick={() => { setWhere(x.id); setError(''); }}>
-                {warehouses.list.find((w) => w.id === x.id)?.name}
-              </button>
+            {pickable.map((x) => (
+              <button key={x.id} type="button" className="chip" aria-pressed={where === x.id} onClick={() => { setPicked(x.id); setError(''); }}>{x.name}</button>
             ))}
           </div>
         </div>

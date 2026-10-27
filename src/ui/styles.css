@@ -1835,6 +1835,16 @@ button.glance__card:disabled { cursor: default; }
 .grn-wh:hover { background: var(--chip); color: var(--ink); }
 .wh__more { margin-left: 12px; }
 
+/* Count by warehouse (SCRUM-186): which room the manager is standing in, then the next. */
+.count__where { display: flex; flex-direction: column; gap: 12px; }
+.count__where h2 { margin: 0; }
+.count__rooms { display: flex; flex-direction: column; gap: 8px; }
+.count__room { flex-direction: column; align-items: flex-start; gap: 2px; cursor: pointer; }
+.count__room:hover { background: var(--line); }
+.wh-homes { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.wh-homes__row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-height: 64px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.wh-homes__name { display: flex; align-items: baseline; gap: 8px; font-weight: 500; }
+.wh-homes__said { margin: 0; }
 /* Order › Items › + Add an item (SCRUM-185): find any other item, or add a new one, without leaving the order. */
 .order-add { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .order-add__said { margin: 0; }

@@ -5,7 +5,7 @@ import { prepAmount } from '../domain/prep.ts';
 import { formatQuantity } from '../domain/quantity.ts';
 import type { BaseUnit } from '../domain/inventoryData.ts';
 import { activeWarehouses, checkWarehouseName, homeOf, type PlacedItem, type StockEntry, type Warehouses } from '../domain/warehouses.ts';
-import { addWarehouse, editWarehouse, moveStock, setHome, setKitchenSide, useWarehouseStock } from '../services/inventoryStore.ts';
+import { addWarehouse, editWarehouse, moveStock, setHome, setKitchenSide, useWarehouses, useWarehouseStock } from '../services/inventoryStore.ts';
 import { FlowSheet } from './flow/FlowSheet.tsx';
 import { ItemsTabs } from './ItemsTabs.tsx';
 import { NumberInput } from './NumberInput.tsx';
@@ -37,6 +37,7 @@ export function WarehousesView({ onRegister }: { onRegister?: () => void }) {
   const [only, setOnly] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [homing, setHoming] = useState(false);
   const [done, setDone] = useState<Done | null>(null);
   /** Warehouses showing the items kept there with none in them (folded away at first). */
   const [unfolded, setUnfolded] = useState<Set<string>>(() => new Set());
@@ -49,6 +50,7 @@ export function WarehousesView({ onRegister }: { onRegister?: () => void }) {
       <div className="inv-page__head">
         <h1 className="supplier-heading">Items</h1>
         <div className="inv-page__actions">
+          <button type="button" className="inv-page__secondary" onClick={() => setHoming(true)}>Set homes</button>
           <button type="button" className="inv-page__secondary" onClick={() => setEditing(true)}>Edit warehouses</button>
         </div>
       </div>
@@ -107,6 +109,7 @@ export function WarehousesView({ onRegister }: { onRegister?: () => void }) {
       </main>
       {entry && <PlaceSheet key={entry.key} entry={entry} warehouses={warehouses} split={splitOf(entry.key)} onClose={() => setOpen(null)} onDone={setDone} />}
       {editing && <EditWarehouses warehouses={warehouses} onClose={() => setEditing(false)} onDone={setDone} />}
+      {homing && <SetHomes warehouses={warehouses} entries={entries} onClose={() => setHoming(false)} onDone={setDone} />}
     </div>
   );
 }
@@ -276,5 +279,78 @@ function EditWarehouses({ warehouses, onClose, onDone }: { warehouses: Warehouse
         </section>
       )}
     </FlowSheet>
+  );
+}
+
+/**
+ * Set homes (SCRUM-186): every raw and semi-processed item on one list with a chip per warehouse,
+ * one tap each, for setting the shop up with the owner. Each tap is saved at once (managers and the
+ * owner); Undo takes back the last one.
+ */
+function SetHomes({ warehouses, entries, onClose, onDone }: { warehouses: Warehouses; entries: StockEntry[]; onClose: () => void; onDone: (d: Done) => void }) {
+  const [query, setQuery] = useState('');
+  const [kind, setKind] = useState<'all' | 'raw' | 'semi'>('all');
+  const [said, setSaid] = useState<Done | null>(null);
+  const open = activeWarehouses(warehouses);
+  const q = query.trim().toLowerCase();
+  const shown = entries.filter((e) => (kind === 'all' || e.kind === kind) && (!q || e.name.toLowerCase().includes(q)));
+  const set = (e: StockEntry, id: string) => {
+    if (homeOf(warehouses, e.key) === id) return;
+    const name = warehouses.list.find((x) => x.id === id)?.name ?? '';
+    const d = { message: `${e.name}: kept in ${name}.`, undo: setHome(warehouses, e.key, id) };
+    setSaid(d);
+    onDone(d);
+  };
+  return (
+    <FlowSheet title="Set homes" onClose={onClose} primary={{ label: 'Done', onClick: onClose }}>
+      <p className="flow-hint">Where each item is kept. Deliveries and batches go there, and it is counted there.</p>
+      {said && (
+        <p className="inv-notice wh-homes__said" role="status">
+          {said.message}
+          <button type="button" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
+        </p>
+      )}
+      <input className="inv-modal__input" type="search" value={query} placeholder="Find an item" aria-label="Find an item"
+        name="set-homes-search" autoComplete="off" spellCheck={false} onChange={(e) => setQuery(e.target.value)} />
+      <div className="chips chips--tight" role="group" aria-label="Show">
+        {([['all', 'All'], ['raw', 'Raw materials'], ['semi', 'Semi-processed']] as const).map(([id, label]) => (
+          <button key={id} type="button" className="chip" aria-pressed={kind === id} onClick={() => setKind(id)}>{label}</button>
+        ))}
+      </div>
+      <ul className="wh-homes" aria-label="Items">
+        {shown.map((e) => {
+          const home = homeOf(warehouses, e.key);
+          return (
+            <li key={e.key} className="wh-homes__row">
+              <span className="wh-homes__name">{e.name}{e.kind === 'semi' && <span className="wh-item__kind">Semi</span>}</span>
+              <div className="chips chips--tight" role="group" aria-label={`Where ${e.name} is kept`}>
+                {open.map((x) => (
+                  <button key={x.id} type="button" className="chip" aria-pressed={x.id === home} onClick={() => set(e, x.id)}>{x.name}</button>
+                ))}
+              </div>
+            </li>
+          );
+        })}
+        {shown.length === 0 && <li className="inv-empty">No items match.</li>}
+      </ul>
+    </FlowSheet>
+  );
+}
+
+/** The home's name, for a row ("Warehouse 2"); `warehouses` read once for the whole list. */
+export const homeName = (warehouses: Warehouses, stockKey: string): string =>
+  warehouses.list.find((x) => x.id === homeOf(warehouses, stockKey))?.name ?? '';
+
+/** An item's home on its own sheet (SCRUM-186): a chip per warehouse, one tap with Undo. */
+export function HomeChips({ stockKey, name, onDone }: { stockKey: string; name: string; onDone: (message: string, undo: () => void) => void }) {
+  const warehouses = useWarehouses();
+  const home = homeOf(warehouses, stockKey);
+  return (
+    <div className="chips chips--tight" role="group" aria-label={`Where ${name} is kept`}>
+      {activeWarehouses(warehouses).map((x) => (
+        <button key={x.id} type="button" className="chip" aria-pressed={x.id === home}
+          onClick={() => { if (x.id !== home) onDone(`${name}: kept in ${x.name}.`, setHome(warehouses, stockKey, x.id)); }}>{x.name}</button>
+      ))}
+    </div>
   );
 }

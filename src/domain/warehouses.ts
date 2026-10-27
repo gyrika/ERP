@@ -262,3 +262,26 @@ export const byWarehouse = (w: Warehouses, places: ReadonlyMap<string, Split>, e
     })
     .filter((x) => !x.archived || x.items.some((i) => (i.qty ?? 0) > 0));
 };
+
+/**
+ * What a count of one warehouse is compared with (SCRUM-186): exactly what the stock fold has
+ * placed there, below zero too, so counting every warehouse makes the total exactly what was
+ * counted (an item's first count included). The screens show `shownSplit`; counts use this.
+ */
+export const placedIn = (w: Warehouses, places: ReadonlyMap<string, Split>, key: string, total: number, warehouseId: string): number =>
+  splitFor(w, places, key, total).find((x) => x.id === warehouseId)?.qty ?? 0;
+
+/** The warehouses an item lives in: its home, and wherever some of it is. */
+export const livesIn = (w: Warehouses, places: ReadonlyMap<string, Split>, key: string, total: number | null): string[] => {
+  const ids = new Set([homeOf(w, key), ...(total === null ? [] : shownSplit(w, places, key, total).map((x) => x.id))]);
+  return w.list.filter((x) => ids.has(x.id)).map((x) => x.id);
+};
+
+/**
+ * A count round by warehouse (SCRUM-186): the items to count in each, in the list's order, so the
+ * manager counts the room they are standing in. An item kept in two warehouses is in both.
+ */
+export const roundsByWarehouse = <T extends { key: string; total: number | null }>(w: Warehouses, places: ReadonlyMap<string, Split>, items: readonly T[]): { id: string; name: string; items: T[] }[] =>
+  w.list
+    .map((x) => ({ id: x.id, name: x.name, items: items.filter((i) => livesIn(w, places, i.key, i.total).includes(x.id)) }))
+    .filter((r) => r.items.length > 0);

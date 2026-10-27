@@ -5,6 +5,7 @@ import {
   archiveInventoryItem,
   restoreInventoryItem,
   useInventory,
+  useWarehouseStock,
   usePurchases,
   type StockStatus,
 } from '../services/inventoryStore.ts';
@@ -22,6 +23,8 @@ import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, receiveUnitOf, tiersOf, unitName } from '../domain/counting.ts';
 import { fmt } from '../domain/money.ts';
 import { rawValue } from '../domain/valuation.ts';
+import { homeName } from './WarehousesView.tsx';
+import { activeWarehouses, livesIn } from '../domain/warehouses.ts';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
@@ -64,10 +67,13 @@ export function InventoryView({
   const [sheetTab, setSheetTab] = useState<SheetTab>(openId ? 'history' : 'details');
   /** What the list shows: everything, or only what needs a look. */
   const [filter, setFilter] = useState<'all' | 'low' | 'out' | 'order'>('all');
+  /** One warehouse on top of it (SCRUM-187); null: every warehouse. */
+  const [room, setRoom] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo?: () => void; href?: string } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
+  const { warehouses, places } = useWarehouseStock();
   const purchases = usePurchases();
   const coming = useMemo(() => {
     const packs = onOrder(purchases.open);
@@ -91,18 +97,20 @@ export function InventoryView({
   const openItem = (id: string) => { setUpdating(id); setSheetTab('order'); setArchived(null); setError(''); };
   const supplierNames = useMemo(() => new Map(suppliers.map((supplier) => [supplier.id, supplier.name])), [suppliers]);
   const FILTERS = [['all', 'All'], ['low', 'Low'], ['out', 'Out'], ['order', 'On order']] as const;
-  const matches = (item: (typeof items)[number], which: typeof filter) =>
-    which === 'all' || (which === 'order' ? coming.packs.has(item.id) : stockStatus(item) === which);
+  const rooms = activeWarehouses(warehouses);
+  const matches = (item: (typeof items)[number]) =>
+    (room === null || livesIn(warehouses, places, `stock:${item.id}`, item.counted ? item.onHandBaseUnits : null).includes(room))
+    && (filter === 'all' || (filter === 'order' ? coming.packs.has(item.id) : stockStatus(item) === filter));
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     const byText = !q ? items : items.filter((item) => [item.name, item.category, ...item.supplierIds.map((id) => supplierNames.get(id) ?? '')]
       .some((text) => text.toLowerCase().includes(q)));
-    const found = byText.filter((item) => matches(item, filter));
+    const found = byText.filter((item) => matches(item));
     if (!lowFirst) return found;
     const rank = (item: (typeof items)[number]) => ({ out: 0, low: 1 } as Record<string, number>)[stockStatus(item)] ?? 2;
     return [...found].sort((a, b) => rank(a) - rank(b)); // stable: the usual order within each
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, query, supplierNames, filter, coming, lowFirst]);
+  }, [items, query, supplierNames, filter, room, coming, lowFirst, warehouses, places]);
   const updatingItem = items.find((item) => item.id === updating) ?? null;
   // Today's count: what the money says to count, and since when.
   const tiers = useMemo(() => tiersOf(items), [items]);
@@ -186,6 +194,13 @@ export function InventoryView({
           <button key={id} type="button" className="chip" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>
         ))}
       </div>
+      {rooms.length > 1 && (
+        <div className="chips chips--tight inv-filters" role="group" aria-label="Warehouse">
+          {rooms.map((w) => (
+            <button key={w.id} type="button" className="chip" aria-pressed={room === w.id} onClick={() => setRoom(room === w.id ? null : w.id)}>{w.name}</button>
+          ))}
+        </div>
+      )}
 
       <main className="inv-rows" aria-label="Inventory">
         {shown.length === 0 && <p className="inv-empty">{query.trim() ? `No ingredients match “${query.trim()}”.` : 'Nothing here. Everything is fine, or choose All.'}</p>}
@@ -216,6 +231,7 @@ export function InventoryView({
                    ))}
                  </span>
                  <span className="inv-row__counted"> · {item.lastCountedAt === null ? 'never counted' : `counted ${daysAgo(item.lastCountedAt, now)}`}</span>
+                 <span className="inv-row__home" aria-label={`Kept in ${homeName(warehouses, `stock:${item.id}`)}`}> · {homeName(warehouses, `stock:${item.id}`)}</span>
                  </div>
                </div>
                <div className="inv-row__quantity" aria-label="Available stock and pack size">

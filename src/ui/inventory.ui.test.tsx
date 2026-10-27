@@ -612,24 +612,34 @@ test('the shop server refused a GRN: it stops counting, the order is waiting aga
   expect(screen.getByRole('region', { name: /PO-0001$/ })).toBeTruthy(); // the order is waiting again
 });
 
-test('filter chips: All, Low, Out, On order show only what needs a look', async () => {
+test('filter chips: All, Low, Out, On order show only what needs a look; one warehouse on top (SCRUM-187)', async () => {
   const user = userEvent.setup();
   sellPizzas(500);
   render(<InventoryView />);
   act(() => shelfPacks(1)); // flour: low
   const names = () => within(screen.getByRole('main', { name: 'Inventory' })).queryAllByRole('heading').map((h) => h.textContent);
   const chips = within(screen.getByRole('group', { name: 'Show' }));
+  const rooms = within(screen.getByRole('group', { name: 'Warehouse' }));
   expect(chips.getAllByRole('button').map((b) => b.textContent)).toEqual(['All', 'Low', 'Out', 'On order']);
+  expect(rooms.getAllByRole('button').map((b) => b.textContent)).toEqual(['Warehouse 1', 'Warehouse 2', 'Warehouse 3']);
   expect(chips.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('true');
   expect(names().length).toBe(SEED_INVENTORY.length);
 
   await user.click(chips.getByRole('button', { name: 'Low' }));
   expect(names()).toEqual(['Pizza Flour']);
-  await user.click(chips.getByRole('button', { name: 'Out' }));
+  await user.click(chips.getByRole('button', { name: 'Out' })); // one at a time: Out instead of Low
+  expect(chips.getByRole('button', { name: 'Low' }).getAttribute('aria-pressed')).toBe('false');
   expect(names()).toEqual([]);
   expect(screen.getByText('Nothing here. Everything is fine, or choose All.')).toBeTruthy();
   act(() => shelfPacks(0));
   expect(names()).toEqual(['Pizza Flour']);
+  // One warehouse on top: Out in Warehouse 2 is nothing; in Warehouse 1 (its home) it is the flour.
+  await user.click(rooms.getByRole('button', { name: 'Warehouse 2' }));
+  expect(names()).toEqual([]);
+  await user.click(rooms.getByRole('button', { name: 'Warehouse 1' })); // one at a time
+  expect(rooms.getByRole('button', { name: 'Warehouse 2' }).getAttribute('aria-pressed')).toBe('false');
+  expect(names()).toEqual(['Pizza Flour']);
+  await user.click(rooms.getByRole('button', { name: 'Warehouse 1' })); // off again: every warehouse
   await user.click(chips.getByRole('button', { name: 'On order' }));
   expect(names()).toEqual([]);
   orderFlour(2);

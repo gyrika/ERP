@@ -24,7 +24,7 @@ import { OwnerNav } from '../OwnerNav.tsx';
 import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
 import { EDGE_TYPES, NODE_TYPES, nodeShare, stockAmount, type CanvasView, type Place, type VfEdge, type VfNode, type Worth } from './FlowParts.tsx';
-import { activeWarehouses, homeOf, shownSplit, type Warehouses } from '../../domain/warehouses.ts';
+import { activeWarehouses, homeOf, livesIn, shownSplit, type Warehouses } from '../../domain/warehouses.ts';
 import { setHome } from '../../services/inventoryStore.ts';
 import { valuationOf } from '../../domain/valuation.ts';
 import './visualFlow.css';
@@ -62,7 +62,10 @@ const VIEWS: { id: CanvasView; label: string }[] = [
   { id: 'stock', label: 'Stock' },
   { id: 'warehouse', label: 'Warehouse' },
 ];
-/** What the drawing picks out; the rest is drawn faintly, so the flow stays whole. */
+/**
+ * What the drawing picks out; the rest is drawn faintly, so the flow stays whole. One filter at
+ * a time, and on top of it one warehouse at a time (SCRUM-187): "Low" in "Warehouse 2".
+ */
 type Filter = 'all' | 'attention' | 'out' | 'raw' | 'semi' | 'finished';
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -88,6 +91,8 @@ function Studio({ owner }: { owner: Actor }) {
   const purchases = usePurchases();
   const { suppliers } = useCatalog();
   const [filter, setFilter] = useState<Filter>('all');
+  /** One warehouse, on top of the filter; null: every warehouse. */
+  const [room, setRoom] = useState<string | null>(null);
   /** The last Send to kitchen, typed out on that card's panel. */
   const [sent, setSent] = useState<{ id: string; text: string; at: number } | null>(null);
   /** The raw material whose order step is open on its panel. */
@@ -171,11 +176,13 @@ function Studio({ owner }: { owner: Actor }) {
   }, [graph.nodes, stocks, stock.warehouses, stock.places]);
   const matches = useCallback((id: string, kind: string) => {
     const st = stocks.get(id);
+    // In a warehouse: its home is there, or some of it is (a dish or a resource is in none).
+    if (room && !((kind === 'raw' || kind === 'semi') && livesIn(stock.warehouses, stock.places, id, st?.known ? st.onHand : null).includes(room))) return false;
     if (filter === 'all') return true;
     if (filter === 'attention') return !!st && needsAttention(st);
     if (filter === 'out') return st?.status === 'out';
     return kind === filter;
-  }, [filter, stocks]);
+  }, [filter, room, stocks, stock.warehouses, stock.places]);
   const nameOf = useCallback((id: string) => graph.nodes.find((n) => n.id === id)?.name
     ?? (id.startsWith('stock:') ? stock.rows.find((r) => `stock:${r.id}` === id)?.name : prepItems(published.answers).find((p) => `semi:${p.key}` === id)?.name)
     ?? id.slice(id.indexOf(':') + 1), [graph.nodes, stock.rows, published.answers]);
@@ -273,7 +280,8 @@ function Studio({ owner }: { owner: Actor }) {
     data: {
       node: n, view, focus: n.id === current, focusName,
       takes: !!n.recipe?.editable, onToggle: actions.toggle,
-      stock: stocks.get(n.id) ?? null, dim: !matches(n.id, n.kind), share: nodeShare(n, answers),
+      // The item in focus stays bright: what it needs is what the filter is about.
+      stock: stocks.get(n.id) ?? null, dim: n.id !== current && !matches(n.id, n.kind), share: nodeShare(n, answers),
       worth: view !== 'stock' ? undefined : n.id === current ? { cents: behind, share: 0 } : worths.get(n.id),
       place: view === 'warehouse' && n.id !== current ? places.get(n.id) : undefined,
     },
@@ -356,6 +364,13 @@ function Studio({ owner }: { owner: Actor }) {
             <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>
           ))}
         </div>
+        {activeWarehouses(stock.warehouses).length > 1 && (
+          <div className="chips chips--tight vf-filter" role="group" aria-label="Warehouse">
+            {activeWarehouses(stock.warehouses).map((w) => (
+              <button key={w.id} type="button" className="chip" aria-pressed={room === w.id} onClick={() => setRoom(room === w.id ? null : w.id)}>{w.name}</button>
+            ))}
+          </div>
+        )}
         <div className="vf-publish">
           {plan.length > 0 && (
             <>
