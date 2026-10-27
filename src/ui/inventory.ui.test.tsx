@@ -1393,3 +1393,36 @@ test('a GRN line goes into the item\'s home warehouse; one tap or "Put all in" c
   const saved = readAll().find((e) => e.type === 'stock.grn');
   expect(saved).toMatchObject({ lines: [{ itemId: 'inv-0001', warehouseId: 'wh-3' }] });
 });
+
+test('ordering from a supplier, any other item can be added: it is linked to the supplier and 1 pack goes in the cart; Undo takes both back (SCRUM-185)', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  openSupplier('sup_prima');
+  const list = within(screen.getByRole('region', { name: 'Items from Prima / David Stores (Wholesale)' }));
+  expect(list.queryByRole('textbox', { name: 'Packs of Sugar' })).toBeNull(); // Best Buy's, not Prima's
+  await user.click(list.getByRole('button', { name: '+ Add an item' }));
+  await user.type(list.getByRole('searchbox', { name: /^Find an item to order from Prima/ }), 'sug');
+  await user.click(within(list.getByRole('list', { name: 'Items to add' })).getByRole('button', { name: /^Sugar/ }));
+  expect(lastEvent()).toMatchObject({ type: 'stock.supplier_edited', supplierId: 'sup_prima', linked: ['inv-0003'], unlinked: [] });
+  expect(list.getByRole('textbox', { name: 'Packs of Sugar' })).toHaveProperty('value', '1');
+  expect(drafts().get('sup_prima')).toEqual({ 'inv-0003': 1 });
+  expect(inventoryStore.readItems().find((i) => i.id === 'inv-0003')?.supplierIds).toEqual(['sup_bestbuy', 'sup_prima']);
+
+  await user.click(within(list.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(lastEvent()).toMatchObject({ type: 'stock.supplier_edited', supplierId: 'sup_prima', linked: [], unlinked: ['inv-0003'] });
+  expect(list.queryByRole('textbox', { name: 'Packs of Sugar' })).toBeNull();
+  expect(drafts().has('sup_prima')).toBe(false);
+});
+
+test('ordering from a supplier, a new ingredient is added already sold by that supplier (SCRUM-185)', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  openSupplier('sup_prima');
+  const list = within(screen.getByRole('region', { name: 'Items from Prima / David Stores (Wholesale)' }));
+  await user.click(list.getByRole('button', { name: '+ Add an item' }));
+  await user.type(list.getByRole('searchbox', { name: /^Find an item to order from Prima/ }), 'Sea Salt');
+  await user.click(list.getByRole('button', { name: /^\+ New ingredient “Sea Salt”/ }));
+  const modal = within(screen.getByRole('dialog', { name: 'Add Ingredient' }));
+  expect(modal.getByRole('textbox', { name: 'Ingredient name' })).toHaveProperty('value', 'Sea Salt');
+  expect(modal.getByText('Prima / David Stores (Wholesale)')).toBeTruthy(); // chosen already
+});
