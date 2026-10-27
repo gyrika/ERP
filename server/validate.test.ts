@@ -326,3 +326,20 @@ test('a kitchen Remake is a waste with its ticket and line; a bad ticket id is r
   assert.ok('reason' in validatePush({ deviceId: 'device-1', events: [{ ...remake, ticketId: 42 }] }, 'shop-1'));
   assert.ok('reason' in validatePush({ deviceId: 'device-1', events: [{ ...undo, ticketId: '' }] }, 'shop-1'));
 });
+
+test('warehouse records (SCRUM-184) pass with their fields and nothing loose', () => {
+  const ok = (e: object) => 'events' in validatePush({ deviceId: 'd', events: [{ ...base, ...e }] }, 'shop-1');
+  assert.ok(ok({ type: 'stock.warehouse_set', warehouseId: 'wh-x1', before: null, after: { name: 'Freezer', archived: false } }));
+  assert.ok(!ok({ type: 'stock.warehouse_set', warehouseId: 'wh-x1', before: null, after: { name: ' ', archived: false } }));
+  assert.ok(!ok({ type: 'stock.warehouse_set', warehouseId: 'x1', before: null, after: { name: 'Freezer', archived: false } }));
+  assert.ok(!ok({ type: 'stock.warehouse_set', warehouseId: 'wh-x1', before: null, after: { name: 'Freezer', archived: false, extra: 1 } }));
+  assert.ok(ok({ type: 'stock.kitchen_side_set', before: 'wh-1', after: 'wh-2' }));
+  assert.ok(ok({ type: 'stock.home_set', stockKey: 'semi:kitchen:k1', before: null, after: 'wh-2' }));
+  assert.ok(!ok({ type: 'stock.home_set', stockKey: 'flour', before: null, after: 'wh-2' }));
+  assert.ok(ok({ type: 'stock.moved', stockKey: 'stock:inv-0001', from: 'wh-1', to: 'wh-2', qty: 500 }));
+  assert.ok(!ok({ type: 'stock.moved', stockKey: 'stock:inv-0001', from: 'wh-1', to: 'wh-1', qty: 500 }));
+  assert.ok(!ok({ type: 'stock.moved', stockKey: 'stock:inv-0001', from: 'wh-1', to: 'wh-2', qty: 0 }));
+  assert.ok(ok({ type: 'stock.move_undone', moveId: 'm1' }));
+  assert.ok(!ok({ type: 'stock.grn', orderId: 'p', supplierId: 's', approvedBy: null, lines: [{ itemId: 'i', ordered: 1, received: 1, accepted: 1, warehouseId: 7 }] }));
+  assert.ok(ok({ type: 'stock.grn', orderId: 'p', supplierId: 's', approvedBy: null, lines: [{ itemId: 'i', ordered: 1, received: 1, accepted: 1, warehouseId: 'wh-2' }] }));
+});

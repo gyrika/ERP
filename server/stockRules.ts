@@ -3,6 +3,7 @@ import { gapOf } from '../src/domain/counting.ts';
 import { SEED_INVENTORY } from '../src/domain/inventoryData.ts';
 import { grnProblem, purchasesFromEvents, settleGrn, undoCheck, type PurchaseState } from '../src/domain/purchaseOrders.ts';
 import { stockSettingsFromEvents, type StockSettings } from '../src/domain/stockSettings.ts';
+import { warehousesFromEvents, type Warehouses } from '../src/domain/warehouses.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
 import type { Device, EventStore, StaffMember } from './store.ts';
 
@@ -17,6 +18,8 @@ const RELEVANT = new Set<string>([
   'stock.grn', 'stock.grn_undone', 'stock.counted', 'stock.settings_set',
   // What a count is checked against: has the item been counted before, and what is it worth.
   'stock.adjusted', 'stock.movement', 'stock.item_added', 'stock.price_set',
+  // Warehouses (SCRUM-184): stock only goes to one that exists, and a new one has a new id.
+  'stock.warehouse_set', 'stock.kitchen_side_set', 'stock.home_set', 'stock.moved',
 ]);
 
 /** What the server knows of an item for a count: its pack and price, and whether stock was ever recorded for it. */
@@ -35,7 +38,12 @@ export const stockFacts = (log: readonly SyncEvent[]): Map<string, StockFacts> =
   return facts;
 };
 
-interface Context { state: PurchaseState; settings: StockSettings; staff: readonly StaffMember[]; now: number; items: ReadonlyMap<string, StockFacts> }
+interface Context { state: PurchaseState; settings: StockSettings; staff: readonly StaffMember[]; now: number; items: ReadonlyMap<string, StockFacts>; warehouses: Warehouses }
+
+const NO_WAREHOUSE = 'That warehouse is not here, or it is archived. Refresh and pick another.';
+/** Stock may only go into a warehouse the shop has and has not archived. */
+const openWarehouse = (w: Warehouses, id: string | undefined | null): boolean =>
+  id === undefined || id === null || w.list.some((x) => x.id === id && !x.archived);
 
 const orderPriceProblem = (lines: readonly { itemId: string; unitPriceCents?: number }[]): string | null => {
   if (new Set(lines.map((l) => l.itemId)).size !== lines.length) return 'A purchase order lists an item twice. Place it again.';
@@ -55,8 +63,22 @@ const approverProblem = (by: Actor | null | undefined, staff: readonly StaffMemb
 };
 
 /** Why this record is not allowed now, or null. */
-export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now, items }: Context): string | null => {
+export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now, items, warehouses }: Context): string | null => {
   switch (e.type) {
+    case 'stock.warehouse_set': {
+      const was = warehouses.list.find((x) => x.id === e.warehouseId);
+      if (e.before === null && was) return 'A warehouse with that id is already here. Add it again.';
+      if (e.before !== null && !was) return 'That warehouse is not here. Refresh and try again.';
+      if (e.after.archived && warehouses.kitchenSide === e.warehouseId) return 'This warehouse is next to the kitchen. Pick another one for the kitchen first.';
+      const name = e.after.name.trim().toLowerCase();
+      return warehouses.list.some((x) => x.id !== e.warehouseId && !x.archived && x.name.trim().toLowerCase() === name) ? 'Another warehouse has that name.' : null;
+    }
+    case 'stock.kitchen_side_set':
+      return openWarehouse(warehouses, e.after) ? null : NO_WAREHOUSE;
+    case 'stock.home_set':
+      return openWarehouse(warehouses, e.after) ? null : NO_WAREHOUSE;
+    case 'stock.moved':
+      return warehouses.list.some((x) => x.id === e.from) && openWarehouse(warehouses, e.to) ? null : NO_WAREHOUSE;
     case 'stock.ordered':
       return orderPriceProblem(e.lines);
     case 'stock.order_edited': {
@@ -82,6 +104,7 @@ export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now, it
       const decisions = { short: e.shortDecision ?? null, over: e.overDecision ?? null };
       const why = grnProblem(o, e.lines, decisions, e.approvedBy);
       if (why) return why;
+      if (!e.lines.every((l) => openWarehouse(warehouses, l.warehouseId))) return NO_WAREHOUSE;
       if (e.approvedBy) { const bad = approverProblem(e.approvedBy, staff); if (bad) return bad; }
       // The stock a GRN puts in is worked out here, never taken on the device's word.
       const settled = settleGrn(e.lines, decisions.over);
@@ -104,6 +127,7 @@ export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now, it
       // A gap beyond the owner's allowance must say why: the device is not trusted to have asked. As on the
       // count screen, an item's first count (its opening stock) needs no reason; a shelf below zero still does.
       // Its value is worked out here from the stored price, never taken on the device's word.
+      if (!(e.warehouseId === undefined || warehouses.list.some((x) => x.id === e.warehouseId))) return NO_WAREHOUSE;
       const item = items.get(e.itemId);
       if (e.reason !== null || !item?.counted) return null;
       const priced = item.packQty !== null && item.packQty > 0 && item.workingPriceCents !== null;
@@ -152,7 +176,7 @@ export function createStockRules(store: EventStore, now: () => number) {
         const known = new Set(log.map((e) => e.id));
         for (const e of events) {
           if (!RELEVANT.has(e.type) || known.has(e.id)) { allowed.push(e); continue; } // not ours to check, or sent before
-          const why = stockRuleProblem(e, { state: purchasesFromEvents(log, stockSettingsFromEvents(log)), settings: stockSettingsFromEvents(log), staff, now: now(), items: stockFacts(log) });
+          const why = stockRuleProblem(e, { state: purchasesFromEvents(log, stockSettingsFromEvents(log)), settings: stockSettingsFromEvents(log), staff, now: now(), items: stockFacts(log), warehouses: warehousesFromEvents(log) });
           if (why) { rejected.push({ id: e.id, reason: why }); continue; }
           allowed.push(e);
           log.push(e);

@@ -48,9 +48,11 @@ const MANAGER_EVENTS = new Set([
 /**
  * Stock decisions that are the owner's alone: which items are counted when (SCRUM-90),
  * checking a count's gap (SCRUM-95; answering is a manager's), what receiving is counted in (SCRUM-96), the stock rules' numbers,
- * and an item's "Order when below" (SCRUM-135).
+ * an item's "Order when below" (SCRUM-135), and the warehouses (SCRUM-184).
  */
-export const OWNER_STOCK: ReadonlySet<string> = new Set(['stock.tier_set', 'stock.gap_reviewed', 'stock.receive_unit_set', 'stock.settings_set', 'stock.limit_set']);
+export const OWNER_STOCK: ReadonlySet<string> = new Set(['stock.tier_set', 'stock.gap_reviewed', 'stock.receive_unit_set', 'stock.settings_set', 'stock.limit_set',
+  // The warehouses themselves and which is next to the kitchen (SCRUM-184); homes and moves are a manager's.
+  'stock.warehouse_set', 'stock.kitchen_side_set']);
 
 /** What the cameras see (SCRUM-167): only the camera worker records it, and it records nothing else. */
 export const VISION_RECORDS: ReadonlySet<string> = new Set([

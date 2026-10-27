@@ -24,6 +24,8 @@ How stock, ordering and receiving work. Inventory is **managers and owners only*
 
 7. **Production** (SCRUM-161, `src/domain/production.ts`): *Send to kitchen* on Items › Semi-processed or Visual Flow sends first what the item is made from and is not there (whole batches, every level), and the item waits ("Waiting for Culture") until the shop server sees its inputs on hand and releases it to the kitchen. A batch in the kitchen holds its inputs (*held for the kitchen*). When a counted raw item is short for a waiting batch, Items shows *Kitchen waits for X more* and *+ Cart* orders it; the batch goes once a GRN puts the stock in. Finished dishes show *Can make N* from what is on hand.
 
+8. **Warehouses** (SCRUM-184, `src/domain/warehouses.ts`): the shop starts with *Warehouse 1/2/3* (placeholders the owner renames); the owner adds, renames and archives them and picks the one **next to the kitchen** on *Items › Warehouses › Edit warehouses* (his PIN, one Save, one Undo). Every raw and semi-processed item has a **home** (Warehouse 1 until set). What comes in goes to a warehouse: a GRN line where its chip says (the item's home by default; *Put all in…* sets every line), a batch made into its home. What goes out (sales, a batch's inputs, waste) is taken automatically: next to the kitchen first, then the item's home, then the rest, so the counter never picks a warehouse and the split is close, not exact. **Move** (from → to, amount, Undo) carries stock between warehouses without changing the total; a count can be of one warehouse when an item is kept in more than one. Stock recorded before warehouses is in Warehouse 1. *Items › Warehouses* lists each warehouse with what it holds and its value (every item also shows in its home); Visual Flow's **Warehouse** view puts each card's home and split on the drawing.
+
 ## Rules that hold everywhere
 
 - Stock is the sum of movements (`GRN`, `GRN_UNDO`, `COUNT_ADJUST`, and sales worked out from orders). A GRN is one record that carries its own stock movement; nothing edits a stock figure.
@@ -45,5 +47,6 @@ How stock, ordering and receiving work. Inventory is **managers and owners only*
 | Stock from records | `src/domain/inventory.ts` |
 | One ledger, production planning, release | `src/domain/production.ts`, `src/domain/itemStock.ts`, `src/domain/scheduler.ts`, `server/scheduler.ts` |
 | Counts and reasons | `src/domain/counting.ts`, `src/domain/gapReview.ts` |
+| Warehouses, homes, moves, where stock is | `src/domain/warehouses.ts`, `src/ui/WarehousesView.tsx` |
 | Server rules | `server/stockRules.ts`, `server/validate.ts` |
 | Writing records | `src/services/inventoryStore.ts` |

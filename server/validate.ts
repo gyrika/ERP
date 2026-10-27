@@ -9,6 +9,7 @@ import { isGapReason } from '../src/domain/counting.ts';
 import { checkWaste } from '../src/domain/waste.ts';
 import { checkMiss, SHORTHAND_EVENT_TYPES } from '../src/domain/shorthandMisses.ts';
 import { checkPrepLimit, checkPrepOrder } from '../src/domain/prep.ts';
+import { checkWarehouseName, isStockKey, isWarehouseId } from '../src/domain/warehouses.ts';
 import { checkTableEvent, TABLE_EVENT_TYPES, VISION_EVENT_TYPES } from '../src/domain/tables.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import type { MenuItem } from '../src/domain/types.ts';
@@ -138,7 +139,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !(e.reason === null || isGapReason(e.reason)) || !Number.isSafeInteger(e.valueCents) ||
         !['daily', 'weekly', 'monthly'].includes(String(e.tier)) ||
         !(e.photo === undefined || e.photo === null || isPhotoId(e.photo)) ||
-        !(e.note === undefined || shortString(e.note, 200)) || (e.reason === 'other' && !(typeof e.note === 'string' && e.note.trim()))
+        !(e.note === undefined || shortString(e.note, 200)) || (e.reason === 'other' && !(typeof e.note === 'string' && e.note.trim())) ||
+        !(e.warehouseId === undefined || isWarehouseId(e.warehouseId))
       ) return { reason: `event ${e.id} has an invalid count` };
     }
     if (e.type === 'stock.wasted' && (checkWaste(e.what, e.qty, e.reason, e.note, e.name) !== null
@@ -180,7 +182,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       const lines = e.lines;
       if (
         (e.grnNo !== undefined && !shortString(e.grnNo, 20)) || !shortString(e.orderId) || !shortString(e.supplierId) || !Array.isArray(lines) || lines.length > 200 ||
-        !lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received) && (l.accepted === undefined || packs(l.accepted)) && (l.returned === undefined || packs(l.returned))) ||
+        !lines.every((l) => isObj(l) && shortString(l.itemId) && packs(l.ordered) && packs(l.received) && (l.accepted === undefined || packs(l.accepted)) && (l.returned === undefined || packs(l.returned))
+          && (l.warehouseId === undefined || isWarehouseId(l.warehouseId))) ||
         !(by === null || (isObj(by) && shortString(by.id) && shortString(by.name, 80) && (by.role === 'manager' || by.role === 'owner'))) ||
         !(e.shortDecision === undefined || e.shortDecision === 'wait' || e.shortDecision === 'close') ||
         !(e.overDecision === undefined || e.overDecision === 'accept' || e.overDecision === 'return') ||
@@ -211,6 +214,18 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         return { reason: `event ${e.id} undoes a GRN without a manager or a reason` };
       }
     }
+    // Warehouses (SCRUM-184): the shape here; whether a warehouse exists is checked against the log (stockRules.ts).
+    const info = (v: unknown) => isObj(v) && checkWarehouseName(v.name) === null && typeof v.archived === 'boolean' && Object.keys(v).length === 2;
+    if (e.type === 'stock.warehouse_set' && (!isWarehouseId(e.warehouseId) || !(e.before === null || info(e.before)) || !info(e.after))) {
+      return { reason: `event ${e.id} has an invalid warehouse` };
+    }
+    if (e.type === 'stock.kitchen_side_set' && (!isWarehouseId(e.before) || !isWarehouseId(e.after))) return { reason: `event ${e.id} has an invalid warehouse` };
+    if (e.type === 'stock.home_set' && (!isStockKey(e.stockKey) || !(e.before === null || isWarehouseId(e.before)) || !(e.after === null || isWarehouseId(e.after)))) {
+      return { reason: `event ${e.id} has an invalid home warehouse` };
+    }
+    if (e.type === 'stock.moved' && (!isStockKey(e.stockKey) || !isWarehouseId(e.from) || !isWarehouseId(e.to) || e.from === e.to ||
+      typeof e.qty !== 'number' || !Number.isFinite(e.qty) || e.qty <= 0 || e.qty > 1e9)) return { reason: `event ${e.id} has an invalid move` };
+    if (e.type === 'stock.move_undone' && !shortString(e.moveId)) return { reason: `event ${e.id} has an invalid move id` };
     if (e.type === 'stock.limit_set' && (!shortString(e.itemId) || !(e.packs === null || (packs(e.packs) && (e.packs as number) > 0)))) {
       return { reason: `event ${e.id} has an invalid order-when-below` };
     }

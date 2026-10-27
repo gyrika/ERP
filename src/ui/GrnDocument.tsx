@@ -13,10 +13,12 @@ const when = (at: number) => new Date(at).toLocaleString('en-GB', { day: 'numeri
  * (printGrn). Quantities and prices in what each item is received in (packs, kg), money in
  * rupees from integer cents. The approver is kept on the record, never shown.
  */
-export function GrnDocument({ grn, supplier, itemName, unitOf }: {
+export function GrnDocument({ grn, supplier, itemName, unitOf, warehouseName }: {
   grn: PurchaseGrn;
   supplier: string;
   itemName: (id: string) => string;
+  /** The warehouse a line went into (SCRUM-184), when it says. */
+  warehouseName?: (id: string) => string;
   /** What an item is received in; null: shown in packs. */
   unitOf: (id: string) => { unit: CountUnit; packQty: number } | null;
 }) {
@@ -58,7 +60,7 @@ export function GrnDocument({ grn, supplier, itemName, unitOf }: {
             const qty = (packs: number) => formatInUnit(packs, u.unit, u.packQty);
             return (
               <tr key={l.itemId}>
-                <td>{itemName(l.itemId)}</td>
+                <td>{itemName(l.itemId)}{l.warehouseId && warehouseName && <> <span className="bill__sub">Into {warehouseName(l.warehouseId)}</span></>}</td>
                 <td className="bill__num num">{qty(l.ordered)}</td>
                 <td className="bill__num num">{qty(l.received)}</td>
                 {returned && <td className="bill__num num">{qty(l.returned ?? 0)}</td>}

@@ -23,7 +23,9 @@ import { useMenu } from '../menuStore.ts';
 import { OwnerNav } from '../OwnerNav.tsx';
 import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
-import { EDGE_TYPES, NODE_TYPES, nodeShare, type CanvasView, type VfEdge, type VfNode, type Worth } from './FlowParts.tsx';
+import { EDGE_TYPES, NODE_TYPES, nodeShare, stockAmount, type CanvasView, type Place, type VfEdge, type VfNode, type Worth } from './FlowParts.tsx';
+import { activeWarehouses, homeOf, shownSplit, type Warehouses } from '../../domain/warehouses.ts';
+import { setHome } from '../../services/inventoryStore.ts';
 import { valuationOf } from '../../domain/valuation.ts';
 import './visualFlow.css';
 
@@ -58,6 +60,7 @@ const VIEWS: { id: CanvasView; label: string }[] = [
   { id: 'cost', label: 'Cost' },
   { id: 'financial', label: 'Financial' },
   { id: 'stock', label: 'Stock' },
+  { id: 'warehouse', label: 'Warehouse' },
 ];
 /** What the drawing picks out; the rest is drawn faintly, so the flow stays whole. */
 type Filter = 'all' | 'attention' | 'out' | 'raw' | 'semi' | 'finished';
@@ -95,8 +98,8 @@ function Studio({ owner }: { owner: Actor }) {
   const options = useMemo(() => focusOptions(menu, answers), [menu, answers]);
   const [focus, setFocusState] = useState(() => focusFromHash() ?? DEFAULT_FOCUS);
   const [view, setView] = useState<CanvasView>('material');
-  // Stock is drawn on the Material drawing: how much goes in, and what each card holds in money.
-  const drawn: FlowView = view === 'stock' ? 'material' : view;
+  // Stock and Warehouse are drawn on the Material drawing: how much goes in, and what each card holds and where.
+  const drawn: FlowView = view === 'stock' || view === 'warehouse' ? 'material' : view;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [sel, setSel] = useState<Selection>(null);
   const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>({});
@@ -151,6 +154,21 @@ function Studio({ owner }: { owner: Actor }) {
     }
     return { worths: m, behind: known.length ? total : null };
   }, [valuation, graph.nodes, current]);
+  // ----- warehouses (SCRUM-184): each ingredient's home and where its stock is -----
+  const places = useMemo(() => {
+    const w = stock.warehouses;
+    const index = (id: string) => Math.max(0, w.list.findIndex((x) => x.id === id));
+    const nameOf = (id: string) => w.list.find((x) => x.id === id)?.name ?? id;
+    const m = new Map<string, Place>();
+    for (const n of graph.nodes) {
+      if (n.kind !== 'raw' && n.kind !== 'semi') continue;
+      const st = stocks.get(n.id);
+      const home = homeOf(w, n.id);
+      const split = st?.known ? shownSplit(w, stock.places, n.id, st.onHand).map((x) => ({ ...x, name: nameOf(x.id), index: index(x.id) })) : [];
+      m.set(n.id, { home: nameOf(home), homeIndex: index(home), split });
+    }
+    return m;
+  }, [graph.nodes, stocks, stock.warehouses, stock.places]);
   const matches = useCallback((id: string, kind: string) => {
     const st = stocks.get(id);
     if (filter === 'all') return true;
@@ -257,8 +275,9 @@ function Studio({ owner }: { owner: Actor }) {
       takes: !!n.recipe?.editable, onToggle: actions.toggle,
       stock: stocks.get(n.id) ?? null, dim: !matches(n.id, n.kind), share: nodeShare(n, answers),
       worth: view !== 'stock' ? undefined : n.id === current ? { cents: behind, share: 0 } : worths.get(n.id),
+      place: view === 'warehouse' && n.id !== current ? places.get(n.id) : undefined,
     },
-  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind]);
+  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind, places]);
   const edges: VfEdge[] = useMemo(() => graph.edges.map((e) => ({
     id: e.id, source: e.source, target: e.target, type: 'vf', selected: sel?.kind === 'edge' && sel.id === e.id,
     deletable: e.kind !== 'money',
@@ -367,6 +386,10 @@ function Studio({ owner }: { owner: Actor }) {
             <Background gap={24} size={1} />
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
+          {view === 'warehouse' && (
+            <WarehouseOverlay warehouses={stock.warehouses} selected={sel?.kind === 'node' ? sel.id : null} place={sel?.kind === 'node' ? places.get(sel.id) : undefined}
+              stock={sel?.kind === 'node' ? stocks.get(sel.id) ?? null : null} name={sel?.kind === 'node' ? nameOf(sel.id) : ''} say={say} />
+          )}
           {graph.nodes.length <= 1 && (
             <p className="vf-empty">No recipe yet. Choose it on the right: add an ingredient, or drag one in.</p>
           )}
@@ -391,5 +414,40 @@ function Studio({ owner }: { owner: Actor }) {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * The Warehouse view's key (SCRUM-184): each warehouse's shade, and for the card picked, where it
+ * is and its home, one tap to change. Moving stock is on Items › Warehouses.
+ */
+function WarehouseOverlay({ warehouses, selected, place, stock, name, say }: {
+  warehouses: Warehouses; selected: string | null; place: Place | undefined; stock: ItemStock | null; name: string;
+  say: (text: string, undo?: () => void) => void;
+}) {
+  const home = selected ? homeOf(warehouses, selected) : null;
+  return (
+    <aside className="vf-wh" aria-label="Warehouses">
+      <ul className="wh-split__legend">
+        {warehouses.list.filter((x) => !x.archived).map((x) => (
+          <li key={x.id}><span className={`wh-dot wh-seg--${warehouses.list.indexOf(x) % 4}`} aria-hidden="true" />{x.name}{x.id === warehouses.kitchenSide ? ' · next to the kitchen' : ''}</li>
+        ))}
+      </ul>
+      {selected && place && (
+        <div className="vf-wh__item">
+          <strong>{name}</strong>
+          <span className="vf-wh__where num">
+            {place.split.length ? place.split.map((x) => `${x.name} ${stock ? stockAmount(stock, x.qty) : x.qty}`).join(' · ') : 'None in stock'}
+          </span>
+          <div className="chips chips--tight" role="group" aria-label={`Where ${name} is kept`}>
+            {activeWarehouses(warehouses).map((x) => (
+              <button key={x.id} type="button" className="chip" aria-pressed={x.id === home}
+                onClick={() => { if (x.id !== home) say(`${name}: kept in ${x.name}`, setHome(warehouses, selected, x.id)); }}>{x.name}</button>
+            ))}
+          </div>
+          <a className="linkbtn" href="#items/warehouses">Move stock</a>
+        </div>
+      )}
+    </aside>
   );
 }

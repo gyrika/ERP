@@ -1791,3 +1791,46 @@ button.glance__card:disabled { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .glance__card, .glance__task, .glance__dot--low, .glance__st--pulse .glance__st-ring { animation: none; }
 }
+
+/* Items › Warehouses (SCRUM-184): each warehouse with what it holds; neutral shades tell warehouses apart. */
+.wh-list { gap: 20px; }
+.wh { display: flex; flex-direction: column; gap: 4px; }
+.wh__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 12px; padding: 8px 12px 4px; }
+.wh__name { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.3px; }
+.wh__tag { font-size: 13px; color: var(--ink-2); padding: 2px 10px; border-radius: 980px; background: var(--chip); }
+.wh__sum { margin-left: auto; font-size: 14px; color: var(--ink-2); }
+.wh__items { list-style: none; margin: 0; padding: 0; }
+.wh-item { display: grid; grid-template-columns: minmax(0, 1fr) auto 110px; align-items: center; gap: 16px; width: 100%; min-height: 56px; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background 150ms var(--ease); }
+.wh-item:hover { background: var(--chip); }
+.wh-item--none { color: var(--ink-2); }
+.wh-item__name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-weight: 500; }
+.wh-item__kind, .wh-item__home { font-size: 13px; font-weight: 400; color: var(--ink-2); }
+.wh-item__qty { font-weight: 600; text-align: right; }
+.wh-item--none .wh-item__qty { font-weight: 400; }
+.wh-item__value { font-size: 13px; color: var(--ink-2); text-align: right; }
+.wh-split { display: flex; flex-direction: column; gap: 8px; }
+.wh-split__bar { display: flex; gap: 2px; height: 12px; border-radius: 6px; overflow: hidden; background: var(--chip); }
+.wh-split__bar > span { flex-basis: 0; min-width: 4px; }
+.wh-split__legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--ink-2); }
+.wh-split__legend .num { color: var(--ink); font-weight: 600; }
+.wh-dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 3px; }
+.wh-seg--0 { background: var(--ink); }
+.wh-seg--1 { background: var(--ink-2); }
+.wh-seg--2 { background: var(--ink-3); }
+.wh-seg--3 { background: var(--inv-card-border); }
+.wh-move { display: flex; align-items: center; gap: 12px; }
+.wh-move .numfield { flex: 1; }
+.wh-edit { flex-wrap: wrap; }
+.wh-edit__name { flex: 1 1 200px; }
+.wh-edit--archived { opacity: 0.6; }
+@media (max-width: 640px) {
+  .wh__head, .wh-item { padding-left: 0; padding-right: 0; }
+  .wh-item { grid-template-columns: minmax(0, 1fr) auto; }
+  .wh-item__value { display: none; }
+}
+/* GRN: where each line goes (SCRUM-184); one tap moves it to the next warehouse. */
+.grn-into { align-items: center; margin: 4px 0 8px; }
+.grn-into__label { font-size: 14px; color: var(--ink-2); margin-right: 4px; }
+.grn-wh { display: inline-flex; align-items: center; min-height: 48px; margin: 2px 0; padding: 0 10px; border: 1px solid var(--line); border-radius: 980px; background: transparent; color: var(--ink-2); font: inherit; font-size: 13px; cursor: pointer; }
+.grn-wh:hover { background: var(--chip); color: var(--ink); }
+.wh__more { margin-left: 12px; }

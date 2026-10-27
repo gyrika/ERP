@@ -975,7 +975,7 @@ test('GRN history: every GRN opens as its document, and Export PDF prints only t
   await user.click(screen.getByRole('button', { name: 'View GRN' })); // straight from Done
   const doc = within(screen.getByRole('article', { name: 'GRN-0001 document' }));
   expect(doc.getByText('PO-0001')).toBeTruthy();
-  expect(doc.getByRole('cell', { name: 'Pizza Flour' })).toBeTruthy();
+  expect(doc.getByRole('cell', { name: 'Pizza Flour Into Warehouse 1' })).toBeTruthy();
   expect(doc.getByLabelText('GRN-0001 final total').textContent).toBe('Rs 12,800');
   const title = document.title;
   await user.click(screen.getByRole('button', { name: 'Export PDF' }));
@@ -1377,4 +1377,19 @@ test("step 1 of Orders: the carts come first; two buttons, by item (out, then lo
   render(<InventoryView lowFirst />);
   const names = within(screen.getByRole('main', { name: 'Inventory' })).getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
   expect(names.slice(0, 2)).toEqual([oil.name, 'Pizza Flour']);
+});
+
+test('a GRN line goes into the item\'s home warehouse; one tap or "Put all in" changes it (SCRUM-184)', async () => {
+  const user = userEvent.setup();
+  orderFlour(2);
+  await openGrn(user);
+  const grn = within(screen.getByRole('region', { name: /PO-0001$/ }));
+  const chip = grn.getByRole('button', { name: 'Pizza Flour goes to Warehouse 1. Change' });
+  await user.click(chip);
+  expect(grn.getByRole('button', { name: 'Pizza Flour goes to Warehouse 2. Change' })).toBeTruthy();
+  await user.click(within(grn.getByRole('group', { name: 'Put all in' })).getByRole('button', { name: 'Warehouse 3' }));
+  await toReview(user);
+  await user.click(screen.getByRole('button', { name: 'Save GRN' }));
+  const saved = readAll().find((e) => e.type === 'stock.grn');
+  expect(saved).toMatchObject({ lines: [{ itemId: 'inv-0001', warehouseId: 'wh-3' }] });
 });

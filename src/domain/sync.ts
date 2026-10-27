@@ -8,6 +8,7 @@ import type { InventoryItem, Supplier } from './inventoryData.ts';
 import type { CountEntry, GapReason, Tier } from './counting.ts';
 import type { StockSettings } from './stockSettings.ts';
 import type { WasteReason, WasteWhat } from './waste.ts';
+import type { WarehouseInfo } from './warehouses.ts';
 
 /**
  * The sync contract between devices and the server (SCRUM-59, 60, 29, 30).
@@ -75,6 +76,8 @@ export type StockEvent =
     note?: string;
     /** The shelf photo taken as proof of a big gap (SCRUM-94), kept on the shop PC. */
     photo?: string | null;
+    /** Counted in one warehouse only (SCRUM-184): counted and expected are that warehouse's. */
+    warehouseId?: string;
   })
   /** Takes back a count (Undo on the count screen). */
   | (StockBase & { type: 'stock.count_undone'; countId: string })
@@ -123,7 +126,16 @@ export type StockEvent =
   /** ticketId: undoing a kitchen Remake (SCRUM-177), so the kitchen may record it too. */
   | (StockBase & { type: 'stock.waste_undone'; wasteId: string; ticketId?: string })
   /** The owner changes one of the stock rules' numbers (stockSettings.ts). */
-  | (StockBase & { type: 'stock.settings_set'; key: keyof StockSettings; value: number });
+  | (StockBase & { type: 'stock.settings_set'; key: keyof StockSettings; value: number })
+  /** A warehouse added (before null), renamed or archived by the owner (warehouses.ts, SCRUM-184); Undo writes it back. */
+  | (StockBase & { type: 'stock.warehouse_set'; warehouseId: string; before: WarehouseInfo | null; after: WarehouseInfo })
+  /** The warehouse next to the kitchen, which sales take from first (the owner's). */
+  | (StockBase & { type: 'stock.kitchen_side_set'; before: string; after: string })
+  /** An item's home warehouse, by stock key (`stock:<id>`, `semi:<key>`); null: the default. */
+  | (StockBase & { type: 'stock.home_set'; stockKey: string; before: string | null; after: string | null })
+  /** Stock carried from one warehouse to another; the total does not change. qty: base units, or a semi-processed item's unit. */
+  | (StockBase & { type: 'stock.moved'; stockKey: string; from: string; to: string; qty: number })
+  | (StockBase & { type: 'stock.move_undone'; moveId: string });
 
 /**
  * Semi-processed items (prep.ts, SCRUM-136). Running low, one is sent to the kitchen as a prep
@@ -162,7 +174,9 @@ export interface PoLine { itemId: string; packs: number; stockQty?: number; unit
  * unitPriceCents: delivered price per pack.
  * Older notes have no accepted: their stock was written as separate movements.
  */
-export interface GrnLine { itemId: string; ordered: number; received: number; accepted?: number; returned?: number; unitPriceCents?: Cents }
+export interface GrnLine { itemId: string; ordered: number; received: number; accepted?: number; returned?: number; unitPriceCents?: Cents;
+  /** The warehouse it went into (SCRUM-184); missing: the item's home. */
+  warehouseId?: string }
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts; shorthand misses: shorthandMisses.ts; tables and cameras: tables.ts. */
 export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent | ShorthandEvent | TableEvent | VisionEvent;
@@ -179,6 +193,7 @@ export const STOCK_EVENT_TYPES = [
   'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set', 'stock.limit_set',
   'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.draft_set', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.numbered', 'stock.settings_set',
   'stock.wasted', 'stock.waste_undone',
+  'stock.warehouse_set', 'stock.kitchen_side_set', 'stock.home_set', 'stock.moved', 'stock.move_undone',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',

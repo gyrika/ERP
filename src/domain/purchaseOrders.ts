@@ -294,6 +294,7 @@ export const settleGrn = (lines: readonly GrnLine[], overDecision: 'accept' | 'r
       itemId: l.itemId, ordered: l.ordered, received: l.received, accepted,
       returned: round3(l.received - accepted),
       ...(l.unitPriceCents === undefined ? {} : { unitPriceCents: l.unitPriceCents }),
+      ...(l.warehouseId === undefined ? {} : { warehouseId: l.warehouseId }),
     };
   });
 

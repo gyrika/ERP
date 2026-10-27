@@ -148,3 +148,11 @@
 .vf-fold[aria-expanded='false'] svg { transform: rotate(-90deg); }
 /* Stock view (SCRUM-163): a raw item's history opens on Items. */
 .vf-history { display: inline-flex; align-items: center; min-height: 44px; }
+
+/* Warehouse view (SCRUM-184): a card's home and its split; the key and the picked card float bottom-left. */
+.vf-place { display: flex; gap: 2px; height: 8px; margin-top: 8px; border-radius: 4px; overflow: hidden; background: var(--chip); }
+.vf-place > span { flex-basis: 0; min-width: 4px; }
+.vf-node__value .wh-dot { vertical-align: baseline; }
+.vf-wh { position: absolute; left: 16px; bottom: 16px; z-index: 5; display: flex; flex-direction: column; gap: 10px; max-width: min(360px, calc(100% - 96px)); padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); }
+.vf-wh__item { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.vf-wh__where { font-size: 14px; color: var(--ink-2); }

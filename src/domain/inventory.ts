@@ -10,6 +10,7 @@ import { onOrder, purchasesFromEvents } from './purchaseOrders.ts';
 import { stockSettingsFromEvents, type StockSettings } from './stockSettings.ts';
 import { ledgerOf, type Ledger } from './production.ts';
 import type { PrepOrder } from './prep.ts';
+import { placement, type Split, type Warehouses } from './warehouses.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -248,6 +249,9 @@ export interface Stock {
   ledger: Ledger;
   /** Batches in the kitchen or held for their inputs, oldest first. */
   production: PrepOrder[];
+  /** The warehouses, homes and where each item's stock is, by stock key (warehouses.ts, SCRUM-184). */
+  warehouses: Warehouses;
+  places: Map<string, Split>;
 }
 
 /** inventoryFromEvents, plus what the stock does not know about. */
@@ -264,15 +268,22 @@ export const stockFromEvents = (
   /** Prep tickets as batches; its tracked items, with their unit: a sale reaching one takes it instead of its raw items. */
   const batches = prepTracker();
   const tracked = batches.tracked;
+  /** Which warehouse each item's stock is in: what comes in goes where it says, what goes out is taken in order. */
+  const place = placement();
   const take = (usage: readonly RecipeLine[], sign: 1 | -1) => {
     for (const { inventoryId, qtyBaseUnits } of usage) {
       if (inventoryId.startsWith(PREP_STOCK)) {
-        const prep = preps.get(inventoryId.slice(PREP_STOCK.length));
-        if (prep) prep.onHand -= sign * qtyBaseUnits;
+        const key = inventoryId.slice(PREP_STOCK.length);
+        const prep = preps.get(key);
+        if (!prep) continue;
+        prep.onHand -= sign * qtyBaseUnits;
+        if (sign === 1) place.take(`semi:${key}`, qtyBaseUnits, usage); else place.giveBack(`semi:${key}`, qtyBaseUnits, usage);
         continue;
       }
       const shelf = shelves.get(inventoryId);
-      if (shelf) shelf.onHandBaseUnits -= sign * qtyBaseUnits;
+      if (!shelf) continue;
+      shelf.onHandBaseUnits -= sign * qtyBaseUnits;
+      if (sign === 1) place.take(`stock:${inventoryId}`, qtyBaseUnits, usage); else place.giveBack(`stock:${inventoryId}`, qtyBaseUnits, usage);
     }
   };
   /** What each batch (prep ticket Done) took, by ticket, for its Undo. */
@@ -310,6 +321,7 @@ export const stockFromEvents = (
   for (const e of events) {
     if (seen.has(e.id)) continue;
     seen.add(e.id);
+    place.step(e);
     // A prep ticket marked Done is a batch made: its raw items come off, the item goes up (SCRUM-136).
     const batch = batches.step(e);
     if (batch) {
@@ -321,17 +333,19 @@ export const stockFromEvents = (
         const usage = batchUsage(o.prepId, o.qty, o.unit, answers, tracked);
         take(usage, 1);
         made.set(o.ticketId, usage);
-        if (prep.batches === 0) { prep.unit = o.unit; prep.onHand = 0; }
+        if (prep.batches === 0) { prep.unit = o.unit; prep.onHand = 0; place.clear(`semi:${o.prepId}`); }
         prep.onHand += o.qty;
+        place.put(`semi:${o.prepId}`, o.qty, null, `batch:${o.ticketId}`); // into its home
         prep.batches += 1;
         prep.lastMadeAt = o.at;
       } else {
         take(made.get(o.ticketId) ?? [], -1);
         made.delete(o.ticketId);
         prep.onHand -= o.qty;
+        place.undo(`batch:${o.ticketId}`);
         prep.batches -= 1;
         // No batch standing: sales go back to the raw items, as before its first batch.
-        if (prep.batches === 0) prep.onHand = 0;
+        if (prep.batches === 0) { prep.onHand = 0; place.clear(`semi:${o.prepId}`); }
       }
     }
     switch (e.type) {
@@ -370,6 +384,7 @@ export const stockFromEvents = (
         shelf.counted = true;
         if (e.reason === 'audit') countedAt.set(e.itemId, e.at);
         shelf.onHandBaseUnits += e.deltaPacks * shelf.item.packQty;
+        place.put(`stock:${e.itemId}`, e.deltaPacks * shelf.item.packQty, null);
         break;
       }
       case 'stock.grn': {
@@ -383,6 +398,7 @@ export const stockFromEvents = (
           if (!shelf || l.accepted === undefined || !(l.accepted > 0)) continue;
           const qty = l.accepted * shelf.item.packQty;
           shelf.onHandBaseUnits += qty;
+          place.put(`stock:${l.itemId}`, qty, l.warehouseId, e.id); // where the GRN line says, else its home
           moved.push({ itemId: l.itemId, qty });
         }
         grnMoved.set(e.id, moved);
@@ -394,6 +410,7 @@ export const stockFromEvents = (
           if (shelf) shelf.onHandBaseUnits -= m.qty; // GRN_UNDO: exactly what that GRN added
         }
         grnMoved.delete(e.grnId);
+        place.undo(e.grnId);
         break;
       }
       case 'stock.movement': {
@@ -401,6 +418,7 @@ export const stockFromEvents = (
         if (!shelf) break;
         if (e.kind === 'COUNT_ADJUST') shelf.counted = true; // a delivery (GRN) is not a count, as above
         shelf.onHandBaseUnits += e.qtyBase;
+        place.put(`stock:${e.itemId}`, e.qtyBase, null);
         if (e.kind === 'COUNT_ADJUST') countedAt.set(e.itemId, e.at);
         break;
       }
@@ -411,6 +429,8 @@ export const stockFromEvents = (
         counts.set(e.id, { itemId: e.itemId, delta, previous: countedAt.get(e.itemId) });
         shelf.counted = true;
         shelf.onHandBaseUnits += delta;
+        // A count of one warehouse corrects that one; a whole count adds to its home or takes in order.
+        place.put(`stock:${e.itemId}`, delta, e.warehouseId, e.id);
         countedAt.set(e.itemId, e.at);
         break;
       }
@@ -420,6 +440,7 @@ export const stockFromEvents = (
         if (!c || !shelf) break;
         counts.delete(e.countId);
         shelf.onHandBaseUnits -= c.delta;
+        place.undo(e.countId);
         if (c.previous === undefined) countedAt.delete(c.itemId); else countedAt.set(c.itemId, c.previous);
         break;
       }
@@ -597,7 +618,10 @@ export const stockFromEvents = (
       reserved: ledger.reserved.get(`semi:${key}`) ?? 0, waiting: held.get(key)?.qty ?? 0, waitingFor: [...(held.get(key)?.names ?? [])],
     };
   });
-  return { rows, untrackedSold, preps: prepRows, ledger, production: [...open, ...waiting].sort((a, b) => a.at - b.at) };
+  return {
+    rows, untrackedSold, preps: prepRows, ledger, production: [...open, ...waiting].sort((a, b) => a.at - b.at),
+    warehouses: place.warehouses, places: place.places,
+  };
 };
 
 const lineQty = (qty: number) => (Number.isFinite(qty) && qty > 0 ? qty : 1);
