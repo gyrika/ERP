@@ -123,7 +123,7 @@ test('Warehouse view: each ingredient says where it is kept; picking one shows i
   expect(flour.querySelector('.vf-node__value')?.textContent).toBe('Warehouse 2');
 });
 
-test('filters combine: Raw and a warehouse dim every card that is not both; the dish in focus stays bright (SCRUM-187)', async () => {
+test('one filter and one warehouse: Raw in Warehouse 1 dims every card that is not both; the dish in focus stays bright (SCRUM-187)', async () => {
   const user = userEvent.setup();
   adjustStock('inv-0001', 2); // Pizza Flour, kept in Warehouse 1
   render(<Root />);
@@ -131,16 +131,19 @@ test('filters combine: Raw and a warehouse dim every card that is not both; the 
   const flour = (await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 })).closest('.vf-node')!;
   const culture = screen.getByText('Pizza Dough Culture', { selector: '.vf-node__name' }).closest('.vf-node')!;
   const show = within(screen.getByRole('group', { name: 'Show' }));
+  const rooms = within(screen.getByRole('group', { name: 'Warehouse' }));
   await user.click(show.getByRole('button', { name: 'Raw' }));
-  await user.click(show.getByRole('button', { name: 'Warehouse 1' }));
-  expect(show.getByRole('button', { name: 'Raw' }).getAttribute('aria-pressed')).toBe('true');
-  expect(show.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('false');
+  await user.click(rooms.getByRole('button', { name: 'Warehouse 1' }));
   expect(flour.className).not.toContain('vf-node--dim');
   expect(culture.className).toContain('vf-node--dim'); // semi-processed
-  await user.click(show.getByRole('button', { name: 'Warehouse 1' }));
-  await user.click(show.getByRole('button', { name: 'Warehouse 2' }));
+  await user.click(show.getByRole('button', { name: 'Semi-processed' })); // one at a time: Semi instead of Raw
+  expect(show.getByRole('button', { name: 'Raw' }).getAttribute('aria-pressed')).toBe('false');
+  expect(flour.className).toContain('vf-node--dim');
+  await user.click(show.getByRole('button', { name: 'All' }));
+  await user.click(rooms.getByRole('button', { name: 'Warehouse 2' })); // one at a time
+  expect(rooms.getByRole('button', { name: 'Warehouse 1' }).getAttribute('aria-pressed')).toBe('false');
   expect(flour.className).toContain('vf-node--dim'); // not kept there
   expect(document.querySelector('.vf-node--focus')!.className).not.toContain('vf-node--dim');
-  await user.click(show.getByRole('button', { name: 'All' }));
+  await user.click(rooms.getByRole('button', { name: 'Warehouse 2' })); // off again
   expect(flour.className).not.toContain('vf-node--dim');
 });

@@ -25,7 +25,6 @@ import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
 import { EDGE_TYPES, NODE_TYPES, nodeShare, stockAmount, type CanvasView, type Place, type VfEdge, type VfNode, type Worth } from './FlowParts.tsx';
 import { activeWarehouses, homeOf, livesIn, shownSplit, type Warehouses } from '../../domain/warehouses.ts';
-import { passes, toggleChip } from '../../domain/filters.ts';
 import { setHome } from '../../services/inventoryStore.ts';
 import { valuationOf } from '../../domain/valuation.ts';
 import './visualFlow.css';
@@ -64,16 +63,17 @@ const VIEWS: { id: CanvasView; label: string }[] = [
   { id: 'warehouse', label: 'Warehouse' },
 ];
 /**
- * What the drawing picks out; the rest is drawn faintly, so the flow stays whole. The chips
- * combine (SCRUM-187, filters.ts): Low or Out, Raw or Semi-processed, and the warehouses; any
- * within a group, all across them ("Low in Warehouse 2"). All clears them.
+ * What the drawing picks out; the rest is drawn faintly, so the flow stays whole. One filter at
+ * a time, and on top of it one warehouse at a time (SCRUM-187): "Low" in "Warehouse 2".
  */
-const FILTERS: { id: string; label: string }[] = [
-  { id: 'status:low', label: 'Low' },
-  { id: 'status:out', label: 'Out' },
-  { id: 'kind:raw', label: 'Raw' },
-  { id: 'kind:semi', label: 'Semi-processed' },
-  { id: 'kind:finished', label: 'Finished' },
+type Filter = 'all' | 'attention' | 'out' | 'raw' | 'semi' | 'finished';
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'attention', label: 'Low' },
+  { id: 'out', label: 'Out' },
+  { id: 'raw', label: 'Raw' },
+  { id: 'semi', label: 'Semi-processed' },
+  { id: 'finished', label: 'Finished' },
 ];
 const DEFAULT_FOCUS = 'recipe:margherita:L';
 const TOAST_MS = 6000;
@@ -90,7 +90,9 @@ function Studio({ owner }: { owner: Actor }) {
   const { ctx: published, drafts, events, stock } = useFlowData();
   const purchases = usePurchases();
   const { suppliers } = useCatalog();
-  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [filter, setFilter] = useState<Filter>('all');
+  /** One warehouse, on top of the filter; null: every warehouse. */
+  const [room, setRoom] = useState<string | null>(null);
   /** The last Send to kitchen, typed out on that card's panel. */
   const [sent, setSent] = useState<{ id: string; text: string; at: number } | null>(null);
   /** The raw material whose order step is open on its panel. */
@@ -174,12 +176,13 @@ function Studio({ owner }: { owner: Actor }) {
   }, [graph.nodes, stocks, stock.warehouses, stock.places]);
   const matches = useCallback((id: string, kind: string) => {
     const st = stocks.get(id);
-    return passes(picked, {
-      status: [...(st && needsAttention(st) ? ['low'] : []), ...(st?.status === 'out' ? ['out'] : [])],
-      kind: [kind],
-      wh: kind === 'raw' || kind === 'semi' ? livesIn(stock.warehouses, stock.places, id, st?.known ? st.onHand : null) : [],
-    });
-  }, [picked, stocks, stock.warehouses, stock.places]);
+    // In a warehouse: its home is there, or some of it is (a dish or a resource is in none).
+    if (room && !((kind === 'raw' || kind === 'semi') && livesIn(stock.warehouses, stock.places, id, st?.known ? st.onHand : null).includes(room))) return false;
+    if (filter === 'all') return true;
+    if (filter === 'attention') return !!st && needsAttention(st);
+    if (filter === 'out') return st?.status === 'out';
+    return kind === filter;
+  }, [filter, room, stocks, stock.warehouses, stock.places]);
   const nameOf = useCallback((id: string) => graph.nodes.find((n) => n.id === id)?.name
     ?? (id.startsWith('stock:') ? stock.rows.find((r) => `stock:${r.id}` === id)?.name : prepItems(published.answers).find((p) => `semi:${p.key}` === id)?.name)
     ?? id.slice(id.indexOf(':') + 1), [graph.nodes, stock.rows, published.answers]);
@@ -357,14 +360,17 @@ function Studio({ owner }: { owner: Actor }) {
           ))}
         </div>
         <div className="chips chips--tight vf-filter" role="group" aria-label="Show">
-          <button type="button" className="chip" aria-pressed={picked.size === 0} onClick={() => setPicked(new Set())}>All</button>
           {FILTERS.map((f) => (
-            <button key={f.id} type="button" className="chip" aria-pressed={picked.has(f.id)} onClick={() => setPicked(toggleChip(picked, f.id))}>{f.label}</button>
-          ))}
-          {activeWarehouses(stock.warehouses).length > 1 && activeWarehouses(stock.warehouses).map((w) => (
-            <button key={w.id} type="button" className="chip" aria-pressed={picked.has(`wh:${w.id}`)} onClick={() => setPicked(toggleChip(picked, `wh:${w.id}`))}>{w.name}</button>
+            <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>
           ))}
         </div>
+        {activeWarehouses(stock.warehouses).length > 1 && (
+          <div className="chips chips--tight vf-filter" role="group" aria-label="Warehouse">
+            {activeWarehouses(stock.warehouses).map((w) => (
+              <button key={w.id} type="button" className="chip" aria-pressed={room === w.id} onClick={() => setRoom(room === w.id ? null : w.id)}>{w.name}</button>
+            ))}
+          </div>
+        )}
         <div className="vf-publish">
           {plan.length > 0 && (
             <>
