@@ -14,7 +14,8 @@ import { ChoiceCard, InfoCard } from './flow/ChoiceCard.tsx';
 import { FlowSheet } from './flow/FlowSheet.tsx';
 import { RejectionNotices } from './Rejections.tsx';
 import { AddSupplierModal } from './AddSupplierModal.tsx';
-import { addToDraft, addToOrder, cancelOrder, editOrder, editSupplier, moveToCart, placeOrder, setDraft, type InventoryRow } from '../services/inventoryStore.ts';
+import { addInventoryItem, addToDraft, archiveInventoryItem, addToOrder, cancelOrder, editOrder, editSupplier, linkToSupplier, moveToCart, placeOrder, setDraft, type InventoryRow } from '../services/inventoryStore.ts';
+import { AddIngredientModal } from './AddIngredientModal.tsx';
 import { NumberInput } from './NumberInput.tsx';
 import { back, navigate } from './nav.ts';
 
@@ -203,7 +204,7 @@ function SupplierItems({ supplierId, draft, items, suppliers, open }: {
   const name = nameOf(suppliers, supplierId);
   const onOrder = new Map(open.filter((o) => o.supplierId === supplierId).flatMap((o) => o.lines.map((l) => [l.itemId, o] as const)));
   const low = (i: InventoryRow) => i.suggestedPacks > 0 && i.suggestedSupplierId === supplierId;
-  const [order] = useState(() => items.filter((i) => i.supplierIds.includes(supplierId))
+  const [order, setOrder] = useState(() => items.filter((i) => i.supplierIds.includes(supplierId))
     .sort((a, b) => Number(low(b)) - Number(low(a)) || Number(b.id in packs) - Number(a.id in packs) || a.name.localeCompare(b.name))
     .map((i) => i.id));
   const byId = new Map(items.map((i) => [i.id, i]));
@@ -218,7 +219,7 @@ function SupplierItems({ supplierId, draft, items, suppliers, open }: {
         </thead>
         <tbody>
           {rows.length === 0 && (
-            <tr><td colSpan={4} className="bill__empty">{name} has no items yet. Add them on <a href="#suppliers">Suppliers</a>.</td></tr>
+            <tr><td colSpan={4} className="bill__empty">{name} has no items yet. Add one below.</td></tr>
           )}
           {rows.map((row) => {
             const n = packs[row.id] ?? 0;
@@ -240,7 +241,97 @@ function SupplierItems({ supplierId, draft, items, suppliers, open }: {
         </tbody>
       </table>
       {pricing.said}
+      <AddItem supplierId={supplierId} name={name} items={items} suppliers={suppliers} shown={new Set(order)}
+        onAdded={(id) => { setOrder((o) => (o.includes(id) ? o : [...o, id])); draft.set(id, Math.max(1, packs[id] ?? 0)); }}
+        onUndo={(id) => { draft.remove(id); setOrder((o) => o.filter((x) => x !== id)); }} />
     </section>
+  );
+}
+
+/**
+ * Order › Items › + Add an item (SCRUM-185): an item this supplier has not sold before, found by
+ * name among all the others, or a new ingredient. Picking it links it to this supplier (Undo
+ * unlinks it) and puts one pack in the cart, so ordering never has to leave for Suppliers.
+ */
+function AddItem({ supplierId, name, items, suppliers, shown, onAdded, onUndo }: {
+  supplierId: string; name: string; items: InventoryRow[]; suppliers: Supplier[]; shown: ReadonlySet<string>;
+  onAdded: (id: string) => void; onUndo: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [said, setSaid] = useState<{ message: string; undo: () => void } | null>(null);
+  const [error, setError] = useState('');
+  const q = query.trim().toLowerCase();
+  const others = items.filter((i) => !i.archived && !shown.has(i.id) && !i.supplierIds.includes(supplierId));
+  const matches = (q ? others.filter((i) => i.name.toLowerCase().includes(q)) : others).slice(0, 8);
+  const exact = items.some((i) => i.name.trim().toLowerCase() === q);
+  const soldBy = (i: InventoryRow) => i.supplierIds.map((id) => suppliers.find((s) => s.id === id)?.name).filter(Boolean).join(', ');
+  const close = () => { setOpen(false); setQuery(''); setError(''); };
+
+  const pick = (row: Pick<InventoryRow, 'id' | 'name'>) => {
+    try {
+      const unlink = linkToSupplier(supplierId, row.id);
+      onAdded(row.id);
+      setSaid({ message: `${row.name}: ${name} sells it now · 1 pack in the cart.`, undo: () => { unlink(); onUndo(row.id); } });
+      close();
+    } catch (cause) {
+      if (!(cause instanceof Error)) throw cause;
+      setError(cause.message);
+    }
+  };
+
+  return (
+    <div className="order-add">
+      {said && (
+        <p className="inv-notice order-add__said" role="status">
+          {said.message}
+          <button type="button" onClick={() => { said.undo(); setSaid(null); }}>Undo</button>
+        </p>
+      )}
+      {!open && <button type="button" className="chip chip--solid" onClick={() => { setOpen(true); setSaid(null); }}>+ Add an item</button>}
+      {open && (
+        <div className="order-add__find">
+          <input className="inv-modal__input" type="search" autoFocus value={query} placeholder={`An item ${name} also sells`}
+            aria-label={`Find an item to order from ${name}`} name="order-add-item" autoComplete="off" spellCheck={false}
+            onChange={(e) => { setQuery(e.target.value); setError(''); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { e.preventDefault(); close(); }
+              if (e.key === 'Enter') { e.preventDefault(); if (matches.length === 1) pick(matches[0]); }
+            }} />
+          <ul className="order-add__list" aria-label="Items to add">
+            {matches.map((i) => (
+              <li key={i.id}>
+                <button type="button" className="order-add__item" onClick={() => pick(i)}>
+                  <span className="bill__name">{i.name}</span>
+                  <span className="bill__sub">{formatQuantity(i.packQty, i.baseUnit)} a pack{soldBy(i) ? ` · from ${soldBy(i)}` : ''}</span>
+                </button>
+              </li>
+            ))}
+            {q && !exact && (
+              <li>
+                <button type="button" className="order-add__item" onClick={() => setCreating(true)}>
+                  <span className="bill__name">+ New ingredient “{query.trim()}”</span>
+                  <span className="bill__sub">Not on the list yet: add it, sold by {name}</span>
+                </button>
+              </li>
+            )}
+            {!q && matches.length === 0 && <li className="bill__sub">Every item is on {name}'s list already. Type a name to add a new one.</li>}
+          </ul>
+          <button type="button" className="linkbtn" onClick={close}>Cancel</button>
+        </div>
+      )}
+      {error && <p className="inv-modal__error" role="alert">{error}</p>}
+      {creating && (
+        <AddIngredientModal initialName={query.trim()} initialSupplierIds={[supplierId]} onClose={() => setCreating(false)}
+          onSave={(item) => {
+            addInventoryItem(item);
+            onAdded(item.id);
+            setSaid({ message: `${item.name}: added, sold by ${name} · 1 pack in the cart.`, undo: () => { archiveInventoryItem(item.id); onUndo(item.id); } });
+            close();
+          }} />
+      )}
+    </div>
   );
 }
 
@@ -565,7 +656,8 @@ export function OrderSheet({ items, suppliers, purchases, inline = false, initia
       <FlowSheet title="Order by supplier" inline={inline} onClose={onClose} step={{ index: 1, of: STEPS, label: 'Which supplier?' }} onBack={back}>
         <section className="flow__list">
           <ul role="group" aria-label="Order from a supplier" className="rows flow__plain">
-            {withItems.map((s) => <SupplierRow key={s.id} name={s.name} label={`+ ${s.name}`} onAdd={() => pick(s.id)} />)}
+            {/* Every supplier, one with no items yet too: its items are added while ordering (SCRUM-185). */}
+            {suppliers.map((s) => <SupplierRow key={s.id} name={s.name} line={withItems.includes(s) ? undefined : 'No items yet: add them on the next step'} label={`+ ${s.name}`} onAdd={() => pick(s.id)} />)}
           </ul>
         </section>
       </FlowSheet>

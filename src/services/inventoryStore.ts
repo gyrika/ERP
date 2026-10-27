@@ -169,6 +169,20 @@ export const editSupplier = (
   });
 };
 
+/**
+ * While ordering (SCRUM-185): this supplier sells this item too. One `stock.supplier_edited` that
+ * only links it (name and phone unchanged); returns the Undo, which unlinks it again.
+ */
+export const linkToSupplier = (supplierId: string, itemId: string): (() => void) => {
+  const supplier = readSuppliers(true).find((s) => s.id === supplierId);
+  if (!supplier) throw new Error('Supplier no longer exists.');
+  if (!readItems().some((i) => i.id === itemId)) throw new Error('That ingredient no longer exists.');
+  const details = { name: supplier.name, ...(supplier.phone ? { phone: supplier.phone } : {}) };
+  const actor = currentCashier();
+  appendEvent({ type: 'stock.supplier_edited', at: Date.now(), orderNumber: 0, actor, supplierId, before: details, after: details, linked: [itemId], unlinked: [] });
+  return () => appendEvent({ type: 'stock.supplier_edited', at: Date.now(), orderNumber: 0, actor, supplierId, before: details, after: details, linked: [], unlinked: [itemId] });
+};
+
 export const addInventoryItem = (item: InventoryItem): void => {
   const items = readAllItems();
   if (items.some((existing) => existing.id === item.id)) throw new Error('An ingredient with this id already exists.');
