@@ -24,7 +24,7 @@ import type { WasteChoice, WasteReason } from '../domain/waste.ts';
 import { prepItems, type PrepItem, type PrepStock } from '../domain/prep.ts';
 import { draftEvent, draftsFromEvents, type Draft, type PublishStep } from '../domain/recipeDrafts.ts';
 import { trendDays, valuationOf, valueAt, type Valuation } from '../domain/valuation.ts';
-import { byWarehouse, checkMove, checkWarehouseName, shownSplit, warehousesFromEvents, type StockEntry, type WarehouseStock, type Warehouses } from '../domain/warehouses.ts';
+import { byWarehouse, checkMove, checkWarehouseName, shownSplit, warehousesFromEvents, type Split, type StockEntry, type WarehouseStock, type Warehouses } from '../domain/warehouses.ts';
 
 /**
  * Stock is not stored as a list: like the kitchen screen, it is built from the
@@ -505,7 +505,11 @@ export function useWarehouses(): Warehouses {
  * Where every raw and semi-processed item is (SCRUM-184): each warehouse with what it holds, and
  * each item's split by stock key, from the same stock as Items and Visual Flow.
  */
-export function useWarehouseStock(): { warehouses: Warehouses; rows: WarehouseStock[]; entries: StockEntry[]; splitOf: (key: string) => { id: string; qty: number }[] } {
+export function useWarehouseStock(): {
+  warehouses: Warehouses; rows: WarehouseStock[]; entries: StockEntry[]; splitOf: (key: string) => { id: string; qty: number }[];
+  /** Where each item is, by stock key, as the stock fold placed it (for counts: placedIn, roundsByWarehouse). */
+  places: ReadonlyMap<string, Split>;
+} {
   const events = useShopHistory();
   return useMemo(() => {
     const stock = stockFromEvents(SEED_INVENTORY, events);
@@ -523,7 +527,7 @@ export function useWarehouseStock(): { warehouses: Warehouses; rows: WarehouseSt
     ];
     const totals = new Map(entries.map((e) => [e.key, e.total]));
     const splitOf = (key: string) => { const t = totals.get(key); return t === null || t === undefined ? [] : shownSplit(stock.warehouses, stock.places, key, t); };
-    return { warehouses: stock.warehouses, rows: byWarehouse(stock.warehouses, stock.places, entries), entries, splitOf };
+    return { warehouses: stock.warehouses, rows: byWarehouse(stock.warehouses, stock.places, entries), entries, splitOf, places: stock.places };
   }, [events]);
 }
 

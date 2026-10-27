@@ -4,7 +4,7 @@ import { prepQuestion, type Answer, type RecipeEvent } from './costing.ts';
 import { stockFromEvents } from './inventory.ts';
 import { SEED_INVENTORY } from './inventoryData.ts';
 import type { SyncEvent } from './sync.ts';
-import { byWarehouse, checkMove, checkWarehouseName, drain, homeOf, shownSplit, splitFor, takeOrder, warehousesFromEvents, type Split } from './warehouses.ts';
+import { byWarehouse, checkMove, checkWarehouseName, drain, homeOf, placedIn, roundsByWarehouse, shownSplit, splitFor, takeOrder, warehousesFromEvents, type Split } from './warehouses.ts';
 
 // SCRUM-184: stock kept in warehouses; deliveries go where the GRN says, sales take next to the kitchen first.
 
@@ -157,4 +157,23 @@ test('by warehouse: every item is listed in its home, stock where it is, with it
   assert.deepEqual(show('wh-3'), ['Yeast null home']);
   assert.equal(rows.find((r) => r.id === 'wh-2')!.cents, 1500);
   assert.equal(rows[0].kitchenSide, true);
+});
+
+test('a count of one warehouse compares with what is placed there, below zero too, so the first count sets the total exactly (SCRUM-186)', () => {
+  // Sold before it was ever counted: -300 g, taken next to the kitchen.
+  const sale = wasted(FLOUR, 300);
+  const s1 = stockFromEvents(SEED_INVENTORY, [sale]);
+  const expected = placedIn(s1.warehouses, s1.places, `stock:${FLOUR}`, -300, 'wh-1');
+  assert.equal(expected, -300);
+  const s2 = stockFromEvents(SEED_INVENTORY, [sale, counted(FLOUR, 5000, expected, 'wh-1')]);
+  assert.equal(s2.rows.find((r) => r.id === FLOUR)!.onHandBaseUnits, 5000);
+});
+
+test('count rounds: each warehouse lists the items whose home it is or that have stock there', () => {
+  const events = [home(`stock:${YEAST}`, 'wh-3'), grn(FLOUR, 1, 'wh-1'), grn(FLOUR, 1, 'wh-2')];
+  const s = stockFromEvents(SEED_INVENTORY, events);
+  const items = [{ key: `stock:${FLOUR}`, total: 50000 }, { key: `stock:${YEAST}`, total: null }];
+  assert.deepEqual(roundsByWarehouse(s.warehouses, s.places, items).map((r) => [r.name, r.items.map((i) => i.key)]), [
+    ['Warehouse 1', [`stock:${FLOUR}`]], ['Warehouse 2', [`stock:${FLOUR}`]], ['Warehouse 3', [`stock:${YEAST}`]],
+  ]);
 });

@@ -5,6 +5,7 @@ import {
   archiveInventoryItem,
   restoreInventoryItem,
   useInventory,
+  useWarehouses,
   usePurchases,
   type StockStatus,
 } from '../services/inventoryStore.ts';
@@ -22,6 +23,7 @@ import { onOrder } from '../domain/purchaseOrders.ts';
 import { countsDue, receiveUnitOf, tiersOf, unitName } from '../domain/counting.ts';
 import { fmt } from '../domain/money.ts';
 import { rawValue } from '../domain/valuation.ts';
+import { homeName } from './WarehousesView.tsx';
 
 const STATUS_LABELS: Record<StockStatus, string> = {
   out: 'Out of stock',
@@ -68,6 +70,7 @@ export function InventoryView({
   /** The last stock change, with its Undo (instant action, visible Undo: no confirmations). */
   const [done, setDone] = useState<{ message: string; undo?: () => void; href?: string } | null>(null);
   const { items, suppliers, untrackedSold } = useInventory();
+  const warehouses = useWarehouses();
   const purchases = usePurchases();
   const coming = useMemo(() => {
     const packs = onOrder(purchases.open);
@@ -216,6 +219,7 @@ export function InventoryView({
                    ))}
                  </span>
                  <span className="inv-row__counted"> · {item.lastCountedAt === null ? 'never counted' : `counted ${daysAgo(item.lastCountedAt, now)}`}</span>
+                 <span className="inv-row__home" aria-label={`Kept in ${homeName(warehouses, `stock:${item.id}`)}`}> · {homeName(warehouses, `stock:${item.id}`)}</span>
                  </div>
                </div>
                <div className="inv-row__quantity" aria-label="Available stock and pack size">

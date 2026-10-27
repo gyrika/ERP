@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { adjustStock } from '../services/inventoryStore.ts';
+import { adjustStock, readItems, setHome } from '../services/inventoryStore.ts';
+import { warehousesFromEvents } from '../domain/warehouses.ts';
+import { CountFlow } from './CountFlow.tsx';
+import { InventoryView } from './InventoryView.tsx';
 import { readAll } from './eventLog.ts';
 import { WarehousesView } from './WarehousesView.tsx';
 
@@ -80,4 +83,59 @@ test('the warehouse next to the kitchen cannot be archived', async () => {
   await user.click(sheet.getByRole('button', { name: 'Save warehouses' }));
   expect(sheet.getByRole('alert').textContent).toMatch(/next to the kitchen cannot be archived/);
   expect(readAll()).toHaveLength(0);
+});
+
+// SCRUM-186: count by warehouse, set homes, and the home shown where the item is.
+
+test('counting starts with the warehouse you are in, counts what is kept there, then offers the next', async () => {
+  const user = userEvent.setup();
+  adjustStock('inv-0001', 2); // Pizza Flour, in Warehouse 1
+  setHome(warehousesFromEvents(readAll()), 'stock:inv-0005', 'wh-2'); // Instant yeast lives in Warehouse 2
+  const rows = readItems();
+  const due = ['inv-0001', 'inv-0005'].map((id) => ({ id, tier: 'daily' as const, state: 'due' as const, lastCountedAt: null }));
+  render(<CountFlow due={due} rows={rows} onClose={() => {}} photoRequired={false} />);
+  const rooms = within(screen.getByRole('group', { name: 'Which warehouse' }));
+  expect(rooms.getAllByRole('button').map((b) => b.textContent)).toEqual(['Warehouse 11 to count', 'Warehouse 21 to count']);
+  await user.click(rooms.getByRole('button', { name: /^Warehouse 2/ }));
+  expect(screen.getByText(/1 of 1 · Daily · in Warehouse 2/)).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Instant yeast' })).toBeTruthy();
+  await user.type(screen.getByRole('textbox', { name: 'Full packs' }), '1');
+  await user.click(screen.getByRole('button', { name: 'Next' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', itemId: 'inv-0005', warehouseId: 'wh-2' });
+  expect(screen.getByRole('heading', { name: 'Warehouse 2 counted' })).toBeTruthy();
+  await user.click(within(screen.getByRole('group', { name: 'Count the next warehouse' })).getByRole('button', { name: /^Count Warehouse 1/ }));
+  expect(screen.getByRole('heading', { name: 'Pizza Flour' })).toBeTruthy();
+});
+
+test('one warehouse to count: no question, straight to the items', () => {
+  adjustStock('inv-0001', 2);
+  render(<CountFlow due={[{ id: 'inv-0001', tier: 'daily', state: 'due', lastCountedAt: null }]} rows={readItems()} onClose={() => {}} photoRequired={false} />);
+  expect(screen.queryByRole('group', { name: 'Which warehouse' })).toBeNull();
+  expect(screen.getByText(/in Warehouse 1/)).toBeTruthy();
+});
+
+test('Set homes: every item with a chip per warehouse, one tap each, with Undo', async () => {
+  const user = userEvent.setup();
+  render(<WarehousesView />);
+  await user.click(screen.getByRole('button', { name: 'Set homes' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Set homes' }));
+  await user.type(sheet.getByRole('searchbox', { name: 'Find an item' }), 'yeast');
+  const yeast = within(sheet.getByRole('group', { name: 'Where Instant yeast is kept' }));
+  expect(yeast.getByRole('button', { name: 'Warehouse 1' }).getAttribute('aria-pressed')).toBe('true');
+  await user.click(yeast.getByRole('button', { name: 'Warehouse 3' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.home_set', stockKey: 'stock:inv-0005', after: 'wh-3' });
+  expect(yeast.getByRole('button', { name: 'Warehouse 3' }).getAttribute('aria-pressed')).toBe('true');
+  await user.click(within(sheet.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(yeast.getByRole('button', { name: 'Warehouse 1' }).getAttribute('aria-pressed')).toBe('true');
+});
+
+test('Raw materials shows each item\'s home, and its sheet changes it', async () => {
+  const user = userEvent.setup();
+  render(<InventoryView />);
+  expect(screen.getAllByLabelText('Kept in Warehouse 1').length).toBeGreaterThan(10);
+  await user.click(screen.getByRole('button', { name: 'Instant yeast' }));
+  await user.click(screen.getByRole('tab', { name: 'Details' }));
+  await user.click(within(screen.getByRole('group', { name: 'Where Instant yeast is kept' })).getByRole('button', { name: 'Warehouse 2' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.home_set', stockKey: 'stock:inv-0005', after: 'wh-2' });
+  expect(screen.getByRole('status').textContent).toMatch(/Instant yeast: kept in Warehouse 2/);
 });

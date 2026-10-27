@@ -6,7 +6,8 @@ import { menuItems } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { daysAgo } from '../domain/itemStory.ts';
 import { batchShare, madeFrom, prepAmount, prepKey, prepStatus, type PrepStatus } from '../domain/prep.ts';
-import { answerQuestion, cartShortages, sendPlan, setMakeBelow, useCostContext, useInventory, usePreps, usePurchases, useStock, useValuation, type PrepRow } from '../services/inventoryStore.ts';
+import { answerQuestion, cartShortages, sendPlan, setMakeBelow, useCostContext, useInventory, usePreps, usePurchases, useStock, useValuation, useWarehouses, type PrepRow } from '../services/inventoryStore.ts';
+import { HomeChips, homeName } from './WarehousesView.tsx';
 import { andList, planNotice } from '../domain/production.ts';
 import { ReleaseNotices } from './ProductionNotices.tsx';
 import { currentCashier } from '../services/auth.ts';
@@ -78,6 +79,7 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
   useMenu();
   const ctx = useCostContext();
   const preps = usePreps();
+  const warehouses = useWarehouses();
   const entries = useMemo(() => entriesOf(menuItems(), ctx), [ctx]);
   const owner = useOwner();
   const [query, setQuery] = useState('');
@@ -169,6 +171,7 @@ export function SemiView({ onRegister }: { onRegister?: () => void }) {
                 <div className="inv-row__sub">
                   <span>{usesText(uses)}</span>
                   <span className="inv-row__counted"> · {p.lastMadeAt === null ? 'never made' : `made ${daysAgo(p.lastMadeAt, now)}`}</span>
+                  <span className="inv-row__home" aria-label={`Kept in ${homeName(warehouses, `semi:${p.key}`)}`}> · {homeName(warehouses, `semi:${p.key}`)}</span>
                 </div>
               </div>
               <div className="inv-row__quantity" aria-label="On hand and batch size">
@@ -282,6 +285,10 @@ function PrepSheet({ item, items, ctx, owner, uses, onClose, onOpen, onDone, onS
                       {item.lastMadeAt !== null && <span>last made {daysAgo(item.lastMadeAt, now)}</span>}</>
                     : 'Not made yet: send it to the kitchen; once its first batch is Done, sales take from it'}
                 </dd>
+              </div>
+              <div>
+                <dt>Kept in</dt>
+                <dd><HomeChips stockKey={`semi:${item.key}`} name={item.name} onDone={(message, undo) => setNote({ message, undo })} /></dd>
               </div>
               <div>
                 <dt>One batch</dt>

@@ -8,6 +8,7 @@ import type { PurchaseState } from '../domain/purchaseOrders.ts';
 import { setOrderBelow, setReceiveUnit, useItemStory, type InventoryRow } from '../services/inventoryStore.ts';
 import { parsePacks } from '../domain/inventory.ts';
 import { CountItem } from './CountFlow.tsx';
+import { HomeChips } from './WarehousesView.tsx';
 import { ItemOrder } from './OrderSheet.tsx';
 import type { DueCount } from '../domain/counting.ts';
 import type { HistoryEntry } from '../domain/itemStory.ts';
@@ -159,6 +160,11 @@ export function StockSheet({ item, items = [item], suppliers = [], purchases, co
                   </span>
                 )}
               </dd>
+            </div>
+            {/* Where it is kept (SCRUM-186): deliveries go there and it is counted there. */}
+            <div>
+              <dt>Kept in</dt>
+              <dd><HomeChips stockKey={`stock:${item.id}`} name={item.name} onDone={(message, undo) => setDone({ message, undo, tab: 'details' })} /></dd>
             </div>
             {/* The low stock margin: the one thing here that can be changed (the owner's PIN). */}
             <div>
