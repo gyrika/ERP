@@ -9,8 +9,14 @@ import { EMPTY_UNIT_PRICE, UnitPriceFields, unitPriceItem } from './UnitPriceFie
 export function AddIngredientModal({
   onClose,
   onSave,
+  initialName = '',
+  initialSupplierIds = [],
 }: {
   onClose: () => void;
+  /** Typed already (Order › Add an item, SCRUM-185). */
+  initialName?: string;
+  /** The supplier being ordered from, chosen already. */
+  initialSupplierIds?: string[];
   onSave: (data: {
     id: string;
     name: string;
@@ -22,8 +28,8 @@ export function AddIngredientModal({
   }) => void;
 }) {
   const { suppliers } = useCatalog();
-  const [name, setName] = useState('');
-  const [supplierIds, setSupplierIds] = useState<string[]>([]);
+  const [name, setName] = useState(initialName);
+  const [supplierIds, setSupplierIds] = useState<string[]>(initialSupplierIds);
   const [unitPrice, setUnitPrice] = useState(EMPTY_UNIT_PRICE);
   const [error, setError] = useState('');
   const priced = unitPriceItem(unitPrice);
