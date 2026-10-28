@@ -56,12 +56,28 @@ import './visualFlow.css';
 export default function VisualFlowView({ onRegister }: { onRegister?: () => void }) {
   const owner = useOwner();
   useEffect(() => { if (owner) recipesViewed(owner); }, [owner]);
+  // The drawing keeps the whole screen: the shop's list is a drawer, opened from the strip (or Ctrl K).
+  const [nav, setNav] = useState(false);
   return (
     <div className="owner vf-page">
-      <OwnerNav current="flow" onRegister={onRegister} />
+      <OwnerNav current="flow" onRegister={onRegister} drawer={owner ? nav : undefined} onDrawer={setNav} />
       {owner
-        ? <ReactFlowProvider><Studio owner={owner} /></ReactFlowProvider>
+        ? <ReactFlowProvider><Studio owner={owner} onMenu={() => setNav(true)} /></ReactFlowProvider>
         : <main className="owner__main" aria-label="Visual Flow"><p className="vf-muted">Only the owner sees the recipes.</p></main>}
+    </div>
+  );
+}
+
+/** Fitting leaves room at the top for the strip and the sentence that float over the drawing. */
+const FIT = { top: '128px', right: '32px', bottom: '32px', left: '32px' } as const;
+
+/** The drawing's point, typed over the top of the canvas when the item or view changes, then out of the way. */
+function Said({ text }: { text: string }) {
+  const [gone, setGone] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setGone(true), 6000); return () => clearTimeout(t); }, []);
+  return (
+    <div className={`vf-say${gone ? ' vf-say--gone' : ''}`} aria-live="polite">
+      <TypeOut text={text} className="vf-say__text" />
     </div>
   );
 }
@@ -95,7 +111,7 @@ interface Toast { id: number; text: string; undo?: () => void; next?: { label: s
 /** #flow/<focus>: a dish's flow can be linked to (and survives a reload). */
 const focusFromHash = () => (location.hash.startsWith('#flow/') ? decodeURIComponent(location.hash.slice('#flow/'.length)) : null);
 
-function Studio({ owner }: { owner: Actor }) {
+function Studio({ owner, onMenu }: { owner: Actor; onMenu: () => void }) {
   useMenu();
   const menu = menuItems();
   const { ctx: published, drafts, events, stock } = useFlowData();
@@ -127,6 +143,8 @@ function Studio({ owner }: { owner: Actor }) {
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
   const [toast, setToast] = useState<Toast | null>(null);
   const [picking, setPicking] = useState<'focus' | Holder | null>(null);
+  /** The filter chips, opened from the strip's Filter button. */
+  const [filtering, setFiltering] = useState(false);
   const flow = useReactFlow();
 
   const known = options.some((o) => o.id === focus);
@@ -419,11 +437,11 @@ function Studio({ owner }: { owner: Actor }) {
   useEffect(() => {
     if (fitted.current === fitKey) return;
     fitted.current = fitKey;
-    const t = setTimeout(() => void flow.fitView({ duration: 200, padding: 0.12 }), 60);
+    const t = setTimeout(() => void flow.fitView({ duration: 200, padding: FIT }), 60);
     return () => clearTimeout(t);
   }, [fitKey, flow]);
 
-  // Keys: 1 2 3 4 the views, F fits, Esc lets go, Ctrl+Z undoes, Ctrl+P publishes.
+  // Keys: 1 2 3 4 the views, F fits the whole drawing, + and - zoom, Esc lets go, Ctrl+Z undoes, Ctrl+P publishes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -436,15 +454,18 @@ function Studio({ owner }: { owner: Actor }) {
         if (to) keepIn(sel.id, to.id);
         return;
       }
+      if (e.key === 'Escape' && filtering) { e.preventDefault(); setFiltering(false); return; }
       if (e.key === 'Escape' && pickedWh) { e.preventDefault(); setPickedWh(null); return; }
       const v = VIEWS[Number(e.key) - 1];
       if (v) { setView(v.id); return; }
-      if (e.key.toLowerCase() === 'f') void flow.fitView({ duration: 200, padding: 0.15 });
+      if (e.key.toLowerCase() === 'f') void flow.fitView({ duration: 200, padding: FIT });
+      if (e.key === '+' || e.key === '=') void flow.zoomIn({ duration: 150 });
+      if (e.key === '-') void flow.zoomOut({ duration: 150 });
       if (e.key === 'Escape' && sel) { e.preventDefault(); setSel(null); } // lets go first; the next Esc goes back
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toast, flow, sel, view, places, stock.warehouses, keepIn, pickedWh]);
+  }, [toast, flow, sel, view, places, stock.warehouses, keepIn, pickedWh, filtering]);
 
   const pickCommands = useMemo(() => {
     if (picking === 'focus') return options.map((o) => ({ id: o.id, label: `${o.group} · ${o.label}`, run: () => setFocus(o.id) }));
@@ -460,36 +481,7 @@ function Studio({ owner }: { owner: Actor }) {
   return (
     <main className="vf" aria-label="Visual Flow">
       <div className="vf-notices"><ReleaseNotices /></div>
-      <header className="vf-bar">
-        <button type="button" className="vf-focus" onClick={() => setPicking('focus')} aria-label={`Showing ${focusName}. Choose another item`}>
-          <span className="vf-focus__name">{focusName || 'Choose an item'}</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-        </button>
-        <div className="vf-views" role="group" aria-label="View">
-          {VIEWS.map((v, i) => (
-            <button key={v.id} type="button" className="pill" aria-pressed={view === v.id} onClick={() => setView(v.id)} title={`${v.label} (${i + 1})`}>{v.label}</button>
-          ))}
-        </div>
-        <div className="chips chips--tight vf-filter" role="group" aria-label="Show">
-          {FILTERS.map((f) => (
-            <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>
-          ))}
-        </div>
-        <div className="vf-publish">
-          {plan.length > 0 && (
-            <>
-              <button type="button" className="linkbtn vf-discard" onClick={discard}>Discard</button>
-              <button type="button" className="vf-primary" onClick={publish} disabled={!!blocked}
-                title={blocked ? `Not yet: ${blocked.problem}` : undefined}>
-                Publish {plan.length === 1 ? '1 change' : `${plan.length} changes`}
-              </button>
-            </>
-          )}
-        </div>
-      </header>
       <div className="vf-body">
-        <div className="vf-draw">
-        {said && <div className="vf-say" aria-live="polite"><TypeOut text={said} className="vf-say__text" /></div>}
         <div className="vf-canvas">
           <ReactFlow
             nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
@@ -500,7 +492,7 @@ function Studio({ owner }: { owner: Actor }) {
               pick('node', n.id);
             }}
             onEdgeClick={(_, e) => (e.type === 'wh' ? setSel({ kind: 'node', id: e.target }) : pick('edge', e.id))}
-            onPaneClick={() => { setSel(null); setPickedWh(null); }}
+            onPaneClick={() => { setSel(null); setPickedWh(null); setFiltering(false); }}
             onConnect={(c: Connection) => {
               if (!c.source || !c.target) return;
               if (c.source.startsWith('wh:')) keepIn(c.target, c.source.slice('wh:'.length));
@@ -516,13 +508,55 @@ function Studio({ owner }: { owner: Actor }) {
               if (c.source.startsWith('wh:')) return c.target.startsWith('stock:') && !!column?.itemY.has(c.target);
               return connectProblem(holderOf(c.target, answers, menu), lineFor(c.source, ctx), answers) === null;
             }}
-            connectionRadius={32} minZoom={MIN_ZOOM} maxZoom={2} fitView fitViewOptions={{ padding: 0.12 }} proOptions={{ hideAttribution: true }}
+            connectionRadius={32} minZoom={MIN_ZOOM} maxZoom={2} fitView fitViewOptions={{ padding: FIT }} proOptions={{ hideAttribution: true }}
             deleteKeyCode={['Delete', 'Backspace']} nodesConnectable elementsSelectable
             aria-label={`How ${focusName} is made`}
           >
             <Background gap={24} size={1} />
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
+          {/* Only the drawing is on screen; the rest comes when asked for: the shop's list (☰), the
+              filters (Filter), a card's details (tap it). */}
+          <header className="vf-strip">
+            <button type="button" className="vf-menu" onClick={onMenu} aria-label="Show the parts of the shop">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="14" y2="17" />
+              </svg>
+            </button>
+            <button type="button" className="vf-focus" onClick={() => setPicking('focus')} aria-label={`Showing ${focusName}. Choose another item`}>
+              <span className="vf-focus__name">{focusName || 'Choose an item'}</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+            <div className="vf-views" role="group" aria-label="View">
+              {VIEWS.map((v, i) => (
+                <button key={v.id} type="button" className="pill" aria-pressed={view === v.id} onClick={() => setView(v.id)} title={`${v.label} (${i + 1})`}>{v.label}</button>
+              ))}
+            </div>
+            <div className="vf-filterwrap">
+              <button type="button" className="chip vf-filterbtn" aria-expanded={filtering} aria-pressed={filter !== 'all'} onClick={() => setFiltering((o) => !o)}>
+                {filter === 'all' ? 'Filter' : `Filter · ${FILTERS.find((f) => f.id === filter)?.label}`}
+              </button>
+              {filtering && (
+                <div className="chips chips--tight vf-filter" role="group" aria-label="Show">
+                  {FILTERS.map((f) => (
+                    <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setFiltering(false); }}>{f.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="vf-publish">
+              {plan.length > 0 && (
+                <>
+                  <button type="button" className="linkbtn vf-discard" onClick={discard}>Discard</button>
+                  <button type="button" className="vf-primary" onClick={publish} disabled={!!blocked}
+                    title={blocked ? `Not yet: ${blocked.problem}` : undefined}>
+                    Publish {plan.length === 1 ? '1 change' : `${plan.length} changes`}
+                  </button>
+                </>
+              )}
+            </div>
+          </header>
+          {said && <Said key={`${current}|${view}|${said}`} text={said} />}
           {view === 'warehouse' && (
             <WarehouseOverlay warehouses={stock.warehouses} owner={owner} picked={stock.warehouses.list.find((x) => x.id === pickedWh) ?? null}
               selected={sel?.kind === 'node' ? sel.id : null} place={sel?.kind === 'node' ? places.get(sel.id) : undefined}
@@ -533,8 +567,8 @@ function Studio({ owner }: { owner: Actor }) {
             <p className="vf-empty">No recipe yet. Choose it on the right: add an ingredient, or drag one in.</p>
           )}
         </div>
-        </div>
         <FlowPanel
+          open={!!sel} onClose={() => setSel(null)} said={said ?? ''}
           graph={graph} view={drawn} worths={worths} behind={behind} sel={sel} ctx={ctx} menu={menu} events={events} drafts={drafts} plan={plan}
           focusName={focusName} actions={actions} stocks={stocks} makesOf={(key) => prepItems(published.answers).find((p) => p.key === key)?.makes ?? null} sent={sent}
           ordering={ordering} buying={buying} small={small}

@@ -1353,6 +1353,12 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .side__foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); }
 .side__register { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: var(--chip); color: var(--ink); font: inherit; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; }
 .side-top, .side__scrim { display: none; }
+/* A screen that keeps the whole width (Visual Flow) holds the list as a drawer at every width, opened by its own button. */
+.side--drawer { z-index: 61; width: min(320px, 86vw); transform: translateX(-100%); visibility: hidden; transition: transform 200ms var(--ease), visibility 0s linear 200ms; }
+.side--drawer.side--open { transform: none; visibility: visible; box-shadow: var(--sheet-shadow); transition: transform 200ms var(--ease); }
+.side__scrim:has(+ .side--drawer) { display: block; position: fixed; inset: 0; z-index: 60; background: var(--scrim); animation: fade 160ms linear; }
+:is(.owner, .inv-page, .setup):has(> .side--drawer) { padding: 0; }
+:is(.owner, .inv-page, .setup):has(> .side--drawer) .toast { left: 16px; }
 @media (max-width: 900px) {
   :is(.owner, .inv-page, .setup):has(> .side) { padding-left: 0; padding-top: 0; }
   :is(.owner, .inv-page, .setup):has(> .side) .toast { left: 16px; }
