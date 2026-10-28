@@ -54,6 +54,8 @@ export type NodeData = {
   worth?: Worth;
   /** Where it is kept, in the Warehouse view; missing: not stock (a dish, a resource). */
   place?: Place;
+  /** A raw card in the Warehouse view: a warehouse's line can be dragged onto it (SCRUM-188). */
+  stored?: boolean;
 };
 export type VfNode = Node<NodeData, 'vf'>;
 
@@ -117,7 +119,7 @@ export const stockNote = (s: ItemStock): string | null => {
 };
 
 export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
-  const { node: n, view, focus, takes, onToggle, stock, dim, share, worth, place } = data;
+  const { node: n, view, focus, takes, onToggle, stock, dim, share, worth, place, stored } = data;
   const folds = n.recipe !== null && !focus && n.inputs > 0;
   const gap = n.missing.length > 0;
   // Being made or waiting is in hand (blue); red only when it is short and nothing is coming.
@@ -130,7 +132,10 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
       className={`vf-node vf-node--${n.kind}${focus ? ' vf-node--focus' : ''}${selected ? ' vf-node--on' : ''}${gap ? ' vf-node--gap' : ''}${alert ? ` vf-node--${alert}` : ''}${dim ? ' vf-node--dim' : ''}`}
       style={{ '--share': view === 'material' || view === 'warehouse' ? 0 : view === 'stock' ? (focus ? 0 : worth?.share ?? 0) : n.share } as CSSProperties}
     >
-      {(takes || n.kind === 'profit') && <Handle type="target" position={Position.Left} className="vf-handle" isConnectable={takes} />}
+      {/* A raw card always has its left handle (React Flow measures handles once): it takes a warehouse's line in the Warehouse view. */}
+      {(takes || n.kind === 'raw' || n.kind === 'profit') && (
+        <Handle type="target" position={Position.Left} className={`vf-handle${takes || stored ? '' : ' vf-handle--off'}`} isConnectable={takes || !!stored} />
+      )}
       <div className="vf-node__top">
         <span className="vf-node__kind">{KIND_LABEL[n.kind]}</span>
         {n.recipe?.draft && <span className="vf-node__draft">Draft</span>}
@@ -200,5 +205,62 @@ export function FlowLine({ id, sourceX, sourceY, targetX, targetY, sourcePositio
   );
 }
 
-export const NODE_TYPES = { vf: FlowCard };
-export const EDGE_TYPES = { vf: FlowLine };
+// ----- the Warehouse view's column (SCRUM-188) -----
+
+/** A warehouse card: its shade, its name, and what it holds in the whole shop (as Items › Warehouses). */
+export type WarehouseData = {
+  name: string; index: number; kitchenSide: boolean; archived: boolean;
+  /** Items kept there (home or some stock), in the whole shop, and what they are worth; null when nothing has a cost yet. */
+  items: number; cents: number | null;
+  /** Another warehouse is picked: this one steps back. */
+  dim: boolean;
+};
+export type WhNode = Node<WarehouseData, 'wh'>;
+/** "+ Warehouse", under the last one. */
+export type WhAddNode = Node<{ onAdd: () => void }, 'whAdd'>;
+export type CanvasNode = VfNode | WhNode | WhAddNode;
+
+export function WarehouseCard({ data, selected }: NodeProps<WhNode>) {
+  const { name, index, kitchenSide, archived, items, cents, dim } = data;
+  return (
+    <div className={`vf-node vf-whcard${selected ? ' vf-node--on' : ''}${dim ? ' vf-node--dim' : ''}${archived ? ' vf-whcard--archived' : ''}`}>
+      <div className="vf-node__top">
+        <span className="vf-node__kind">{archived ? 'Archived' : kitchenSide ? 'Next to the kitchen' : 'Warehouse'}</span>
+      </div>
+      <div className="vf-node__name"><span className={`wh-dot wh-seg--${index % 4}`} aria-hidden="true" />{name}</div>
+      <div className="vf-node__stock num">{items} kept here{cents !== null ? ` · ${rs(cents)}` : ''}</div>
+      <Handle type="source" position={Position.Right} className="vf-handle" isConnectable={!archived} />
+    </div>
+  );
+}
+
+export function AddWarehouseCard({ data }: NodeProps<WhAddNode>) {
+  return (
+    <button type="button" className="vf-whadd nodrag" onClick={data.onAdd}>+ Warehouse</button>
+  );
+}
+
+/** A warehouse's line to an item: solid to its home (drag its end to another warehouse), dashed where some is kept elsewhere. */
+export type WhEdgeData = { home: boolean; label: string | null; onSelect: () => void };
+export type WhEdge = Edge<WhEdgeData, 'wh'>;
+export type CanvasEdge = VfEdge | WhEdge;
+
+export function WarehouseLine({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected }: EdgeProps<WhEdge>) {
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  if (!data) return null;
+  return (
+    <>
+      <BaseEdge id={id} path={path} className={`vf-edge vf-edge--wh${data.home ? '' : ' vf-edge--elsewhere'}${selected ? ' vf-edge--on' : ''}`}
+        style={{ strokeWidth: selected ? 3 : 1.5 }} interactionWidth={24} />
+      {data.label && (
+        <EdgeLabelRenderer>
+          <button type="button" className={`vf-chip nodrag nopan${selected ? ' vf-chip--on' : ''}`}
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }} onClick={data.onSelect}>{data.label}</button>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+export const NODE_TYPES = { vf: FlowCard, wh: WarehouseCard, whAdd: AddWarehouseCard };
+export const EDGE_TYPES = { vf: FlowLine, wh: WarehouseLine };

@@ -10,7 +10,7 @@ import { prepItems } from '../../domain/prep.ts';
 import { publishPlan, withDrafts } from '../../domain/recipeDrafts.ts';
 import type { Rates, ResourceLine } from '../../domain/resources.ts';
 import {
-  answerWith, buildFlow, connectProblem, focusOptions, holderOf, layout, lineFor, lineNode, newStage, resourcesOf, soldUnits, viewOf,
+  answerWith, buildFlow, COL_W, connectProblem, focusOptions, holderOf, layout, lineFor, lineNode, newStage, resourcesOf, ROW_H, soldUnits, viewOf,
   type FlowView, type Holder,
 } from '../../domain/visualFlow.ts';
 import { cartShortages, discardDrafts, publishDrafts, recipesViewed, saveDraft, sendPlan, useCatalog, useFlowData, usePurchases } from '../../services/inventoryStore.ts';
@@ -23,9 +23,14 @@ import { useMenu } from '../menuStore.ts';
 import { OwnerNav } from '../OwnerNav.tsx';
 import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
-import { EDGE_TYPES, NODE_TYPES, nodeShare, stockAmount, type CanvasView, type Place, type VfEdge, type VfNode, type Worth } from './FlowParts.tsx';
-import { activeWarehouses, homeOf, livesIn, shownSplit, type Warehouses } from '../../domain/warehouses.ts';
-import { setHome } from '../../services/inventoryStore.ts';
+import {
+  EDGE_TYPES, NODE_TYPES, nodeShare, stockAmount,
+  type CanvasEdge, type CanvasNode, type CanvasView, type Place, type VfEdge, type VfNode, type WhAddNode, type WhEdge, type WhNode, type Worth,
+} from './FlowParts.tsx';
+import { activeWarehouses, byWarehouse, homeOf, livesIn, shownSplit, type StockEntry, type Warehouse, type Warehouses } from '../../domain/warehouses.ts';
+import { nextWarehouseName, warehouseColumn } from '../../domain/warehouseColumn.ts';
+import { addWarehouse, editWarehouse, setHome, setKitchenSide, stockEntries } from '../../services/inventoryStore.ts';
+import { PlaceSheet } from '../WarehousesView.tsx';
 import { valuationOf } from '../../domain/valuation.ts';
 import './visualFlow.css';
 
@@ -64,7 +69,7 @@ const VIEWS: { id: CanvasView; label: string }[] = [
 ];
 /**
  * What the drawing picks out; the rest is drawn faintly, so the flow stays whole. One filter at
- * a time, and on top of it one warehouse at a time (SCRUM-187): "Low" in "Warehouse 2".
+ * a time; in the Warehouse view a tapped warehouse picks out what is kept there (SCRUM-188).
  */
 type Filter = 'all' | 'attention' | 'out' | 'raw' | 'semi' | 'finished';
 const FILTERS: { id: Filter; label: string }[] = [
@@ -91,8 +96,12 @@ function Studio({ owner }: { owner: Actor }) {
   const purchases = usePurchases();
   const { suppliers } = useCatalog();
   const [filter, setFilter] = useState<Filter>('all');
-  /** One warehouse, on top of the filter; null: every warehouse. */
-  const [room, setRoom] = useState<string | null>(null);
+  /** The warehouse tapped in the Warehouse view's column (SCRUM-188): its panel opens and what is kept there stands out. */
+  const [pickedWh, setPickedWh] = useState<string | null>(null);
+  /** A warehouse just added, by name: picked once it is on the list, so the owner can type its name. */
+  const [newWh, setNewWh] = useState<string | null>(null);
+  /** The stock card whose Move sheet is open (Warehouse view). */
+  const [moving, setMoving] = useState<string | null>(null);
   /** The last Send to kitchen, typed out on that card's panel. */
   const [sent, setSent] = useState<{ id: string; text: string; at: number } | null>(null);
   /** The raw material whose order step is open on its panel. */
@@ -166,7 +175,8 @@ function Studio({ owner }: { owner: Actor }) {
     const nameOf = (id: string) => w.list.find((x) => x.id === id)?.name ?? id;
     const m = new Map<string, Place>();
     for (const n of graph.nodes) {
-      if (n.kind !== 'raw' && n.kind !== 'semi') continue;
+      // Price-list items and batches are kept somewhere; water from the tap is not.
+      if (!n.id.startsWith('stock:') && !n.id.startsWith('semi:')) continue;
       const st = stocks.get(n.id);
       const home = homeOf(w, n.id);
       const split = st?.known ? shownSplit(w, stock.places, n.id, st.onHand).map((x) => ({ ...x, name: nameOf(x.id), index: index(x.id) })) : [];
@@ -174,6 +184,7 @@ function Studio({ owner }: { owner: Actor }) {
     }
     return m;
   }, [graph.nodes, stocks, stock.warehouses, stock.places]);
+  const room = view === 'warehouse' ? pickedWh : null;
   const matches = useCallback((id: string, kind: string) => {
     const st = stocks.get(id);
     // In a warehouse: its home is there, or some of it is (a dish or a resource is in none).
@@ -183,6 +194,27 @@ function Studio({ owner }: { owner: Actor }) {
     if (filter === 'out') return st?.status === 'out';
     return kind === filter;
   }, [filter, room, stocks, stock.warehouses, stock.places]);
+  // The Warehouse view's column (SCRUM-188): the warehouses left of the raw items, a line to each,
+  // stacked by the tallest raw card as drawn (a split bar and a stock line make them taller than a row).
+  const rowH = useMemo(() => Math.max(ROW_H, ...graph.nodes.filter((n) => n.kind === 'raw').map((n) => (sizes[n.id]?.height ?? 0) + 16)), [graph.nodes, sizes]);
+  const column = useMemo(() => {
+    if (view !== 'warehouse') return null;
+    const xs = graph.nodes.map((n) => positions.get(n.id)?.x ?? 0);
+    const minX = xs.length ? Math.min(...xs) : 0;
+    // Price-list items only: water from the tap is in no warehouse.
+    const raw = graph.nodes.filter((n) => n.kind === 'raw' && n.id.startsWith('stock:'));
+    // The raw items gather in the first column, or a new one left of it when a batch sits there too.
+    const rawX = graph.nodes.every((n) => n.kind === 'raw' || (positions.get(n.id)?.x ?? 0) !== minX) ? minX : minX - COL_W;
+    const col = warehouseColumn(stock.warehouses, stock.places, raw.map((n) => {
+      const st = stocks.get(n.id);
+      return { id: n.id, total: st?.known ? st.onHand : null, y: positions.get(n.id)?.y ?? 0 };
+    }), rowH);
+    // Water from the tap and the like: in the same column, under the warehouses' blocks, with no line.
+    graph.nodes.filter((n) => n.kind === 'raw' && !n.id.startsWith('stock:')).forEach((n, i) => col.itemY.set(n.id, col.addY + i * rowH));
+    return { ...col, rawX, whX: rawX - COL_W };
+  }, [view, graph.nodes, positions, stock.warehouses, stock.places, stocks, rowH]);
+  const entries = useMemo<StockEntry[]>(() => (view === 'warehouse' ? stockEntries(stock, published.answers) : []), [view, stock, published.answers]);
+  const inWarehouse = useMemo(() => new Map(byWarehouse(stock.warehouses, stock.places, entries).map((r) => [r.id, r])), [stock.warehouses, stock.places, entries]);
   const nameOf = useCallback((id: string) => graph.nodes.find((n) => n.id === id)?.name
     ?? (id.startsWith('stock:') ? stock.rows.find((r) => `stock:${r.id}` === id)?.name : prepItems(published.answers).find((p) => `semi:${p.key}` === id)?.name)
     ?? id.slice(id.indexOf(':') + 1), [graph.nodes, stock.rows, published.answers]);
@@ -195,6 +227,28 @@ function Studio({ owner }: { owner: Actor }) {
     const names = andList([...buy.keys()].map((id) => nameOf(`stock:${id}`)));
     say(added.suppliers.length ? `${names}: added to the cart. Nothing is in stock until it is received.` : `${names}: no active supplier to order from.`, added.undo);
   }, [stock.rows, purchases, active, nameOf, say]);
+  /** An item kept in another warehouse from now on (a line dragged, a number pressed, a chip tapped). */
+  const keepIn = useCallback((itemId: string, warehouseId: string) => {
+    const to = stock.warehouses.list.find((x) => x.id === warehouseId);
+    if (!to || to.archived || homeOf(stock.warehouses, itemId) === warehouseId) return;
+    say(`${nameOf(itemId)}: kept in ${to.name}`, setHome(stock.warehouses, itemId, warehouseId, owner));
+  }, [stock.warehouses, nameOf, say, owner]);
+  const addOne = useCallback(() => {
+    const name = nextWarehouseName(stock.warehouses);
+    const undo = addWarehouse(stock.warehouses, name, owner);
+    if (typeof undo === 'string') { say(undo); return; }
+    say(`${name} added: type its own name`, undo);
+    setNewWh(name);
+  }, [stock.warehouses, owner, say]);
+  useEffect(() => {
+    const made = newWh ? stock.warehouses.list.find((x) => !x.archived && x.name === newWh) : null;
+    if (!made) return;
+    setNewWh(null);
+    setSel(null);
+    setPickedWh(made.id);
+  }, [newWh, stock.warehouses]);
+  // A card picked lets go of the warehouse, and the other way round.
+  useEffect(() => { if (sel) setPickedWh(null); }, [sel]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), TOAST_MS);
@@ -274,8 +328,9 @@ function Studio({ owner }: { owner: Actor }) {
   };
 
   // ----- the canvas -----
-  const nodes: VfNode[] = useMemo(() => graph.nodes.map((n) => ({
-    id: n.id, type: 'vf', position: moved[n.id] ?? positions.get(n.id) ?? { x: 0, y: 0 }, measured: sizes[n.id],
+  const nodes: CanvasNode[] = useMemo(() => [...graph.nodes.map((n): VfNode => ({
+    id: n.id, type: 'vf', measured: sizes[n.id],
+    position: moved[n.id] ?? (column?.itemY.has(n.id) ? { x: column.rawX, y: column.itemY.get(n.id)! } : positions.get(n.id)) ?? { x: 0, y: 0 },
     selected: sel?.kind === 'node' && sel.id === n.id, deletable: false,
     data: {
       node: n, view, focus: n.id === current, focusName,
@@ -284,25 +339,44 @@ function Studio({ owner }: { owner: Actor }) {
       stock: stocks.get(n.id) ?? null, dim: n.id !== current && !matches(n.id, n.kind), share: nodeShare(n, answers),
       worth: view !== 'stock' ? undefined : n.id === current ? { cents: behind, share: 0 } : worths.get(n.id),
       place: view === 'warehouse' && n.id !== current ? places.get(n.id) : undefined,
+      stored: !!column && n.id.startsWith('stock:') && column.itemY.has(n.id),
     },
-  })), [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind, places]);
-  const edges: VfEdge[] = useMemo(() => graph.edges.map((e) => ({
+  })), ...(column ? [
+    ...column.cards.map((c): WhNode => {
+      const here = inWarehouse.get(c.id);
+      return {
+        id: `wh:${c.id}`, type: 'wh', position: moved[`wh:${c.id}`] ?? { x: column.whX, y: c.y }, measured: sizes[`wh:${c.id}`],
+        selected: pickedWh === c.id, deletable: false,
+        data: { name: c.name, index: c.index, kitchenSide: c.kitchenSide, archived: c.archived, items: here?.items.length ?? 0, cents: here?.cents || null, dim: !!pickedWh && pickedWh !== c.id },
+      };
+    }),
+    { id: 'wh:+', type: 'whAdd', position: { x: column.whX, y: column.addY }, measured: sizes['wh:+'], selectable: false, draggable: false, deletable: false, data: { onAdd: addOne } } satisfies WhAddNode,
+  ] : [])], [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind, places, column, inWarehouse, pickedWh, addOne]);
+  const edges: CanvasEdge[] = useMemo(() => [...graph.edges.map((e): VfEdge => ({
     id: e.id, source: e.source, target: e.target, type: 'vf', selected: sel?.kind === 'edge' && sel.id === e.id,
     deletable: e.kind !== 'money',
     data: {
       edge: e, view, total: graph.breakdown.total, onSelect: (id: string) => setSel({ kind: 'edge', id }),
       share: e.line ? batchShare({ ...e.line, qty: e.qty }, answers) : null,
     },
-  })), [graph.edges, graph.breakdown.total, sel, view, answers]);
+  })), ...(column?.links.map((l): WhEdge => {
+    const st = stocks.get(l.itemId);
+    return {
+      id: l.id, source: `wh:${l.warehouseId}`, target: l.itemId, type: 'wh', deletable: false,
+      // A home's line is dragged by its warehouse end to another warehouse.
+      reconnectable: l.home ? 'source' : false,
+      data: { home: l.home, label: st && l.qty ? stockAmount(st, l.qty) : null, onSelect: () => setSel({ kind: 'node', id: l.itemId }) },
+    };
+  }) ?? [])], [graph.edges, graph.breakdown.total, sel, view, answers, column, stocks]);
 
-  const onNodesChange = useCallback((changes: NodeChange<VfNode>[]) => {
+  const onNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => {
     // Kept: where he drags a card to, and each card's size; selection is ours (sel), the rest is drawn from the graph.
     const drag = changes.flatMap((c) => (c.type === 'position' && c.position ? [[c.id, c.position] as const] : []));
     if (drag.length) setMoved((m) => ({ ...m, ...Object.fromEntries(drag) }));
     const sized = changes.flatMap((c) => (c.type === 'dimensions' && c.dimensions ? [[c.id, c.dimensions] as const] : []));
     if (sized.length) setSizes((m) => ({ ...m, ...Object.fromEntries(sized) }));
   }, []);
-  const onEdgesChange = useCallback((changes: EdgeChange<VfEdge>[]) => {
+  const onEdgesChange = useCallback((changes: EdgeChange<CanvasEdge>[]) => {
     const gone = changes.flatMap((c) => (c.type === 'remove' ? [c.id] : []));
     if (gone.length) removeEdges(gone);
   }, [removeEdges]);
@@ -310,7 +384,8 @@ function Studio({ owner }: { owner: Actor }) {
   // Fit the drawing when the item, the view or what is folded changes (not on every edit: he keeps
   // his place). The first drawing is fitted by React Flow itself (fitView); later ones a moment
   // after the change, once cards it added (Revenue, Profit) have been measured.
-  const fitKey = `${current}|${view}|${[...collapsed].join(',')}`;
+  // The Warehouse view fits again once the raw cards are measured (its rows follow their height).
+  const fitKey = `${current}|${view}|${[...collapsed].join(',')}${view === 'warehouse' ? `|${rowH}` : ''}`;
   const fitted = useRef(fitKey);
   useEffect(() => {
     if (fitted.current === fitKey) return;
@@ -326,6 +401,13 @@ function Studio({ owner }: { owner: Actor }) {
       if (t?.closest('input, textarea, select, [role="dialog"]')) return;
       if (e.ctrlKey && e.key.toLowerCase() === 'z' && toast?.undo) { e.preventDefault(); toast.undo(); setToast(null); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // A stock card picked in the Warehouse view: 1 to 9 keeps it in that warehouse (the views' keys again once it is let go).
+      if (view === 'warehouse' && sel?.kind === 'node' && places.has(sel.id) && /^[1-9]$/.test(e.key)) {
+        const to = activeWarehouses(stock.warehouses)[Number(e.key) - 1];
+        if (to) keepIn(sel.id, to.id);
+        return;
+      }
+      if (e.key === 'Escape' && pickedWh) { e.preventDefault(); setPickedWh(null); return; }
       const v = VIEWS[Number(e.key) - 1];
       if (v) { setView(v.id); return; }
       if (e.key.toLowerCase() === 'f') void flow.fitView({ duration: 200, padding: 0.15 });
@@ -333,7 +415,7 @@ function Studio({ owner }: { owner: Actor }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toast, flow, sel]);
+  }, [toast, flow, sel, view, places, stock.warehouses, keepIn, pickedWh]);
 
   const pickCommands = useMemo(() => {
     if (picking === 'focus') return options.map((o) => ({ id: o.id, label: `${o.group} · ${o.label}`, run: () => setFocus(o.id) }));
@@ -364,13 +446,6 @@ function Studio({ owner }: { owner: Actor }) {
             <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>
           ))}
         </div>
-        {activeWarehouses(stock.warehouses).length > 1 && (
-          <div className="chips chips--tight vf-filter" role="group" aria-label="Warehouse">
-            {activeWarehouses(stock.warehouses).map((w) => (
-              <button key={w.id} type="button" className="chip" aria-pressed={room === w.id} onClick={() => setRoom(room === w.id ? null : w.id)}>{w.name}</button>
-            ))}
-          </div>
-        )}
         <div className="vf-publish">
           {plan.length > 0 && (
             <>
@@ -388,12 +463,28 @@ function Studio({ owner }: { owner: Actor }) {
           <ReactFlow
             nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-            onNodeClick={(_, n) => setSel({ kind: 'node', id: n.id })}
-            onEdgeClick={(_, e) => setSel({ kind: 'edge', id: e.id })}
-            onPaneClick={() => setSel(null)}
-            onConnect={(c: Connection) => c.source && c.target && connect(c.source, c.target)}
-            isValidConnection={(c) => !!c.source && !!c.target && c.source !== c.target
-              && connectProblem(holderOf(c.target, answers, menu), lineFor(c.source, ctx), answers) === null}
+            onNodeClick={(_, n) => {
+              if (n.type === 'whAdd') return;
+              if (n.type === 'wh') { setSel(null); setPickedWh(n.id.slice('wh:'.length)); return; }
+              setSel({ kind: 'node', id: n.id });
+            }}
+            onEdgeClick={(_, e) => setSel(e.type === 'wh' ? { kind: 'node', id: e.target } : { kind: 'edge', id: e.id })}
+            onPaneClick={() => { setSel(null); setPickedWh(null); }}
+            onConnect={(c: Connection) => {
+              if (!c.source || !c.target) return;
+              if (c.source.startsWith('wh:')) keepIn(c.target, c.source.slice('wh:'.length));
+              else connect(c.source, c.target);
+            }}
+            onReconnect={(old, c) => {
+              if (old.type === 'wh' && c.source?.startsWith('wh:') && c.target === old.target) keepIn(old.target, c.source.slice('wh:'.length));
+            }}
+            edgesReconnectable={false}
+            isValidConnection={(c) => {
+              if (!c.source || !c.target || c.source === c.target) return false;
+              // A warehouse's line goes to a raw card only.
+              if (c.source.startsWith('wh:')) return c.target.startsWith('stock:') && !!column?.itemY.has(c.target);
+              return connectProblem(holderOf(c.target, answers, menu), lineFor(c.source, ctx), answers) === null;
+            }}
             connectionRadius={32} minZoom={0.2} maxZoom={2} fitView fitViewOptions={{ padding: 0.12 }} proOptions={{ hideAttribution: true }}
             deleteKeyCode={['Delete', 'Backspace']} nodesConnectable elementsSelectable
             aria-label={`How ${focusName} is made`}
@@ -402,8 +493,10 @@ function Studio({ owner }: { owner: Actor }) {
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
           {view === 'warehouse' && (
-            <WarehouseOverlay warehouses={stock.warehouses} selected={sel?.kind === 'node' ? sel.id : null} place={sel?.kind === 'node' ? places.get(sel.id) : undefined}
-              stock={sel?.kind === 'node' ? stocks.get(sel.id) ?? null : null} name={sel?.kind === 'node' ? nameOf(sel.id) : ''} say={say} />
+            <WarehouseOverlay warehouses={stock.warehouses} owner={owner} picked={stock.warehouses.list.find((x) => x.id === pickedWh) ?? null}
+              selected={sel?.kind === 'node' ? sel.id : null} place={sel?.kind === 'node' ? places.get(sel.id) : undefined}
+              stock={sel?.kind === 'node' ? stocks.get(sel.id) ?? null : null} name={sel?.kind === 'node' ? nameOf(sel.id) : ''}
+              say={say} keepIn={keepIn} onMove={setMoving} />
           )}
           {graph.nodes.length <= 1 && (
             <p className="vf-empty">No recipe yet. Choose it on the right: add an ingredient, or drag one in.</p>
@@ -415,6 +508,10 @@ function Studio({ owner }: { owner: Actor }) {
           ordering={ordering} buying={buying}
         />
       </div>
+      {moving && entries.some((x) => x.key === moving) && (
+        <PlaceSheet entry={entries.find((x) => x.key === moving)!} warehouses={stock.warehouses} split={places.get(moving)?.split ?? []}
+          onClose={() => setMoving(null)} onDone={(d) => say(d.message, d.undo)} />
+      )}
       {picking && (
         <CommandPalette
           placeholder={picking === 'focus' ? 'Which dish, extra or batch?' : `What goes into ${picking.name}?`}
@@ -433,36 +530,72 @@ function Studio({ owner }: { owner: Actor }) {
 }
 
 /**
- * The Warehouse view's key (SCRUM-184): each warehouse's shade, and for the card picked, where it
- * is and its home, one tap to change. Moving stock is on Items › Warehouses.
+ * The Warehouse view's panel (SCRUM-184, SCRUM-188), top-left on the canvas (the column runs down the left). A warehouse tapped
+ * in the column: its name (typed in place), next to the kitchen, archive. A stock card picked: where
+ * it is, where it is kept (a chip or its number), and Move. Nothing picked: how the column works.
  */
-function WarehouseOverlay({ warehouses, selected, place, stock, name, say }: {
-  warehouses: Warehouses; selected: string | null; place: Place | undefined; stock: ItemStock | null; name: string;
+function WarehouseOverlay({ warehouses, owner, picked, selected, place, stock, name, say, keepIn, onMove }: {
+  warehouses: Warehouses; owner: Actor; picked: Warehouse | null;
+  selected: string | null; place: Place | undefined; stock: ItemStock | null; name: string;
   say: (text: string, undo?: () => void) => void;
+  keepIn: (itemId: string, warehouseId: string) => void;
+  onMove: (itemId: string) => void;
 }) {
+  if (picked) return <aside className="vf-wh" aria-label={picked.name}><WarehousePanel key={picked.id} warehouse={picked} warehouses={warehouses} owner={owner} say={say} /></aside>;
   const home = selected ? homeOf(warehouses, selected) : null;
   return (
     <aside className="vf-wh" aria-label="Warehouses">
-      <ul className="wh-split__legend">
-        {warehouses.list.filter((x) => !x.archived).map((x) => (
-          <li key={x.id}><span className={`wh-dot wh-seg--${warehouses.list.indexOf(x) % 4}`} aria-hidden="true" />{x.name}{x.id === warehouses.kitchenSide ? ' · next to the kitchen' : ''}</li>
-        ))}
-      </ul>
-      {selected && place && (
+      {selected && place ? (
         <div className="vf-wh__item">
           <strong>{name}</strong>
           <span className="vf-wh__where num">
             {place.split.length ? place.split.map((x) => `${x.name} ${stock ? stockAmount(stock, x.qty) : x.qty}`).join(' · ') : 'None in stock'}
           </span>
           <div className="chips chips--tight" role="group" aria-label={`Where ${name} is kept`}>
-            {activeWarehouses(warehouses).map((x) => (
-              <button key={x.id} type="button" className="chip" aria-pressed={x.id === home}
-                onClick={() => { if (x.id !== home) say(`${name}: kept in ${x.name}`, setHome(warehouses, selected, x.id)); }}>{x.name}</button>
+            {activeWarehouses(warehouses).map((x, i) => (
+              <button key={x.id} type="button" className="chip" aria-pressed={x.id === home} aria-keyshortcuts={i < 9 ? String(i + 1) : undefined}
+                onClick={() => keepIn(selected, x.id)}>{i < 9 ? `${i + 1} · ` : ''}{x.name}</button>
             ))}
           </div>
-          <a className="linkbtn" href="#items/warehouses">Move stock</a>
+          {place.split.length > 0 && <button type="button" className="linkbtn" onClick={() => onMove(selected)}>Move stock</button>}
         </div>
+      ) : (
+        <span className="vf-wh__keys">Drag a warehouse&apos;s line onto an item to keep it there. Tap a warehouse to rename it.</span>
       )}
     </aside>
+  );
+}
+
+/** One warehouse, the owner's: its name typed in place (Enter or leaving the box saves), next to the kitchen, archive. */
+function WarehousePanel({ warehouse, warehouses, owner, say }: { warehouse: Warehouse; warehouses: Warehouses; owner: Actor; say: (text: string, undo?: () => void) => void }) {
+  const [name, setName] = useState(warehouse.name);
+  const [error, setError] = useState('');
+  const kitchenSide = warehouses.kitchenSide === warehouse.id;
+  const rename = () => {
+    if (name.trim() === warehouse.name) return;
+    const r = editWarehouse(warehouses, warehouse.id, { name }, owner);
+    if (typeof r === 'string') { setError(r); return; }
+    say(`${warehouse.name} is now ${name.trim()}`, r);
+  };
+  const archive = (archived: boolean) => {
+    const r = editWarehouse(warehouses, warehouse.id, { archived }, owner);
+    if (typeof r === 'string') { setError(r); return; }
+    say(archived ? `${warehouse.name} archived: nothing new goes there` : `${warehouse.name} is back`, r);
+  };
+  return (
+    <div className="vf-wh__item">
+      <input className="inv-modal__input vf-wh__name" value={name} maxLength={40} aria-label="Warehouse name" disabled={warehouse.archived}
+        autoFocus={/^Warehouse \d+$/.test(warehouse.name)} name="warehouse-name" autoComplete="off" spellCheck={false}
+        onChange={(e) => { setName(e.target.value); setError(''); }} onBlur={rename}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); rename(); (e.target as HTMLInputElement).blur(); } }} />
+      {error && <p className="vf-wh__error" role="alert">{error}</p>}
+      <div className="chips chips--tight">
+        {!warehouse.archived && (
+          <button type="button" className="chip" aria-pressed={kitchenSide}
+            onClick={() => { if (!kitchenSide) say(`${warehouse.name} is next to the kitchen: sales take from it first`, setKitchenSide(warehouses, warehouse.id, owner)); }}>Next to the kitchen</button>
+        )}
+        <button type="button" className="chip" aria-pressed={warehouse.archived} onClick={() => archive(!warehouse.archived)}>{warehouse.archived ? 'Restore' : 'Archive'}</button>
+      </div>
+    </div>
   );
 }

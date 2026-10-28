@@ -149,10 +149,21 @@
 /* Stock view (SCRUM-163): a raw item's history opens on Items. */
 .vf-history { display: inline-flex; align-items: center; min-height: 44px; }
 
-/* Warehouse view (SCRUM-184): a card's home and its split; the key and the picked card float bottom-left. */
+/* Warehouse view (SCRUM-184): a card's home and its split; the picked card or warehouse floats top-left. */
 .vf-place { display: flex; gap: 2px; height: 8px; margin-top: 8px; border-radius: 4px; overflow: hidden; background: var(--chip); }
 .vf-place > span { flex-basis: 0; min-width: 4px; }
 .vf-node__value .wh-dot { vertical-align: baseline; }
-.vf-wh { position: absolute; left: 16px; bottom: 16px; z-index: 5; display: flex; flex-direction: column; gap: 10px; max-width: min(360px, calc(100% - 96px)); padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); }
-.vf-wh__item { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.vf-wh { position: absolute; left: 16px; top: 16px; z-index: 5; display: flex; flex-direction: column; gap: 10px; max-width: min(360px, calc(100% - 96px)); padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); }
+.vf-wh__item { display: flex; flex-direction: column; gap: 8px; }
+.vf-wh__name { min-height: 48px; }
+.vf-wh__error { margin: 0; font-size: 14px; color: var(--bad); }
+.vf-wh__keys { font-size: 13px; color: var(--ink-3); }
+/* The column (SCRUM-188): a warehouse card, "+ Warehouse", and the lines to the raw items. */
+.vf-whcard { width: 200px; border-width: 2px; }
+.vf-whcard .vf-node__name .wh-dot { vertical-align: baseline; }
+.vf-whcard--archived { border-style: dashed; opacity: 0.7; }
+.vf-whadd { width: 200px; min-height: 48px; border-radius: 14px; border: 1px dashed var(--ink-3); background: transparent; color: var(--ink-2); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; transition: background-color 150ms var(--ease); }
+.vf-whadd:hover { background: var(--chip); }
+.vf-handle--off { visibility: hidden; }
+.vf-edge--elsewhere { stroke-dasharray: 4 5; }
 .vf-wh__where { font-size: 14px; color: var(--ink-2); }
