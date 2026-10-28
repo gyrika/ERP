@@ -9,7 +9,7 @@ import { MENU } from './menu.ts';
 import { draftsFromEvents, publishPlan, versionsOf, withDrafts } from './recipeDrafts.ts';
 import { bookUsage } from './stockUsage.ts';
 import {
-  buildFlow, COL_W, connectProblem, holderOf, layout, lineFor, moneyOf, newStage, soldUnits, viewOf,
+  buildFlow, COL_W, connectProblem, flowSentence, foldSmall, holderOf, layout, lineFor, moneyOf, newStage, pathOf, ROW_H, soldUnits, viewOf,
 } from './visualFlow.ts';
 import { validatePush } from '../../server/validate.ts';
 
@@ -105,6 +105,67 @@ test('collapsing a stage hides what flows only through it; layout puts columns b
   assert.equal(folded.breakdown.total, full.breakdown.total); // hiding changes no cost
   const pos = layout(full);
   for (const n of full.nodes) assert.equal(pos.get(n.id)!.x, n.level * COL_W);
+});
+
+test('the drawing says its point in one sentence: what most of the cost is, or what the dish earns', () => {
+  const g = buildFlow({ focus: MARGHERITA, ctx: ctx(), menu: MENU });
+  const blend = g.edges.find((e) => e.source === 'semi:Mozzarella Blend' && e.target === MARGHERITA)!;
+  const said = flowSentence(g, 'cost', 'Margherita Large')!;
+  assert.equal(said, `Mozzarella Blend is ${Math.round((blend.cents / g.breakdown.total) * 100)}% of what a Margherita Large costs (Rs ${Math.round(blend.cents / 100)} of Rs ${Math.round(g.breakdown.total / 100)}).`);
+  const money = moneyOf(g)!;
+  assert.match(flowSentence(viewOf(g, 'financial'), 'financial', 'Margherita Large')!, new RegExp(`^Margherita Large earns Rs [\\d,]+ on each one sold, a ${Math.round(money.margin! * 100)}% margin`));
+  // A gap is said, and an empty recipe says nothing.
+  const gappy = buildFlow({ focus: recipeQuestion('devilled-chicken', 'L'), ctx: ctx(), menu: MENU });
+  assert.match(flowSentence(gappy, 'cost', 'Devilled Chicken Large')!, /so far\); \d+ prices or batch sizes are still missing\.$/);
+  const empty = buildFlow({ focus: MARGHERITA, ctx: ctx([[MARGHERITA, { kind: 'own', lines: [] }]]), menu: MENU });
+  assert.equal(flowSentence(empty, 'cost', 'Margherita Large'), null);
+});
+
+test('the smallest inputs fold into one card with a line to each stage; a gap is never folded', () => {
+  const g = buildFlow({ focus: MARGHERITA, ctx: ctx(), menu: MENU });
+  const { graph, small } = foldSmall(g);
+  assert.ok(small);
+  const inputs = g.nodes.filter((n) => n.kind === 'raw' || n.kind === 'resource');
+  const shown = graph.nodes.filter((n) => n.kind === 'raw' || n.kind === 'resource');
+  assert.ok(shown.length >= 4 && shown.length <= 5);
+  assert.equal(shown.length + small.nodes.length, inputs.length);
+  // The cards shown are the biggest, and carry at least 90% of the inputs' cost.
+  const whole = inputs.reduce((s, n) => s + n.cents, 0);
+  assert.ok(shown.reduce((s, n) => s + n.cents, 0) >= 0.9 * whole);
+  assert.ok(Math.min(...shown.map((n) => n.cents)) >= Math.max(...small.nodes.map((n) => n.cents)));
+  // Its lines carry what it adds, and the costs still add up into the pizza.
+  const card = graph.nodes.find((n) => n.kind === 'small')!;
+  assert.equal(card.name, `+${small.nodes.length} small items`);
+  assert.ok(Math.abs(graph.edges.filter((e) => e.source === 'small').reduce((s, e) => s + e.cents, 0) - small.cents) < 1e-6);
+  assert.ok(graph.edges.every((e) => graph.nodes.some((n) => n.id === e.source) && graph.nodes.some((n) => n.id === e.target)));
+  // Devilled chicken's unpriced chicken stays a card.
+  const devilled = foldSmall(buildFlow({ focus: recipeQuestion('devilled-chicken', 'L'), ctx: ctx(), menu: MENU }));
+  assert.ok(devilled.small!.nodes.every((n) => n.missing.length === 0));
+  assert.ok(devilled.graph.nodes.some((n) => n.name === 'Fried Chicken Cubes'));
+});
+
+test('layout: each input sits level with what it feeds, and no two cards in a column overlap', () => {
+  const { graph } = foldSmall(buildFlow({ focus: MARGHERITA, ctx: ctx(), menu: MENU }));
+  const pos = layout(graph);
+  const mid = (id: string) => pos.get(id)!.y + ROW_H / 2;
+  // Each cheese is nearer the blend than the dough is.
+  for (const id of ['stock:inv-0006', 'stock:inv-0007']) {
+    assert.ok(Math.abs(mid(id) - mid('semi:Mozzarella Blend')) < Math.abs(mid(id) - mid('semi:Pizza Dough Batch')));
+  }
+  const cols = new Map<number, number[]>();
+  for (const n of graph.nodes) cols.set(n.level, [...(cols.get(n.level) ?? []), pos.get(n.id)!.y]);
+  for (const ys of cols.values()) {
+    ys.sort((a, b) => a - b);
+    for (let i = 1; i < ys.length; i++) assert.ok(ys[i] - ys[i - 1] >= ROW_H);
+  }
+});
+
+test('a card\'s path: what it is made from and what it goes into, up to the dish', () => {
+  const g = buildFlow({ focus: MARGHERITA, ctx: ctx(), menu: MENU });
+  const path = pathOf(g, 'semi:Pizza Dough Batch');
+  for (const id of ['stock:inv-0001', 'semi:Pizza Dough Culture', 'semi:12inch Dough Ball', MARGHERITA]) assert.ok(path.nodes.has(id), id);
+  assert.ok(!path.nodes.has('semi:Mozzarella Blend'));
+  assert.ok(!path.edges.has('semi:Mozzarella Blend>recipe:margherita:L#' + g.edges.find((e) => e.source === 'semi:Mozzarella Blend')!.index));
 });
 
 test('drafts change nothing until published; publishing is a new version that closes the draft', () => {

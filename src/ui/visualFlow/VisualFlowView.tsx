@@ -10,13 +10,13 @@ import { prepItems } from '../../domain/prep.ts';
 import { publishPlan, withDrafts } from '../../domain/recipeDrafts.ts';
 import type { Rates, ResourceLine } from '../../domain/resources.ts';
 import {
-  answerWith, buildFlow, COL_W, connectProblem, focusOptions, holderOf, layout, lineFor, lineNode, newStage, resourcesOf, ROW_H, soldUnits, viewOf,
-  type FlowView, type Holder,
+  answerWith, buildFlow, COL_W, connectProblem, flowSentence, focusOptions, foldSmall, holderOf, layout, lineFor, lineNode, newStage, pathOf,
+  resourcesOf, ROW_H, SMALL_ID, soldUnits, viewOf, type FlowView, type Holder,
 } from '../../domain/visualFlow.ts';
 import { cartShortages, discardDrafts, publishDrafts, recipesViewed, saveDraft, sendPlan, useCatalog, useFlowData, usePurchases } from '../../services/inventoryStore.ts';
 import { itemStockOf, needsAttention, type ItemStock } from '../../domain/itemStock.ts';
 import { andList, planNotice, planProduction } from '../../domain/production.ts';
-import { batchShare, prepAmount } from '../../domain/prep.ts';
+import { prepAmount } from '../../domain/prep.ts';
 import { ReleaseNotices } from '../ProductionNotices.tsx';
 import { CommandPalette } from '../CommandPalette.tsx';
 import { useMenu } from '../menuStore.ts';
@@ -24,9 +24,10 @@ import { OwnerNav } from '../OwnerNav.tsx';
 import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
 import {
-  EDGE_TYPES, NODE_TYPES, nodeShare, stockAmount,
+  EDGE_TYPES, MIN_ZOOM, NODE_TYPES, nodeShare, rs, stockAmount,
   type CanvasEdge, type CanvasNode, type CanvasView, type Place, type VfEdge, type VfNode, type WhAddNode, type WhEdge, type WhNode, type Worth,
 } from './FlowParts.tsx';
+import { TypeOut } from '../TypeOut.tsx';
 import { activeWarehouses, byWarehouse, homeOf, livesIn, shownSplit, type StockEntry, type Warehouse, type Warehouses } from '../../domain/warehouses.ts';
 import { nextWarehouseName, warehouseColumn } from '../../domain/warehouseColumn.ts';
 import { addWarehouse, editWarehouse, setHome, setKitchenSide, stockEntries } from '../../services/inventoryStore.ts';
@@ -42,6 +43,11 @@ import './visualFlow.css';
  * makes, into the dish on the right. Three views of the same drawing: Material (how much),
  * Cost (what it costs, lines as thick as the money) and Financial (what it earns); and Stock
  * (SCRUM-163): what each card holds in money now, the same values as Items.
+ *
+ * The answer comes first, in words, on a black screen above the drawing ("Mozzarella Blend is
+ * 71% of what a Margherita Large costs"); the drawing is the evidence. The few inputs that make
+ * most of the cost are cards, the rest one card; each card sits beside what it feeds, the
+ * amounts are on the cards (none on the lines), and tapping a card lights its path to the dish.
  *
  * Every change is a draft at once, with Undo; Publish makes the drafts his recipes (one new version
  * each), so what was made before keeps the recipe it was made with. The recipes are his alone, like
@@ -141,7 +147,13 @@ function Studio({ owner }: { owner: Actor }) {
     () => viewOf(buildFlow({ focus: current, ctx, menu, sold, collapsed, drafts }), drawn),
     [current, ctx, menu, sold, collapsed, drafts, drawn],
   );
-  const positions = useMemo(() => layout(graph), [graph]);
+  // The canvas draws the biggest inputs and folds the rest into one card; the panel keeps them all.
+  // Not in the Warehouse view: every raw item there takes its warehouse's line.
+  const { graph: drawing, small } = useMemo(() => (view === 'warehouse' ? { graph, small: null } : foldSmall(graph)), [graph, view]);
+  const positions = useMemo(() => {
+    const heights = new Map(drawing.nodes.flatMap((n) => (sizes[n.id] ? [[n.id, sizes[n.id].height] as const] : [])));
+    return layout(drawing, heights);
+  }, [drawing, sizes]);
   const plan = useMemo(() => publishPlan(published.answers, drafts), [published.answers, drafts]);
   const blocked = plan.find((s) => s.problem);
 
@@ -166,8 +178,14 @@ function Studio({ owner }: { owner: Actor }) {
       const v = byId.get(n.id);
       if (v) m.set(n.id, { cents: v.cents, share: total > 0 && v.cents !== null ? v.cents / total : 0, unitCents: v.unitCents, unit: v.unit });
     }
+    // The folded card holds what its items hold.
+    if (small) {
+      const held = small.nodes.flatMap((n) => (byId.get(n.id)?.cents != null ? [byId.get(n.id)!.cents!] : []));
+      const cents = held.length ? held.reduce((sum, c) => sum + c, 0) : null;
+      m.set(SMALL_ID, { cents, share: total > 0 && cents !== null ? cents / total : 0, unitCents: null, unit: '' });
+    }
     return { worths: m, behind: known.length ? total : null };
-  }, [valuation, graph.nodes, current]);
+  }, [valuation, graph.nodes, current, small]);
   // ----- warehouses (SCRUM-184): each ingredient's home and where its stock is -----
   const places = useMemo(() => {
     const w = stock.warehouses;
@@ -185,7 +203,8 @@ function Studio({ owner }: { owner: Actor }) {
     return m;
   }, [graph.nodes, stocks, stock.warehouses, stock.places]);
   const room = view === 'warehouse' ? pickedWh : null;
-  const matches = useCallback((id: string, kind: string) => {
+  const matches = useCallback((id: string, kind: string): boolean => {
+    if (id === SMALL_ID) return !!small?.nodes.some((n) => matches(n.id, n.kind));
     const st = stocks.get(id);
     // In a warehouse: its home is there, or some of it is (a dish or a resource is in none).
     if (room && !((kind === 'raw' || kind === 'semi') && livesIn(stock.warehouses, stock.places, id, st?.known ? st.onHand : null).includes(room))) return false;
@@ -193,26 +212,26 @@ function Studio({ owner }: { owner: Actor }) {
     if (filter === 'attention') return !!st && needsAttention(st);
     if (filter === 'out') return st?.status === 'out';
     return kind === filter;
-  }, [filter, room, stocks, stock.warehouses, stock.places]);
+  }, [filter, room, stocks, stock.warehouses, stock.places, small]);
   // The Warehouse view's column (SCRUM-188): the warehouses left of the raw items, a line to each,
   // stacked by the tallest raw card as drawn (a split bar and a stock line make them taller than a row).
-  const rowH = useMemo(() => Math.max(ROW_H, ...graph.nodes.filter((n) => n.kind === 'raw').map((n) => (sizes[n.id]?.height ?? 0) + 16)), [graph.nodes, sizes]);
+  const rowH = useMemo(() => Math.max(ROW_H, ...drawing.nodes.filter((n) => n.kind === 'raw').map((n) => (sizes[n.id]?.height ?? 0) + 16)), [drawing.nodes, sizes]);
   const column = useMemo(() => {
     if (view !== 'warehouse') return null;
-    const xs = graph.nodes.map((n) => positions.get(n.id)?.x ?? 0);
+    const xs = drawing.nodes.map((n) => positions.get(n.id)?.x ?? 0);
     const minX = xs.length ? Math.min(...xs) : 0;
     // Price-list items only: water from the tap is in no warehouse.
-    const raw = graph.nodes.filter((n) => n.kind === 'raw' && n.id.startsWith('stock:'));
+    const raw = drawing.nodes.filter((n) => n.kind === 'raw' && n.id.startsWith('stock:'));
     // The raw items gather in the first column, or a new one left of it when a batch sits there too.
-    const rawX = graph.nodes.every((n) => n.kind === 'raw' || (positions.get(n.id)?.x ?? 0) !== minX) ? minX : minX - COL_W;
+    const rawX = drawing.nodes.every((n) => n.kind === 'raw' || (positions.get(n.id)?.x ?? 0) !== minX) ? minX : minX - COL_W;
     const col = warehouseColumn(stock.warehouses, stock.places, raw.map((n) => {
       const st = stocks.get(n.id);
       return { id: n.id, total: st?.known ? st.onHand : null, y: positions.get(n.id)?.y ?? 0 };
     }), rowH);
     // Water from the tap and the like: in the same column, under the warehouses' blocks, with no line.
-    graph.nodes.filter((n) => n.kind === 'raw' && !n.id.startsWith('stock:')).forEach((n, i) => col.itemY.set(n.id, col.addY + i * rowH));
+    drawing.nodes.filter((n) => n.kind === 'raw' && !n.id.startsWith('stock:')).forEach((n, i) => col.itemY.set(n.id, col.addY + i * rowH));
     return { ...col, rawX, whX: rawX - COL_W };
-  }, [view, graph.nodes, positions, stock.warehouses, stock.places, stocks, rowH]);
+  }, [view, drawing.nodes, positions, stock.warehouses, stock.places, stocks, rowH]);
   const entries = useMemo<StockEntry[]>(() => (view === 'warehouse' ? stockEntries(stock, published.answers) : []), [view, stock, published.answers]);
   const inWarehouse = useMemo(() => new Map(byWarehouse(stock.warehouses, stock.places, entries).map((r) => [r.id, r])), [stock.warehouses, stock.places, entries]);
   const nameOf = useCallback((id: string) => graph.nodes.find((n) => n.id === id)?.name
@@ -328,15 +347,20 @@ function Studio({ owner }: { owner: Actor }) {
   };
 
   // ----- the canvas -----
-  const nodes: CanvasNode[] = useMemo(() => [...graph.nodes.map((n): VfNode => ({
+  // A tapped card (or line) lights its path to the dish; the rest fades. A folded item lights its card.
+  const onCanvas = (id: string) => (small?.nodes.some((n) => n.id === id) ? SMALL_ID : id);
+  const picked = sel?.kind === 'node' ? onCanvas(sel.id) : sel?.kind === 'edge' ? onCanvas(graph.edges.find((e) => e.id === sel.id)?.source ?? '') : null;
+  const lit = useMemo(() => (picked && picked !== current ? pathOf(drawing, picked) : null), [drawing, picked, current]);
+  const nodes: CanvasNode[] = useMemo(() => [...drawing.nodes.map((n): VfNode => ({
     id: n.id, type: 'vf', measured: sizes[n.id],
     position: moved[n.id] ?? (column?.itemY.has(n.id) ? { x: column.rawX, y: column.itemY.get(n.id)! } : positions.get(n.id)) ?? { x: 0, y: 0 },
-    selected: sel?.kind === 'node' && sel.id === n.id, deletable: false,
+    selected: sel?.kind === 'node' && picked === n.id, deletable: false,
     data: {
       node: n, view, focus: n.id === current, focusName,
       takes: !!n.recipe?.editable, onToggle: actions.toggle,
       // The item in focus stays bright: what it needs is what the filter is about.
       stock: stocks.get(n.id) ?? null, dim: n.id !== current && !matches(n.id, n.kind), share: nodeShare(n, answers),
+      faded: !!lit && !lit.nodes.has(n.id),
       worth: view !== 'stock' ? undefined : n.id === current ? { cents: behind, share: 0 } : worths.get(n.id),
       place: view === 'warehouse' && n.id !== current ? places.get(n.id) : undefined,
       stored: !!column && n.id.startsWith('stock:') && column.itemY.has(n.id),
@@ -351,14 +375,11 @@ function Studio({ owner }: { owner: Actor }) {
       };
     }),
     { id: 'wh:+', type: 'whAdd', position: { x: column.whX, y: column.addY }, measured: sizes['wh:+'], selectable: false, draggable: false, deletable: false, data: { onAdd: addOne } } satisfies WhAddNode,
-  ] : [])], [graph.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind, places, column, inWarehouse, pickedWh, addOne]);
-  const edges: CanvasEdge[] = useMemo(() => [...graph.edges.map((e): VfEdge => ({
+  ] : [])], [drawing.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind, places, lit, picked, column, inWarehouse, pickedWh, addOne]);
+  const edges: CanvasEdge[] = useMemo(() => [...drawing.edges.map((e): VfEdge => ({
     id: e.id, source: e.source, target: e.target, type: 'vf', selected: sel?.kind === 'edge' && sel.id === e.id,
-    deletable: e.kind !== 'money',
-    data: {
-      edge: e, view, total: graph.breakdown.total, onSelect: (id: string) => setSel({ kind: 'edge', id }),
-      share: e.line ? batchShare({ ...e.line, qty: e.qty }, answers) : null,
-    },
+    deletable: e.kind !== 'money' && e.source !== SMALL_ID,
+    data: { edge: e, view, total: graph.breakdown.total, faded: !!lit && !lit.edges.has(e.id) },
   })), ...(column?.links.map((l): WhEdge => {
     const st = stocks.get(l.itemId);
     return {
@@ -367,7 +388,14 @@ function Studio({ owner }: { owner: Actor }) {
       reconnectable: l.home ? 'source' : false,
       data: { home: l.home, label: st && l.qty ? stockAmount(st, l.qty) : null, onSelect: () => setSel({ kind: 'node', id: l.itemId }) },
     };
-  }) ?? [])], [graph.edges, graph.breakdown.total, sel, view, answers, column, stocks]);
+  }) ?? [])], [drawing.edges, graph.breakdown.total, sel, view, lit, column, stocks]);
+  /** A folded card's line opens the card: its lines are many lines at once. */
+  const pick = (kind: 'node' | 'edge', id: string) => setSel(kind === 'edge' && id.startsWith(`${SMALL_ID}>`) ? { kind: 'node', id: SMALL_ID } : { kind, id });
+
+  // The drawing's point, in words.
+  const said = view === 'stock'
+    ? (behind === null ? `None of what goes into ${focusName} is counted yet.` : `${rs(behind)} of stock is behind ${focusName}.`)
+    : flowSentence(graph, drawn, focusName);
 
   const onNodesChange = useCallback((changes: NodeChange<CanvasNode>[]) => {
     // Kept: where he drags a card to, and each card's size; selection is ours (sel), the rest is drawn from the graph.
@@ -384,8 +412,9 @@ function Studio({ owner }: { owner: Actor }) {
   // Fit the drawing when the item, the view or what is folded changes (not on every edit: he keeps
   // his place). The first drawing is fitted by React Flow itself (fitView); later ones a moment
   // after the change, once cards it added (Revenue, Profit) have been measured.
-  // The Warehouse view fits again once the raw cards are measured (its rows follow their height).
-  const fitKey = `${current}|${view}|${[...collapsed].join(',')}${view === 'warehouse' ? `|${rowH}` : ''}`;
+  // Once every card is measured the layout knows their heights: fit that too; the Warehouse view's rows follow them.
+  const measured = drawing.nodes.every((n) => sizes[n.id]);
+  const fitKey = `${current}|${view}|${[...collapsed].join(',')}|${measured}${view === 'warehouse' ? `|${rowH}` : ''}`;
   const fitted = useRef(fitKey);
   useEffect(() => {
     if (fitted.current === fitKey) return;
@@ -459,6 +488,8 @@ function Studio({ owner }: { owner: Actor }) {
         </div>
       </header>
       <div className="vf-body">
+        <div className="vf-draw">
+        {said && <div className="vf-say" aria-live="polite"><TypeOut text={said} className="vf-say__text" /></div>}
         <div className="vf-canvas">
           <ReactFlow
             nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
@@ -466,9 +497,9 @@ function Studio({ owner }: { owner: Actor }) {
             onNodeClick={(_, n) => {
               if (n.type === 'whAdd') return;
               if (n.type === 'wh') { setSel(null); setPickedWh(n.id.slice('wh:'.length)); return; }
-              setSel({ kind: 'node', id: n.id });
+              pick('node', n.id);
             }}
-            onEdgeClick={(_, e) => setSel(e.type === 'wh' ? { kind: 'node', id: e.target } : { kind: 'edge', id: e.id })}
+            onEdgeClick={(_, e) => (e.type === 'wh' ? setSel({ kind: 'node', id: e.target }) : pick('edge', e.id))}
             onPaneClick={() => { setSel(null); setPickedWh(null); }}
             onConnect={(c: Connection) => {
               if (!c.source || !c.target) return;
@@ -485,7 +516,7 @@ function Studio({ owner }: { owner: Actor }) {
               if (c.source.startsWith('wh:')) return c.target.startsWith('stock:') && !!column?.itemY.has(c.target);
               return connectProblem(holderOf(c.target, answers, menu), lineFor(c.source, ctx), answers) === null;
             }}
-            connectionRadius={32} minZoom={0.2} maxZoom={2} fitView fitViewOptions={{ padding: 0.12 }} proOptions={{ hideAttribution: true }}
+            connectionRadius={32} minZoom={MIN_ZOOM} maxZoom={2} fitView fitViewOptions={{ padding: 0.12 }} proOptions={{ hideAttribution: true }}
             deleteKeyCode={['Delete', 'Backspace']} nodesConnectable elementsSelectable
             aria-label={`How ${focusName} is made`}
           >
@@ -502,10 +533,11 @@ function Studio({ owner }: { owner: Actor }) {
             <p className="vf-empty">No recipe yet. Choose it on the right: add an ingredient, or drag one in.</p>
           )}
         </div>
+        </div>
         <FlowPanel
           graph={graph} view={drawn} worths={worths} behind={behind} sel={sel} ctx={ctx} menu={menu} events={events} drafts={drafts} plan={plan}
           focusName={focusName} actions={actions} stocks={stocks} makesOf={(key) => prepItems(published.answers).find((p) => p.key === key)?.makes ?? null} sent={sent}
-          ordering={ordering} buying={buying}
+          ordering={ordering} buying={buying} small={small}
         />
       </div>
       {moving && entries.some((x) => x.key === moving) && (

@@ -17,13 +17,17 @@
 .vf-primary:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .vf-body { display: grid; grid-template-columns: minmax(0, 1fr) 360px; min-height: 0; border-top: 1px solid var(--line); }
+.vf-draw { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
 .vf-canvas { position: relative; min-height: 0; background: var(--ground); }
+/* The drawing's point, typed on a black screen above it (like Today's). */
+.vf-say { padding: 12px 20px; background: var(--screen); color: var(--on-screen); border-bottom: 1px solid var(--line); }
+.vf-say__text { margin: 0; min-height: 1.4em; font-size: 17px; font-weight: 500; line-height: 1.4; letter-spacing: -0.1px; }
 .vf-canvas .react-flow { --xy-background-pattern-dots-color-default: var(--line); }
 .vf-canvas .react-flow__background { color: var(--line); }
 .vf-empty { position: absolute; left: 50%; top: 24px; transform: translateX(-50%); margin: 0; padding: 10px 18px; border-radius: 980px; background: var(--surface); color: var(--ink-2); font-size: 14px; box-shadow: var(--card-shadow); }
 
 /* Cards. */
-.vf-node { position: relative; width: 220px; box-sizing: border-box; padding: 12px 14px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--card-shadow); color: var(--ink); overflow: hidden; transition: box-shadow 150ms var(--ease), transform 150ms var(--ease); }
+.vf-node { position: relative; width: 240px; box-sizing: border-box; padding: 12px 14px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--card-shadow); color: var(--ink); overflow: hidden; transition: box-shadow 150ms var(--ease), transform 150ms var(--ease), opacity 200ms var(--ease); }
 .vf-node:hover { transform: translateY(-1px); }
 .vf-node--on { box-shadow: 0 0 0 2px var(--ink), var(--card-shadow); }
 .vf-node--focus { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
@@ -36,16 +40,16 @@
 .vf-node::after { content: ''; position: absolute; left: 0; bottom: 0; height: 3px; width: calc(var(--share, 0) * 100%); background: var(--ink); opacity: 0.55; transition: width 250ms var(--ease); }
 .vf-node--focus::after { display: none; }
 .vf-node__top { display: flex; align-items: center; gap: 8px; min-height: 18px; }
-.vf-node__kind { font-size: 12px; font-weight: 600; color: var(--ink-2); }
-.vf-node__draft { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 980px; border: 1px dashed currentColor; opacity: 0.8; }
+.vf-node__kind { font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.vf-node__draft { font-size: 14px; font-weight: 600; padding: 1px 8px; border-radius: 980px; border: 1px dashed currentColor; opacity: 0.8; }
 .vf-node__gap { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); margin-left: auto; flex: none; display: inline-block; }
-.vf-node__name { margin-top: 4px; font-size: 15px; font-weight: 600; letter-spacing: -0.2px; line-height: 1.25; overflow-wrap: anywhere; }
-.vf-node__value { margin-top: 4px; font-size: 14px; color: var(--ink-2); }
-.vf-node__sub { font-size: 12px; }
+.vf-node__name { margin-top: 4px; font-size: 18px; font-weight: 600; letter-spacing: -0.2px; line-height: 1.25; overflow-wrap: anywhere; }
+.vf-node__value { margin-top: 4px; font-size: 16px; color: var(--ink-2); }
+.vf-node__sub { font-size: 14px; }
 /* Stock, from the same ledger as Items: one line, and a coloured edge only when it needs a look. */
-.vf-node__stock { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-2); }
+.vf-node__stock { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 15px; color: var(--ink-2); }
 .vf-node--focus .vf-node__stock { border-top-color: rgba(127, 127, 127, 0.35); color: inherit; opacity: 0.85; }
-.vf-node__alert { margin-top: 2px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.vf-node__alert { margin-top: 2px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
 .vf-node__alert--out { color: var(--bad); }
 .vf-node--focus .vf-node__alert { color: inherit; }
 .vf-node--out { box-shadow: inset 4px 0 0 var(--bad), var(--card-shadow); }
@@ -53,23 +57,24 @@
 .vf-node--wait { box-shadow: inset 4px 0 0 var(--info, var(--ink-3)), var(--card-shadow); }
 .vf-node--out.vf-node--on, .vf-node--low.vf-node--on, .vf-node--wait.vf-node--on { box-shadow: 0 0 0 2px var(--ink), var(--card-shadow); }
 .vf-node--dim { opacity: 0.32; }
-.vf-node__fold { position: absolute; right: 8px; bottom: 8px; min-width: 32px; height: 28px; padding: 0 8px; border-radius: 980px; background: var(--chip); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+/* A tapped card lights its path; the rest steps back. */
+.vf-node--faded { opacity: 0.22; }
+.vf-node--small { border-style: dashed; background: var(--chip); cursor: pointer; }
+.vf-handle--quiet.react-flow__handle { opacity: 0; }
+.vf-node__fold { position: absolute; right: 8px; bottom: 8px; min-width: 32px; height: 28px; padding: 0 8px; border-radius: 980px; background: var(--chip); color: var(--ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .vf-node--focus .vf-node__fold { background: rgba(127, 127, 127, 0.3); color: inherit; }
 .vf-handle.react-flow__handle { width: 12px; height: 12px; border: 2px solid var(--ink-3); background: var(--surface); }
 .vf-handle.react-flow__handle.connectingto, .vf-handle.react-flow__handle:hover { border-color: var(--ink); }
 .vf-handle.react-flow__handle.connectingfrom { background: var(--ink); }
 
 /* Lines. */
-.vf-edge { stroke: var(--ink-3); fill: none; transition: stroke 150ms var(--ease), stroke-width 250ms var(--ease); }
+.vf-edge { stroke: var(--ink-3); fill: none; transition: stroke 150ms var(--ease), stroke-width 250ms var(--ease), opacity 200ms var(--ease); }
 .react-flow__edge:hover .vf-edge { stroke: var(--ink-2); }
 .vf-edge--on { stroke: var(--ink); }
 .vf-edge--resource { stroke-dasharray: 5 5; }
 .vf-edge--partial { stroke: var(--warn); stroke-dasharray: 2 6; }
 .vf-edge--money { stroke: var(--ok); }
-.vf-chip { position: absolute; pointer-events: all; padding: 3px 9px; border-radius: 980px; background: var(--surface); border: 1px solid var(--line); color: var(--ink-2); font: inherit; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
-.vf-chip:hover { color: var(--ink); border-color: var(--ink-3); }
-.vf-chip--on { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
-.vf-chip--neg { color: var(--bad); }
+.vf-edge--faded { opacity: 0.15; }
 .react-flow__connectionline path, .react-flow__connection-path { stroke: var(--ink); stroke-width: 2; }
 
 .vf-canvas .react-flow__controls { box-shadow: var(--card-shadow); border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
@@ -120,6 +125,8 @@
   .vf-publish { margin-left: 0; width: 100%; justify-content: flex-end; }
   .vf-body { grid-template-columns: 1fr; }
   .vf-canvas { height: 62dvh; }
+  .vf-say { padding: 10px 16px; }
+  .vf-say__text { font-size: 16px; }
   .vf-panel { border-left: 0; border-top: 1px solid var(--line); padding: 20px 16px 96px; }
 }
 @media (prefers-reduced-motion: reduce) { .vf-node, .vf-edge, .vf-node::after, .vf-primary { transition: none; animation: none; } }

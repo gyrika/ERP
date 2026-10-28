@@ -199,3 +199,24 @@ test('Warehouse view: tapping a warehouse opens it; the owner renames it, and + 
   await user.click(screen.getByRole('button', { name: 'Undo' }));
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.warehouse_set', after: { name: 'Warehouse 4', archived: true } });
 });
+
+test('the drawing says its point first, folds the small inputs into one card, and a tapped card lights its path', async () => {
+  render(<Root />);
+  await screen.findByRole('main', { name: 'Visual Flow' });
+  expect(await screen.findByText(/^Mozzarella Blend is \d+% of what a Margherita Large costs \(Rs [\d,]+ of Rs [\d,]+\)\.$/, { selector: '.sr-only' })).toBeTruthy();
+  // No labels on the lines: the amounts are on the cards.
+  expect(document.querySelector('.react-flow__edgelabel-renderer button')).toBeNull();
+
+  const small = (await screen.findByText(/^\+\d+ small items$/, { selector: '.vf-node__name' }, { timeout: 5000 })).closest('.vf-node')!;
+  expect(screen.queryByText('Instant yeast', { selector: '.vf-node__name' })).toBeNull();
+  fireEvent.click(small);
+  await userEvent.setup().click(within(panel().getByRole('list', { name: 'Small items' })).getByRole('button', { name: /Instant yeast/ }));
+  expect(panel().getByRole('heading', { name: 'Instant yeast' })).toBeTruthy();
+
+  // Tapping the flour lights the dough's path; the cheese steps back.
+  fireEvent.click(screen.getByText('Pizza Flour', { selector: '.vf-node__name' }));
+  const card = (name: string) => screen.getByText(name, { selector: '.vf-node__name' }).closest('.vf-node')!;
+  expect(card('Pizza Dough Batch').className).not.toContain('vf-node--faded');
+  expect(card('Margherita Large').className).not.toContain('vf-node--faded');
+  expect(card('Mozzarella Blend').className).toContain('vf-node--faded');
+});

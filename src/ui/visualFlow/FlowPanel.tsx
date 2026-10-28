@@ -4,7 +4,10 @@ import type { BookLine } from '../../domain/recipeBook.ts';
 import { versionsOf, type Draft, type PublishStep } from '../../domain/recipeDrafts.ts';
 import { RESOURCE_KINDS, RESOURCE_LABEL, RESOURCE_UNIT, type Rates, type ResourceKind, type ResourceLine } from '../../domain/resources.ts';
 import type { MenuItem } from '../../domain/types.ts';
-import { holderOf, lineNode, moneyOf, ratesOf, resourcesOf, SALES_DAYS, type FlowEdge, type FlowGraph, type FlowNode, type FlowView, type Holder } from '../../domain/visualFlow.ts';
+import {
+  holderOf, lineNode, moneyOf, ratesOf, resourcesOf, SALES_DAYS, SMALL_ID, type FlowEdge, type FlowGraph, type FlowNode, type FlowView, type Holder,
+  type SmallGroup,
+} from '../../domain/visualFlow.ts';
 import { NumberInput } from '../NumberInput.tsx';
 import { lineName } from '../RecipesView.tsx';
 import { amount, KIND_LABEL, nodeShare, pct, rs, stockAmount, stockLine, stockNote } from './FlowParts.tsx';
@@ -62,6 +65,8 @@ interface Props {
   ordering: string | null;
   /** What the order step needs: the price list with stock, the active suppliers, their carts and orders. */
   buying: { items: InventoryRow[]; suppliers: Supplier[]; purchases: PurchaseState };
+  /** The inputs folded into one card on the canvas; null: none are. */
+  small: SmallGroup | null;
 }
 
 const dateText = (at: number) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -97,10 +102,11 @@ export function FlowPanel(p: Props) {
   const { graph, sel } = p;
   const node = sel?.kind === 'node' ? graph.nodes.find((n) => n.id === sel.id) : undefined;
   const edge = sel?.kind === 'edge' ? graph.edges.find((e) => e.id === sel.id) : undefined;
-  const shown = node ?? (edge ? undefined : graph.nodes.find((n) => n.id === graph.focus));
+  const shown = node ?? (edge || sel?.id === SMALL_ID ? undefined : graph.nodes.find((n) => n.id === graph.focus));
   return (
     <aside className="vf-panel" aria-label="Details">
-      {edge ? <EdgeDetails {...p} edge={edge} /> : shown ? <NodeDetails {...p} node={shown} /> : <p className="vf-muted">Choose something to make.</p>}
+      {sel?.kind === 'node' && sel.id === SMALL_ID && p.small ? <SmallDetails {...p} small={p.small} />
+        : edge ? <EdgeDetails {...p} edge={edge} /> : shown ? <NodeDetails {...p} node={shown} /> : <p className="vf-muted">Choose something to make.</p>}
       {!node && !edge && <Attention {...p} />}
       {p.plan.length > 0 && <DraftList {...p} />}
     </aside>
@@ -253,6 +259,29 @@ function StockDetails(p: Props & { node: FlowNode }) {
       )}
       <StockAction {...p} st={st} />
     </section>
+  );
+}
+
+/** The folded card: its items, biggest first, each one tap from its own panel. */
+function SmallDetails({ small, focusName, view, actions, ctx }: Props & { small: SmallGroup }) {
+  return (
+    <>
+      <header className="vf-panel__head">
+        <span className="vf-tag">{KIND_LABEL.small}</span>
+        <h2 className="vf-panel__title">{small.nodes.length} small items</h2>
+        <p className="vf-muted">{rs(small.cents)}, {pct(small.share)} of what {focusName} costs: drawn as one card, so the big ones stand out.</p>
+      </header>
+      <ul className="vf-lines" aria-label="Small items">
+        {small.nodes.map((n) => (
+          <li key={n.id} className="vf-line">
+            <button type="button" className="vf-line__open" onClick={() => actions.select({ kind: 'node', id: n.id })}>
+              <span className="vf-line__name">{n.name}</span>
+              <span className="vf-line__qty num">{view === 'material' ? nodeShare(n, ctx.answers) ?? amount(n.qty, n.unit) : rs(n.cents)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

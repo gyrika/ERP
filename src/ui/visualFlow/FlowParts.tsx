@@ -11,12 +11,16 @@ import type { FlowEdge, FlowNode, FlowView } from '../../domain/visualFlow.ts';
 
 /**
  * What the canvas draws: one card per thing, one line per flow. A card says what it is, its
- * name, and the one number the view is about (how much, what it costs, what it earns). Colour
- * stays quiet: the accent marks the item in focus, amber marks a gap (no price, no batch size).
+ * name, and the one number the view is about (how much, what it costs, what it earns); the
+ * lines carry no labels, only their thickness. Colour stays quiet: the accent marks the item in
+ * focus, amber marks a gap (no price, no batch size).
  */
 export const KIND_LABEL: Record<FlowNode['kind'], string> = {
-  raw: 'Raw', semi: 'Semi-processed', finished: 'Finished', resource: 'Resource', revenue: 'Revenue', profit: 'Profit',
+  raw: 'Raw', semi: 'Semi-processed', finished: 'Finished', resource: 'Resource', revenue: 'Revenue', profit: 'Profit', small: 'The rest',
 };
+
+/** The card's smallest text is 14px; the drawing never zooms out to where it would be smaller. */
+export const MIN_ZOOM = 1;
 
 export const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
 export const amount = (qty: number, unit: string) => `${Number(qty.toFixed(qty < 10 ? 3 : 1)).toLocaleString('en-US')} ${unit}`;
@@ -48,6 +52,8 @@ export type NodeData = {
   stock: ItemStock | null;
   /** Left out by the filter: drawn faintly, so the flow stays whole. */
   dim: boolean;
+  /** Off the path of the card tapped. */
+  faded: boolean;
   /** Its amount as a share of a batch ("1/12 batch"), when it is one. */
   share: string | null;
   /** Its stock value, in the Stock view; the item in focus carries the total behind it. */
@@ -72,6 +78,7 @@ export const nodeShare = (n: Pick<FlowNode, 'id' | 'qty' | 'unit'>, answers: Rea
  */
 export const worthValue = (n: FlowNode, focus: boolean, worth: Worth | undefined, stock: ItemStock | null): string => {
   if (focus) return worth?.cents != null ? `${rs(worth.cents)} behind it` : 'No stock behind it yet';
+  if (n.kind === 'small') return worth?.cents != null ? `${rs(worth.cents)} · ${pct(worth.share)}` : 'Not counted';
   if (n.kind === 'finished') return 'Made to order';
   if (n.kind !== 'raw' && n.kind !== 'semi') return 'Not stock';
   if (worth?.cents != null) return `${rs(worth.cents)} · ${pct(worth.share)}`;
@@ -81,6 +88,7 @@ export const worthValue = (n: FlowNode, focus: boolean, worth: Worth | undefined
 /** The Warehouse view's line: where it is kept. */
 export const placeValue = (n: FlowNode, place: Place | undefined): ReactNode => {
   if (n.kind === 'finished') return 'Made to order';
+  if (n.kind === 'small') return 'Tap to see where';
   if (!place) return 'Not stock';
   return <><span className={`wh-dot wh-seg--${place.homeIndex % 4}`} aria-hidden="true" />{place.home}</>;
 };
@@ -89,6 +97,7 @@ export const placeValue = (n: FlowNode, place: Place | undefined): ReactNode => 
 export const nodeValue = (n: FlowNode, view: FlowView, focus: boolean, share: string | null = null): string => {
   if (n.kind === 'revenue') return `${rs(n.cents)} each`;
   if (n.kind === 'profit') return rs(n.cents);
+  if (n.kind === 'small') return view === 'material' ? rs(n.cents) : `${rs(n.cents)} · ${pct(n.share)}`;
   if (view === 'material') {
     if (focus) return n.kind === 'semi' ? 'One batch' : 'One';
     if (n.kind === 'resource') return n.unit === 'Rs' ? rs(n.qty * 100) : amount(n.qty, n.unit);
@@ -119,7 +128,7 @@ export const stockNote = (s: ItemStock): string | null => {
 };
 
 export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
-  const { node: n, view, focus, takes, onToggle, stock, dim, share, worth, place, stored } = data;
+  const { node: n, view, focus, takes, onToggle, stock, dim, faded, share, worth, place, stored } = data;
   const folds = n.recipe !== null && !focus && n.inputs > 0;
   const gap = n.missing.length > 0;
   // Being made or waiting is in hand (blue); red only when it is short and nothing is coming.
@@ -129,7 +138,7 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
   const note = stock && stockNote(stock);
   return (
     <div
-      className={`vf-node vf-node--${n.kind}${focus ? ' vf-node--focus' : ''}${selected ? ' vf-node--on' : ''}${gap ? ' vf-node--gap' : ''}${alert ? ` vf-node--${alert}` : ''}${dim ? ' vf-node--dim' : ''}`}
+      className={`vf-node vf-node--${n.kind}${focus ? ' vf-node--focus' : ''}${selected ? ' vf-node--on' : ''}${gap ? ' vf-node--gap' : ''}${alert ? ` vf-node--${alert}` : ''}${dim ? ' vf-node--dim' : ''}${faded ? ' vf-node--faded' : ''}`}
       style={{ '--share': view === 'material' || view === 'warehouse' ? 0 : view === 'stock' ? (focus ? 0 : worth?.share ?? 0) : n.share } as CSSProperties}
     >
       {/* A raw card always has its left handle (React Flow measures handles once): it takes a warehouse's line in the Warehouse view. */}
@@ -161,47 +170,29 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
           onClick={(e) => { e.stopPropagation(); onToggle(id); }}
         >{n.collapsed ? `+${n.inputs}` : '−'}</button>
       )}
-      {n.kind !== 'profit' && <Handle type="source" position={Position.Right} className="vf-handle" isConnectable={n.kind === 'raw' || n.kind === 'semi'} />}
+      {n.kind !== 'profit' && <Handle type="source" position={Position.Right} className={`vf-handle${n.kind === 'small' ? ' vf-handle--quiet' : ''}`} isConnectable={n.kind === 'raw' || n.kind === 'semi'} />}
     </div>
   );
 }
 
-/** share: the line as a share of a batch ("1/12 batch"), when it is one. */
-export type EdgeData = { edge: FlowEdge; view: CanvasView; total: number; onSelect: (id: string) => void; share: string | null };
+/** faded: off the path of the card tapped. */
+export type EdgeData = { edge: FlowEdge; view: CanvasView; total: number; faded: boolean };
 export type VfEdge = Edge<EdgeData, 'vf'>;
 
-const edgeLabel = (e: FlowEdge, view: CanvasView, share: string | null): string => {
-  if (e.kind === 'money') return `${e.cents < 0 ? '−' : '+'}${rs(Math.abs(e.cents))}`;
-  if (view !== 'material' && view !== 'stock' && view !== 'warehouse') return rs(e.cents);
-  if (e.kind === 'resource') return e.unit === 'Rs' ? rs(e.qty * 100) : amount(e.qty, e.unit);
-  const waste = e.line?.waste ? ` · ${pct(e.line.waste)} waste` : '';
-  return `${share ?? amount(e.qty, e.unit)}${waste}`;
-};
-
 export function FlowLine({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected, markerEnd }: EdgeProps<VfEdge>) {
-  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const [path] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
   if (!data) return null;
-  const { edge: e, view, total } = data;
+  const { edge: e, view, total, faded } = data;
   // In money views a line is as thick as what flows along it, like a river.
   const share = view === 'material' || view === 'stock' || view === 'warehouse' || total <= 0 ? 0 : Math.min(1, Math.abs(e.cents) / total);
   const width = 1.5 + share * 9;
   return (
-    <>
-      <BaseEdge
-        id={id} path={path} markerEnd={markerEnd}
-        className={`vf-edge vf-edge--${e.kind}${selected ? ' vf-edge--on' : ''}${e.partial ? ' vf-edge--partial' : ''}`}
-        style={{ strokeWidth: selected ? width + 1.5 : width }}
-        interactionWidth={24}
-      />
-      <EdgeLabelRenderer>
-        <button
-          type="button"
-          className={`vf-chip nodrag nopan${selected ? ' vf-chip--on' : ''}${e.kind === 'money' && e.cents < 0 ? ' vf-chip--neg' : ''}`}
-          style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
-          onClick={() => data.onSelect(id)}
-        >{edgeLabel(e, view, data.share)}</button>
-      </EdgeLabelRenderer>
-    </>
+    <BaseEdge
+      id={id} path={path} markerEnd={markerEnd}
+      className={`vf-edge vf-edge--${e.kind}${selected ? ' vf-edge--on' : ''}${e.partial ? ' vf-edge--partial' : ''}${faded ? ' vf-edge--faded' : ''}`}
+      style={{ strokeWidth: selected ? width + 1.5 : width }}
+      interactionWidth={24}
+    />
   );
 }
 
