@@ -118,34 +118,86 @@ test('Warehouse view: each ingredient says where it is kept; picking one shows i
   fireEvent.click(flour);
   const key = within(screen.getByRole('complementary', { name: 'Warehouses' }));
   expect(key.getByText('Warehouse 1 50 kg')).toBeTruthy();
-  await user.click(within(key.getByRole('group', { name: 'Where Pizza Flour is kept' })).getByRole('button', { name: 'Warehouse 2' }));
+  await user.click(within(key.getByRole('group', { name: 'Where Pizza Flour is kept' })).getByRole('button', { name: /Warehouse 2$/ }));
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.home_set', stockKey: 'stock:inv-0001', after: 'wh-2' });
   expect(flour.querySelector('.vf-node__value')?.textContent).toBe('Warehouse 2');
 });
 
-test('one filter and one warehouse: Raw in Warehouse 1 dims every card that is not both; the dish in focus stays bright (SCRUM-187)', async () => {
+test('one filter at a time: Raw dims the semi-processed cards; the dish in focus stays bright; no warehouse row any more (SCRUM-188)', async () => {
   const user = userEvent.setup();
-  adjustStock('inv-0001', 2); // Pizza Flour, kept in Warehouse 1
   render(<Root />);
   await screen.findByRole('main', { name: 'Visual Flow' });
   const flour = (await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 })).closest('.vf-node')!;
   const culture = screen.getByText('Pizza Dough Culture', { selector: '.vf-node__name' }).closest('.vf-node')!;
   const show = within(screen.getByRole('group', { name: 'Show' }));
-  const rooms = within(screen.getByRole('group', { name: 'Warehouse' }));
+  expect(screen.queryByRole('group', { name: 'Warehouse' })).toBeNull();
   await user.click(show.getByRole('button', { name: 'Raw' }));
-  await user.click(rooms.getByRole('button', { name: 'Warehouse 1' }));
   expect(flour.className).not.toContain('vf-node--dim');
-  expect(culture.className).toContain('vf-node--dim'); // semi-processed
+  expect(culture.className).toContain('vf-node--dim');
   await user.click(show.getByRole('button', { name: 'Semi-processed' })); // one at a time: Semi instead of Raw
   expect(show.getByRole('button', { name: 'Raw' }).getAttribute('aria-pressed')).toBe('false');
   expect(flour.className).toContain('vf-node--dim');
-  await user.click(show.getByRole('button', { name: 'All' }));
-  await user.click(rooms.getByRole('button', { name: 'Warehouse 2' })); // one at a time
-  expect(rooms.getByRole('button', { name: 'Warehouse 1' }).getAttribute('aria-pressed')).toBe('false');
-  expect(flour.className).toContain('vf-node--dim'); // not kept there
   expect(document.querySelector('.vf-node--focus')!.className).not.toContain('vf-node--dim');
-  await user.click(rooms.getByRole('button', { name: 'Warehouse 2' })); // off again
-  expect(flour.className).not.toContain('vf-node--dim');
+});
+
+const warehouseCard = (name: string) => screen.getByText(name, { selector: '.vf-whcard .vf-node__name' }).closest('.vf-whcard')!;
+
+test('Warehouse view: a column of warehouses; a picked item goes to warehouse 2 by its number, and Items › Warehouses shows it (SCRUM-188)', async () => {
+  const user = userEvent.setup();
+  render(<Root />);
+  await screen.findByRole('main', { name: 'Visual Flow' });
+  const flour = (await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 })).closest('.vf-node')!;
+  // The column is the Warehouse view's only.
+  expect(document.querySelector('.vf-whcard')).toBeNull();
+  await user.keyboard('5');
+  expect(await screen.findByText('Warehouse 1', { selector: '.vf-whcard .vf-node__name' }, { timeout: 5000 })).toBeTruthy();
+  expect(warehouseCard('Warehouse 1').textContent).toContain('Next to the kitchen');
+  expect(warehouseCard('Warehouse 2')).toBeTruthy();
+  // Found by its text: React Flow keeps cards hidden until measured, which jsdom never does.
+  expect(screen.getByText('+ Warehouse', { selector: 'button' })).toBeTruthy();
+
+  fireEvent.click(flour);
+  await user.keyboard('2');
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.home_set', stockKey: 'stock:inv-0001', after: 'wh-2', actor: { role: 'owner' } });
+  expect(await screen.findByText('Pizza Flour: kept in Warehouse 2')).toBeTruthy();
+  expect(flour.querySelector('.vf-node__value')?.textContent).toBe('Warehouse 2');
+  // The number picked a warehouse, not the second view.
+  expect(screen.getByRole('button', { name: 'Warehouse' }).getAttribute('aria-pressed')).toBe('true');
+
+  cleanup();
+  history.replaceState(null, '', '/#items/warehouses');
+  render(<Root />);
+  const two = (await screen.findByRole('heading', { name: 'Warehouse 2' })).closest('section')!;
+  expect(within(two as HTMLElement).getByText(/1 more kept here/)).toBeTruthy();
+});
+
+test('Warehouse view: tapping a warehouse opens it; the owner renames it, and + Warehouse adds one ready to name (SCRUM-188)', async () => {
+  const user = userEvent.setup();
+  render(<Root />);
+  await screen.findByRole('main', { name: 'Visual Flow' });
+  const flour = (await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 })).closest('.vf-node')!;
+  await user.keyboard('5');
+  fireEvent.click(await screen.findByText('Warehouse 3', { selector: '.vf-whcard .vf-node__name' }, { timeout: 5000 }));
+  // What is not kept there steps back.
+  expect(flour.className).toContain('vf-node--dim');
+  const name = screen.getByRole('textbox', { name: 'Warehouse name' });
+  await user.clear(name);
+  await user.type(name, 'Freezer{Enter}');
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.warehouse_set', warehouseId: 'wh-3', after: { name: 'Freezer', archived: false }, actor: { role: 'owner' } });
+  expect(readAll().filter((e) => e.type === 'stock.warehouse_set')).toHaveLength(1); // saved once, not on Enter and again on leaving
+  expect(await screen.findByText('Freezer', { selector: '.vf-whcard .vf-node__name' })).toBeTruthy();
+
+  // Two warehouses cannot share a name.
+  await user.clear(name);
+  await user.type(name, 'Warehouse 1{Enter}');
+  expect(screen.getByRole('alert').textContent).toBe('Another warehouse has that name.');
+
+  fireEvent.click(screen.getByText('+ Warehouse', { selector: 'button' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.warehouse_set', before: null, after: { name: 'Warehouse 4', archived: false } });
+  expect(await screen.findByText('Warehouse 4', { selector: '.vf-whcard .vf-node__name' })).toBeTruthy();
+  expect((screen.getByRole('textbox', { name: 'Warehouse name' }) as HTMLInputElement).value).toBe('Warehouse 4');
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.warehouse_set', after: { name: 'Warehouse 4', archived: true } });
 });
 
 test('the drawing says its point first, folds the small inputs into one card, and a tapped card lights its path', async () => {

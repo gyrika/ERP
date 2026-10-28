@@ -515,6 +515,21 @@ export function useWarehouses(): Warehouses {
   return useMemo(() => warehousesFromEvents(events), [events]);
 }
 
+/** Every raw and semi-processed item as the warehouse views list it, with its value per unit (Items and Visual Flow). */
+export const stockEntries = (stock: Stock, answers: ReadonlyMap<string, Answer>): StockEntry[] => {
+  const values = new Map(valuationOf(stock, answers).items.map((v) => [v.id, v]));
+  const preps = new Map(stock.preps.map((p) => [p.key, p]));
+  return [
+    ...stock.rows.filter((r) => !r.archived).map((r): StockEntry => ({
+      key: `stock:${r.id}`, kind: 'raw', name: r.name, total: r.counted ? r.onHandBaseUnits : null, unit: r.baseUnit, unitCents: values.get(`stock:${r.id}`)?.unitCents ?? null,
+    })),
+    ...prepItems(answers).map((p): StockEntry => {
+      const s = preps.get(p.key);
+      return { key: `semi:${p.key}`, kind: 'semi', name: p.name, total: s?.tracked ? s.onHand : null, unit: s?.tracked ? s.unit : p.unit, unitCents: values.get(`semi:${p.key}`)?.unitCents ?? null };
+    }),
+  ];
+};
+
 /**
  * Where every raw and semi-processed item is (SCRUM-184): each warehouse with what it holds, and
  * each item's split by stock key, from the same stock as Items and Visual Flow.
@@ -527,18 +542,7 @@ export function useWarehouseStock(): {
   const events = useShopHistory();
   return useMemo(() => {
     const stock = stockFromEvents(SEED_INVENTORY, events);
-    const answers = answersFromEvents(events);
-    const values = new Map(valuationOf(stock, answers).items.map((v) => [v.id, v]));
-    const preps = new Map(stock.preps.map((p) => [p.key, p]));
-    const entries: StockEntry[] = [
-      ...stock.rows.filter((r) => !r.archived).map((r): StockEntry => ({
-        key: `stock:${r.id}`, kind: 'raw', name: r.name, total: r.counted ? r.onHandBaseUnits : null, unit: r.baseUnit, unitCents: values.get(`stock:${r.id}`)?.unitCents ?? null,
-      })),
-      ...prepItems(answers).map((p): StockEntry => {
-        const s = preps.get(p.key);
-        return { key: `semi:${p.key}`, kind: 'semi', name: p.name, total: s?.tracked ? s.onHand : null, unit: s?.tracked ? s.unit : p.unit, unitCents: values.get(`semi:${p.key}`)?.unitCents ?? null };
-      }),
-    ];
+    const entries = stockEntries(stock, answersFromEvents(events));
     const totals = new Map(entries.map((e) => [e.key, e.total]));
     const splitOf = (key: string) => { const t = totals.get(key); return t === null || t === undefined ? [] : shownSplit(stock.warehouses, stock.places, key, t); };
     return { warehouses: stock.warehouses, rows: byWarehouse(stock.warehouses, stock.places, entries), entries, splitOf, places: stock.places };
