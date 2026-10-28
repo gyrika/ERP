@@ -8,6 +8,7 @@ import { PREPS, PRODUCTS, type BookLine } from './recipeBook.ts';
 import { FREE_INGREDIENTS } from './recipeMap.ts';
 import { prepItems, prepKey } from './prep.ts';
 import { RESOURCE_LABEL, RESOURCE_UNIT, resourceCost, type Rates, type ResourceKind, type ResourceLine } from './resources.ts';
+import { fmt } from './money.ts';
 import type { Cents, MenuItem } from './types.ts';
 
 /**
@@ -25,7 +26,8 @@ import type { Cents, MenuItem } from './types.ts';
  * Financial view `revenue` and `profit`.
  */
 export type FlowView = 'material' | 'cost' | 'financial';
-export type NodeKind = 'raw' | 'semi' | 'finished' | 'resource' | 'revenue' | 'profit';
+/** `small`: the one card the smallest inputs fold into (foldSmall). */
+export type NodeKind = 'raw' | 'semi' | 'finished' | 'resource' | 'revenue' | 'profit' | 'small';
 
 export interface FlowNode {
   id: string;
@@ -389,33 +391,162 @@ export const viewOf = (g: FlowGraph, view: FlowView): FlowGraph => {
   return { ...g, nodes: [...g.nodes, ...extra], edges: [...g.edges, money_('revenue>profit', 'revenue', money.revenue), money_('cost>profit', g.focus, -money.cost)] };
 };
 
+// ----- the answer in words -----
+
+/** Whole rupees: a sentence is read, not added up. */
+const rsText = (cents: number) => `Rs ${fmt(Math.round(cents / 100) * 100)}`;
+const pctText = (share: number) => `${Math.round(share * 100)}%`;
+
+/**
+ * The drawing's point in one sentence, above it: what most of the item's cost is, or in the
+ * Financial view what it earns. The drawing is the evidence behind it. Null: nothing drawn yet.
+ */
+export const flowSentence = (g: FlowGraph, view: FlowView, name: string): string | null => {
+  const into = new Map<string, number>();
+  for (const e of g.edges) if (e.target === g.focus && e.kind !== 'money') into.set(e.source, (into.get(e.source) ?? 0) + e.cents);
+  if (!into.size) return null;
+  const total = g.breakdown.total;
+  const gaps = g.missing.length;
+  const still = gaps ? `; ${gaps === 1 ? '1 price or batch size is' : `${gaps} prices or batch sizes are`} still missing` : '';
+  const money = moneyOf(g);
+  if (view === 'financial' && money) {
+    const margin = money.margin === null ? '' : `, a ${pctText(money.margin)} margin`;
+    if (money.profit < 0) return `${name} loses ${rsText(-money.profit)} on each one sold: it costs ${rsText(money.cost)} to make and sells for ${rsText(money.revenue)}${still}.`;
+    return `${name} earns ${rsText(money.profit)} on each one sold${margin} (sells for ${rsText(money.revenue)}, costs ${rsText(money.cost)}${gaps ? ' so far' : ''})${still}.`;
+  }
+  if (total <= 0) return `Nothing in ${name} has a price yet.`;
+  const [bigId, big] = [...into].sort((a, b) => b[1] - a[1])[0];
+  const bigName = g.nodes.find((n) => n.id === bigId)?.name ?? 'One input';
+  const what = g.focus.startsWith('recipe:') ? `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}` : name;
+  return `${bigName} is ${pctText(big / total)} of what ${what} costs (${rsText(big)} of ${rsText(total)}${gaps ? ' so far' : ''})${still}.`;
+};
+
+// ----- the smallest inputs, folded into one card -----
+
+/** The inputs drawn in full: the biggest, until they make up FOLD_SHARE of the inputs' cost. */
+export const FOLD_SHARE = 0.9;
+const KEEP_MIN = 4;
+const KEEP_MAX = 5;
+export const SMALL_ID = 'small';
+
+export interface SmallGroup {
+  /** The folded inputs, biggest first. */
+  nodes: FlowNode[];
+  cents: number;
+  /** Their share of the item's whole cost (0..1). */
+  share: number;
+}
+
+/**
+ * The canvas's graph: the 4–5 bought inputs and resources that make up about 90% of the cost as
+ * cards, the rest in one card, "+9 small items · Rs 36", with a line to each stage they go into.
+ * An input waiting on a price stays a card: a gap is never folded away. Nothing folds when
+ * fewer than two would, or when nothing has a price yet. The full graph stays for the panel.
+ */
+export const foldSmall = (g: FlowGraph): { graph: FlowGraph; small: SmallGroup | null } => {
+  const inputs = g.nodes.filter((n) => n.kind === 'raw' || n.kind === 'resource');
+  const whole = inputs.reduce((s, n) => s + n.cents, 0);
+  if (whole <= 0) return { graph: g, small: null };
+  const sorted = [...inputs].sort((a, b) => b.cents - a.cents || a.name.localeCompare(b.name));
+  const kept = new Set<string>();
+  let sum = 0;
+  for (const n of sorted) {
+    if (kept.size >= KEEP_MAX || (kept.size >= KEEP_MIN && sum >= FOLD_SHARE * whole)) break;
+    kept.add(n.id);
+    sum += n.cents;
+  }
+  const folded = sorted.filter((n) => !kept.has(n.id) && n.missing.length === 0);
+  if (folded.length < 2) return { graph: g, small: null };
+  const out = new Set(folded.map((n) => n.id));
+  const cents = folded.reduce((s, n) => s + n.cents, 0);
+  const edges: FlowEdge[] = [];
+  const toSmall = new Map<string, FlowEdge>();
+  for (const e of g.edges) {
+    if (!out.has(e.source)) { edges.push(e); continue; }
+    const was = toSmall.get(e.target);
+    if (was) { was.cents += e.cents; continue; }
+    const merged: FlowEdge = { id: `${SMALL_ID}>${e.target}`, source: SMALL_ID, target: e.target, kind: 'line', index: -1, line: null, resource: null, qty: 0, unit: '', cents: e.cents, partial: false };
+    toSmall.set(e.target, merged);
+    edges.push(merged);
+  }
+  const levels = [...toSmall.values()].map((e) => g.nodes.find((n) => n.id === e.target)?.level ?? 1);
+  const small: FlowNode = {
+    id: SMALL_ID, kind: 'small', name: `+${folded.length} small items`, level: Math.max(0, Math.min(...levels) - 1),
+    qty: folded.length, unit: 'items', cents, share: g.breakdown.total > 0 ? Math.min(1, cents / g.breakdown.total) : 0,
+    missing: [], recipe: null, inputs: 0, collapsed: false,
+  };
+  return {
+    graph: { ...g, nodes: [...g.nodes.filter((n) => !out.has(n.id)), small], edges },
+    small: { nodes: folded, cents, share: small.share },
+  };
+};
+
+// ----- one card's path -----
+
+/** What a card flows from and into: its path to the item in focus, lit when it is tapped. */
+export const pathOf = (g: Pick<FlowGraph, 'edges'>, id: string): { nodes: Set<string>; edges: Set<string> } => {
+  const nodes = new Set([id]);
+  const edges = new Set<string>();
+  const walk = (from: string, side: 'source' | 'target', other: 'source' | 'target', seen: Set<string>) => {
+    for (const e of g.edges) {
+      if (e[side] !== from) continue;
+      edges.add(e.id);
+      if (seen.has(e[other])) continue;
+      seen.add(e[other]);
+      nodes.add(e[other]);
+      walk(e[other], side, other, seen);
+    }
+  };
+  walk(id, 'source', 'target', new Set([id])); // into the dish
+  walk(id, 'target', 'source', new Set([id])); // what it is made from
+  return { nodes, edges };
+};
+
 // ----- where things sit -----
 
 export const COL_W = 300;
-export const ROW_H = 96;
+/** A card's height until it is measured. */
+export const ROW_H = 110;
+const ROW_GAP = 20;
 
 /**
- * Positions for the canvas: columns by level, and in each column the nodes in the order of
- * what they flow into (fewer crossing lines), centred on the item in focus.
+ * Positions for the canvas: columns by level, from the item in focus leftwards. Each card sits
+ * level with what it flows into (cheese beside the Mozzarella Blend, flour beside the dough), so
+ * lines run short and straight; cards that would overlap are pushed apart, keeping their order.
+ * `heights`: each card's measured height.
  */
-export const layout = (g: FlowGraph): Map<string, { x: number; y: number }> => {
+export const layout = (g: FlowGraph, heights: ReadonlyMap<string, number> = new Map()): Map<string, { x: number; y: number }> => {
   const pos = new Map<string, { x: number; y: number }>();
+  const mid = new Map<string, number>();
   const cols = new Map<number, FlowNode[]>();
   for (const n of g.nodes) cols.set(n.level, [...(cols.get(n.level) ?? []), n]);
   const outs = new Map<string, string[]>();
   for (const e of g.edges) outs.set(e.source, [...(outs.get(e.source) ?? []), e.target]);
+  const h = (id: string) => heights.get(id) ?? ROW_H;
   const levels = [...cols.keys()].sort((a, b) => b - a);
   for (const l of levels) {
     const col = cols.get(l)!;
-    const centre = (n: FlowNode) => {
-      const ys = (outs.get(n.id) ?? []).map((t) => pos.get(t)?.y).filter((y): y is number => y !== undefined);
-      return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0;
-    };
-    // Revenue sits above the item; resources at the foot of the first column.
-    const rank = (n: FlowNode) => (n.kind === 'revenue' ? -1e9 : n.kind === 'resource' ? 1e9 + n.name.charCodeAt(0) : centre(n));
-    col.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-    const top = -((col.length - 1) * ROW_H) / 2;
-    col.forEach((n, i) => pos.set(n.id, { x: l * COL_W, y: top + i * ROW_H }));
+    const wish = new Map<string, number>();
+    for (const n of col) {
+      const ys = (outs.get(n.id) ?? []).map((t) => mid.get(t)).filter((y): y is number => y !== undefined);
+      wish.set(n.id, ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0);
+    }
+    // Revenue sits above the item; resources at the foot of their column.
+    const rank = (n: FlowNode) => (n.kind === 'revenue' ? -1 : n.kind === 'resource' ? 1 : 0);
+    col.sort((a, b) => rank(a) - rank(b) || wish.get(a.id)! - wish.get(b.id)! || b.cents - a.cents || a.name.localeCompare(b.name));
+    // Each where it wishes, pushed down past the one above; then the column moved as one so,
+    // on average, each card is as near its wish as it can be.
+    const at: number[] = [];
+    col.forEach((n, i) => {
+      const top = wish.get(n.id)! - h(n.id) / 2;
+      at.push(i === 0 ? top : Math.max(top, at[i - 1] + h(col[i - 1].id) + ROW_GAP));
+    });
+    const shift = col.reduce((s, n, i) => s + (wish.get(n.id)! - h(n.id) / 2 - at[i]), 0) / col.length;
+    col.forEach((n, i) => {
+      const y = at[i] + shift;
+      pos.set(n.id, { x: l * COL_W, y });
+      mid.set(n.id, y + h(n.id) / 2);
+    });
   }
   return pos;
 };
