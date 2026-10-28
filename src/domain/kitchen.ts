@@ -1,4 +1,5 @@
 import { itemById } from './menu.ts';
+import type { PlatformMark } from './platforms.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Category, OnlineMark, OrderLine } from './types.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from './halves.ts';
@@ -33,6 +34,8 @@ export interface KitchenTicket {
   addOn?: boolean;
   /** An online order: the customer comes to collect it by `pickupBy`. */
   online?: OnlineMark;
+  /** A delivery app's order (SCRUM-195): its rider collects it; the code to match him by. */
+  platform?: PlatformMark;
   /** A manager changed or cancelled something on it. */
   changed?: boolean;
   /** Last arrival or change. The ticket flashes until `seenAt` catches up. */
@@ -48,7 +51,7 @@ export interface KitchenTicket {
   prep?: { prepId: string; name: string; qty: number; unit: string };
 }
 
-export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn' | 'online' | 'prep'>;
+export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn' | 'online' | 'platform' | 'prep'>;
 
 export type Urgency = 'ok' | 'warn' | 'bad';
 
@@ -258,7 +261,7 @@ const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
   for (const e of events) {
     switch (e.type) {
       case 'order.sent':
-        t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn, ...(e.online ? { online: e.online } : {}) });
+        t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn, ...(e.online ? { online: e.online } : {}), ...(e.platform ? { platform: e.platform } : {}) });
         break;
       case 'order.send_undone': t = recall(t, e.ticketId); break;
       // A batch held for what it is made from reaches the kitchen when it is released (production.ts).

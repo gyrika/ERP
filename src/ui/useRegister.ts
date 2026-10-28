@@ -11,6 +11,7 @@ import {
 } from '../domain/manager.ts';
 import { discountLabel } from '../domain/totals.ts';
 import type { LineSpec, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
+import { platformLabel, type PlatformMark } from '../domain/platforms.ts';
 import { demoSnapshot } from '../fake/demo.ts';
 import { currentCashier, shopId } from '../services/auth.ts';
 import { appendEvent } from './eventLog.ts';
@@ -110,7 +111,7 @@ const sendUnsent = (s: Snapshot, at: number): { s: Snapshot; order: Order; ticke
   const order = markSent(s.order, at);
   const ticket: NewTicket = {
     id: newLineId(), shopId: shopId(), number: order.number, lines: lines.map((l) => ({ ...l, sent: true })), firedAt: at,
-    addOn: s.order.sentAt !== undefined,
+    addOn: s.order.sentAt !== undefined, ...(s.order.platform ? { platform: s.order.platform } : {}),
   };
   return {
     order,
@@ -127,6 +128,7 @@ const fireTicket = (ticket: NewTicket) => {
   appendEvent({
     type: 'order.sent', at: ticket.firedAt, actor: currentCashier(), orderNumber: ticket.number,
     ticketId: ticket.id, lines: ticket.lines, addOn: Boolean(ticket.addOn), ...(ticket.online ? { online: ticket.online } : {}),
+    ...(ticket.platform ? { platform: ticket.platform } : {}),
   });
 };
 
@@ -192,6 +194,17 @@ export function useRegister() {
 
   const addSpec = useCallback((spec: LineSpec, message: string) => {
     commit((s) => { const o = ensureOpen(s); return { ...o, order: addLine(o.order, spec) }; }, message);
+  }, [commit]);
+
+  /**
+   * Marks the order on screen as a delivery app's (SCRUM-195), with its code there, or takes the
+   * mark off (null). Only before it goes to the kitchen: the ticket and its event carry the mark.
+   */
+  const setPlatform = useCallback((mark: PlatformMark | null) => {
+    const s = ensureOpen(ref.current);
+    if (s.order.sentAt !== undefined) return;
+    const { platform: _old, ...order } = s.order;
+    commit(() => ({ ...s, order: mark ? { ...order, platform: mark } : order }), mark ? `${platformLabel(mark)}` : 'Not a delivery app order');
   }, [commit]);
 
   /** Cashier edits: unsent lines only. Sent lines need a manager (`manage`). */
@@ -393,6 +406,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, send, acceptOnline, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, send, acceptOnline, setPlatform, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

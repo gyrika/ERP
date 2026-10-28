@@ -104,6 +104,15 @@ const SECTIONS: { title: string; why: string; questions: [string, string, Kind][
     ],
   },
   {
+    title: 'Uber Eats and delivery',
+    why: 'Uber Eats orders now have their own key at the counter, and cheesybeez.com will deliver at Rs 50 a km up to 5 km.',
+    questions: [
+      ['uberPrices', 'Are your prices on Uber Eats the same as in the shop?', ['Same as the shop', 'Higher on Uber Eats (write how much in Notes)']],
+      ['uberCommission', 'What share of each Uber Eats order does Uber keep (its commission, e.g. 30%)?', 'line'],
+      ['shopPin', "The shop's exact place for delivery distances: open Google Maps, drop a pin on the shop, tap Share and paste the link here", 'line'],
+    ],
+  },
+  {
     title: 'Menu (if you like)',
     why: 'Leave empty if nothing to add.',
     questions: [

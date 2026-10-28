@@ -80,3 +80,9 @@ test('every Rs 100 sold adds up to 100, and is not shown before the first sale',
   assert.equal(split.food + split.waste + split.kept, 100);
   assert.match(split.explain, /^Of every Rs 100 sold today:/);
 });
+
+test('Money: Uber Eats orders are counted, and said to be paid later by Uber, not in the drawer', () => {
+  const money = glance([...todays, paid(at(0, 14), 2500, 'uber')]).stations.find((s) => s.id === 'money')!;
+  assert.match(money.explain, /Uber Eats: Rs 2,500/);
+  assert.match(money.explain, /Uber Eats pays the shop later, less its commission: not in the drawer\./);
+});

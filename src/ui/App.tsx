@@ -28,6 +28,8 @@ import { useMenu } from './menuStore.ts';
 import { THEME_LABEL, setTheme, themeChoice, type ThemeChoice } from './theme.ts';
 import { useFleet } from './ShopsView.tsx';
 import { lineItemName } from '../domain/halves.ts';
+import { isPlatformId, PLATFORMS, type Platform } from '../domain/platforms.ts';
+import { PlatformSheet } from './PlatformSheet.tsx';
 
 type Sheet =
   | { kind: 'extras'; item: MenuItem; size?: SizeId }
@@ -36,6 +38,7 @@ type Sheet =
   | { kind: 'pin' }
   | { kind: 'online' }
   | { kind: 'waste' }
+  | { kind: 'platform'; platform: Platform }
   | null;
 
 /** The Tables chip carries the floor's fold (SCRUM-168): loaded beside the Register, so the Register does not grow. */
@@ -93,7 +96,8 @@ export function App({
   }, []);
   const pay = useCallback((tender: Tender, tendered: number) => {
     const paid = reg.pay(tender, tendered);
-    if (paid) print(paid);
+    // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
+    if (paid && !isPlatformId(tender)) print(paid);
   }, [reg, print]);
   const total = orderTotal(reg.order);
   const hasNew = unsentLines(reg.order).length > 0;
@@ -202,6 +206,10 @@ export function App({
 
       // Cashier mode.
       if (mod && key === 'm' && !sheet) { e.preventDefault(); setTyped(null); setSheet({ kind: 'pin' }); return; }
+      // F8: a delivery app's order (today Uber Eats), keyed in from the app's tablet.
+      if (e.key === 'F8' && !sheet && PLATFORMS[0] && reg.order.sentAt === undefined) {
+        e.preventDefault(); setTyped(null); setSheet({ kind: 'platform', platform: PLATFORMS[0] }); return;
+      }
       if (mod && key === 'z') { e.preventDefault(); reg.undo(); return; }
       if (mod && e.key === 'Enter' && !sheet && !reg.paid) {
         e.preventDefault();
@@ -303,6 +311,11 @@ export function App({
         ) : (
           <span className="corner">
             <OnlineChip state={online} looking={sheet?.kind === 'online'} onOpen={() => setSheet({ kind: 'online' })} />
+            {PLATFORMS.map((p, i) => (
+              <button key={p.id} type="button" className="corner__key" onClick={() => setSheet({ kind: 'platform', platform: p })}>
+                {p.name}{i === 0 && <kbd>F8</kbd>}
+              </button>
+            ))}
             {onTables && <Suspense fallback={null}><TablesChip onOpen={onTables} /></Suspense>}
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
@@ -356,6 +369,8 @@ export function App({
           onSend={reg.send}
           onCharge={() => setSheet({ kind: 'pay' })}
           onCloseFree={() => pay('comp', 0)}
+          onClosePlatform={() => { if (reg.order.platform) pay(reg.order.platform.id, total); }}
+          onClearPlatform={() => reg.setPlatform(null)}
           printState={canPrint() && reg.paid && printing?.number === reg.paid.number ? printing.state : null}
           onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
           onOpen={reg.openOrder}
@@ -364,6 +379,9 @@ export function App({
         />
       </div>
 
+      {sheet?.kind === 'platform' && (
+        <PlatformSheet platform={sheet.platform} onClose={closeSheet} onMark={(m) => { reg.setPlatform(m); closeSheet(); }} />
+      )}
       {sheet?.kind === 'extras' && (
         <ExtrasSheet
           item={sheet.item}

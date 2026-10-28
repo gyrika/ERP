@@ -1,3 +1,4 @@
+import type { PlatformId, PlatformMark } from './platforms.ts';
 /** Money is always integer LKR cents (1 LKR = 100). Never floats. */
 export type Cents = number;
 
@@ -86,8 +87,11 @@ export interface OrderInterpreter {
   interpret(input: string): OrderDraft | Promise<OrderDraft>;
 }
 
-/** 'comp' = the order was made free by a manager; nothing is collected. */
-export type Tender = 'cash' | 'transfer' | 'card' | 'qr' | 'comp';
+/**
+ * 'comp' = the order was made free by a manager; nothing is collected. A delivery app's id
+ * (platforms.ts) = the app pays the shop later, nothing is collected at the counter.
+ */
+export type Tender = 'cash' | 'transfer' | 'card' | 'qr' | 'comp' | PlatformId;
 
 /** Manager discount on the whole order. Percentages round once, at the order level. */
 export type Discount = { kind: 'percent'; pct: number } | { kind: 'comp' };
@@ -108,6 +112,8 @@ export interface Order {
   edited?: { by: string; at: number };
   /** Came from cheesybeez.com: the customer collects it, by the time the counter promised. */
   online?: OnlineMark;
+  /** Came from a delivery app (SCRUM-195): its code there; the app's rider collects it, the app pays. */
+  platform?: PlatformMark;
 }
 
 /** An online order's mark, carried by the order, its kitchen ticket and its send event. */
