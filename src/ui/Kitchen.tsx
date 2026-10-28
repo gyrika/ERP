@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { platformLabel } from '../domain/platforms.ts';
 import {
   cookTimeMs, elapsedLabel, needsAttention, queue, ticketLines, urgency, type KitchenTicket, type LineView,
 } from '../domain/kitchen.ts';
@@ -204,6 +205,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                 {t.addOn && <span className="ticket__tag">Added</span>}
                 {t.startedAt !== undefined && <span className="ticket__tag">Cooking</span>}
                 {/* Neutral, like Added: on the kitchen screen colour means urgency only. */}
+                {t.platform && <span className="ticket__tag">{platformLabel(t.platform)}</span>}
                 {t.online && !t.addOn && (
                   <span className="ticket__tag">
                     Online · pickup {new Date(t.online.pickupBy).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}

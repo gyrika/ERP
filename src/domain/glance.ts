@@ -1,4 +1,5 @@
 import { answersFromEvents, menuCost, type CostContext } from './costing.ts';
+import { PLATFORMS } from './platforms.ts';
 import { salesFrom, ticketTimes, type Insight, type ShopData } from './insights.ts';
 import { stockFromEvents, stockStatus } from './inventory.ts';
 import { queue, ticketsFromEvents } from './kitchen.ts';
@@ -74,7 +75,7 @@ const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? 'am' : 'pm'}`;
 const clock = (t: number) => { const d = new Date(t); return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'am' : 'pm'}`; };
 const rs = (c: Cents) => `Rs ${fmt(Math.round(c / 100) * 100)}`;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free' };
+const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats' };
 
 /** The shop at a glance, now. `insights`: the To do list, so the summary names the first. */
 export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopData['stock']>, insights: readonly Insight[], now: number): Glance => {
@@ -200,6 +201,7 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
       `Money: ${rs(total)} taken today.`,
       ...[...byTender].filter(([, c]) => c > 0).map(([t, c]) => `${TENDER[t]}: ${rs(c)}`),
       ...(byTender.get('cash') ? ['The drawer should hold the cash plus the opening float.'] : []),
+      ...PLATFORMS.filter((p) => byTender.get(p.id)).map((p) => `${p.name} pays the shop later, less its commission: not in the drawer.`),
     ].join('\n'),
   };
 

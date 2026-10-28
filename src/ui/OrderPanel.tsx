@@ -7,7 +7,8 @@ import { itemById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { orderTotal, unsentLines } from '../domain/order.ts';
 import { discountLabel, lineAdjustment, lineNet, totals } from '../domain/totals.ts';
-import type { Cents, Discount, Order, OrderLine, PaidOrder } from '../domain/types.ts';
+import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
+import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 
 const sub = (l: OrderLine): string => {
@@ -23,7 +24,7 @@ const sub = (l: OrderLine): string => {
 
 const itemCount = (o: Order): number => o.lines.reduce((n, l) => n + l.qty, 0);
 const items = (o: Order): string => `${itemCount(o)} ${itemCount(o) === 1 ? 'item' : 'items'}`;
-const TENDER = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free' } as const;
+const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats' };
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** Void reasons for a sent line (owner rule: a reason is required). Keys 1-3 pick them. */
@@ -35,8 +36,9 @@ export const parseRupees = (raw: string): Cents | null => {
   return m ? Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0')) : null;
 };
 
-/** An order from cheesybeez.com, and when the customer comes for it. */
+/** An order from cheesybeez.com, and when the customer comes for it; or from a delivery app, with its code there. */
 function OnlineTag({ order, time = true }: { order: Order; time?: boolean }) {
+  if (order.platform) return <span className="status status--online" title="Rider collects it; the app pays">{platformLabel(order.platform)}</span>;
   return order.online
     ? <span className="status status--online" title="Ordered on cheesybeez.com">Online{time && ` · ${clock(order.online.pickupBy)}`}</span>
     : null;
@@ -80,6 +82,10 @@ interface Props {
   onSend: () => void;
   onCharge: () => void;
   onCloseFree: () => void;
+  /** Closes a delivery app's order (SCRUM-195): the app pays the shop, nothing is collected here. */
+  onClosePlatform: () => void;
+  /** Takes the delivery app's mark off an order not yet sent (keyed in by mistake). */
+  onClearPlatform: () => void;
   onOpen: (number: number) => void;
   onNext: () => void;
   onUndo: () => void;
@@ -149,7 +155,7 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
  * and changeable, discount chips under the order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onOpen, onNext, onUndo, printState, onReprint,
+  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onOpen, onNext, onUndo, printState, onReprint,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
@@ -192,6 +198,9 @@ export function OrderPanel({
         <span>
           {order.number}
           <OnlineTag order={order} time={false} />
+          {order.platform && !isOpen && (
+            <button type="button" className="panel__unmark" onClick={onClearPlatform} aria-label={`Not from ${platformName(order.platform.id)}`}>×</button>
+          )}
           {isOpen && <Cook tickets={tickets} number={order.number} />}
           {isOpen && <span className="status status--unpaid">Unpaid</span>}
         </span>
@@ -330,7 +339,9 @@ export function OrderPanel({
           ? <button type="button" className="cta" disabled={!hasNew} onClick={onSend}>Send to kitchen</button>
           : comped
             ? <button type="button" className="cta" onClick={onCloseFree}>Close · Free</button>
-            : <button type="button" className="cta" onClick={onCharge}>Charge</button>}
+            : order.platform
+              ? <button type="button" className="cta" onClick={onClosePlatform}>Close · {platformName(order.platform.id)}</button>
+              : <button type="button" className="cta" onClick={onCharge}>Charge</button>}
       </div>
     </aside>
   );

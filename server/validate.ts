@@ -1,4 +1,5 @@
 import { isPhotoId } from '../src/domain/photos.ts';
+import { isPlatformMark } from '../src/domain/platforms.ts';
 import { isNote } from '../src/domain/gapReview.ts';
 import { isUnitId } from '../src/domain/counting.ts';
 import { MENU } from '../src/domain/menu.ts';
@@ -79,6 +80,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
         return { reason: `event ${e.id} does not say who did it` };
       }
+    }
+    if (e.type === 'order.sent' && e.platform !== undefined && !isPlatformMark(e.platform)) {
+      return { reason: `event ${e.id} has an unknown delivery app or code` };
     }
     if (e.type === 'stock.adjusted' && (
       !shortString(e.itemId) || typeof e.deltaPacks !== 'number' || !Number.isFinite(e.deltaPacks) || e.deltaPacks === 0 ||
