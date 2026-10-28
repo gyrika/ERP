@@ -5,7 +5,9 @@ import { itemById } from '../domain/menu.ts';
 import { bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
-import { canPrint, printReceipt } from '../services/printer.ts';
+import { canPrint, printDeliveryBill, printReceipt } from '../services/printer.ts';
+import { deliveryBill } from '../domain/receipt.ts';
+import { lineGross } from '../domain/totals.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
 import { ExtrasSheet } from './ExtrasSheet.tsx';
 import { KitchenChip } from './KitchenChip.tsx';
@@ -76,7 +78,19 @@ export function App({
   const acceptOnline = useCallback(async (o: OnlineOrder, minutes: number): Promise<string | null> => {
     const readyBy = Date.now() + minutes * 60_000;
     const why = await onlineOrders.answer(o.id, { status: 'accepted', orderNumber: reg.nextNumber, readyBy });
-    if (!why) reg.acceptOnline(o.lines, readyBy);
+    if (!why) reg.acceptOnline(o.lines, readyBy, o.kind === 'delivery' ? { fee: o.deliveryFee } : undefined);
+    return why;
+  }, [reg]);
+  /**
+   * The rider leaves with a delivery: the customer's page says "On the way", and the bill for the
+   * bag prints with the Register's own lines and total (a manager may have changed them since).
+   */
+  const outOnline = useCallback(async (o: OnlineOrder): Promise<string | null> => {
+    const why = await onlineOrders.answer(o.id, { status: 'out' });
+    const order = [reg.order, ...reg.open].find((x) => x.number === o.orderNumber);
+    if (!why && order && canPrint()) {
+      void printDeliveryBill(deliveryBill({ ...o, lines: order.lines, total: orderTotal(order) }, order.lines.map(lineGross), { at: Date.now() }));
+    }
     return why;
   }, [reg]);
   const [category, setCategory] = useState<CategoryId>('popular');
@@ -395,7 +409,7 @@ export function App({
       {sheet?.kind === 'pay' && (
         <PaySheet total={total} onClose={closeSheet} onPay={(tender, tendered) => { pay(tender, tendered); closeSheet(); }} />
       )}
-      {sheet?.kind === 'online' && <OnlineSheet state={online} onAccept={acceptOnline} onClose={closeSheet} />}
+      {sheet?.kind === 'online' && <OnlineSheet state={online} onAccept={acceptOnline} onOut={outOnline} onClose={closeSheet} />}
       {sheet?.kind === 'pin' && (
         <PinSheet onClose={closeSheet} onUnlock={(actor) => { closeSheet(); mode.enter(actor); }} />
       )}

@@ -35,11 +35,11 @@ export const parseRupees = (raw: string): Cents | null => {
   return m ? Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0')) : null;
 };
 
-/** An order from cheesybeez.com, and when the customer comes for it. */
+/** An order from cheesybeez.com, and when the customer comes for it (or the rider takes it). */
 function OnlineTag({ order, time = true }: { order: Order; time?: boolean }) {
-  return order.online
-    ? <span className="status status--online" title="Ordered on cheesybeez.com">Online{time && ` · ${clock(order.online.pickupBy)}`}</span>
-    : null;
+  if (!order.online) return null;
+  const label = order.online.delivery ? 'Delivery' : 'Online';
+  return <span className="status status--online" title="Ordered on cheesybeez.com">{label}{time && ` · ${clock(order.online.pickupBy)}`}</span>;
 }
 
 const COOK_LABEL = { waiting: 'Waiting', cooking: 'Cooking', done: 'Done' } as const;
@@ -318,11 +318,12 @@ export function OrderPanel({
       )}
 
       <div className="panel__foot">
-        {(t.lineAdjust > 0 || t.orderDiscount > 0) && (
+        {(t.lineAdjust > 0 || t.orderDiscount > 0 || t.deliveryFee > 0) && (
           <div className="breakdown num">
             <span>{fmt(t.subtotal)}</span>
             {t.lineAdjust > 0 && <span>− {fmt(t.lineAdjust)} adjusted</span>}
             {t.orderDiscount > 0 && discount && <span>− {fmt(t.orderDiscount)} {discountLabel(discount)}</span>}
+            {t.deliveryFee > 0 && <span>+ {fmt(t.deliveryFee)} delivery</span>}
           </div>
         )}
         <span className="total num">{fmt(total)}</span>

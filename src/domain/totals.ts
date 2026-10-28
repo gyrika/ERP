@@ -7,13 +7,15 @@ import type { Cents, Discount, Order, OrderLine } from './types.ts';
  *   subtotal      = sum of line prices (menu prices, never changed)
  *   lineAdjust    = sum of per-line adjustments, each capped at its line
  *   orderDiscount = percentage of what is left, rounded ONCE (half up), or all of it for Free
- *   total         = subtotal - lineAdjust - orderDiscount
- * so total + lineAdjust + orderDiscount === subtotal, always, to the cent.
+ *   deliveryFee   = a delivery's fee: never discounted, waived only when the order is Free
+ *   total         = subtotal - lineAdjust - orderDiscount + deliveryFee
+ * so total + lineAdjust + orderDiscount === subtotal + deliveryFee, always, to the cent.
  */
 export interface Totals {
   subtotal: Cents;
   lineAdjust: Cents;
   orderDiscount: Cents;
+  deliveryFee: Cents;
   total: Cents;
 }
 
@@ -36,7 +38,8 @@ export const totals = (order: Order): Totals => {
   const subtotal = order.lines.reduce((s, l) => s + lineGross(l), 0);
   const lineAdjust = order.lines.reduce((s, l) => s + lineAdjustment(order, l), 0);
   const orderDiscount = discountAmount(subtotal - lineAdjust, order.adjust?.discount);
-  return { subtotal, lineAdjust, orderDiscount, total: subtotal - lineAdjust - orderDiscount };
+  const deliveryFee = order.adjust?.discount?.kind === 'comp' ? 0 : (order.online?.delivery?.fee ?? 0);
+  return { subtotal, lineAdjust, orderDiscount, deliveryFee, total: subtotal - lineAdjust - orderDiscount + deliveryFee };
 };
 
 export const discountLabel = (d: Discount): string => (d.kind === 'comp' ? 'Free' : `${d.pct}% off`);

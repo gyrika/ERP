@@ -1,8 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { menuItems, setMenuState } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
-import { Banknote, Clock, Hamburger, MapPin, MessageCircle, Phone, Pizza, Plus, ShoppingBag, Soup } from 'lucide-react';
-import { clockText, normalisePhone, onlineLineTotal, onlineTotal, statusText, type OnlineLine } from '../domain/online.ts';
+import { Banknote, Bike, Clock, Hamburger, LocateFixed, MapPin, MessageCircle, Phone, Pizza, Plus, ShoppingBag, Soup } from 'lucide-react';
+import {
+  clockText, normalisePhone, onlineLineTotal, onlineTotal, statusText, type DeliveryPin, type DeliveryQuote, type OnlineKind, type OnlineLine,
+} from '../domain/online.ts';
 import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
 import { useInstall } from '../services/ownerApp.ts';
@@ -11,10 +13,11 @@ import { HERO, PHOTOS, STRIPS, type StripId } from './photos.ts';
 import { isOrderAppHost, setUpOrderApp } from './pwa.ts';
 
 /**
- * cheesybeez.com: order ahead, collect it hot, pay at the shop.
+ * cheesybeez.com: order ahead, collect it hot and pay at the shop, or have it delivered and
+ * pay the rider in cash (once the owner has set a delivery fee, SCRUM-193).
  * Serves the customer at home on their phone: hungry, knows what they like, and
  * wants one thing next: their order placed in under a minute, then to know when it
- * is ready. So: the menu, a basket, name and phone, and a live status. No account.
+ * is ready. So: the menu, a basket, name and phone (and an address), and a live status. No account.
  */
 const rs = (cents: number) => `Rs ${fmt(cents)}`;
 const SECTIONS: { id: Category; label: string }[] = [
@@ -386,15 +389,49 @@ function PickupInfo({ shop }: { shop: ShopInfo | null }) {
   );
 }
 
-function Checkout({ basket, taking, onRetry, onChange, onPlaced, onClose }: {
-  basket: OnlineLine[]; taking: Taking; onRetry: () => void; onChange: (b: OnlineLine[]) => void; onPlaced: (p: Placed) => void; onClose: () => void;
+/**
+ * Asks the phone where it is when the customer taps the button, then the cloud what delivery there
+ * costs (by road from the shop). The fee shown is the fee charged: the cloud works it out again.
+ */
+function useLocation() {
+  const [pin, setPin] = useState<DeliveryPin | null>(null);
+  const [quote, setQuote] = useState<DeliveryQuote | null>(null);
+  const [state, setState] = useState<'idle' | 'asking' | 'failed'>('idle');
+  const ask = () => {
+    if (!navigator.geolocation) { setState('failed'); return; }
+    setState('asking');
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        const at = { lat: p.coords.latitude, lng: p.coords.longitude };
+        api.quote(at).then((q) => { setPin(at); setQuote(q); setState('idle'); }, () => setState('failed'));
+      },
+      () => setState('failed'),
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
+    );
+  };
+  return { pin, quote, state, ask };
+}
+
+function Checkout({ basket, shop, taking, onRetry, onChange, onPlaced, onClose }: {
+  basket: OnlineLine[]; shop: ShopInfo | null; taking: Taking; onRetry: () => void;
+  onChange: (b: OnlineLine[]) => void; onPlaced: (p: Placed) => void; onClose: () => void;
 }) {
   const [me, setMe] = useState(remembered.me);
+  const rules = shop?.delivery ?? null;
+  const [chosen, setChosen] = useState<OnlineKind>(remembered.kind);
+  const kind: OnlineKind = rules === null ? 'pickup' : chosen;
+  const delivery = kind === 'delivery';
+  const where = useLocation();
+  const priced = where.quote && 'fee' in where.quote ? where.quote : null;
+  const fee = priced?.fee ?? 0;
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const phoneOk = normalisePhone(me.phone) !== null;
-  const ready = me.name.trim() !== '' && phoneOk && basket.length > 0 && taking === 'open' && !sending;
+  const addressOk = !delivery || (me.address.trim() !== '' && priced !== null);
+  const ready = me.name.trim() !== '' && phoneOk && addressOk && basket.length > 0 && taking === 'open' && !sending;
+  const total = onlineTotal(basket) + (delivery ? fee : 0);
+  const choose = (k: OnlineKind) => { setChosen(k); remembered.setKind(k); };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -403,7 +440,10 @@ function Checkout({ basket, taking, onRetry, onChange, onPlaced, onClose }: {
     setError('');
     try {
       remembered.setMe(me);
-      onPlaced(await api.place({ name: me.name, phone: me.phone, note, lines: basket }));
+      onPlaced(await api.place({
+        kind, name: me.name, phone: me.phone, note, lines: basket,
+        ...(delivery ? { address: me.address, pin: where.pin } : {}),
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setSending(false);
@@ -415,7 +455,16 @@ function Checkout({ basket, taking, onRetry, onChange, onPlaced, onClose }: {
       <h2 className="o-sheet__title">Your order</h2>
       <BasketLines basket={basket} onChange={onChange} />
       {basket.length === 0 && <p className="o-muted">Your order is empty.</p>}
-      <div className="o-total"><span>Total</span><b className="num">{rs(onlineTotal(basket))}</b></div>
+      {rules !== null && (
+        <div className="o-kind" role="radiogroup" aria-label="Pickup or delivery">
+          <button type="button" role="radio" aria-checked={!delivery} onClick={() => choose('pickup')}><ShoppingBag aria-hidden />Pickup</button>
+          <button type="button" role="radio" aria-checked={delivery} onClick={() => choose('delivery')}>
+            <Bike aria-hidden />Delivery<span className="num o-kind__fee">{rs(rules.perKm)}/km</span>
+          </button>
+        </div>
+      )}
+      {delivery && priced && <div className="o-fee"><span>Delivery · <span className="num">{priced.km} km</span></span><span className="num">{rs(priced.fee)}</span></div>}
+      <div className="o-total"><span>Total</span><b className="num">{rs(total)}</b></div>
 
       <form className="o-form" onSubmit={(e) => void submit(e)}>
         <label>Your name
@@ -425,21 +474,49 @@ function Checkout({ basket, taking, onRetry, onChange, onPlaced, onClose }: {
           <input value={me.phone} onChange={(e) => setMe({ ...me, phone: e.target.value })} type="tel" inputMode="tel" autoComplete="tel" placeholder="077 123 4567" required />
           {me.phone && !phoneOk && <span className="o-hint">A Sri Lankan number, like 077 123 4567</span>}
         </label>
+        {delivery && (<>
+          <label>Delivery address
+            <textarea
+              value={me.address} onChange={(e) => setMe({ ...me, address: e.target.value })} rows={2} maxLength={200}
+              autoComplete="street-address" placeholder="House number, road, and a landmark" required
+            />
+          </label>
+          <div className="o-locate">
+            {priced ? (<>
+              <span className="o-locate__ok"><LocateFixed aria-hidden />Location added · <span className="num">{priced.km} km</span></span>
+              <button type="button" className="o-link" onClick={where.ask}>Update</button>
+            </>) : (
+              <button type="button" className="o-btn" onClick={where.ask} disabled={where.state === 'asking'}>
+                <LocateFixed aria-hidden />{where.state === 'asking' ? 'Finding you…' : 'Share my location'}
+              </button>
+            )}
+            {!priced && where.state === 'idle' && !where.quote && (
+              <span className="o-muted">Delivery is {rs(rules?.perKm ?? 0)} a km, up to {rules?.maxKm} km: we need your location to price it.</span>
+            )}
+            {where.quote && 'reason' in where.quote && <span className="o-hint">Sorry, {where.quote.reason}.</span>}
+            {where.state === 'failed' && (
+              <span className="o-hint">We couldn&apos;t get your location. Allow it in your browser, choose pickup, or call the shop.</span>
+            )}
+          </div>
+        </>)}
         <label><span>Note for the shop <span className="o-muted">(optional)</span></span>
           <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={140} placeholder="Extra spicy, cut in 8…" />
         </label>
         {error && <p className="o-error" role="alert">{error}</p>}
         <TakingNote taking={taking} onRetry={onRetry} closed="The shop is not taking online orders right now." />
         <button type="submit" className="o-primary o-primary--wide" disabled={!ready}>
-          {sending ? 'Sending…' : `Place order · ${rs(onlineTotal(basket))}`}
+          {sending ? 'Sending…' : `Place order · ${rs(total)}`}
         </button>
-        <p className="o-muted o-center">Pickup at the shop. Pay when you collect: cash or bank transfer.</p>
+        <p className="o-muted o-center">
+          {delivery ? 'We bring it to you. Pay the rider in cash.' : 'Pickup at the shop. Pay when you collect: cash or bank transfer.'}
+        </p>
       </form>
     </Sheet>
   );
 }
 
 const STEPS = ['Sent', 'Accepted', 'Ready'] as const;
+const DELIVERY_STEPS = ['Sent', 'Accepted', 'On the way'] as const;
 const at = (ms: number) => new Date(ms).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true });
 
 /** The order after it is placed: one big line saying where it is, and the number to say at the counter. */
@@ -458,8 +535,12 @@ function Status({ placed, onDone, onAgain }: { placed: Placed; onDone: () => voi
     return () => { stop = true; clearTimeout(timer); };
   }, [placed]);
 
-  const step = !order ? 0 : order.status === 'new' ? 0 : order.status === 'accepted' ? 1 : order.status === 'ready' || order.status === 'collected' ? 2 : -1;
-  const ended = order && ['declined', 'expired', 'collected'].includes(order.status);
+  const delivery = order?.kind === 'delivery';
+  const step = !order ? 0 : order.status === 'new' ? 0
+    : order.status === 'accepted' || (delivery && order.status === 'ready') ? 1
+      : ['ready', 'collected', 'out', 'delivered'].includes(order.status) ? 2 : -1;
+  const ended = order && ['declined', 'expired', 'collected', 'delivered'].includes(order.status);
+  const steps = delivery ? DELIVERY_STEPS : STEPS;
 
   return (
     <main className="o-status" aria-label="Your order">
@@ -467,19 +548,33 @@ function Status({ placed, onDone, onAgain }: { placed: Placed; onDone: () => voi
         <>
           {step >= 0 && (
             <ol className="o-steps" aria-label="Progress">
-              {STEPS.map((s, i) => <li key={s} className={i <= step ? 'is-done' : ''} aria-current={i === step ? 'step' : undefined}>{s}</li>)}
+              {steps.map((s, i) => <li key={s} className={i <= step ? 'is-done' : ''} aria-current={i === step ? 'step' : undefined}>{s}</li>)}
             </ol>
           )}
           {order.status === 'new' && (<>
             <h1>Sent to the shop</h1>
             <p className="o-lead">Waiting for them to accept it. This usually takes a few minutes; keep this page open.</p>
           </>)}
-          {order.status === 'accepted' && (<>
+          {delivery && (order.status === 'accepted' || order.status === 'ready') && (<>
+            <p className="o-kicker">Your order number</p>
+            <h1 className="o-number num">{order.orderNumber}</h1>
+            <p className="o-lead">Accepted. With you around <b>{order.readyBy ? at(order.readyBy) : 'soon'}</b>. We&apos;ll bring it to {order.address}.</p>
+          </>)}
+          {order.status === 'out' && (<>
+            <p className="o-kicker">On the way</p>
+            <h1 className="o-number num">{order.orderNumber}</h1>
+            <p className="o-lead">Our rider is bringing it now. Please have <b>{rs(order.total)}</b> in cash ready.</p>
+          </>)}
+          {order.status === 'delivered' && (<>
+            <h1>Enjoy your meal</h1>
+            <p className="o-lead">Thank you for ordering from CheesyBeez.</p>
+          </>)}
+          {!delivery && order.status === 'accepted' && (<>
             <p className="o-kicker">Your order number</p>
             <h1 className="o-number num">{order.orderNumber}</h1>
             <p className="o-lead">Accepted. Ready around <b>{order.readyBy ? at(order.readyBy) : 'soon'}</b>. Say your number at the counter.</p>
           </>)}
-          {order.status === 'ready' && (<>
+          {!delivery && order.status === 'ready' && (<>
             <p className="o-kicker">Ready for pickup</p>
             <h1 className="o-number num">{order.orderNumber}</h1>
             <p className="o-lead">It’s hot and waiting. Say your number at the counter and pay there.</p>
@@ -499,8 +594,11 @@ function Status({ placed, onDone, onAgain }: { placed: Placed; onDone: () => voi
           {lost && <p className="o-muted" role="status">No connection: trying again…</p>}
 
           <section className="o-receipt" aria-label="What you ordered">
-            <ul>{order.lines.map((l, i) => <li key={i}><span>{lineText(l)}</span><span className="num">{fmt(onlineLineTotal(l))}</span></li>)}</ul>
-            <div className="o-total"><span>To pay at the shop</span><b className="num">{rs(order.total)}</b></div>
+            <ul>
+              {order.lines.map((l, i) => <li key={i}><span>{lineText(l)}</span><span className="num">{fmt(onlineLineTotal(l))}</span></li>)}
+              {delivery && <li><span>Delivery{order.distanceKm !== null && ` · ${order.distanceKm} km`}</span><span className="num">{fmt(order.deliveryFee)}</span></li>}
+            </ul>
+            <div className="o-total"><span>{delivery ? 'To pay the rider' : 'To pay at the shop'}</span><b className="num">{rs(order.total)}</b></div>
           </section>
           {ended && (
             <div className="o-actions">
@@ -608,8 +706,13 @@ export function OrderSite() {
       <div className="o-wrap o-layout">
         <div className="o-col">
           <ul className="o-trust">
-            <li><ShoppingBag aria-hidden />Pickup only</li>
-            <li><Banknote aria-hidden />Pay when you collect</li>
+            {shop?.delivery ? (<>
+              <li><Bike aria-hidden />Pickup or delivery</li>
+              <li><Banknote aria-hidden />Pay when you get it</li>
+            </>) : (<>
+              <li><ShoppingBag aria-hidden />Pickup only</li>
+              <li><Banknote aria-hidden />Pay when you collect</li>
+            </>)}
             <li><Clock aria-hidden />We confirm your ready time</li>
           </ul>
 
@@ -660,7 +763,7 @@ export function OrderSite() {
       {open && <ItemSheet item={open} closed={taking === 'closed'} onAdd={add} onClose={() => setOpen(null)} />}
       {checkout && (
         <Checkout
-          basket={basket} taking={taking} onRetry={retry} onChange={setBasket} onClose={() => setCheckout(false)}
+          basket={basket} shop={shop} taking={taking} onRetry={retry} onChange={setBasket} onClose={() => setCheckout(false)}
           onPlaced={(p) => { remembered.setLast(basket); remembered.setCurrent(p); setBasket([]); setCheckout(false); setPlaced(p); }}
         />
       )}
@@ -682,7 +785,7 @@ function Header({ taking, shop, onRetry }: { taking: Taking; shop: ShopInfo | nu
         {taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}
         {(taking === 'open' || taking === 'closed') && (
           <span className={`o-pill o-pill--${taking}`} role="status">
-            {statusText(taking === 'open', shop?.hours ?? null, Date.now())}
+            {statusText(taking === 'open', shop?.hours ?? null, Date.now(), Boolean(shop?.delivery))}
           </span>
         )}
         {taking === 'failed' && (

@@ -6,6 +6,7 @@ import { HttpError, json, sha256Hex } from './http.ts';
 import { managerRoutes, parseActor } from './manager.ts';
 import { onlineRoutes } from './online.ts';
 import { projectSales } from './sales.ts';
+import type { RoadKm } from './road.ts';
 
 export { sha256Hex };
 
@@ -81,6 +82,15 @@ export interface CloudOptions {
   /** Its phone / WhatsApp number and address for the page's pickup card; unset = not shown. */
   orderPhone?: string;
   orderAddress?: string;
+  /**
+   * Delivery (SCRUM-193): the shop's pin "lat,lng", rupees a km and the farthest km (wrangler.toml
+   * SHOP_LOCATION, DELIVERY_PER_KM, DELIVERY_MAX_KM); any unset = pickup only.
+   */
+  shopLocation?: string;
+  deliveryPerKm?: string;
+  deliveryMaxKm?: string;
+  /** Road km between two points (road.ts, openrouteservice); null or missing = the straight-line guess. */
+  roadKm?: RoadKm;
   /** Cloudflare Workers AI (the Worker's AI binding, SCRUM-144); null = the AI endpoints answer 503. */
   ai?: AiLike | null;
   /** Model calls per shop per day (wrangler.toml AI_DAILY_CALLS); unset = ai.ts AI_DAILY_CALLS. */

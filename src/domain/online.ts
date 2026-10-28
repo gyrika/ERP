@@ -3,13 +3,14 @@ import { unitPrice } from './money.ts';
 import type { Cents, LineSpec, MenuItem, SizeId } from './types.ts';
 
 /**
- * Online orders (cheesybeez.com): order ahead, collect at the shop, pay there.
+ * Online orders (cheesybeez.com): order ahead, then collect at the shop and pay there,
+ * or have the shop's rider bring it and pay the rider in cash (delivery, SCRUM-193).
  * The customer's phone sends what they chose; the cloud checks it and prices it
  * with these rules (never trusting a price from the phone); the counter accepts
  * or declines it, and the customer's page follows its status.
  *
- * A customer's name and phone live only with the online order (so the shop can call
- * them and call out their order). The order in the Register is identified by its
+ * A customer's name, phone and delivery address live only with the online order (so the
+ * shop can call them, call out their order, and find their door). The order in the Register is identified by its
  * number only, as every other order.
  */
 
@@ -17,19 +18,33 @@ import type { Cents, LineSpec, MenuItem, SizeId } from './types.ts';
 export type OnlineLine = Pick<LineSpec, 'itemId' | 'qty' | 'size' | 'adds' | 'outs'>;
 
 /**
- * new → accepted → ready → collected, or new → declined.
+ * Pickup: new → accepted → ready → collected. Delivery: new → accepted → ready → out → delivered.
+ * Either can be new → declined.
  * `expired`: nobody answered within ONLINE_ANSWER_MS (the customer is told to call instead).
  */
-export type OnlineStatus = 'new' | 'accepted' | 'declined' | 'ready' | 'collected' | 'expired';
+export type OnlineStatus = 'new' | 'accepted' | 'declined' | 'ready' | 'collected' | 'out' | 'delivered' | 'expired';
+
+export type OnlineKind = 'pickup' | 'delivery';
+/** Where the customer's phone said it was, when they shared it: a Maps link for the rider. */
+export interface DeliveryPin { lat: number; lng: number }
 
 export interface OnlineOrder {
   id: string;
   createdAt: number;
   status: OnlineStatus;
+  kind: OnlineKind;
   name: string;
   phone: string;
+  /** Delivery only: where to take it, as the customer typed it, and their shared location if any. */
+  address: string | null;
+  pin: DeliveryPin | null;
   lines: OnlineLine[];
   note: string;
+  /** Delivery only (0 for pickup); already in `total`. */
+  deliveryFee: Cents;
+  /** Delivery only: the road distance the fee was worked out from, in km (one decimal). */
+  distanceKm: number | null;
+  /** The items plus the delivery fee: what the customer pays. */
   total: Cents;
   /** The Register's number, once accepted: the customer says it at the counter. */
   orderNumber: number | null;
@@ -45,9 +60,71 @@ export const ONLINE_ANSWER_MS = 10 * 60_000;
 export const ONLINE_SEEN_MS = 2 * 60_000;
 /** Minutes the counter can promise when accepting. */
 export const READY_IN_MINUTES = [15, 20, 30, 45] as const;
+/** A delivery also needs the ride, so its choices start later. */
+export const DELIVER_IN_MINUTES = [30, 45, 60, 90] as const;
 export const DECLINE_REASONS = ['Too busy right now', 'Something on the order is sold out', 'Closing soon'] as const;
+export const DELIVERY_DECLINE_REASONS = ['Too far to deliver', 'No rider right now', ...DECLINE_REASONS] as const;
+/** A delivery still out after this long is worth a look (the owner's Today). */
+export const OUT_TOO_LONG_MS = 60 * 60_000;
 
-const LIMITS = { lines: 30, qty: 20, name: 40, note: 140 };
+const LIMITS = { lines: 30, qty: 20, name: 40, note: 140, address: 200 };
+
+/**
+ * How the shop charges for delivery (owner, 2026-10-29: Rs 50 a km, up to about 5 km): from the
+ * shop's own location, so much a started km, up to so far.
+ */
+export interface DeliveryRules { from: DeliveryPin; perKm: Cents; maxKm: number }
+
+/**
+ * The cloud's settings → the rules, or null (no delivery, pickup only) unless all three are set:
+ * SHOP_LOCATION "6.8235,79.8901" (the shop's own pin, never guessed), DELIVERY_PER_KM in whole
+ * rupees ("50"), DELIVERY_MAX_KM ("5").
+ */
+export const parseDeliveryRules = (location?: string, perKm?: string, maxKm?: string): DeliveryRules | null => {
+  const at = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(location ?? '');
+  const rate = /^\s*(\d{1,4})\s*$/.exec(perKm ?? '');
+  const far = /^\s*(\d{1,2}(?:\.\d)?)\s*$/.exec(maxKm ?? '');
+  if (!at || !rate || !far) return null;
+  const from = { lat: Number(at[1]), lng: Number(at[2]) };
+  if (Math.abs(from.lat) > 90 || Math.abs(from.lng) > 180 || Number(far[1]) <= 0) return null;
+  return { from, perKm: Number(rate[1]) * 100, maxKm: Number(far[1]) };
+};
+
+/** Straight-line km between two points (haversine). */
+export const straightKm = (a: DeliveryPin, b: DeliveryPin): number => {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+};
+
+/** Roads are about this much longer than the straight line: the guess when the road service cannot answer. */
+export const ROAD_FACTOR = 1.3;
+export const roadKmGuess = (a: DeliveryPin, b: DeliveryPin): number => straightKm(a, b) * ROAD_FACTOR;
+
+export type DeliveryQuote = { km: number; fee: Cents } | { reason: string };
+
+/**
+ * The fee for a road distance: every started km is charged (2.1 km = 3 km), at least 1 km, and
+ * nothing past the shop's limit. km is shown to one decimal; the fee stays whole cents.
+ */
+export const quoteFor = (km: number, rules: DeliveryRules): DeliveryQuote => {
+  const shown = Math.round(km * 10) / 10;
+  if (shown > rules.maxKm) return { reason: `you are ${shown} km away: we deliver up to ${rules.maxKm} km. Choose pickup, or call the shop` };
+  return { km: shown, fee: Math.max(1, Math.ceil(shown)) * rules.perKm };
+};
+
+/** A Maps link that opens the rider's navigation at the customer's shared location. */
+export const pinLink = (pin: DeliveryPin): string => `https://www.google.com/maps/search/?api=1&query=${pin.lat},${pin.lng}`;
+
+const checkPin = (raw: unknown): DeliveryPin | null | string => {
+  if (raw === undefined || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const ok = (v: unknown, max: number) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max;
+  if (typeof raw !== 'object' || !ok(r.lat, 90) || !ok(r.lng, 180)) return 'your location is not readable: type the address instead';
+  // About 1 m is plenty for a rider, and keeps no more than that.
+  const round = (v: number) => Math.round(v * 1e5) / 1e5;
+  return { lat: round(r.lat as number), lng: round(r.lng as number) };
+};
 
 /**
  * A Sri Lankan phone number in its everyday form, 0XXXXXXXXX (mobiles 07…), or null.
@@ -90,10 +167,19 @@ export const onlineLineTotal = (l: OnlineLine, items: readonly MenuItem[] = menu
 export const onlineTotal = (lines: OnlineLine[], items: readonly MenuItem[] = menuItems()): Cents =>
   lines.reduce((s, l) => s + onlineLineTotal(l, items), 0);
 
-export interface CheckedOnlineOrder { name: string; phone: string; lines: OnlineLine[]; note: string; total: Cents }
+export interface CheckedOnlineOrder {
+  kind: OnlineKind; name: string; phone: string; address: string | null; pin: DeliveryPin | null;
+  lines: OnlineLine[]; note: string; deliveryFee: Cents; distanceKm: number | null; total: Cents;
+}
 
-/** What the phone sent, checked and priced here, or the reason it cannot be taken (shown to the customer). */
-export const checkOnlineOrder = (body: unknown, items: readonly MenuItem[] = menuItems()): CheckedOnlineOrder | { reason: string } => {
+/**
+ * What the phone sent, checked and priced here, or the reason it cannot be taken (shown to the customer).
+ * `delivers`: the shop has delivery rules. A delivery needs the customer's location (the fee is by
+ * distance); its fee is added by `withDelivery`, from the shop's rules, never from the phone.
+ */
+export const checkOnlineOrder = (
+  body: unknown, items: readonly MenuItem[] = menuItems(), delivers = false,
+): CheckedOnlineOrder | { reason: string } => {
   if (typeof body !== 'object' || body === null) return { reason: 'the order is not readable' };
   const b = body as Record<string, unknown>;
   const name = typeof b.name === 'string' ? b.name.trim().replace(/\s+/g, ' ') : '';
@@ -103,6 +189,19 @@ export const checkOnlineOrder = (body: unknown, items: readonly MenuItem[] = men
   if (!phone) return { reason: 'type your phone number, like 077 123 4567' };
   const note = typeof b.note === 'string' ? b.note.trim() : '';
   if (note.length > LIMITS.note) return { reason: `a note of at most ${LIMITS.note} letters` };
+  const kind: OnlineKind = b.kind === 'delivery' ? 'delivery' : 'pickup';
+  let address: string | null = null;
+  let pin: DeliveryPin | null = null;
+  if (kind === 'delivery') {
+    if (!delivers) return { reason: 'the shop is not delivering right now: choose pickup' };
+    address = typeof b.address === 'string' ? b.address.trim().replace(/\s+/g, ' ') : '';
+    if (!address) return { reason: 'type your address' };
+    if (address.length > LIMITS.address) return { reason: `an address of at most ${LIMITS.address} letters` };
+    const p = checkPin(b.pin);
+    if (typeof p === 'string') return { reason: p };
+    if (!p) return { reason: 'share your location for delivery (the fee is by distance), or choose pickup' };
+    pin = p;
+  }
   if (!Array.isArray(b.lines) || !b.lines.length) return { reason: 'the order is empty' };
   if (b.lines.length > LIMITS.lines) return { reason: 'that is a big order: please call the shop' };
   const lines: OnlineLine[] = [];
@@ -111,20 +210,40 @@ export const checkOnlineOrder = (body: unknown, items: readonly MenuItem[] = men
     if (typeof l === 'string') return { reason: l };
     lines.push(l);
   }
-  return { name, phone, lines, note, total: onlineTotal(lines, items) };
+  return { kind, name, phone, address, pin, lines, note, deliveryFee: 0, distanceKm: null, total: onlineTotal(lines, items) };
 };
+
+/** A checked delivery with its fee from the shop's quote: the fee goes into the total. */
+export const withDelivery = (o: CheckedOnlineOrder, q: { km: number; fee: Cents }): CheckedOnlineOrder =>
+  ({ ...o, deliveryFee: q.fee, distanceKm: q.km, total: o.total - o.deliveryFee + q.fee });
 
 /** The status the customer sees: an unanswered order runs out after ONLINE_ANSWER_MS. */
 export const effectiveStatus = (o: Pick<OnlineOrder, 'status' | 'createdAt'>, now: number): OnlineStatus =>
   o.status === 'new' && now - o.createdAt > ONLINE_ANSWER_MS ? 'expired' : o.status;
 
-/** Which changes the counter may make, from which status. */
+/**
+ * Which changes the counter may make, from which status (canBecome adds the kind). A payment
+ * closes the order from wherever it is: collected for pickup, delivered for delivery.
+ */
 export const NEXT_STATUS: Record<OnlineStatus, OnlineStatus[]> = {
   new: ['accepted', 'declined'],
-  accepted: ['ready', 'collected'],
-  ready: ['collected'],
-  declined: [], collected: [], expired: [],
+  accepted: ['ready', 'collected', 'out', 'delivered'],
+  ready: ['collected', 'out', 'delivered'],
+  out: ['delivered'],
+  declined: [], collected: [], delivered: [], expired: [],
 };
+
+const DELIVERY_ONLY: OnlineStatus[] = ['out', 'delivered'];
+
+/** Pickup orders are collected; delivery orders go out and are delivered. */
+export const canBecome = (kind: OnlineKind, from: OnlineStatus, to: OnlineStatus): boolean =>
+  NEXT_STATUS[from].includes(to) && (kind === 'delivery' ? to !== 'collected' : !DELIVERY_ONLY.includes(to));
+
+/** The status a payment moves an online order to. */
+export const paidStatus = (kind: OnlineKind): OnlineStatus => (kind === 'delivery' ? 'delivered' : 'collected');
+
+/** Still in play at the counter (shown, polled). */
+export const IN_PLAY: OnlineStatus[] = ['new', 'accepted', 'ready', 'out'];
 
 /** The shop takes online orders: switched on at the counter, and its server was heard from lately. */
 export const takingOrders = (shop: { open: boolean; seenAt: number | null }, now: number): boolean =>
@@ -160,8 +279,8 @@ export const clockText = (minute: number): string => {
  * The pill's words. Open or closed is the shop's own switch (the server's answer); the hours only
  * add when that changes. Inside the hours but switched off, it says closed without promising a time.
  */
-export const statusText = (open: boolean, hours: OpeningHours | null, now: number): string => {
-  if (!hours) return open ? 'Open for pickup' : 'Closed';
+export const statusText = (open: boolean, hours: OpeningHours | null, now: number, delivers = false): string => {
+  if (!hours) return open ? (delivers ? 'Open for pickup and delivery' : 'Open for pickup') : 'Closed';
   if (open) return `Open · Closes ${clockText(hours.closes)}`;
   const m = minuteInColombo(now);
   const inside = hours.opens < hours.closes ? m >= hours.opens && m < hours.closes : m >= hours.opens || m < hours.closes;

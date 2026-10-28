@@ -4,6 +4,7 @@ import { stockFromEvents, stockStatus } from './inventory.ts';
 import { queue, ticketsFromEvents } from './kitchen.ts';
 import { menuItems } from './menu.ts';
 import { fmt, unitPrice } from './money.ts';
+import { OUT_TOO_LONG_MS } from './online.ts';
 import { grnValueCents, purchasesFromEvents } from './purchaseOrders.ts';
 import { formatStock } from './itemStory.ts';
 import type { SyncEvent } from './sync.ts';
@@ -73,8 +74,27 @@ const hourOf = (t: number) => new Date(t).getHours();
 const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? 'am' : 'pm'}`;
 const clock = (t: number) => { const d = new Date(t); return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'am' : 'pm'}`; };
 const rs = (c: Cents) => `Rs ${fmt(Math.round(c / 100) * 100)}`;
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free' };
+
+/**
+ * Today's deliveries (SCRUM-193) sent to the kitchen and not paid yet: the rider still has the food
+ * or the cash. `due` is their lines at the price they were sent at plus the fee (a later discount
+ * would make it less, hence "about").
+ */
+export const unpaidDeliveries = (events: readonly SyncEvent[], today: number, now: number): { number: number; due: Cents; readyBy: number }[] => {
+  const out = new Map<number, { number: number; due: Cents; readyBy: number }>();
+  for (const e of events) {
+    if (e.at < today || e.at > now) continue;
+    if (e.type === 'order.sent' && e.online?.delivery) {
+      const lines = e.lines.reduce((n, l) => n + (l.unit ?? 0) * l.qty, 0);
+      out.set(e.orderNumber, { number: e.orderNumber, due: lines + e.online.delivery.fee, readyBy: e.online.pickupBy });
+    } else if (e.type === 'order.sent' && out.has(e.orderNumber)) {
+      out.get(e.orderNumber)!.due += e.lines.reduce((n, l) => n + (l.unit ?? 0) * l.qty, 0);
+    } else if (e.type === 'order.paid') out.delete(e.orderNumber);
+  }
+  return [...out.values()];
+};
 
 /** The shop at a glance, now. `insights`: the To do list, so the summary names the first. */
 export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopData['stock']>, insights: readonly Insight[], now: number): Glance => {
@@ -194,12 +214,17 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
 
   const byTender = new Map<Tender, Cents>();
   for (const s of todays) byTender.set(s.tender, (byTender.get(s.tender) ?? 0) + s.total);
+  const unpaid = unpaidDeliveries(events, today, now);
+  const owed = unpaid.reduce((n, d) => n + d.due, 0);
+  const overdue = unpaid.filter((d) => now - d.readyBy > OUT_TOO_LONG_MS);
   const money: Station = {
-    id: 'money', label: 'Money', value: rs(total), tone: 'ok', badge: 0, href: null,
+    id: 'money', label: 'Money', value: rs(total), tone: overdue.length ? 'warn' : 'ok', badge: overdue.length, href: null,
     explain: [
       `Money: ${rs(total)} taken today.`,
       ...[...byTender].filter(([, c]) => c > 0).map(([t, c]) => `${TENDER[t]}: ${rs(c)}`),
       ...(byTender.get('cash') ? ['The drawer should hold the cash plus the opening float.'] : []),
+      ...(unpaid.length ? [`About ${rs(owed)} still to come from ${plural(unpaid.length, 'delivery', 'deliveries')}, paid when the rider is back.`] : []),
+      ...overdue.map((d) => `Delivery ${d.number} was ready at ${clock(d.readyBy)} and is not paid yet.`),
     ].join('\n'),
   };
 

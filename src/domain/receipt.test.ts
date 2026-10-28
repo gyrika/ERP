@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CMD, RECEIPT_WIDTH, escpos, opensDrawer, receipt, receiptText, twoCols, wrap } from './receipt.ts';
+import { CMD, RECEIPT_WIDTH, deliveryBill, escpos, opensDrawer, receipt, receiptText, twoCols, wrap } from './receipt.ts';
+import { fmt } from './money.ts';
 import { totals } from './totals.ts';
 import type { Order, PaidOrder, Tender } from './types.ts';
 
@@ -101,4 +102,24 @@ test('an online order says so on its receipt; a counter order does not', () => {
   const online = receiptText(receipt(pay({ ...busy, online: { pickupBy: at } }, 'cash'), { cashier: 'Nimal' }));
   assert.match(online, /Online order: collected/);
   assert.doesNotMatch(receiptText(receipt(pay(busy, 'cash'), { cashier: 'Nimal' })), /Online/);
+});
+
+test('a delivery: the receipt shows the fee; the bill for the bag says where, and the cash to collect', () => {
+  const order: Order = { ...busy, adjust: undefined, online: { pickupBy: at, delivery: { fee: 25000 } } };
+  const text = receiptText(receipt(pay(order, 'cash'), { cashier: 'Nimal' }));
+  assert.match(text, /Online order: delivered/);
+  assert.ok(text.includes(twoCols('Delivery', fmt(25000))));
+
+  const total = totals(order).total;
+  const lines = deliveryBill({
+    orderNumber: 1043, name: 'Kasun', phone: '0771234567', address: '12 Station Rd, Thalawathugoda', pin: { lat: 6.82351, lng: 79.89012 },
+    note: 'Ring the bell', lines: order.lines, deliveryFee: 25000, distanceKm: 4.6, total,
+  }, order.lines.map(() => 100000), { at });
+  const bill = receiptText(lines);
+  for (const want of ['Delivery 4.6 km', 'DELIVERY', 'Kasun', '077 123 4567', '12 Station Rd, Thalawathugoda', 'Location: 6.82351, 79.89012', 'Note: Ring the bell', 'Cash on delivery']) {
+    assert.ok(bill.includes(want), want);
+  }
+  assert.ok(lines.some((l) => l.big && l.text.startsWith('COLLECT') && l.text.endsWith(`Rs ${fmt(total)}`)));
+  assert.ok(lines.every((l) => l.text.length <= (l.big ? RECEIPT_WIDTH / 2 : RECEIPT_WIDTH)), 'fits the paper');
+  assert.ok(!escpos(lines).some((b, i, all) => b === CMD.kick[0] && all[i + 1] === CMD.kick[1]), 'nothing paid yet: the drawer stays shut');
 });

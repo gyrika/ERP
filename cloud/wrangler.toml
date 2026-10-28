@@ -33,6 +33,13 @@ ORDER_SHOP = "cheesybeez-thalwila-2862"
 ORDER_PHONE = "0771817968"
 # Its street address, once the owner gives it; left out, the card says the town and links to Maps.
 # ORDER_ADDRESS = ""
+# Delivery (SCRUM-193): Rs 50 a started km, up to 5 km (the owner, 2026-10-29), measured by road from
+# the shop's own pin. Delivery stays off until SHOP_LOCATION is set: "lat,lng" from a Google Maps pin
+# on the shop, never guessed. Road distances: npx wrangler secret put ORS_API_KEY (openrouteservice.org,
+# free); without it, the straight line × 1.3.
+# SHOP_LOCATION = ""
+DELIVERY_PER_KM = "50"
+DELIVERY_MAX_KM = "5"
 
 # A test copy of the cloud, apart from the shops' live one: its own address and its own empty
 # database. Try changes end to end over the internet before they reach the shop:

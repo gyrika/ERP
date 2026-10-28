@@ -3,6 +3,7 @@ import type { AiLike } from './ai.ts';
 import { createCloud, type D1Like } from './cloud.ts';
 import { downloadPage, latestRelease } from './download.ts';
 import { answersApi, questionsPage } from './questions.ts';
+import { orsRoadKm } from './road.ts';
 
 interface Env {
   DB: D1Like;
@@ -17,6 +18,12 @@ interface Env {
   /** Its phone / WhatsApp number and street address for the page's pickup card (wrangler.toml [vars]). */
   ORDER_PHONE?: string;
   ORDER_ADDRESS?: string;
+  /** Delivery (SCRUM-193, wrangler.toml [vars]): the shop's pin, rupees a km, the farthest km; any unset = pickup only. */
+  SHOP_LOCATION?: string;
+  DELIVERY_PER_KM?: string;
+  DELIVERY_MAX_KM?: string;
+  /** openrouteservice.org key for road distances (npx wrangler secret put ORS_API_KEY); unset = straight line × 1.3. */
+  ORS_API_KEY?: string;
   /** Cloudflare Workers AI (wrangler.toml [ai]), for the language-model endpoints (SCRUM-144). */
   AI?: AiLike;
   /** Model calls per shop per day (wrangler.toml [vars]); unset = 300. */
@@ -102,6 +109,7 @@ export default {
     if (url.pathname === '/api/v1/answers') return answersApi(request, env.DB, env.ANSWER_KEY);
     if (url.pathname.startsWith('/api/')) return createCloud(env.DB, {
       enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP, orderHours: env.ORDER_HOURS, orderPhone: env.ORDER_PHONE, orderAddress: env.ORDER_ADDRESS,
+      shopLocation: env.SHOP_LOCATION, deliveryPerKm: env.DELIVERY_PER_KM, deliveryMaxKm: env.DELIVERY_MAX_KM, roadKm: orsRoadKm(env.ORS_API_KEY),
       ai: env.AI ?? null, aiDailyCalls: Number(env.AI_DAILY_CALLS) || undefined,
     })(request);
     if (url.pathname === '/get' || url.pathname === '/download') {
