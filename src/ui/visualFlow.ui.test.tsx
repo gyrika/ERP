@@ -184,6 +184,7 @@ test('Warehouse view: tapping a warehouse opens it; the owner renames it, and + 
   await user.clear(name);
   await user.type(name, 'Freezer{Enter}');
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.warehouse_set', warehouseId: 'wh-3', after: { name: 'Freezer', archived: false }, actor: { role: 'owner' } });
+  expect(readAll().filter((e) => e.type === 'stock.warehouse_set')).toHaveLength(1); // saved once, not on Enter and again on leaving
   expect(await screen.findByText('Freezer', { selector: '.vf-whcard .vf-node__name' })).toBeTruthy();
 
   // Two warehouses cannot share a name.

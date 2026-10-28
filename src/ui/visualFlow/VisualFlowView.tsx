@@ -587,7 +587,8 @@ function WarehousePanel({ warehouse, warehouses, owner, say }: { warehouse: Ware
       <input className="inv-modal__input vf-wh__name" value={name} maxLength={40} aria-label="Warehouse name" disabled={warehouse.archived}
         autoFocus={/^Warehouse \d+$/.test(warehouse.name)} name="warehouse-name" autoComplete="off" spellCheck={false}
         onChange={(e) => { setName(e.target.value); setError(''); }} onBlur={rename}
-        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); rename(); (e.target as HTMLInputElement).blur(); } }} />
+        // Enter leaves the box, and leaving it saves (once).
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }} />
       {error && <p className="vf-wh__error" role="alert">{error}</p>}
       <div className="chips chips--tight">
         {!warehouse.archived && (
