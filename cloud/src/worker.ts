@@ -17,6 +17,8 @@ interface Env {
   /** Its phone / WhatsApp number and street address for the page's pickup card (wrangler.toml [vars]). */
   ORDER_PHONE?: string;
   ORDER_ADDRESS?: string;
+  /** The delivery fee in whole rupees, "250" (wrangler.toml [vars]); unset = pickup only (SCRUM-193). */
+  DELIVERY_FEE?: string;
   /** Cloudflare Workers AI (wrangler.toml [ai]), for the language-model endpoints (SCRUM-144). */
   AI?: AiLike;
   /** Model calls per shop per day (wrangler.toml [vars]); unset = 300. */
@@ -101,7 +103,7 @@ export default {
     }
     if (url.pathname === '/api/v1/answers') return answersApi(request, env.DB, env.ANSWER_KEY);
     if (url.pathname.startsWith('/api/')) return createCloud(env.DB, {
-      enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP, orderHours: env.ORDER_HOURS, orderPhone: env.ORDER_PHONE, orderAddress: env.ORDER_ADDRESS,
+      enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP, orderHours: env.ORDER_HOURS, orderPhone: env.ORDER_PHONE, orderAddress: env.ORDER_ADDRESS, deliveryFee: env.DELIVERY_FEE,
       ai: env.AI ?? null, aiDailyCalls: Number(env.AI_DAILY_CALLS) || undefined,
     })(request);
     if (url.pathname === '/get' || url.pathname === '/download') {

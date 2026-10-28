@@ -132,6 +132,17 @@ the cloud address root.
 - **Floods:** at most 2 orders in play per phone number, 6 an hour per connection, 20 waiting.
 - **Privacy:** the customer's name and phone are kept only with the online order (the Register
   knows the order by its number), and are blanked after 30 days.
+- **Delivery (SCRUM-193):** set `DELIVERY_FEE` in `[vars]` to the owner's fee in whole rupees
+  (`"250"`; `"0"` = free), then `npm run migrate` (0009) and `npm run deploy`. Unset = pickup only.
+  The customer picks *Delivery*, types the address and may share their location; the cloud adds
+  the fee (never the phone's). At the counter: *Ready in 30/45/60/90 min*, or decline *Too far to
+  deliver* / *No rider right now* → the kitchen's **Done** makes it ready → **Out** as the rider
+  leaves prints the bill for the bag (address, phone, location, *COLLECT Rs …*) and the customer
+  sees *On the way* → the rider brings the cash, the cashier charges it as any order → *Delivered*.
+  The fee is part of the order's total (never discounted; Free waives it). The owner's Today
+  shows the cash still to come from deliveries under Money, and flags one an hour past its time.
+  Address and location are blanked after 30 days with the name; the customer's own status page
+  never returns the location.
 
 ## Language model (SCRUM-142/144)
 

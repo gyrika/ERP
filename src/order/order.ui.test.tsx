@@ -9,6 +9,10 @@ import { OrderSite } from './OrderSite.tsx';
 let answers: ('open' | 'closed' | 'fail')[] = [];
 let hours: { opens: number; closes: number } | null = null;
 let phone: string | null = null;
+let deliveryFee: number | null = null;
+/** What the page sent to place an order, and the order the customer's status page reads. */
+let placedBody: Record<string, unknown> | null = null;
+let myOrder: Record<string, unknown> | null = null;
 const shopCalls = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === '/api/v1/shop').length;
 
 beforeEach(() => {
@@ -17,11 +21,19 @@ beforeEach(() => {
   answers = [];
   hours = null;
   phone = null;
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+  deliveryFee = null;
+  placedBody = null;
+  myOrder = null;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === '/api/v1/orders' && init?.body) {
+      placedBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return Response.json({ id: 'o-aaaaaaaaaa', token: 't', total: 0 });
+    }
+    if (url.startsWith('/api/v1/orders/') && myOrder) return Response.json(myOrder);
     if (url !== '/api/v1/shop') throw new Error(`unexpected ${url}`);
     const next = answers.shift() ?? 'open';
     if (next === 'fail') throw new TypeError('Failed to fetch');
-    return new Response(JSON.stringify({ name: 'CheesyBeez Thalwila', open: next === 'open', hours, phone }), { status: 200 });
+    return new Response(JSON.stringify({ name: 'CheesyBeez Thalwila', open: next === 'open', hours, phone, deliveryFee }), { status: 200 });
   }));
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); setMenuState(EMPTY_MENU_STATE); });
@@ -260,4 +272,41 @@ test('section chips: the section under the chips is highlighted, the last one at
   expect(chip('Pizza').getAttribute('aria-current')).toBe('true');
   cross(document.getElementById('burger')!);
   expect(chip('Pizza').getAttribute('aria-current')).toBe('true'); // sections passed on the way do not steal it
+});
+
+test('delivery, once the shop has a fee: choose it, type the address, the fee is in the total; the status says on the way and the cash to have ready', async () => {
+  deliveryFee = 25000;
+  const user = userEvent.setup();
+  render(<OrderSite />);
+  await screen.findByText('Open for pickup and delivery');
+  expect(screen.getByText('Pickup or delivery')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Add Fish Burger' }));
+  await user.click(screen.getByRole('button', { name: /View order/ }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Your order' }));
+  expect(sheet.queryByLabelText('Delivery address')).toBeNull();
+  await user.click(sheet.getByRole('radio', { name: /Delivery/ }));
+  expect(sheet.getByRole('button', { name: 'Place order · Rs 700' })).toBeTruthy();
+  await user.type(sheet.getByLabelText('Your name'), 'Kasun');
+  await user.type(sheet.getByLabelText('Phone number'), '0771234567');
+  expect((sheet.getByRole('button', { name: 'Place order · Rs 700' }) as HTMLButtonElement).disabled).toBe(true);
+  await user.type(sheet.getByLabelText('Delivery address'), '12 Station Rd');
+  myOrder = {
+    id: 'o-aaaaaaaaaa', createdAt: Date.now(), status: 'out', kind: 'delivery', name: 'Kasun', address: '12 Station Rd', note: '',
+    lines: [{ itemId: 'fish-burger', qty: 1, adds: [], outs: [] }], deliveryFee: 25000, total: 70000, orderNumber: 1030, readyBy: Date.now(), reason: null,
+  };
+  await user.click(sheet.getByRole('button', { name: 'Place order · Rs 700' }));
+  expect(placedBody).toMatchObject({ kind: 'delivery', address: '12 Station Rd', pin: null, name: 'Kasun' });
+
+  expect(await screen.findByText('Our rider is bringing it now.', { exact: false })).toBeTruthy();
+  expect(screen.getByText('To pay the rider')).toBeTruthy();
+  expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toContain('On the way');
+});
+
+test('no delivery fee set: pickup only, no choice to make', async () => {
+  const user = userEvent.setup();
+  render(<OrderSite />);
+  await screen.findByText('Open for pickup');
+  await user.click(screen.getByRole('button', { name: 'Add Fish Burger' }));
+  await user.click(screen.getByRole('button', { name: /View order/ }));
+  expect(within(screen.getByRole('dialog', { name: 'Your order' })).queryByRole('radiogroup')).toBeNull();
 });

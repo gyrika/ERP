@@ -33,6 +33,9 @@ ORDER_SHOP = "cheesybeez-thalwila-2862"
 ORDER_PHONE = "0771817968"
 # Its street address, once the owner gives it; left out, the card says the town and links to Maps.
 # ORDER_ADDRESS = ""
+# The delivery fee in whole rupees, e.g. "250" ("0" = free delivery). Left out, the page offers pickup only
+# (SCRUM-193). Only the owner's own answer: he has not given one yet.
+# DELIVERY_FEE = ""
 
 # A test copy of the cloud, apart from the shops' live one: its own address and its own empty
 # database. Try changes end to end over the internet before they reach the shop:

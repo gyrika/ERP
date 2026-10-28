@@ -81,6 +81,8 @@ export interface CloudOptions {
   /** Its phone / WhatsApp number and address for the page's pickup card; unset = not shown. */
   orderPhone?: string;
   orderAddress?: string;
+  /** The delivery fee in whole rupees, "250" (wrangler.toml DELIVERY_FEE); unset = no delivery, pickup only. */
+  deliveryFee?: string;
   /** Cloudflare Workers AI (the Worker's AI binding, SCRUM-144); null = the AI endpoints answer 503. */
   ai?: AiLike | null;
   /** Model calls per shop per day (wrangler.toml AI_DAILY_CALLS); unset = ai.ts AI_DAILY_CALLS. */

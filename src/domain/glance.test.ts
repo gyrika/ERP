@@ -80,3 +80,14 @@ test('every Rs 100 sold adds up to 100, and is not shown before the first sale',
   assert.equal(split.food + split.waste + split.kept, 100);
   assert.match(split.explain, /^Of every Rs 100 sold today:/);
 });
+
+test('Money: cash still to come from deliveries, and a delivery long past its time', () => {
+  const line = { id: 'l1', itemId: 'devilled-chicken', qty: 1, size: 'L' as const, adds: [], outs: [], sent: true, unit: 200000 };
+  const sent = (number: number, readyBy: number): SyncEvent => ({ id: `s${number}`, shopId: 's', at: readyBy - 45 * 60_000, orderNumber: number, actor: ravi,
+    type: 'order.sent', ticketId: `t${number}`, lines: [line], addOn: false, online: { pickupBy: readyBy, delivery: { fee: 25000 } } });
+  const paidBack: SyncEvent = { id: 'pb', shopId: 's', at: at(0, 17), orderNumber: 2001, actor: ravi, type: 'order.paid', total: 225000, tender: 'cash', tendered: 225000 };
+  const money = glance([sent(2001, at(0, 16, 30)), paidBack, sent(2002, at(0, 17, 10)), sent(2003, at(0, 16, 0))]).stations.find((s) => s.id === 'money')!;
+  assert.match(money.explain, /About Rs 4,500 still to come from 2 deliveries, paid when the rider is back\./);
+  assert.match(money.explain, /Delivery 2003 was ready at 4:00 pm and is not paid yet\./);
+  assert.deepEqual([money.tone, money.badge], ['warn', 1]);
+});

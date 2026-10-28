@@ -1,4 +1,4 @@
-import type { OnlineOrder, OnlineStatus } from '../src/domain/online.ts';
+import { IN_PLAY, paidStatus, type OnlineOrder, type OnlineStatus } from '../src/domain/online.ts';
 import type { SyncEvent } from '../src/domain/sync.ts';
 
 /**
@@ -6,7 +6,8 @@ import type { SyncEvent } from '../src/domain/sync.ts';
  * asks the cloud for them, telling it whether the counter is taking orders; the counter
  * reads them from here. The counter's answers go to the cloud straight away, or, when
  * the internet is down, as soon as it is back. The kitchen tapping Done marks an
- * accepted order ready, and its payment marks it collected, without another tap.
+ * accepted order ready, and its payment marks it collected (a delivery: delivered), without
+ * another tap. Only the rider leaving (Out) is the counter's own tap.
  */
 export interface OnlineOptions {
   url: string;
@@ -30,7 +31,9 @@ export type OnlineAnswer =
   | { status: 'accepted'; orderNumber: number; readyBy: number }
   | { status: 'declined'; reason: string }
   | { status: 'ready' }
-  | { status: 'collected' };
+  | { status: 'out' }
+  | { status: 'collected' }
+  | { status: 'delivered' };
 
 export class OnlineError extends Error {
   status: number;
@@ -118,20 +121,23 @@ export function startOnline(o: OnlineOptions) {
     view: (): OnlineView => ({
       open: o.isOpen(),
       connected: heardAt !== null && now() - heardAt < Math.max(3 * every, 30_000),
-      orders: orders.filter((x) => x.status === 'new' || x.status === 'accepted' || x.status === 'ready'),
+      orders: orders.filter((x) => IN_PLAY.includes(x.status)),
     }),
     setOpen(open: boolean) { o.setOpen(open); void poll(); },
     async answer(id: string, a: OnlineAnswer) {
       applyLocally(id, a);
       await send(id, a);
     },
-    /** New events at the shop: the kitchen's Done marks an online order ready; its payment, collected. */
+    /** New events at the shop: the kitchen's Done marks an online order ready; its payment, collected or delivered. */
     onEvents(events: SyncEvent[]) {
       for (const e of events) {
-        const to = e.type === 'kitchen.bumped' ? 'ready' : e.type === 'order.paid' ? 'collected' : null;
-        if (!to) continue;
-        const hit = orders.find((x) => x.orderNumber === e.orderNumber && (x.status === 'accepted' || (to === 'collected' && x.status === 'ready')));
-        if (hit) { applyLocally(hit.id, { status: to }); void send(hit.id, { status: to }).catch(() => {}); }
+        const paid = e.type === 'order.paid';
+        if (!paid && e.type !== 'kitchen.bumped') continue;
+        const hit = orders.find((x) => x.orderNumber === e.orderNumber && (x.status === 'accepted' || (paid && (x.status === 'ready' || x.status === 'out'))));
+        if (!hit) continue;
+        const to = paid ? paidStatus(hit.kind ?? 'pickup') : 'ready';
+        applyLocally(hit.id, { status: to } as OnlineAnswer);
+        void send(hit.id, { status: to } as OnlineAnswer).catch(() => {});
       }
     },
     /** One poll now (tests). */

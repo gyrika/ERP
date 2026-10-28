@@ -6,7 +6,7 @@ import { fakeD1 } from './fakeD1.ts';
 
 const SHOP = 'cheesybeez-thalwila-ab12';
 
-async function setup(order: { orderHours?: string; orderPhone?: string; orderAddress?: string } = {}) {
+async function setup(order: { orderHours?: string; orderPhone?: string; orderAddress?: string; deliveryFee?: string } = {}) {
   const { d1, db } = fakeD1();
   db.prepare("INSERT INTO shops (id, name, created_at) VALUES (?, 'CheesyBeez Thalwila', 0)").run(SHOP);
   db.prepare("INSERT INTO shops (id, name, created_at) VALUES ('other-shop', 'Other', 0)").run();
@@ -140,4 +140,43 @@ test("online orders follow the owner's menu: new prices, nothing sold out or hid
   assert.match((await call('/api/v1/orders', customer('0773333333', [{ itemId: 'chicken-burger', qty: 1 }]))).body.message, /not on the menu/);
   assert.equal(shop.menuState.added['new-cheese-burger'].name.en, 'Cheese Burger', "the page gets the owner's new items");
   assert.equal((await call('/api/v1/orders', customer('0774444444', [{ itemId: 'new-cheese-burger', qty: 2 }]))).body.total, 110000, 'and they can be ordered');
+});
+
+test('delivery (SCRUM-193): offered only with a fee; the cloud prices it; the address reaches the counter, never the location to anyone else; out, then delivered', async () => {
+  const pickupOnly = await setup();
+  await pickupOnly.call('/api/v1/online/poll', { open: true }, 'server-a');
+  assert.equal((await pickupOnly.call('/api/v1/shop')).body.deliveryFee, null);
+  const refused = await pickupOnly.call('/api/v1/orders', { ...customer(), kind: 'delivery', address: '12 Station Rd' });
+  assert.deepEqual([refused.status, refused.body.message], [400, 'the shop is not delivering right now: choose pickup']);
+
+  const { call, clock, db } = await setup({ deliveryFee: '250' });
+  await call('/api/v1/online/poll', { open: true }, 'server-a');
+  assert.equal((await call('/api/v1/shop')).body.deliveryFee, 25000);
+  const pickup = await call('/api/v1/orders', customer('0770000001'));
+  const placed = await call('/api/v1/orders', {
+    ...customer(), kind: 'delivery', address: '12 Station Rd', pin: { lat: 6.82351, lng: 79.89012 }, deliveryFee: 0,
+  });
+  assert.equal(placed.status, 200);
+  assert.equal(placed.body.total, pickup.body.total + 25000, 'the fee is the shop\'s, whatever the phone sent');
+
+  const counter = (await call('/api/v1/online/poll', { open: true }, 'server-a')).body.orders.find((o: { id: string }) => o.id === placed.body.id);
+  assert.deepEqual([counter.kind, counter.address, counter.pin, counter.deliveryFee], ['delivery', '12 Station Rd', { lat: 6.82351, lng: 79.89012 }, 25000]);
+  const { id, token } = placed.body;
+  const mine = async () => (await call(`/api/v1/orders/${id}?t=${token}`)).body;
+  assert.deepEqual([(await mine()).address, (await mine()).pin, (await mine()).phone], ['12 Station Rd', undefined, undefined], 'their own page: no phone, no location');
+
+  const answer = (body: unknown) => call(`/api/v1/online/${id}`, body, 'server-a');
+  assert.equal((await answer({ status: 'accepted', orderNumber: 1030, readyBy: clock.t + 45 * 60_000 })).status, 200);
+  assert.equal((await answer({ status: 'collected' })).status, 409, 'a delivery is never collected');
+  assert.equal((await call(`/api/v1/online/${pickup.body.id}`, { status: 'out' }, 'server-a')).status, 409, 'pickup never goes out');
+  assert.equal((await answer({ status: 'out' })).status, 200);
+  assert.equal((await mine()).status, 'out');
+  assert.ok((await call('/api/v1/online/poll', { open: true }, 'server-a')).body.orders.some((o: { id: string }) => o.id === id), 'still on the counter while out');
+  assert.equal((await answer({ status: 'delivered' })).status, 200);
+  assert.equal((await mine()).status, 'delivered');
+
+  clock.t += 31 * 24 * 60 * 60_000;
+  await call('/api/v1/online/poll', { open: true }, 'server-a');
+  assert.deepEqual({ ...db.prepare('SELECT name, phone, address, pin FROM online_orders WHERE id = ?').get(id) }, { name: '', phone: '', address: null, pin: null },
+    'the address and location go with the name after 30 days');
 });

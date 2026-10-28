@@ -1,7 +1,8 @@
 import { MENU } from '../../src/domain/menu.ts';
 import { effectiveMenu, menuStateFromEvents } from '../../src/domain/menuEdits.ts';
 import {
-  checkOnlineOrder, effectiveStatus, NEXT_STATUS, normalisePhone, parseHours, takingOrders, type OnlineLine, type OnlineOrder, type OnlineStatus,
+  canBecome, checkOnlineOrder, effectiveStatus, IN_PLAY, normalisePhone, parseDeliveryFee, parseHours, takingOrders,
+  type DeliveryPin, type OnlineKind, type OnlineLine, type OnlineOrder, type OnlineStatus,
 } from '../../src/domain/online.ts';
 import type { CloudDevice, D1Like, Kind } from './cloud.ts';
 import { HttpError, json, randomToken, sha256Hex } from './http.ts';
@@ -10,7 +11,8 @@ import { HttpError, json, randomToken, sha256Hex } from './http.ts';
  * Online orders on the cloud (src/domain/online.ts has the rules).
  * For customers, no login: the shop's menu status, placing an order, and its status by
  * the private link it came with. For the shop server (its own key): the orders to show
- * at the counter, and the counter's answers (accept, decline, ready, collected).
+ * at the counter, and the counter's answers (accept, decline, ready, collected; for a
+ * delivery, out and delivered).
  */
 export interface OnlineContext {
   db: D1Like;
@@ -22,18 +24,21 @@ export interface OnlineContext {
   /** Its phone / WhatsApp number and street address for the page's pickup card (ORDER_PHONE, ORDER_ADDRESS). */
   orderPhone?: string;
   orderAddress?: string;
+  /** The delivery fee in whole rupees (DELIVERY_FEE); unset = pickup only. */
+  deliveryFee?: string;
   authenticate(req: Request, allowed: Kind[]): Promise<CloudDevice>;
 }
 
 interface Row {
-  id: string; status: OnlineStatus; name: string; phone: string; body: string; total: number;
+  id: string; status: OnlineStatus; kind: OnlineKind; name: string; phone: string; address: string | null; pin: string | null;
+  body: string; delivery_fee: number; total: number;
   order_number: number | null; ready_by: number | null; reason: string | null; created_at: number;
 }
 
 const HOUR = 60 * 60_000;
 /** The counter sees today's orders still in play. */
 const ACTIVE_FOR_MS = 12 * HOUR;
-/** Names and phone numbers are kept 30 days, then blanked. */
+/** Names, phone numbers and addresses are kept 30 days, then blanked. */
 const KEEP_CONTACT_MS = 30 * 24 * HOUR;
 const MAX_PER_PHONE = 2; // orders still in play from one number
 const MAX_PER_IP_HOUR = 6;
@@ -43,12 +48,14 @@ const toOrder = (r: Row, now: number): OnlineOrder => {
   const body = JSON.parse(r.body) as { lines: OnlineLine[]; note: string };
   return {
     id: r.id, createdAt: r.created_at, status: effectiveStatus({ status: r.status, createdAt: r.created_at }, now),
-    name: r.name, phone: r.phone, lines: body.lines, note: body.note, total: r.total,
+    kind: r.kind, name: r.name, phone: r.phone, address: r.address, pin: r.pin ? JSON.parse(r.pin) as DeliveryPin : null,
+    lines: body.lines, note: body.note, deliveryFee: r.delivery_fee, total: r.total,
     orderNumber: r.order_number, readyBy: r.ready_by, reason: r.reason,
   };
 };
 
-const COLUMNS = 'id, status, name, phone, body, total, order_number, ready_by, reason, created_at';
+const COLUMNS = 'id, status, kind, name, phone, address, pin, body, delivery_fee, total, order_number, ready_by, reason, created_at';
+const IN_PLAY_SQL = IN_PLAY.map((s) => `'${s}'`).join(', ');
 
 export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Promise<Response | null> {
   const { db, now } = c;
@@ -61,6 +68,7 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     return menuStateFromEvents(results.map((r) => JSON.parse(r.body) as { type: string }));
   };
   const shopMenu = async (tenantId: string) => effectiveMenu(MENU, await shopMenuState(tenantId), now());
+  const deliveryFee = parseDeliveryFee(c.deliveryFee);
 
   const shopState = async () => {
     if (!c.orderShop) throw new HttpError(404, 'server', 'online orders are not set up');
@@ -75,7 +83,7 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     const shop = await shopState();
     // The owner's menu changes: the page applies them to the printed menu it carries, as the counter does.
     const contact = { phone: normalisePhone(c.orderPhone ?? ''), address: c.orderAddress?.trim() || null };
-    return json(200, { ...shop, hours: parseHours(c.orderHours), ...contact, menuState: await shopMenuState(c.orderShop!) });
+    return json(200, { ...shop, hours: parseHours(c.orderHours), ...contact, deliveryFee, menuState: await shopMenuState(c.orderShop!) });
   }
 
   if (path === '/api/v1/orders' && req.method === 'POST') {
@@ -83,12 +91,12 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     if (!shop.open) throw new HttpError(409, 'forbidden', 'The shop is not taking online orders right now.');
     let body: unknown;
     try { body = await req.json(); } catch { throw new HttpError(400, 'invalid_event', 'The order is not readable.'); }
-    const checked = checkOnlineOrder(body, await shopMenu(c.orderShop!));
+    const checked = checkOnlineOrder(body, await shopMenu(c.orderShop!), deliveryFee);
     if ('reason' in checked) throw new HttpError(400, 'invalid_event', checked.reason);
     const t = now();
     const ip = await sha256Hex(`cb-online:${req.headers.get('cf-connecting-ip') ?? 'unknown'}`);
     const counts = await db.prepare(`SELECT
-        (SELECT COUNT(*) FROM online_orders WHERE phone = ? AND status IN ('new', 'accepted', 'ready') AND created_at > ?) AS phone,
+        (SELECT COUNT(*) FROM online_orders WHERE phone = ? AND status IN (${IN_PLAY_SQL}) AND created_at > ?) AS phone,
         (SELECT COUNT(*) FROM online_orders WHERE ip_hash = ? AND created_at > ?) AS ip,
         (SELECT COUNT(*) FROM online_orders WHERE tenant_id = ? AND status = 'new' AND created_at > ?) AS waiting`)
       .bind(checked.phone, t - ACTIVE_FOR_MS, ip, t - HOUR, c.orderShop, t - 15 * 60_000)
@@ -100,10 +108,11 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     const id = `o-${randomToken(9)}`;
     const token = randomToken(24);
     await db.prepare(`INSERT INTO online_orders
-        (id, tenant_id, token_hash, status, name, phone, body, total, ip_hash, created_at, updated_at)
-        VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, c.orderShop, await sha256Hex(token), checked.name, checked.phone,
-        JSON.stringify({ lines: checked.lines, note: checked.note }), checked.total, ip, t, t)
+        (id, tenant_id, token_hash, status, kind, name, phone, address, pin, body, delivery_fee, total, ip_hash, created_at, updated_at)
+        VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(id, c.orderShop, await sha256Hex(token), checked.kind, checked.name, checked.phone, checked.address,
+        checked.pin ? JSON.stringify(checked.pin) : null, JSON.stringify({ lines: checked.lines, note: checked.note }),
+        checked.deliveryFee, checked.total, ip, t, t)
       .run();
     return json(200, { id, token, total: checked.total });
   }
@@ -114,7 +123,7 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     const row = await db.prepare(`SELECT ${COLUMNS} FROM online_orders WHERE id = ? AND token_hash = ?`)
       .bind(mine[1], await sha256Hex(token)).first<Row>();
     if (!row) throw new HttpError(404, 'server', 'That order is not here.');
-    const { phone: _phone, ...order } = toOrder(row, now());
+    const { phone: _phone, pin: _pin, ...order } = toOrder(row, now());
     return json(200, order);
   }
 
@@ -125,11 +134,11 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     try { open = Boolean(((await req.json()) as { open?: unknown }).open); } catch { /* closed */ }
     const t = now();
     const { results } = await db.prepare(
-      `SELECT ${COLUMNS} FROM online_orders WHERE tenant_id = ? AND created_at > ? AND status IN ('new', 'accepted', 'ready') ORDER BY created_at`)
+      `SELECT ${COLUMNS} FROM online_orders WHERE tenant_id = ? AND created_at > ? AND status IN (${IN_PLAY_SQL}) ORDER BY created_at`)
       .bind(device.tenantId, t - ACTIVE_FOR_MS).all<Row>();
     await db.batch([
       db.prepare('UPDATE shops SET online_open = ?, online_seen_at = ? WHERE id = ?').bind(open ? 1 : 0, t, device.tenantId),
-      db.prepare("UPDATE online_orders SET name = '', phone = '', ip_hash = NULL WHERE tenant_id = ? AND created_at < ? AND phone != ''")
+      db.prepare("UPDATE online_orders SET name = '', phone = '', address = NULL, pin = NULL, ip_hash = NULL WHERE tenant_id = ? AND created_at < ? AND phone != ''")
         .bind(device.tenantId, t - KEEP_CONTACT_MS),
     ]);
     return json(200, { orders: results.map((r) => toOrder(r, t)).filter((o) => o.status !== 'expired'), serverTime: t });
@@ -147,7 +156,7 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     const current = effectiveStatus({ status: row.status, createdAt: row.created_at }, t);
     const to = b.status as OnlineStatus;
     if (current === to) return json(200, toOrder(row, t)); // asked twice: same answer
-    if (!NEXT_STATUS[current]?.includes(to)) throw new HttpError(409, 'forbidden', `the order is ${current}: it cannot become ${String(b.status)}`);
+    if (!canBecome(row.kind, current, to)) throw new HttpError(409, 'forbidden', `the order is ${current}: it cannot become ${String(b.status)}`);
     let set = '';
     const values: unknown[] = [];
     if (to === 'accepted') {
