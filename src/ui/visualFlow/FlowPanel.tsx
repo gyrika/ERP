@@ -67,6 +67,11 @@ interface Props {
   buying: { items: InventoryRow[]; suppliers: Supplier[]; purchases: PurchaseState };
   /** The inputs folded into one card on the canvas; null: none are. */
   small: SmallGroup | null;
+  /** The panel slides in over the drawing only while something on it is picked. */
+  open: boolean;
+  onClose: () => void;
+  /** The drawing's point in one sentence, repeated on top of the panel. */
+  said: string;
 }
 
 const dateText = (at: number) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -103,11 +108,15 @@ export function FlowPanel(p: Props) {
   const node = sel?.kind === 'node' ? graph.nodes.find((n) => n.id === sel.id) : undefined;
   const edge = sel?.kind === 'edge' ? graph.edges.find((e) => e.id === sel.id) : undefined;
   const shown = node ?? (edge || sel?.id === SMALL_ID ? undefined : graph.nodes.find((n) => n.id === graph.focus));
+  // The item in focus picked: its figures and what needs a look (the list nothing picked used to show).
+  const whole = (!node && !edge) || node?.id === graph.focus;
   return (
-    <aside className="vf-panel" aria-label="Details">
+    <aside className={`vf-panel${p.open ? ' vf-panel--open' : ''}`} aria-label="Details" aria-hidden={!p.open} inert={!p.open}>
+      <button type="button" className="vf-x vf-panel__close" onClick={p.onClose} aria-label="Close details">×</button>
+      {p.said && <p className="vf-panel__said">{p.said}</p>}
       {sel?.kind === 'node' && sel.id === SMALL_ID && p.small ? <SmallDetails {...p} small={p.small} />
         : edge ? <EdgeDetails {...p} edge={edge} /> : shown ? <NodeDetails {...p} node={shown} /> : <p className="vf-muted">Choose something to make.</p>}
-      {!node && !edge && <Attention {...p} />}
+      {whole && <Attention {...p} />}
       {p.plan.length > 0 && <DraftList {...p} />}
     </aside>
   );

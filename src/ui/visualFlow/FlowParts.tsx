@@ -19,8 +19,8 @@ export const KIND_LABEL: Record<FlowNode['kind'], string> = {
   raw: 'Raw', semi: 'Semi-processed', finished: 'Finished', resource: 'Resource', revenue: 'Revenue', profit: 'Profit', small: 'The rest',
 };
 
-/** The card's smallest text is 14px; the drawing never zooms out to where it would be smaller. */
-export const MIN_ZOOM = 1;
+/** Far enough out that the whole drawing fits the screen (F, or the fit button); + and - zoom in and out. */
+export const MIN_ZOOM = 0.1;
 
 export const rs = (cents: number) => `Rs ${fmt(Math.round(cents))}`;
 export const amount = (qty: number, unit: string) => `${Number(qty.toFixed(qty < 10 ? 3 : 1)).toLocaleString('en-US')} ${unit}`;
