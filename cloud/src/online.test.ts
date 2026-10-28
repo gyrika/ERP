@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ONLINE_ANSWER_MS, ONLINE_SEEN_MS } from '../../src/domain/online.ts';
-import { createCloud, sha256Hex } from './cloud.ts';
+import { createCloud, sha256Hex, type CloudOptions } from './cloud.ts';
 import { fakeD1 } from './fakeD1.ts';
 
 const SHOP = 'cheesybeez-thalwila-ab12';
 
-async function setup(order: { orderHours?: string; orderPhone?: string; orderAddress?: string; deliveryFee?: string } = {}) {
+async function setup(order: Partial<Pick<CloudOptions, 'orderHours' | 'orderPhone' | 'orderAddress' | 'shopLocation' | 'deliveryPerKm' | 'deliveryMaxKm' | 'roadKm'>> = {}) {
   const { d1, db } = fakeD1();
   db.prepare("INSERT INTO shops (id, name, created_at) VALUES (?, 'CheesyBeez Thalwila', 0)").run(SHOP);
   db.prepare("INSERT INTO shops (id, name, created_at) VALUES ('other-shop', 'Other', 0)").run();
@@ -142,28 +142,43 @@ test("online orders follow the owner's menu: new prices, nothing sold out or hid
   assert.equal((await call('/api/v1/orders', customer('0774444444', [{ itemId: 'new-cheese-burger', qty: 2 }]))).body.total, 110000, 'and they can be ordered');
 });
 
-test('delivery (SCRUM-193): offered only with a fee; the cloud prices it; the address reaches the counter, never the location to anyone else; out, then delivered', async () => {
+const DELIVERS = { shopLocation: '6.8235,79.8901', deliveryPerKm: '50', deliveryMaxKm: '5' };
+
+test('delivery (SCRUM-193): offered only once set up; priced by road from the shop; the address reaches the counter, never the location to anyone else; out, then delivered', async () => {
   const pickupOnly = await setup();
   await pickupOnly.call('/api/v1/online/poll', { open: true }, 'server-a');
-  assert.equal((await pickupOnly.call('/api/v1/shop')).body.deliveryFee, null);
-  const refused = await pickupOnly.call('/api/v1/orders', { ...customer(), kind: 'delivery', address: '12 Station Rd' });
+  assert.equal((await pickupOnly.call('/api/v1/shop')).body.delivery, null);
+  const refused = await pickupOnly.call('/api/v1/orders', { ...customer(), kind: 'delivery', address: '12 Station Rd', pin: { lat: 6.84, lng: 79.9 } });
   assert.deepEqual([refused.status, refused.body.message], [400, 'the shop is not delivering right now: choose pickup']);
 
-  const { call, clock, db } = await setup({ deliveryFee: '250' });
+  const asked: unknown[] = [];
+  let road: number | null = 2.1;
+  const { call, clock, db } = await setup({ ...DELIVERS, roadKm: async (from, to) => { asked.push([from, to]); return road; } });
   await call('/api/v1/online/poll', { open: true }, 'server-a');
-  assert.equal((await call('/api/v1/shop')).body.deliveryFee, 25000);
+  assert.deepEqual((await call('/api/v1/shop')).body.delivery, { perKm: 5000, maxKm: 5 });
+  const pin = { lat: 6.84, lng: 79.9 };
+  assert.deepEqual((await call('/api/v1/delivery-quote', { pin })).body, { km: 2.1, fee: 15000 });
+  assert.deepEqual(asked[0], [{ lat: 6.8235, lng: 79.8901 }, pin], 'from the shop to the customer');
+  road = 7.4;
+  assert.deepEqual((await call('/api/v1/delivery-quote', { pin })).body, { reason: 'you are 7.4 km away: we deliver up to 5 km. Choose pickup, or call the shop' });
+  road = null; // the road service did not answer: the straight line × 1.3
+  const guessed = (await call('/api/v1/delivery-quote', { pin: { lat: 6.8325, lng: 79.8901 } })).body;
+  assert.deepEqual(guessed, { km: 1.3, fee: 10000 });
+  road = 2.1;
+
   const pickup = await call('/api/v1/orders', customer('0770000001'));
-  const placed = await call('/api/v1/orders', {
-    ...customer(), kind: 'delivery', address: '12 Station Rd', pin: { lat: 6.82351, lng: 79.89012 }, deliveryFee: 0,
-  });
+  const placed = await call('/api/v1/orders', { ...customer(), kind: 'delivery', address: '12 Station Rd', pin, deliveryFee: 0 });
   assert.equal(placed.status, 200);
-  assert.equal(placed.body.total, pickup.body.total + 25000, 'the fee is the shop\'s, whatever the phone sent');
+  assert.equal(placed.body.total, pickup.body.total + 15000, 'the fee is the cloud\'s, whatever the phone sent');
+  const noPin = await call('/api/v1/orders', { ...customer('0770000002'), kind: 'delivery', address: '12 Station Rd' });
+  assert.deepEqual([noPin.status, noPin.body.message], [400, 'share your location for delivery (the fee is by distance), or choose pickup']);
 
   const counter = (await call('/api/v1/online/poll', { open: true }, 'server-a')).body.orders.find((o: { id: string }) => o.id === placed.body.id);
-  assert.deepEqual([counter.kind, counter.address, counter.pin, counter.deliveryFee], ['delivery', '12 Station Rd', { lat: 6.82351, lng: 79.89012 }, 25000]);
+  assert.deepEqual([counter.kind, counter.address, counter.pin, counter.distanceKm, counter.deliveryFee], ['delivery', '12 Station Rd', pin, 2.1, 15000]);
   const { id, token } = placed.body;
   const mine = async () => (await call(`/api/v1/orders/${id}?t=${token}`)).body;
-  assert.deepEqual([(await mine()).address, (await mine()).pin, (await mine()).phone], ['12 Station Rd', undefined, undefined], 'their own page: no phone, no location');
+  const own = await mine();
+  assert.deepEqual([own.address, own.distanceKm, own.pin, own.phone], ['12 Station Rd', 2.1, undefined, undefined], 'their own page: no phone, no location');
 
   const answer = (body: unknown) => call(`/api/v1/online/${id}`, body, 'server-a');
   assert.equal((await answer({ status: 'accepted', orderNumber: 1030, readyBy: clock.t + 45 * 60_000 })).status, 200);

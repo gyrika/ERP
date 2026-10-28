@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { itemById } from './menu.ts';
 import { unitPrice } from './money.ts';
 import {
-  canBecome, checkOnlineOrder, clockText, effectiveStatus, normalisePhone, ONLINE_ANSWER_MS, paidStatus, parseDeliveryFee, parseHours, pinLink,
-  statusText, takingOrders,
+  canBecome, checkOnlineOrder, clockText, effectiveStatus, normalisePhone, ONLINE_ANSWER_MS, paidStatus, parseDeliveryRules, parseHours, pinLink,
+  quoteFor, ROAD_FACTOR, roadKmGuess, statusText, straightKm, takingOrders, withDelivery,
 } from './online.ts';
 import { totals } from './totals.ts';
 import type { Order } from './types.ts';
@@ -99,31 +99,51 @@ const deliveryBody = (more: Record<string, unknown> = {}) => ({
   lines: [{ itemId: 'devilled-chicken', qty: 1, size: 'L', adds: [], outs: [] }], ...more,
 });
 
-test('the delivery fee: whole rupees from the owner, or no delivery at all', () => {
-  assert.equal(parseDeliveryFee('250'), 25000);
-  assert.equal(parseDeliveryFee(' 0 '), 0, 'free delivery');
-  for (const bad of [undefined, '', 'Rs 250', '250.50', '-1', '99999']) assert.equal(parseDeliveryFee(bad), null, String(bad));
+const SHOP_AT = { lat: 6.8235, lng: 79.8901 };
+const RULES = { from: SHOP_AT, perKm: 5000, maxKm: 5 };
+
+test('delivery rules: all three settings, or pickup only; the shop\'s pin is never guessed', () => {
+  assert.deepEqual(parseDeliveryRules('6.8235, 79.8901', '50', '5'), RULES);
+  for (const [at, rate, far] of [[undefined, '50', '5'], ['6.8,79.9', undefined, '5'], ['6.8,79.9', '50', ''], ['Thalwila', '50', '5'], ['6.8,79.9', 'Rs 50', '5'], ['6.8,79.9', '50', '0']]) {
+    assert.equal(parseDeliveryRules(at, rate, far), null, `${at} ${rate} ${far}`);
+  }
 });
 
-test('a delivery needs an address and a shop that delivers; its fee comes from the shop and is in the total', () => {
+test('the fee: every started km at the shop\'s rate, at least 1 km, nothing past the limit', () => {
+  assert.deepEqual(quoteFor(2.1, RULES), { km: 2.1, fee: 15000 }, '2.1 km is 3 km: Rs 150');
+  assert.deepEqual(quoteFor(0.3, RULES), { km: 0.3, fee: 5000 }, 'next door is still 1 km');
+  assert.deepEqual(quoteFor(3.0, RULES), { km: 3, fee: 15000 });
+  assert.deepEqual(quoteFor(5.04, RULES), { km: 5, fee: 25000 }, 'shown to one decimal, and charged as shown');
+  assert.deepEqual(quoteFor(5.2, RULES), { reason: 'you are 5.2 km away: we deliver up to 5 km. Choose pickup, or call the shop' });
+});
+
+test('the straight line, and the road guess when the road service cannot answer', () => {
+  const km = straightKm(SHOP_AT, { lat: 6.8325, lng: 79.8901 }); // 0.009° north: about 1 km
+  assert.ok(Math.abs(km - 1.0) < 0.01, String(km));
+  assert.ok(Math.abs(roadKmGuess(SHOP_AT, { lat: 6.8325, lng: 79.8901 }) - km * ROAD_FACTOR) < 1e-9);
+});
+
+test('a delivery needs an address, the location (the fee is by distance) and a shop that delivers; the fee is added from the quote', () => {
   const items = checkOnlineOrder({ ...deliveryBody(), kind: 'pickup' });
   assert.ok(!('reason' in items));
   const pizza = items.total;
+  const pin = { lat: 6.8235123456, lng: 79.8901234567 };
 
-  assert.deepEqual(checkOnlineOrder(deliveryBody()), { reason: 'the shop is not delivering right now: choose pickup' });
-  const ok = checkOnlineOrder(deliveryBody({ deliveryFee: 1 }), undefined, 25000);
+  assert.deepEqual(checkOnlineOrder(deliveryBody({ pin })), { reason: 'the shop is not delivering right now: choose pickup' });
+  assert.deepEqual(checkOnlineOrder(deliveryBody(), undefined, true), { reason: 'share your location for delivery (the fee is by distance), or choose pickup' });
+  assert.deepEqual(checkOnlineOrder(deliveryBody({ pin, address: ' ' }), undefined, true), { reason: 'type your address' });
+  assert.deepEqual(checkOnlineOrder(deliveryBody({ pin, address: 'x'.repeat(201) }), undefined, true), { reason: 'an address of at most 200 letters' });
+  assert.ok('reason' in checkOnlineOrder(deliveryBody({ pin: { lat: 'here', lng: 1 } }), undefined, true));
+
+  const ok = checkOnlineOrder(deliveryBody({ pin, deliveryFee: 1 }), undefined, true);
   assert.ok(!('reason' in ok));
-  assert.deepEqual([ok.kind, ok.address, ok.pin, ok.deliveryFee, ok.total], ['delivery', '12 Station Rd, Thalawathugoda', null, 25000, pizza + 25000], 'the phone cannot set the fee');
-  assert.deepEqual(checkOnlineOrder(deliveryBody({ address: ' ' }), undefined, 25000), { reason: 'type your address' });
-  assert.deepEqual(checkOnlineOrder(deliveryBody({ address: 'x'.repeat(201) }), undefined, 25000), { reason: 'an address of at most 200 letters' });
+  assert.deepEqual([ok.kind, ok.address, ok.pin, ok.deliveryFee, ok.total], ['delivery', '12 Station Rd, Thalawathugoda', { lat: 6.82351, lng: 79.89012 }, 0, pizza],
+    'the phone cannot set the fee; about a metre of the location is kept');
+  assert.equal(pinLink(ok.pin!), 'https://www.google.com/maps/search/?api=1&query=6.82351,79.89012');
+  const priced = withDelivery(ok, { km: 2.1, fee: 15000 });
+  assert.deepEqual([priced.deliveryFee, priced.distanceKm, priced.total], [15000, 2.1, pizza + 15000]);
 
-  const pinned = checkOnlineOrder(deliveryBody({ pin: { lat: 6.8235123456, lng: 79.8901234567 } }), undefined, 25000);
-  assert.ok(!('reason' in pinned));
-  assert.deepEqual(pinned.pin, { lat: 6.82351, lng: 79.89012 }, 'about a metre is kept');
-  assert.equal(pinLink(pinned.pin!), 'https://www.google.com/maps/search/?api=1&query=6.82351,79.89012');
-  assert.ok('reason' in checkOnlineOrder(deliveryBody({ pin: { lat: 'here', lng: 1 } }), undefined, 25000));
-
-  const pickup = checkOnlineOrder({ ...deliveryBody(), kind: 'pickup' }, undefined, 25000);
+  const pickup = checkOnlineOrder({ ...deliveryBody(), kind: 'pickup' }, undefined, true);
   assert.ok(!('reason' in pickup));
   assert.deepEqual([pickup.address, pickup.deliveryFee, pickup.total], [null, 0, pizza], 'pickup never pays the fee');
 });

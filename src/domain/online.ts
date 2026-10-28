@@ -42,6 +42,8 @@ export interface OnlineOrder {
   note: string;
   /** Delivery only (0 for pickup); already in `total`. */
   deliveryFee: Cents;
+  /** Delivery only: the road distance the fee was worked out from, in km (one decimal). */
+  distanceKm: number | null;
   /** The items plus the delivery fee: what the customer pays. */
   total: Cents;
   /** The Register's number, once accepted: the customer says it at the counter. */
@@ -68,13 +70,47 @@ export const OUT_TOO_LONG_MS = 60 * 60_000;
 const LIMITS = { lines: 30, qty: 20, name: 40, note: 140, address: 200 };
 
 /**
- * The cloud's DELIVERY_FEE setting, in whole rupees as the owner says it ("250") → cents, or null
- * when unset or not understood: then the shop does not deliver. "0" is free delivery.
+ * How the shop charges for delivery (owner, 2026-10-29: Rs 50 a km, up to about 5 km): from the
+ * shop's own location, so much a started km, up to so far.
  */
-export const parseDeliveryFee = (text: string | undefined): Cents | null => {
-  const t = (text ?? '').trim();
-  if (!/^\d{1,4}$/.test(t)) return null;
-  return Number(t) * 100;
+export interface DeliveryRules { from: DeliveryPin; perKm: Cents; maxKm: number }
+
+/**
+ * The cloud's settings → the rules, or null (no delivery, pickup only) unless all three are set:
+ * SHOP_LOCATION "6.8235,79.8901" (the shop's own pin, never guessed), DELIVERY_PER_KM in whole
+ * rupees ("50"), DELIVERY_MAX_KM ("5").
+ */
+export const parseDeliveryRules = (location?: string, perKm?: string, maxKm?: string): DeliveryRules | null => {
+  const at = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(location ?? '');
+  const rate = /^\s*(\d{1,4})\s*$/.exec(perKm ?? '');
+  const far = /^\s*(\d{1,2}(?:\.\d)?)\s*$/.exec(maxKm ?? '');
+  if (!at || !rate || !far) return null;
+  const from = { lat: Number(at[1]), lng: Number(at[2]) };
+  if (Math.abs(from.lat) > 90 || Math.abs(from.lng) > 180 || Number(far[1]) <= 0) return null;
+  return { from, perKm: Number(rate[1]) * 100, maxKm: Number(far[1]) };
+};
+
+/** Straight-line km between two points (haversine). */
+export const straightKm = (a: DeliveryPin, b: DeliveryPin): number => {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+};
+
+/** Roads are about this much longer than the straight line: the guess when the road service cannot answer. */
+export const ROAD_FACTOR = 1.3;
+export const roadKmGuess = (a: DeliveryPin, b: DeliveryPin): number => straightKm(a, b) * ROAD_FACTOR;
+
+export type DeliveryQuote = { km: number; fee: Cents } | { reason: string };
+
+/**
+ * The fee for a road distance: every started km is charged (2.1 km = 3 km), at least 1 km, and
+ * nothing past the shop's limit. km is shown to one decimal; the fee stays whole cents.
+ */
+export const quoteFor = (km: number, rules: DeliveryRules): DeliveryQuote => {
+  const shown = Math.round(km * 10) / 10;
+  if (shown > rules.maxKm) return { reason: `you are ${shown} km away: we deliver up to ${rules.maxKm} km. Choose pickup, or call the shop` };
+  return { km: shown, fee: Math.max(1, Math.ceil(shown)) * rules.perKm };
 };
 
 /** A Maps link that opens the rider's navigation at the customer's shared location. */
@@ -133,16 +169,16 @@ export const onlineTotal = (lines: OnlineLine[], items: readonly MenuItem[] = me
 
 export interface CheckedOnlineOrder {
   kind: OnlineKind; name: string; phone: string; address: string | null; pin: DeliveryPin | null;
-  lines: OnlineLine[]; note: string; deliveryFee: Cents; total: Cents;
+  lines: OnlineLine[]; note: string; deliveryFee: Cents; distanceKm: number | null; total: Cents;
 }
 
 /**
  * What the phone sent, checked and priced here, or the reason it cannot be taken (shown to the customer).
- * `deliveryFee`: the shop's fee (parseDeliveryFee), or null when it does not deliver. The fee always comes
- * from here, never from the phone.
+ * `delivers`: the shop has delivery rules. A delivery needs the customer's location (the fee is by
+ * distance); its fee is added by `withDelivery`, from the shop's rules, never from the phone.
  */
 export const checkOnlineOrder = (
-  body: unknown, items: readonly MenuItem[] = menuItems(), deliveryFee: Cents | null = null,
+  body: unknown, items: readonly MenuItem[] = menuItems(), delivers = false,
 ): CheckedOnlineOrder | { reason: string } => {
   if (typeof body !== 'object' || body === null) return { reason: 'the order is not readable' };
   const b = body as Record<string, unknown>;
@@ -157,12 +193,13 @@ export const checkOnlineOrder = (
   let address: string | null = null;
   let pin: DeliveryPin | null = null;
   if (kind === 'delivery') {
-    if (deliveryFee === null) return { reason: 'the shop is not delivering right now: choose pickup' };
+    if (!delivers) return { reason: 'the shop is not delivering right now: choose pickup' };
     address = typeof b.address === 'string' ? b.address.trim().replace(/\s+/g, ' ') : '';
     if (!address) return { reason: 'type your address' };
     if (address.length > LIMITS.address) return { reason: `an address of at most ${LIMITS.address} letters` };
     const p = checkPin(b.pin);
     if (typeof p === 'string') return { reason: p };
+    if (!p) return { reason: 'share your location for delivery (the fee is by distance), or choose pickup' };
     pin = p;
   }
   if (!Array.isArray(b.lines) || !b.lines.length) return { reason: 'the order is empty' };
@@ -173,9 +210,12 @@ export const checkOnlineOrder = (
     if (typeof l === 'string') return { reason: l };
     lines.push(l);
   }
-  const fee = kind === 'delivery' ? deliveryFee! : 0;
-  return { kind, name, phone, address, pin, lines, note, deliveryFee: fee, total: onlineTotal(lines, items) + fee };
+  return { kind, name, phone, address, pin, lines, note, deliveryFee: 0, distanceKm: null, total: onlineTotal(lines, items) };
 };
+
+/** A checked delivery with its fee from the shop's quote: the fee goes into the total. */
+export const withDelivery = (o: CheckedOnlineOrder, q: { km: number; fee: Cents }): CheckedOnlineOrder =>
+  ({ ...o, deliveryFee: q.fee, distanceKm: q.km, total: o.total - o.deliveryFee + q.fee });
 
 /** The status the customer sees: an unanswered order runs out after ONLINE_ANSWER_MS. */
 export const effectiveStatus = (o: Pick<OnlineOrder, 'status' | 'createdAt'>, now: number): OnlineStatus =>

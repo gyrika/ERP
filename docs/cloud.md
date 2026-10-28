@@ -132,10 +132,14 @@ the cloud address root.
 - **Floods:** at most 2 orders in play per phone number, 6 an hour per connection, 20 waiting.
 - **Privacy:** the customer's name and phone are kept only with the online order (the Register
   knows the order by its number), and are blanked after 30 days.
-- **Delivery (SCRUM-193):** set `DELIVERY_FEE` in `[vars]` to the owner's fee in whole rupees
-  (`"250"`; `"0"` = free), then `npm run migrate` (0009) and `npm run deploy`. Unset = pickup only.
-  The customer picks *Delivery*, types the address and may share their location; the cloud adds
-  the fee (never the phone's). At the counter: *Ready in 30/45/60/90 min*, or decline *Too far to
+- **Delivery (SCRUM-193):** Rs 50 a started km, up to 5 km (`DELIVERY_PER_KM`, `DELIVERY_MAX_KM`
+  in `[vars]`), measured by road from the shop. Off until `SHOP_LOCATION = "lat,lng"` is set from a
+  Google Maps pin on the shop (never guessed). Road distances come from openrouteservice.org (free,
+  2,000 a day, no card): sign up, create a key, `npx wrangler secret put ORS_API_KEY`. Without a key,
+  or when it does not answer, the straight line × 1.3 is used. Migration 0009 runs on release.
+  The customer picks *Delivery*, types the address and shares their location (required: the fee is
+  by distance); `/api/v1/delivery-quote` shows the km and fee before ordering, and the cloud works
+  it out again when the order is placed (never the phone's). Past 5 km: "choose pickup, or call". At the counter: *Ready in 30/45/60/90 min*, or decline *Too far to
   deliver* / *No rider right now* → the kitchen's **Done** makes it ready → **Out** as the rider
   leaves prints the bill for the bag (address, phone, location, *COLLECT Rs …*) and the customer
   sees *On the way* → the rider brings the cash, the cashier charges it as any order → *Delivered*.

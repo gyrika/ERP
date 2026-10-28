@@ -1,14 +1,14 @@
 import type { MenuState } from '../domain/menuEdits.ts';
-import type { DeliveryPin, OnlineKind, OnlineLine, OnlineOrder, OpeningHours } from '../domain/online.ts';
+import type { DeliveryPin, DeliveryQuote, OnlineKind, OnlineLine, OnlineOrder, OpeningHours } from '../domain/online.ts';
 
 /** The cloud's customer endpoints (cloud/src/online.ts). Same address as this page. */
 /**
  * The cloud's /api/v1/shop. phone (0XXXXXXXXX) and address only when the owner has given them.
- * deliveryFee: cents; null (or missing) = the shop does not deliver, pickup only.
+ * delivery: cents a started km and the farthest km; null (or missing) = pickup only.
  */
 export interface ShopInfo {
   name: string; open: boolean; hours?: OpeningHours | null; phone?: string | null; address?: string | null;
-  deliveryFee?: number | null; menuState?: MenuState;
+  delivery?: { perKm: number; maxKm: number } | null; menuState?: MenuState;
 }
 export interface Placed { id: string; token: string; total: number }
 export type MyOrder = Omit<OnlineOrder, 'phone' | 'pin'>;
@@ -31,6 +31,8 @@ const call = async <T>(path: string, body?: unknown): Promise<T> => {
 export const api = {
   shop: () => call<ShopInfo>('/api/v1/shop'),
   place: (o: NewOrder) => call<Placed>('/api/v1/orders', o),
+  /** What delivery to this location costs (the cloud measures it), or why it cannot be delivered to. */
+  quote: (pin: DeliveryPin) => call<DeliveryQuote>('/api/v1/delivery-quote', { pin }),
   order: (id: string, token: string) => call<MyOrder>(`/api/v1/orders/${id}?t=${encodeURIComponent(token)}`),
 };
 

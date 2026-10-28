@@ -9,7 +9,8 @@ import { OrderSite } from './OrderSite.tsx';
 let answers: ('open' | 'closed' | 'fail')[] = [];
 let hours: { opens: number; closes: number } | null = null;
 let phone: string | null = null;
-let deliveryFee: number | null = null;
+let delivery: { perKm: number; maxKm: number } | null = null;
+let quote: Record<string, unknown> = { km: 2.1, fee: 15000 };
 /** What the page sent to place an order, and the order the customer's status page reads. */
 let placedBody: Record<string, unknown> | null = null;
 let myOrder: Record<string, unknown> | null = null;
@@ -21,7 +22,8 @@ beforeEach(() => {
   answers = [];
   hours = null;
   phone = null;
-  deliveryFee = null;
+  delivery = null;
+  quote = { km: 2.1, fee: 15000 };
   placedBody = null;
   myOrder = null;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -30,10 +32,11 @@ beforeEach(() => {
       return Response.json({ id: 'o-aaaaaaaaaa', token: 't', total: 0 });
     }
     if (url.startsWith('/api/v1/orders/') && myOrder) return Response.json(myOrder);
+    if (url === '/api/v1/delivery-quote') return Response.json(quote);
     if (url !== '/api/v1/shop') throw new Error(`unexpected ${url}`);
     const next = answers.shift() ?? 'open';
     if (next === 'fail') throw new TypeError('Failed to fetch');
-    return new Response(JSON.stringify({ name: 'CheesyBeez Thalwila', open: next === 'open', hours, phone, deliveryFee }), { status: 200 });
+    return new Response(JSON.stringify({ name: 'CheesyBeez Thalwila', open: next === 'open', hours, phone, delivery }), { status: 200 });
   }));
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); setMenuState(EMPTY_MENU_STATE); });
@@ -274,35 +277,72 @@ test('section chips: the section under the chips is highlighted, the last one at
   expect(chip('Pizza').getAttribute('aria-current')).toBe('true'); // sections passed on the way do not steal it
 });
 
-test('delivery, once the shop has a fee: choose it, type the address, the fee is in the total; the status says on the way and the cash to have ready', async () => {
-  deliveryFee = 25000;
-  const user = userEvent.setup();
+/** The phone's location: where it says it is, or a refusal. */
+const phoneAt = (at: { lat: number; lng: number } | 'denied') => Object.defineProperty(navigator, 'geolocation', {
+  configurable: true,
+  value: {
+    getCurrentPosition: (ok: PositionCallback, fail: PositionErrorCallback) =>
+      (at === 'denied' ? fail({ code: 1 } as GeolocationPositionError) : ok({ coords: { latitude: at.lat, longitude: at.lng } } as GeolocationPosition)),
+  },
+});
+
+const toDelivery = async (user: ReturnType<typeof userEvent.setup>) => {
   render(<OrderSite />);
   await screen.findByText('Open for pickup and delivery');
-  expect(screen.getByText('Pickup or delivery')).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Add Fish Burger' }));
   await user.click(screen.getByRole('button', { name: /View order/ }));
   const sheet = within(screen.getByRole('dialog', { name: 'Your order' }));
-  expect(sheet.queryByLabelText('Delivery address')).toBeNull();
   await user.click(sheet.getByRole('radio', { name: /Delivery/ }));
-  expect(sheet.getByRole('button', { name: 'Place order · Rs 700' })).toBeTruthy();
+  return sheet;
+};
+
+test('delivery: Rs 50 a km; the location prices it before ordering; the status says on the way and the cash to have ready', async () => {
+  delivery = { perKm: 5000, maxKm: 5 };
+  phoneAt({ lat: 6.84, lng: 79.9 });
+  const user = userEvent.setup();
+  const sheet = await toDelivery(user);
+  expect(screen.getByText('Pickup or delivery')).toBeTruthy();
+  expect(sheet.getByRole('radio', { name: /Delivery/ }).textContent).toContain('Rs 50/km');
+  expect(sheet.getByText('Delivery is Rs 50 a km, up to 5 km: we need your location to price it.')).toBeTruthy();
   await user.type(sheet.getByLabelText('Your name'), 'Kasun');
   await user.type(sheet.getByLabelText('Phone number'), '0771234567');
-  expect((sheet.getByRole('button', { name: 'Place order · Rs 700' }) as HTMLButtonElement).disabled).toBe(true);
   await user.type(sheet.getByLabelText('Delivery address'), '12 Station Rd');
+  expect((sheet.getByRole('button', { name: 'Place order · Rs 450' }) as HTMLButtonElement).disabled).toBe(true);
+
+  await user.click(sheet.getByRole('button', { name: 'Share my location' }));
+  expect(await sheet.findByText('Location added ·', { exact: false })).toBeTruthy();
+  expect(vi.mocked(fetch).mock.calls.find(([url]) => url === '/api/v1/delivery-quote')?.[1]?.body).toBe(JSON.stringify({ pin: { lat: 6.84, lng: 79.9 } }));
   myOrder = {
     id: 'o-aaaaaaaaaa', createdAt: Date.now(), status: 'out', kind: 'delivery', name: 'Kasun', address: '12 Station Rd', note: '',
-    lines: [{ itemId: 'fish-burger', qty: 1, adds: [], outs: [] }], deliveryFee: 25000, total: 70000, orderNumber: 1030, readyBy: Date.now(), reason: null,
+    lines: [{ itemId: 'fish-burger', qty: 1, adds: [], outs: [] }], deliveryFee: 15000, distanceKm: 2.1, total: 60000, orderNumber: 1030, readyBy: Date.now(), reason: null,
   };
-  await user.click(sheet.getByRole('button', { name: 'Place order · Rs 700' }));
-  expect(placedBody).toMatchObject({ kind: 'delivery', address: '12 Station Rd', pin: null, name: 'Kasun' });
+  await user.click(sheet.getByRole('button', { name: 'Place order · Rs 600' }));
+  expect(placedBody).toMatchObject({ kind: 'delivery', address: '12 Station Rd', pin: { lat: 6.84, lng: 79.9 }, name: 'Kasun' });
 
   expect(await screen.findByText('Our rider is bringing it now.', { exact: false })).toBeTruthy();
   expect(screen.getByText('To pay the rider')).toBeTruthy();
+  expect(screen.getByText('Delivery · 2.1 km')).toBeTruthy();
   expect(screen.getAllByRole('listitem').map((li) => li.textContent)).toContain('On the way');
 });
 
-test('no delivery fee set: pickup only, no choice to make', async () => {
+test('delivery: too far, or no location, says why and offers pickup or a call; it cannot be placed', async () => {
+  delivery = { perKm: 5000, maxKm: 5 };
+  quote = { reason: 'you are 7.4 km away: we deliver up to 5 km. Choose pickup, or call the shop' };
+  phoneAt({ lat: 6.9, lng: 79.95 });
+  const user = userEvent.setup();
+  let sheet = await toDelivery(user);
+  await user.click(sheet.getByRole('button', { name: 'Share my location' }));
+  expect(await sheet.findByText('Sorry, you are 7.4 km away: we deliver up to 5 km. Choose pickup, or call the shop.')).toBeTruthy();
+  expect((sheet.getByRole('button', { name: /Place order/ }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+
+  phoneAt('denied');
+  sheet = await toDelivery(user);
+  await user.click(sheet.getByRole('button', { name: 'Share my location' }));
+  expect(await sheet.findByText("We couldn't get your location. Allow it in your browser, choose pickup, or call the shop.")).toBeTruthy();
+});
+
+test('no delivery set up: pickup only, no choice to make', async () => {
   const user = userEvent.setup();
   render(<OrderSite />);
   await screen.findByText('Open for pickup');

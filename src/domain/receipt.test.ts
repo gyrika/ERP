@@ -113,10 +113,10 @@ test('a delivery: the receipt shows the fee; the bill for the bag says where, an
   const total = totals(order).total;
   const lines = deliveryBill({
     orderNumber: 1043, name: 'Kasun', phone: '0771234567', address: '12 Station Rd, Thalawathugoda', pin: { lat: 6.82351, lng: 79.89012 },
-    note: 'Ring the bell', lines: order.lines, deliveryFee: 25000, total,
+    note: 'Ring the bell', lines: order.lines, deliveryFee: 25000, distanceKm: 4.6, total,
   }, order.lines.map(() => 100000), { at });
   const bill = receiptText(lines);
-  for (const want of ['DELIVERY', 'Kasun', '077 123 4567', '12 Station Rd, Thalawathugoda', 'Location: 6.82351, 79.89012', 'Note: Ring the bell', 'Cash on delivery']) {
+  for (const want of ['Delivery 4.6 km', 'DELIVERY', 'Kasun', '077 123 4567', '12 Station Rd, Thalawathugoda', 'Location: 6.82351, 79.89012', 'Note: Ring the bell', 'Cash on delivery']) {
     assert.ok(bill.includes(want), want);
   }
   assert.ok(lines.some((l) => l.big && l.text.startsWith('COLLECT') && l.text.endsWith(`Rs ${fmt(total)}`)));

@@ -4,3 +4,4 @@ ALTER TABLE online_orders ADD COLUMN kind TEXT NOT NULL DEFAULT 'pickup';   -- p
 ALTER TABLE online_orders ADD COLUMN address TEXT;                          -- delivery only
 ALTER TABLE online_orders ADD COLUMN pin TEXT;                              -- {"lat":…,"lng":…} when shared
 ALTER TABLE online_orders ADD COLUMN delivery_fee INTEGER NOT NULL DEFAULT 0; -- cents, already in total
+ALTER TABLE online_orders ADD COLUMN distance_m INTEGER;                    -- the road distance the fee came from

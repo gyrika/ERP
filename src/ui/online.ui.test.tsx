@@ -7,7 +7,7 @@ import { Root } from './Root.tsx';
 
 const order = (id: string, name: string, more: Partial<OnlineOrder> = {}): OnlineOrder => ({
   id, createdAt: Date.now() - 120_000, status: 'new', kind: 'pickup', name, phone: '0771234567', address: null, pin: null, note: 'Ring the bell',
-  deliveryFee: 0, total: 360000, orderNumber: null, readyBy: null, reason: null,
+  deliveryFee: 0, distanceKm: null, total: 360000, orderNumber: null, readyBy: null, reason: null,
   lines: [{ itemId: 'devilled-chicken', qty: 2, size: 'L', adds: [], outs: ['no-onion'] }], ...more,
 });
 
@@ -91,7 +91,7 @@ test('the switch: not taking orders until the counter says so', async () => {
 test('a delivery: the address and map for the rider, accepted with a ride time, Out as he leaves, the fee in the total', async () => {
   const server = shopServer();
   server.orders = [order('o-cccccccccc', 'Kasun', {
-    kind: 'delivery', address: '12 Station Rd, Thalawathugoda', pin: { lat: 6.82351, lng: 79.89012 }, deliveryFee: 25000, total: 385000,
+    kind: 'delivery', address: '12 Station Rd, Thalawathugoda', pin: { lat: 6.82351, lng: 79.89012 }, deliveryFee: 25000, distanceKm: 4.6, total: 385000,
   })];
   const user = userEvent.setup();
   render(<Root />);
@@ -101,6 +101,7 @@ test('a delivery: the address and map for the rider, accepted with a ride time, 
   const kasun = within(sheet.getByRole('article', { name: 'Delivery order from Kasun' }));
   expect(kasun.getByText('12 Station Rd, Thalawathugoda', { exact: false })).toBeTruthy();
   expect(kasun.getByRole('link', { name: 'Map' }).getAttribute('href')).toBe('https://www.google.com/maps/search/?api=1&query=6.82351,79.89012');
+  expect(kasun.getByText('· 4.6 km')).toBeTruthy();
   expect(kasun.queryByRole('button', { name: '15 min' })).toBeNull();
   await user.click(kasun.getByRole('button', { name: 'Decline' }));
   expect(kasun.getByRole('button', { name: 'Too far to deliver' })).toBeTruthy();

@@ -1,11 +1,13 @@
 import { MENU } from '../../src/domain/menu.ts';
 import { effectiveMenu, menuStateFromEvents } from '../../src/domain/menuEdits.ts';
 import {
-  canBecome, checkOnlineOrder, effectiveStatus, IN_PLAY, normalisePhone, parseDeliveryFee, parseHours, takingOrders,
+  canBecome, checkOnlineOrder, effectiveStatus, IN_PLAY, normalisePhone, parseDeliveryRules, parseHours, quoteFor, roadKmGuess,
+  takingOrders, withDelivery, type DeliveryQuote,
   type DeliveryPin, type OnlineKind, type OnlineLine, type OnlineOrder, type OnlineStatus,
 } from '../../src/domain/online.ts';
 import type { CloudDevice, D1Like, Kind } from './cloud.ts';
 import { HttpError, json, randomToken, sha256Hex } from './http.ts';
+import type { RoadKm } from './road.ts';
 
 /**
  * Online orders on the cloud (src/domain/online.ts has the rules).
@@ -24,14 +26,17 @@ export interface OnlineContext {
   /** Its phone / WhatsApp number and street address for the page's pickup card (ORDER_PHONE, ORDER_ADDRESS). */
   orderPhone?: string;
   orderAddress?: string;
-  /** The delivery fee in whole rupees (DELIVERY_FEE); unset = pickup only. */
-  deliveryFee?: string;
+  /** Delivery: the shop's pin, rupees a km, farthest km (SHOP_LOCATION, DELIVERY_PER_KM, DELIVERY_MAX_KM). */
+  shopLocation?: string;
+  deliveryPerKm?: string;
+  deliveryMaxKm?: string;
+  roadKm?: RoadKm;
   authenticate(req: Request, allowed: Kind[]): Promise<CloudDevice>;
 }
 
 interface Row {
   id: string; status: OnlineStatus; kind: OnlineKind; name: string; phone: string; address: string | null; pin: string | null;
-  body: string; delivery_fee: number; total: number;
+  body: string; delivery_fee: number; distance_m: number | null; total: number;
   order_number: number | null; ready_by: number | null; reason: string | null; created_at: number;
 }
 
@@ -49,12 +54,13 @@ const toOrder = (r: Row, now: number): OnlineOrder => {
   return {
     id: r.id, createdAt: r.created_at, status: effectiveStatus({ status: r.status, createdAt: r.created_at }, now),
     kind: r.kind, name: r.name, phone: r.phone, address: r.address, pin: r.pin ? JSON.parse(r.pin) as DeliveryPin : null,
-    lines: body.lines, note: body.note, deliveryFee: r.delivery_fee, total: r.total,
+    lines: body.lines, note: body.note, deliveryFee: r.delivery_fee,
+    distanceKm: r.distance_m === null ? null : Math.round(r.distance_m / 100) / 10, total: r.total,
     orderNumber: r.order_number, readyBy: r.ready_by, reason: r.reason,
   };
 };
 
-const COLUMNS = 'id, status, kind, name, phone, address, pin, body, delivery_fee, total, order_number, ready_by, reason, created_at';
+const COLUMNS = 'id, status, kind, name, phone, address, pin, body, delivery_fee, distance_m, total, order_number, ready_by, reason, created_at';
 const IN_PLAY_SQL = IN_PLAY.map((s) => `'${s}'`).join(', ');
 
 export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Promise<Response | null> {
@@ -68,7 +74,18 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     return menuStateFromEvents(results.map((r) => JSON.parse(r.body) as { type: string }));
   };
   const shopMenu = async (tenantId: string) => effectiveMenu(MENU, await shopMenuState(tenantId), now());
-  const deliveryFee = parseDeliveryFee(c.deliveryFee);
+  const delivery = parseDeliveryRules(c.shopLocation, c.deliveryPerKm, c.deliveryMaxKm);
+  /** The fee to a customer's pin: by road when the road service answers, else the straight-line guess. */
+  const quote = async (pin: unknown): Promise<DeliveryQuote> => {
+    if (!delivery) return { reason: 'the shop is not delivering right now: choose pickup' };
+    const p = pin as { lat?: unknown; lng?: unknown } | null;
+    if (!p || typeof p.lat !== 'number' || typeof p.lng !== 'number' || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) {
+      return { reason: 'share your location for delivery (the fee is by distance), or choose pickup' };
+    }
+    const to = { lat: p.lat, lng: p.lng };
+    const km = (await c.roadKm?.(delivery.from, to).catch(() => null)) ?? roadKmGuess(delivery.from, to);
+    return quoteFor(km, delivery);
+  };
 
   const shopState = async () => {
     if (!c.orderShop) throw new HttpError(404, 'server', 'online orders are not set up');
@@ -83,7 +100,16 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     const shop = await shopState();
     // The owner's menu changes: the page applies them to the printed menu it carries, as the counter does.
     const contact = { phone: normalisePhone(c.orderPhone ?? ''), address: c.orderAddress?.trim() || null };
-    return json(200, { ...shop, hours: parseHours(c.orderHours), ...contact, deliveryFee, menuState: await shopMenuState(c.orderShop!) });
+    const rules = delivery ? { perKm: delivery.perKm, maxKm: delivery.maxKm } : null;
+    return json(200, { ...shop, hours: parseHours(c.orderHours), ...contact, delivery: rules, menuState: await shopMenuState(c.orderShop!) });
+  }
+
+  // The fee before the customer orders: what this location would cost, or why it cannot be delivered to.
+  if (path === '/api/v1/delivery-quote' && req.method === 'POST') {
+    await shopState();
+    let body: { pin?: unknown };
+    try { body = await req.json(); } catch { throw new HttpError(400, 'invalid_event', 'The location is not readable.'); }
+    return json(200, await quote(body.pin));
   }
 
   if (path === '/api/v1/orders' && req.method === 'POST') {
@@ -91,8 +117,13 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     if (!shop.open) throw new HttpError(409, 'forbidden', 'The shop is not taking online orders right now.');
     let body: unknown;
     try { body = await req.json(); } catch { throw new HttpError(400, 'invalid_event', 'The order is not readable.'); }
-    const checked = checkOnlineOrder(body, await shopMenu(c.orderShop!), deliveryFee);
+    let checked = checkOnlineOrder(body, await shopMenu(c.orderShop!), delivery !== null);
     if ('reason' in checked) throw new HttpError(400, 'invalid_event', checked.reason);
+    if (checked.kind === 'delivery') {
+      const q = await quote(checked.pin);
+      if ('reason' in q) throw new HttpError(400, 'invalid_event', q.reason);
+      checked = withDelivery(checked, q);
+    }
     const t = now();
     const ip = await sha256Hex(`cb-online:${req.headers.get('cf-connecting-ip') ?? 'unknown'}`);
     const counts = await db.prepare(`SELECT
@@ -108,11 +139,11 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     const id = `o-${randomToken(9)}`;
     const token = randomToken(24);
     await db.prepare(`INSERT INTO online_orders
-        (id, tenant_id, token_hash, status, kind, name, phone, address, pin, body, delivery_fee, total, ip_hash, created_at, updated_at)
-        VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        (id, tenant_id, token_hash, status, kind, name, phone, address, pin, body, delivery_fee, distance_m, total, ip_hash, created_at, updated_at)
+        VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(id, c.orderShop, await sha256Hex(token), checked.kind, checked.name, checked.phone, checked.address,
         checked.pin ? JSON.stringify(checked.pin) : null, JSON.stringify({ lines: checked.lines, note: checked.note }),
-        checked.deliveryFee, checked.total, ip, t, t)
+        checked.deliveryFee, checked.distanceKm === null ? null : Math.round(checked.distanceKm * 1000), checked.total, ip, t, t)
       .run();
     return json(200, { id, token, total: checked.total });
   }

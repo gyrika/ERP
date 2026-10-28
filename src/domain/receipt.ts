@@ -135,6 +135,7 @@ export interface DeliveryBillOrder {
   note: string;
   lines: Pick<LineSpec, 'itemId' | 'qty' | 'size' | 'adds'>[];
   deliveryFee: Cents;
+  distanceKm: number | null;
   total: Cents;
 }
 
@@ -163,7 +164,7 @@ export function deliveryBill(
   ];
   o.lines.forEach((l, i) => out.push(...itemLines(l, prices[i] ?? 0, width)));
   out.push(rule(width));
-  if (o.deliveryFee > 0) out.push({ text: twoCols('Delivery', fmt(o.deliveryFee), width) });
+  if (o.deliveryFee > 0) out.push({ text: twoCols(`Delivery${o.distanceKm !== null ? ` ${o.distanceKm} km` : ''}`, fmt(o.deliveryFee), width) });
   out.push(
     { text: twoCols('COLLECT', `Rs ${fmt(o.total)}`, width / 2), bold: true, big: true },
     { text: 'Cash on delivery', center: true },

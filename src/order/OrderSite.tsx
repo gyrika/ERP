@@ -3,7 +3,7 @@ import { menuItems, setMenuState } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { Banknote, Bike, Clock, Hamburger, LocateFixed, MapPin, MessageCircle, Phone, Pizza, Plus, ShoppingBag, Soup } from 'lucide-react';
 import {
-  clockText, normalisePhone, onlineLineTotal, onlineTotal, statusText, type DeliveryPin, type OnlineKind, type OnlineLine,
+  clockText, normalisePhone, onlineLineTotal, onlineTotal, statusText, type DeliveryPin, type DeliveryQuote, type OnlineKind, type OnlineLine,
 } from '../domain/online.ts';
 import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
@@ -389,20 +389,27 @@ function PickupInfo({ shop }: { shop: ShopInfo | null }) {
   );
 }
 
-/** Asks the phone where it is, once, when the customer taps the button. */
+/**
+ * Asks the phone where it is when the customer taps the button, then the cloud what delivery there
+ * costs (by road from the shop). The fee shown is the fee charged: the cloud works it out again.
+ */
 function useLocation() {
   const [pin, setPin] = useState<DeliveryPin | null>(null);
+  const [quote, setQuote] = useState<DeliveryQuote | null>(null);
   const [state, setState] = useState<'idle' | 'asking' | 'failed'>('idle');
   const ask = () => {
     if (!navigator.geolocation) { setState('failed'); return; }
     setState('asking');
     navigator.geolocation.getCurrentPosition(
-      (p) => { setPin({ lat: p.coords.latitude, lng: p.coords.longitude }); setState('idle'); },
+      (p) => {
+        const at = { lat: p.coords.latitude, lng: p.coords.longitude };
+        api.quote(at).then((q) => { setPin(at); setQuote(q); setState('idle'); }, () => setState('failed'));
+      },
       () => setState('failed'),
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
     );
   };
-  return { pin, state, ask, clear: () => setPin(null) };
+  return { pin, quote, state, ask };
 }
 
 function Checkout({ basket, shop, taking, onRetry, onChange, onPlaced, onClose }: {
@@ -410,18 +417,20 @@ function Checkout({ basket, shop, taking, onRetry, onChange, onPlaced, onClose }
   onChange: (b: OnlineLine[]) => void; onPlaced: (p: Placed) => void; onClose: () => void;
 }) {
   const [me, setMe] = useState(remembered.me);
-  const fee = shop?.deliveryFee ?? null;
+  const rules = shop?.delivery ?? null;
   const [chosen, setChosen] = useState<OnlineKind>(remembered.kind);
-  const kind: OnlineKind = fee === null ? 'pickup' : chosen;
+  const kind: OnlineKind = rules === null ? 'pickup' : chosen;
   const delivery = kind === 'delivery';
   const where = useLocation();
+  const priced = where.quote && 'fee' in where.quote ? where.quote : null;
+  const fee = priced?.fee ?? 0;
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const phoneOk = normalisePhone(me.phone) !== null;
-  const addressOk = !delivery || me.address.trim() !== '';
+  const addressOk = !delivery || (me.address.trim() !== '' && priced !== null);
   const ready = me.name.trim() !== '' && phoneOk && addressOk && basket.length > 0 && taking === 'open' && !sending;
-  const total = onlineTotal(basket) + (delivery ? fee ?? 0 : 0);
+  const total = onlineTotal(basket) + (delivery ? fee : 0);
   const choose = (k: OnlineKind) => { setChosen(k); remembered.setKind(k); };
 
   const submit = async (e: FormEvent) => {
@@ -446,15 +455,15 @@ function Checkout({ basket, shop, taking, onRetry, onChange, onPlaced, onClose }
       <h2 className="o-sheet__title">Your order</h2>
       <BasketLines basket={basket} onChange={onChange} />
       {basket.length === 0 && <p className="o-muted">Your order is empty.</p>}
-      {fee !== null && (
+      {rules !== null && (
         <div className="o-kind" role="radiogroup" aria-label="Pickup or delivery">
           <button type="button" role="radio" aria-checked={!delivery} onClick={() => choose('pickup')}><ShoppingBag aria-hidden />Pickup</button>
           <button type="button" role="radio" aria-checked={delivery} onClick={() => choose('delivery')}>
-            <Bike aria-hidden />Delivery<span className="num o-kind__fee">{fee ? `+ ${rs(fee)}` : 'Free'}</span>
+            <Bike aria-hidden />Delivery<span className="num o-kind__fee">{rs(rules.perKm)}/km</span>
           </button>
         </div>
       )}
-      {delivery && fee !== null && <div className="o-fee"><span>Delivery</span><span className="num">{fee ? rs(fee) : 'Free'}</span></div>}
+      {delivery && priced && <div className="o-fee"><span>Delivery · <span className="num">{priced.km} km</span></span><span className="num">{rs(priced.fee)}</span></div>}
       <div className="o-total"><span>Total</span><b className="num">{rs(total)}</b></div>
 
       <form className="o-form" onSubmit={(e) => void submit(e)}>
@@ -473,15 +482,21 @@ function Checkout({ basket, shop, taking, onRetry, onChange, onPlaced, onClose }
             />
           </label>
           <div className="o-locate">
-            {where.pin ? (<>
-              <span className="o-locate__ok"><LocateFixed aria-hidden />Location added</span>
-              <button type="button" className="o-link" onClick={where.clear}>Remove</button>
+            {priced ? (<>
+              <span className="o-locate__ok"><LocateFixed aria-hidden />Location added · <span className="num">{priced.km} km</span></span>
+              <button type="button" className="o-link" onClick={where.ask}>Update</button>
             </>) : (
               <button type="button" className="o-btn" onClick={where.ask} disabled={where.state === 'asking'}>
-                <LocateFixed aria-hidden />{where.state === 'asking' ? 'Finding you…' : 'Add my location for the rider'}
+                <LocateFixed aria-hidden />{where.state === 'asking' ? 'Finding you…' : 'Share my location'}
               </button>
             )}
-            {where.state === 'failed' && <span className="o-hint">We couldn&apos;t get your location. The address is enough.</span>}
+            {!priced && where.state === 'idle' && !where.quote && (
+              <span className="o-muted">Delivery is {rs(rules?.perKm ?? 0)} a km, up to {rules?.maxKm} km: we need your location to price it.</span>
+            )}
+            {where.quote && 'reason' in where.quote && <span className="o-hint">Sorry, {where.quote.reason}.</span>}
+            {where.state === 'failed' && (
+              <span className="o-hint">We couldn&apos;t get your location. Allow it in your browser, choose pickup, or call the shop.</span>
+            )}
           </div>
         </>)}
         <label><span>Note for the shop <span className="o-muted">(optional)</span></span>
@@ -581,7 +596,7 @@ function Status({ placed, onDone, onAgain }: { placed: Placed; onDone: () => voi
           <section className="o-receipt" aria-label="What you ordered">
             <ul>
               {order.lines.map((l, i) => <li key={i}><span>{lineText(l)}</span><span className="num">{fmt(onlineLineTotal(l))}</span></li>)}
-              {delivery && <li><span>Delivery</span><span className="num">{order.deliveryFee ? fmt(order.deliveryFee) : 'Free'}</span></li>}
+              {delivery && <li><span>Delivery{order.distanceKm !== null && ` · ${order.distanceKm} km`}</span><span className="num">{fmt(order.deliveryFee)}</span></li>}
             </ul>
             <div className="o-total"><span>{delivery ? 'To pay the rider' : 'To pay at the shop'}</span><b className="num">{rs(order.total)}</b></div>
           </section>
@@ -691,7 +706,7 @@ export function OrderSite() {
       <div className="o-wrap o-layout">
         <div className="o-col">
           <ul className="o-trust">
-            {shop?.deliveryFee != null ? (<>
+            {shop?.delivery ? (<>
               <li><Bike aria-hidden />Pickup or delivery</li>
               <li><Banknote aria-hidden />Pay when you get it</li>
             </>) : (<>
@@ -770,7 +785,7 @@ function Header({ taking, shop, onRetry }: { taking: Taking; shop: ShopInfo | nu
         {taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}
         {(taking === 'open' || taking === 'closed') && (
           <span className={`o-pill o-pill--${taking}`} role="status">
-            {statusText(taking === 'open', shop?.hours ?? null, Date.now(), shop?.deliveryFee != null)}
+            {statusText(taking === 'open', shop?.hours ?? null, Date.now(), Boolean(shop?.delivery))}
           </span>
         )}
         {taking === 'failed' && (
