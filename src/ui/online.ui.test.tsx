@@ -101,7 +101,7 @@ test('a delivery: the address and map for the rider, accepted with a ride time, 
   const kasun = within(sheet.getByRole('article', { name: 'Delivery order from Kasun' }));
   expect(kasun.getByText('12 Station Rd, Thalawathugoda', { exact: false })).toBeTruthy();
   expect(kasun.getByRole('link', { name: 'Map' }).getAttribute('href')).toBe('https://www.google.com/maps/search/?api=1&query=6.82351,79.89012');
-  expect(kasun.getByText('· 4.6 km')).toBeTruthy();
+  expect(kasun.getByText('4.6 km', { exact: false })).toBeTruthy();
   expect(kasun.queryByRole('button', { name: '15 min' })).toBeNull();
   await user.click(kasun.getByRole('button', { name: 'Decline' }));
   expect(kasun.getByRole('button', { name: 'Too far to deliver' })).toBeTruthy();

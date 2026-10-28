@@ -65,7 +65,10 @@ function NewOrder({ order, onAccept, onDecline }: {
       <ul className="online__lines">
         {order.lines.map((l, i) => <li key={i}>{describe(l)}</li>)}
         {delivery && (
-          <li className="online__fee">Delivery{order.distanceKm !== null && <span className="num"> · {order.distanceKm} km</span>} <span className="num">{fmt(order.deliveryFee)}</span></li>
+          <li className="online__fee">
+            <span>Delivery{order.distanceKm !== null && <span className="num"> {order.distanceKm} km</span>}</span>
+            <span className="num">· {fmt(order.deliveryFee)}</span>
+          </li>
         )}
       </ul>
       {order.note && <p className="online__note">“{order.note}”</p>}

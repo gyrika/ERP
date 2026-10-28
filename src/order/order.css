@@ -278,7 +278,7 @@ button { cursor: pointer; }
 .o-kind button { min-height: 56px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); padding: 0 var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-card); background: transparent; color: var(--heading); font: inherit; font-weight: 600; transition: background 150ms var(--ease), border-color 150ms var(--ease); }
 .o-kind button[aria-checked='true'] { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
 .o-kind svg { width: 20px; height: 20px; stroke-width: 1.75; }
-.o-kind__fee { font-size: var(--text-caption); font-weight: 500; opacity: 0.8; }
+.o-kind__fee { font-size: var(--text-caption); font-weight: 500; opacity: 0.8; white-space: nowrap; }
 .o-fee { display: flex; justify-content: space-between; padding-top: var(--space-1); color: var(--body); }
 .o-locate { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
 .o-locate__ok { display: inline-flex; align-items: center; gap: var(--space-half); color: var(--heading); font-weight: 600; }
