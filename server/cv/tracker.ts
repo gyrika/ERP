@@ -1,6 +1,6 @@
 // The only place the camera worker calls the table rules in src/domain/tables.ts (SCRUM-182:
-// occupied on the first frame, left after leftCheckS empty, a short visit frees the table, a long
-// one needs cleaning, which frees itself after autoFreeS).
+// occupied on the first frame, left on the first empty one, a short visit frees the table, one of
+// 3 minutes or more needs cleaning, which frees itself after 20 seconds).
 import { cameraLost, newTracker, observe, staffSet, timersOf, type Change, type TableState, type TableTracker, type Timers, type VisionMode } from '../../src/domain/tables.ts';
 import type { FloorState } from './visionCore.ts';
 

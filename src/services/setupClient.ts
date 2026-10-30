@@ -1,6 +1,6 @@
 import type { Role } from '../domain/auth.ts';
 import type { SyncEvent } from '../domain/sync.ts';
-import type { TableSpec, VisionSettings, ZoneSpec } from '../domain/tables.ts';
+import type { TableSpec, VisionMode, ZoneSpec } from '../domain/tables.ts';
 
 /**
  * The setup wizard's calls to the shop server (server/setup.ts). They work only
@@ -75,5 +75,5 @@ export const cameraClient = {
   saveCameras: (ownerPin: string, cameras: CameraDraft[]) => call<{ events: SyncEvent[]; logins: CameraLogins }>('/cv/cameras', { ownerPin, cameras }),
   saveTables: (ownerPin: string, tables: TableSpec[]) => call<{ events: SyncEvent[] }>('/cv/tables', { ownerPin, tables }),
   saveZones: (ownerPin: string, cameraId: string, zones: ZoneSpec[]) => call<{ events: SyncEvent[] }>('/cv/zones', { ownerPin, cameraId, zones }),
-  saveSettings: (ownerPin: string, s: VisionSettings) => call<{ events: SyncEvent[] }>('/cv/settings', { ownerPin, ...s }),
+  saveSettings: (ownerPin: string, mode: VisionMode) => call<{ events: SyncEvent[] }>('/cv/settings', { ownerPin, mode }),
 };

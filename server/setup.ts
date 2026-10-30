@@ -1,5 +1,6 @@
 import { isStaffRole, managesRole, mayRecord } from '../src/domain/auth.ts';
 import { createWriteStream, mkdirSync, rmSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -211,7 +212,7 @@ export function setupApi(ctx: SetupContext) {
   /** Camera id -> the video's name, for the screen. */
   const testing = new Map<string, string>();
   // A test ends with the server: the last run's uploads go.
-  if (ctx.testVideos) rmSync(ctx.testVideos.dir, { recursive: true, force: true });
+  if (ctx.testVideos) { try { rmSync(ctx.testVideos.dir, { recursive: true, force: true }); } catch { /* a stray ffmpeg still holds one: it goes next time */ } }
   const testState = () => ({ testVideos: Object.fromEntries(testing) });
   const testCamera = async (cameraId: unknown): Promise<string> => {
     if (!ctx.testVideos || !ctx.dev) throw new SetupError(409, 'not_ready', 'test videos are not on here');
@@ -219,10 +220,12 @@ export function setupApi(ctx: SetupContext) {
     if (!(await camerasNow()).some((c) => c.id === id)) throw new SetupError(404, 'invalid', 'save the camera first');
     return id;
   };
-  const fileFor = (id: string, ext: string) => join(ctx.testVideos!.dir, `${id.replace(/[^\w-]/g, '_')}${ext}`);
+  // A new name each time: the video before may still be open in ffmpeg, and Windows will not replace an open file.
+  const fileFor = (id: string, ext: string) => join(ctx.testVideos!.dir, `${id.replace(/[^\w-]/g, '_')}-${randomBytes(3).toString('hex')}${ext}`);
   const stopTest = (id: string) => {
     const file = ctx.dev!.get(id);
-    if (testing.has(id) && file) rmSync(file, { force: true });
+    // ffmpeg lets go once testChanged() has stopped it; a file still held then goes with the next start.
+    if (testing.has(id) && file) void rm(file, { force: true, maxRetries: 20, retryDelay: 500 }).catch(() => {});
     testing.delete(id);
     if (fromEnv.has(id)) ctx.dev!.set(id, fromEnv.get(id)!); else ctx.dev!.delete(id);
   };
@@ -583,13 +586,10 @@ export function setupApi(ctx: SetupContext) {
       return { events: await record(actor, { type: 'vision.zones_set', cameraId: body.cameraId, zones: body.zones }) };
     },
 
-    /** The owner's table timers (SCRUM-182: shortVisitS, leftCheckS, autoFreeS), mode and CPU limit; `checkTableEvent` checks them. */
-    async cvSettings(body: { ownerPin?: unknown; mode?: unknown; shortVisitS?: unknown; leftCheckS?: unknown; autoFreeS?: unknown; cpuLimit?: unknown }) {
+    /** On or off: all the owner sets (the table rules and CPU limit are fixed, tables.ts); `checkTableEvent` checks it. */
+    async cvSettings(body: { ownerPin?: unknown; mode?: unknown }) {
       const actor = await owner(body.ownerPin);
-      return { events: await record(actor, {
-        type: 'vision.settings_set', mode: body.mode, shortVisitS: body.shortVisitS, leftCheckS: body.leftCheckS, autoFreeS: body.autoFreeS,
-        ...(body.cpuLimit === undefined ? {} : { cpuLimit: body.cpuLimit }),
-      }) };
+      return { events: await record(actor, { type: 'vision.settings_set', mode: body.mode }) };
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */

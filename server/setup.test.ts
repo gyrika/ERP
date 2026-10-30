@@ -221,18 +221,17 @@ test('#cameras: the owner sets up cameras, tables, zones and settings as events;
   await setup.cvTables({ ...pin, tables: [{ id: 't1', label: '1', seats: 4 }, { id: 't2', label: '2', seats: 2 }] });
   await setup.cvZones({ ...pin, cameraId: 'c1', zones: [{ id: 'z1', tableId: 't1', points: [{ x: 0.1, y: 0.1 }, { x: 0.5, y: 0.1 }, { x: 0.3, y: 0.6 }] }] });
   await assert.rejects(setup.cvZones({ ...pin, cameraId: 'c1', zones: [{ id: 'z1', tableId: 't1', points: [{ x: 0.1, y: 0.1 }, { x: 2, y: 0 }, { x: 0, y: 1 }] }] }), /not valid/);
-  await setup.cvSettings({ ...pin, mode: 'live', shortVisitS: 120, leftCheckS: 10, autoFreeS: 300, cpuLimit: 25 });
-  await assert.rejects(setup.cvSettings({ ...pin, mode: 'live', shortVisitS: 120, leftCheckS: 10, autoFreeS: 300, cpuLimit: 80 }), /not valid/, 'the CPU limit stops at 50%');
-  await assert.rejects(setup.cvSettings({ ...pin, mode: 'live', shortVisitS: 120, leftCheckS: 0, autoFreeS: 300 }), /not valid/, 'a left check of 0 s would end a visit on one missed frame');
-  await assert.rejects(setup.cvSettings({ ...pin, mode: 'live', seatS: 60, leaveS: 180, cleanAlertS: 300 } as never), /not valid/, 'the old timers are no longer saved');
+  await assert.rejects(setup.cvSettings({ ...pin, mode: 'maybe' }), /not valid/);
+  await setup.cvSettings({ ...pin, mode: 'live', shortVisitS: 1, leftCheckS: 1, autoFreeS: 1, cpuLimit: 5 } as never);
 
   const stored = (await store.pull(named.shopId, 0, 100)).map((s) => s.event);
   assert.deepEqual(stored.map((e) => e.type), ['vision.cameras_set', 'table.layout_set', 'vision.zones_set', 'vision.settings_set']);
   assert.ok(stored.every((e) => e.shopId === named.shopId && 'actor' in e && e.actor.role === 'owner' && e.actor.name === 'Nisal Vimukthi'));
   const v = visionFromEvents(stored);
   assert.equal(v.settings.mode, 'live');
-  assert.equal(v.settings.cpuLimit, 25);
-  assert.equal(v.settings.shortVisitS, 120);
+  assert.doesNotMatch(JSON.stringify(stored.at(-1)), /cpuLimit|shortVisitS/, 'only On or Off is saved');
+  assert.equal(v.settings.cpuLimit, 50);
+  assert.equal(v.settings.autoFreeS, 20);
   assert.deepEqual(tablesFromEvents(stored).map((t) => [t.id, t.watched]), [['t1', true], ['t2', false]]);
   assert.doesNotMatch(JSON.stringify(stored), /hunter2/, 'no password in any event');
   assert.doesNotMatch(readFileSync(join(dir, 'cv-secrets.json'), 'utf8'), /hunter2/);
@@ -379,9 +378,9 @@ test('TEMPORARY test video: the owner uploads one for a saved camera; views and 
   const r = await upload('1234', 'front', 'cafe.mp4', video);
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { testVideos: { front: 'cafe.mp4' } });
-  const file = join(testDir, 'front.mp4');
+  const file = dev.get('front')!;
+  assert.match(file, /[\\/]cv-test[\\/]front-[0-9a-f]{6}\.mp4$/, 'the views and the worker read the file now, under a new name each time');
   assert.equal(readFileSync(file).length, 300_000, 'kept whole in the data folder');
-  assert.equal(dev.get('front'), file, 'the views and the worker read the file now');
   assert.equal(changes, 1, 'the worker is told at once');
   const stopsBefore = stops;
   await setup.cvViewsFrame({ key: (await setup.cvViewsOpen({ ownerPin: '1234' })).key, cameraId: 'front' });
@@ -399,9 +398,10 @@ test('TEMPORARY test video: the owner uploads one for a saved camera; views and 
   // Stop: the stream again, the file gone; a camera from CV_DEV_CAMERAS keeps its file.
   assert.deepEqual(await setup.cvTestVideoStop({ ownerPin: '1234', cameraId: 'front' }), { testVideos: {} });
   assert.equal(dev.has('front'), false);
+  for (let i = 0; i < 100 && existsSync(file); i++) await new Promise((done) => setTimeout(done, 20));
   assert.equal(existsSync(file), false);
   await upload('1234', 'back', 'b.webm', video);
-  assert.equal(dev.get('back'), join(testDir, 'back.webm'));
+  assert.match(dev.get('back')!, /[\\/]back-[0-9a-f]{6}\.webm$/);
   await setup.cvTestVideoStop({ ownerPin: '1234', cameraId: 'back' });
   assert.equal(dev.get('back'), 'C:\clips\env.jpg', 'back to what the environment said');
 

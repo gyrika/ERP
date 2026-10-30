@@ -24,7 +24,7 @@ const setup = (mode: 'off' | 'shadow' | 'live' = 'live', zoned = ['t1', 't2']): 
     { id: 'c2', name: 'Back camera', ip: '192.168.1.21', rtspPath: '/stream1', enabled: true },
   ] }, at(9), owner),
   ev({ type: 'vision.zones_set', cameraId: 'c1', zones: zoned.map((t) => ({ id: `z-${t}`, tableId: t, points: square })) }, at(9), owner),
-  ev({ type: 'vision.settings_set', mode, shortVisitS: 180, leftCheckS: 10, autoFreeS: 300 }, at(9), owner),
+  ev({ type: 'vision.settings_set', mode }, at(9), owner),
 ];
 const saw = (tableId: string, from: string, to: string, when: number, confidence = 0.8) =>
   ev({ type: 'table.state_changed', tableId, from, to, confidence }, when);
@@ -37,19 +37,18 @@ const why = (events: SyncEvent[], id: string, when = now) => {
 test('why a camera set a table, by the owner\'s rules: seen, left after a visit, frees itself', () => {
   const events = [...setup(), saw('t1', 'free', 'occupied', at(18, 2))];
   assert.equal(why(events, 't1', at(18, 14)), 'Seen at 18:02; occupied 12 min.');
-  // Left at 18:40 (10 s after the first empty frame): a 37 min visit; frees itself 5 min after.
-  const left = [...events, saw('t1', 'occupied', 'needs_cleaning', at(18, 40) + 10_000)];
-  assert.equal(why(left, 't1', at(18, 42)), 'Left at 18:40 after 38 min; frees itself in 4 min.');
-  assert.equal(why(left, 't1', at(18, 44) + 30_000), 'Left at 18:40 after 38 min; frees itself in under a minute.');
-  const freed = [...left, saw('t1', 'needs_cleaning', 'free', at(18, 45) + 10_000)];
-  assert.equal(why(freed, 't1', at(18, 50)), 'Freed itself at 18:45, 5 min after it needed cleaning.');
+  // Left at 18:40 (the first empty frame): a 38 min visit; frees itself 20 s after.
+  const left = [...events, saw('t1', 'occupied', 'needs_cleaning', at(18, 40))];
+  assert.equal(why(left, 't1', at(18, 40) + 5_000), 'Left at 18:40 after 38 min; frees itself in 15 s.');
+  const freed = [...left, saw('t1', 'needs_cleaning', 'free', at(18, 40) + 20_000)];
+  assert.equal(why(freed, 't1', at(18, 50)), 'Freed itself at 18:40, 20 s after it needed cleaning.');
   // A short visit: straight back to free.
-  const short = [...setup(), saw('t2', 'free', 'occupied', at(19)), saw('t2', 'occupied', 'free', at(19, 2) + 10_000)];
+  const short = [...setup(), saw('t2', 'free', 'occupied', at(19)), saw('t2', 'occupied', 'free', at(19, 2))];
   assert.equal(why(short, 't2', at(19, 5)), 'Left at 19:02 after 2 min, a short visit (under 3 min): no cleaning needed.');
   // Its camera offline: no frames, so no auto-free; the table waits for staff.
   const shadow = [...setup('live'), saw('t1', 'free', 'occupied', at(18)), saw('t1', 'occupied', 'needs_cleaning', at(18, 40)),
     ev({ type: 'vision.camera_offline', cameraId: 'c1' }, at(18, 41))];
-  assert.equal(why(shadow, 't1', at(18, 42)), 'Camera offline: this is the last thing it saw. Left at 18:40 after 39 min; waits for staff to clean it.');
+  assert.equal(why(shadow, 't1', at(18, 42)), 'Camera offline: this is the last thing it saw. Left at 18:40 after 40 min; waits for staff to clean it.');
 });
 
 test('why staff set a table: who, when, and what ends it in Live', () => {
