@@ -1,5 +1,5 @@
 import type { SyncEvent } from '../domain/sync.ts';
-import type { TableSpec, VisionSettings, ZoneSpec } from '../domain/tables.ts';
+import type { TableSpec, VisionMode, ZoneSpec } from '../domain/tables.ts';
 import { FAKE_CV_STATUS, FAKE_SHOP_ID, FAKE_STAFF } from '../fake/data.ts';
 import { addEvents } from '../ui/eventLog.ts';
 import { isDemo } from '../ui/storage.ts';
@@ -23,8 +23,8 @@ export interface VisionClient {
   activate(pin: string): Promise<CvStatus>;
   /** The CV pack as it is now, without the PIN (null: this server has none, as in development without a pack folder). */
   pack(): Promise<CvStatus | null>;
-  /** Records the settings; returns the event, already in this device's log. */
-  save(pin: string, s: VisionSettings): Promise<SyncEvent[]>;
+  /** Records On or Off; returns the event, already in this device's log. */
+  save(pin: string, mode: VisionMode): Promise<SyncEvent[]>;
   /** Which cameras have a login kept (never the password). */
   logins(pin: string): Promise<CameraLogins>;
   scan(pin: string): Promise<{ ip: string; name: string }[]>;
@@ -72,8 +72,8 @@ const shopServer: VisionClient = {
   status: (pin) => setupClient.cvStatus(pin),
   activate: (pin) => setupClient.cvActivate(pin),
   pack: async () => (await setupClient.state()).cv ?? null,
-  async save(pin, s) {
-    const { events } = await cameraClient.saveSettings(pin, s);
+  async save(pin, mode) {
+    const { events } = await cameraClient.saveSettings(pin, mode);
     addEvents(events);
     return events;
   },
@@ -116,7 +116,7 @@ const demo: VisionClient = {
   status: async () => FAKE_CV_STATUS,
   activate: async () => FAKE_CV_STATUS,
   pack: async () => FAKE_CV_STATUS,
-  save: async (_pin, s) => record({ type: 'vision.settings_set', ...s }),
+  save: async (_pin, mode) => record({ type: 'vision.settings_set', mode }),
   logins: async () => demoLogins,
   scan: async () => [{ ip: '192.168.1.40', name: 'TP-IPC C200' }],
   test: async () => ({ ok: true, jpeg: DEMO_JPEG }),

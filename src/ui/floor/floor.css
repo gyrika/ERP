@@ -8,7 +8,7 @@
   border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); border-left: 6px solid var(--tone); color: var(--ink); text-align: left;
   transition: transform 150ms var(--ease), box-shadow 150ms var(--ease); }
 .floor__tile--occupied { --tone: var(--warn); }
-.floor__tile--needs_cleaning { --tone: var(--bad); }
+.floor__tile--needs_cleaning { --tone: var(--bad); background: color-mix(in srgb, var(--bad) 22%, var(--surface)); }
 .floor__tile--reserved { --tone: var(--reserved); }
 .floor__tile--nocam { --tone: var(--nocam); }
 .floor__tile--nocam .floor__num { color: var(--ink-2); }

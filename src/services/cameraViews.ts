@@ -96,7 +96,7 @@ const demo = (names: () => Map<string, string>): CameraViewsClient => ({
   // The demo: the front camera works (5 fps, a check a second), the back one is offline; numbers wobble so it reads live.
   async perf() {
     const w = (n: number, by: number) => Math.round((n + (Math.random() - 0.5) * by) * 10) / 10;
-    return { views: 2, perf: { at: Date.now(), cpu: Math.round(w(11, 4)), cpuLimit: 15, slowed: false, cameras: [
+    return { views: 2, perf: { at: Date.now(), cpu: Math.round(w(11, 4)), cpuLimit: 50, slowed: false, cameras: [
       { id: 'demo-cam-front', online: true, fps: w(5, 0.4), checksPerS: 1, detectMs: Math.round(w(42, 10)) },
       { id: 'demo-cam-back', online: false, fps: 0, checksPerS: 0, detectMs: null },
     ] } };

@@ -583,13 +583,10 @@ export function setupApi(ctx: SetupContext) {
       return { events: await record(actor, { type: 'vision.zones_set', cameraId: body.cameraId, zones: body.zones }) };
     },
 
-    /** The owner's table timers (SCRUM-182: shortVisitS, leftCheckS, autoFreeS), mode and CPU limit; `checkTableEvent` checks them. */
-    async cvSettings(body: { ownerPin?: unknown; mode?: unknown; shortVisitS?: unknown; leftCheckS?: unknown; autoFreeS?: unknown; cpuLimit?: unknown }) {
+    /** On or off: all the owner sets (the table rules and CPU limit are fixed, tables.ts); `checkTableEvent` checks it. */
+    async cvSettings(body: { ownerPin?: unknown; mode?: unknown }) {
       const actor = await owner(body.ownerPin);
-      return { events: await record(actor, {
-        type: 'vision.settings_set', mode: body.mode, shortVisitS: body.shortVisitS, leftCheckS: body.leftCheckS, autoFreeS: body.autoFreeS,
-        ...(body.cpuLimit === undefined ? {} : { cpuLimit: body.cpuLimit }),
-      }) };
+      return { events: await record(actor, { type: 'vision.settings_set', mode: body.mode }) };
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */
