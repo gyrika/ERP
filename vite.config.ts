@@ -20,7 +20,14 @@ export default defineConfig(({ mode }) => ({
   // `npm run dev` + `npm run dev:server`: the app on Vite, the API on this repo's sync server. Port 8090
   // (server/dev.env), not 8080: an installed POS on this PC owns 8080, and its data must never mix with dev.
   // strictPort: on another address the app would lose this repo's browser data, or take another repo's.
-  server: { port: 5173, strictPort: true, proxy: { '/api': { target: 'http://localhost:8090', ws: true } } },
+  server: {
+    port: 5173,
+    strictPort: true,
+    proxy: { '/api': { target: 'http://localhost:8090', ws: true } },
+    // The dev server's data is not source. Watching it holds its folders open, and Windows then refuses
+    // the CV pack's final rename (EPERM), so Activate never finished under `npm run dev`.
+    watch: { ignored: ['**/server/data/**', '**/server/prints/**'] },
+  },
   // The cloud also serves the customers' ordering page (order.html → cheesybeez.com).
   build: mode === 'cloud' ? { rollupOptions: { input: { index: 'index.html', order: 'order.html' } } } : {},
   test: { environment: 'jsdom', include: ['src/**/*.ui.test.tsx'], globals: false, setupFiles: ['src/ui/testSetup.ts'] },
