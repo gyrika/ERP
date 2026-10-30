@@ -22,6 +22,7 @@ connect a kitchen tablet and the owner's phone. That PC becomes the counter by i
 - Another screen on the same PC: it asks for the owner's PIN once, then it is a counter too.
 - A tablet that has not scanned its code sees "This device is not connected yet", never a register.
 - `MEMORY=1 npm run server` keeps nothing (a quick look); `DATA_DIR=…` moves the data folder.
+- Developing: `npm run dev` + `npm run dev:server` (port 8090, data in `server/data/`), so an installed POS on 8080 is never touched. Check with `http://localhost:5173/api/v1/health`: `"version"` should say `development`.
 
 The MySQL steps below remain for anyone who sets `DATABASE_URL`.
 

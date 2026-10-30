@@ -10,6 +10,7 @@
     "test:domain": "node --test --test-timeout=60000 --test-force-exit --experimental-strip-types --no-warnings \"src/**/*.test.ts\" \"server/**/*.test.ts\" \"cloud/src/**/*.test.ts\" \"deploy/station/*.test.mjs\"",
     "test:ui": "vitest run",
     "server": "node --experimental-strip-types --no-warnings --env-file-if-exists=server/.env server/main.ts",
+    "dev:server": "node --experimental-strip-types --no-warnings --env-file-if-exists=server/.env --env-file=server/dev.env server/main.ts",
     "server:device": "node --experimental-strip-types --env-file-if-exists=server/.env server/addDevice.ts",
     "server:staff": "node --experimental-strip-types --env-file-if-exists=server/.env server/staff.ts",
     "server:migrate": "node --experimental-strip-types --env-file-if-exists=server/.env.migrate server/migrate.ts",

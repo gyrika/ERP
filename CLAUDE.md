@@ -40,7 +40,7 @@ Currency LKR. Today: cash and bank transfer (no card machine yet); card and QR c
 - Pure domain logic in `src/domain` (menu, pricing, order math, parser) with tests; UI in `src/ui`.
 - `src/domain/menu.ts` is copied from the printed menus; tests lock the prices. Change it only from the owner's menus. The owner changes his live menu himself (Menu screen `#menu`: prices, names incl. Sinhala/Tamil, sold out, hidden) as `menu.*` events on top of it (`src/domain/menuEdits.ts`); sent lines keep their price (`OrderLine.unit`).
 - Design source of truth: the screens Register (light/dark), Extras sheet, Kitchen, Owner (tokens already in `src/ui/styles.css`). Kitchen colours: ok #30A46C, warn #E8A94B, bad #E5484D; Done button green.
-- Commands: `npm run dev` · `npm test` (domain + UI) · `npm run build` (typecheck + build). Run all before finishing.
+- Commands: `npm run dev` + `npm run dev:server` (API on 8090, so an installed POS on 8080 never mixes in) · `npm test` (domain + UI) · `npm run build` (typecheck + build). Run all before finishing.
 - Explain tech trade-offs briefly. Accessible, responsive, production-quality code.
 
 ## Status and next
