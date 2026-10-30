@@ -230,7 +230,7 @@ test('a manager sees the page but cannot change CV, the CPU limit or the tables'
   expect(within(panel()).queryByText('Edit the table')).toBeNull();
 });
 
-test('the first time: Activate computer vision downloads the pack with its progress here, then the switch appears, off', async () => {
+test('the first time: Activate computer vision downloads the pack with its progress here, then CV is on, and the switch turns it off', async () => {
   const server = fakeShopServer();
   const pack = { phase: 'idle' as string, looks: 0 };
   const fetchCv = globalThis.fetch;
@@ -258,8 +258,10 @@ test('the first time: Activate computer vision downloads the pack with its progr
   expect(await screen.findByRole('progressbar', { name: 'Downloading the CV pack' })).toBeTruthy();
   expect(await screen.findByRole('switch', { name: 'Computer vision' }, { timeout: 4000 })).toBeTruthy();
   expect(screen.queryByRole('region', { name: 'Activate computer vision' })).toBeNull();
-  expect(toggle().getAttribute('aria-checked')).toBe('false'); // activated, still off: the owner turns it on
-  expect(server.settings).toEqual([]);
+  await vi.waitFor(() => expect(server.settings.map((b) => b.mode)).toEqual(['live']));
+  await vi.waitFor(() => expect(toggle().getAttribute('aria-checked')).toBe('true'));
+  await user.click(toggle());
+  await vi.waitFor(() => expect(server.settings.map((b) => b.mode)).toEqual(['live', 'off']));
 }, 15_000);
 
 test('the owner sets a table from the panel: occupied, needs cleaning, free or reserved, one event each, with Undo', async () => {

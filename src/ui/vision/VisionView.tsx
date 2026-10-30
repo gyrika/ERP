@@ -131,11 +131,6 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
   }, [pack, client]);
   const needsActivate = pack != null && pack.phase !== 'ready';
   const [activateError, setActivateError] = useState('');
-  const activate = () => {
-    setActivateError('');
-    withPin('activate computer vision', async (p) => { setPack(await client.activate(p)); })
-      .catch((e: unknown) => { if (!(e instanceof PinCancelled)) setActivateError(message(e)); });
-  };
 
   // ----- On / Off, Shadow / Live and the CPU limit: one `vision.settings_set` each -----
   /** A change waiting for the CV pack. */
@@ -159,6 +154,14 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
     await client.save(p, { ...settings, ...patch });
     setSaid(patch.mode ? (patch.mode === 'off' ? 'Computer vision is off.' : 'Computer vision is on.') : `CPU limit ${patch.cpuLimit}%.`);
   }, [client, settings]);
+
+  // Activate turns CV on once the pack is here (owner, 2026-10-30), with or without cameras yet: nothing
+  // runs until a camera is in use, and the switch turns it off.
+  const activate = () => {
+    setActivateError('');
+    withPin('activate computer vision', (p) => run(p, { mode: 'live' }))
+      .catch((e: unknown) => { if (!(e instanceof PinCancelled)) setActivateError(message(e)); });
+  };
 
   const change = (patch: Partial<VisionSettings>) => {
     if (!canChange || !settings) return;
