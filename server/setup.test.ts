@@ -378,9 +378,9 @@ test('TEMPORARY test video: the owner uploads one for a saved camera; views and 
   const r = await upload('1234', 'front', 'cafe.mp4', video);
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { testVideos: { front: 'cafe.mp4' } });
-  const file = join(testDir, 'front.mp4');
+  const file = dev.get('front')!;
+  assert.match(file, /[\\/]cv-test[\\/]front-[0-9a-f]{6}\.mp4$/, 'the views and the worker read the file now, under a new name each time');
   assert.equal(readFileSync(file).length, 300_000, 'kept whole in the data folder');
-  assert.equal(dev.get('front'), file, 'the views and the worker read the file now');
   assert.equal(changes, 1, 'the worker is told at once');
   const stopsBefore = stops;
   await setup.cvViewsFrame({ key: (await setup.cvViewsOpen({ ownerPin: '1234' })).key, cameraId: 'front' });
@@ -398,9 +398,10 @@ test('TEMPORARY test video: the owner uploads one for a saved camera; views and 
   // Stop: the stream again, the file gone; a camera from CV_DEV_CAMERAS keeps its file.
   assert.deepEqual(await setup.cvTestVideoStop({ ownerPin: '1234', cameraId: 'front' }), { testVideos: {} });
   assert.equal(dev.has('front'), false);
+  for (let i = 0; i < 100 && existsSync(file); i++) await new Promise((done) => setTimeout(done, 20));
   assert.equal(existsSync(file), false);
   await upload('1234', 'back', 'b.webm', video);
-  assert.equal(dev.get('back'), join(testDir, 'back.webm'));
+  assert.match(dev.get('back')!, /[\\/]back-[0-9a-f]{6}\.webm$/);
   await setup.cvTestVideoStop({ ownerPin: '1234', cameraId: 'back' });
   assert.equal(dev.get('back'), 'C:\clips\env.jpg', 'back to what the environment said');
 
