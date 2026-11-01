@@ -96,6 +96,23 @@ Add to Home Screen (iPhone) makes it an app (`/manager.webmanifest`).
 - No PIN on the phone: it is that person's phone. A lost phone: delete its row in `devices`
   (as for the owner's phone).
 
+## The owner's ChatGPT (SCRUM-197)
+
+A private Custom GPT on the owner's own ChatGPT account reads today's sales. It needs a plan that can
+create GPTs (not Free). It is read-only, and off until the secret below is set. What it reads goes to
+OpenAI, so answers hold totals and menu item names only: no customers, staff or order numbers.
+
+1. Set the secret: `openssl rand -base64 32`, then `npx wrangler secret put GPT_CLIENT_SECRET` in `cloud/`.
+2. In ChatGPT: Explore GPTs → Create → Configure → Create new action.
+3. Schema: Import from URL, `https://cheesybeez-cloud.cheesybeez-cloud.workers.dev/api/v1/gpt/openapi.json`.
+4. Authentication: OAuth. Client ID `cheesybeez-gpt`, the secret from step 1, Authorization URL
+   `…/api/v1/gpt/authorize`, Token URL `…/api/v1/gpt/token`, Scope `today`.
+5. Save the GPT as **Only me**. Check that the callback shown is `https://chatgpt.com/aip/g-…/oauth/callback`.
+6. Ask "How were sales today?", press Sign in, and paste the owner link.
+
+To cut it off: `DELETE FROM gpt_links WHERE tenant_id = '<shop>'`. Removing the owner's device also
+stops it. There is no screen for this yet.
+
 ## The owner's questions page
 
 `/questions?k=<key>` is a plain page (no account, no app) where the owner answers what the POS still

@@ -21,6 +21,8 @@ interface Env {
   AI?: AiLike;
   /** Model calls per shop per day (wrangler.toml [vars]); unset = 300. */
   AI_DAILY_CALLS?: string;
+  /** The owner's Custom GPT signs in with this (npx wrangler secret put GPT_CLIENT_SECRET); unset = off. */
+  GPT_CLIENT_SECRET?: string;
   /** The developer's /admin password (npm run admin-key in cloud/). */
   ADMIN_KEY?: string;
   /** The owner's page: the cloud build of the app (npm run build:cloud), served as static files. */
@@ -103,6 +105,7 @@ export default {
     if (url.pathname.startsWith('/api/')) return createCloud(env.DB, {
       enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP, orderHours: env.ORDER_HOURS, orderPhone: env.ORDER_PHONE, orderAddress: env.ORDER_ADDRESS,
       ai: env.AI ?? null, aiDailyCalls: Number(env.AI_DAILY_CALLS) || undefined,
+      gptClientSecret: env.GPT_CLIENT_SECRET,
     })(request);
     if (url.pathname === '/get' || url.pathname === '/download') {
       return latestRelease().then((rel) => new Response(downloadPage(rel), {
