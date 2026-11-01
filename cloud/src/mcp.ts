@@ -6,12 +6,12 @@ import { json, randomToken, sha256Hex } from './http.ts';
  * The owner's ChatGPT plugin (SCRUM-197): an MCP server that lets ChatGPT read the shop for him.
  *
  * MCP is JSON-RPC over HTTP; this server keeps no session, so it is a plain POST to /mcp, written
- * by hand because a few methods do not justify a dependency in the Worker. ChatGPT looks at the
- * server and lists its tools BEFORE anyone signs in, so those answer without a token and hold no
- * shop data. The first tool call without a token answers with a sign-in challenge: ChatGPT then
- * uses OAuth (authorization code + PKCE), finds us through the /.well-known documents, registers,
- * and sends him to /authorize, where he pastes his owner link. Its tokens stop when his owner
- * device is removed, and read the shop through /mcp only. Off unless MCP_ENABLED is "1".
+ * by hand because a few methods do not justify a dependency in the Worker. Looking at the server
+ * and listing its tools work without a token and hold no shop data; a tool call without a token
+ * answers with a sign-in challenge. ChatGPT signs in with OAuth (authorization code + PKCE): an
+ * empty POST gets a 401 pointing at the /.well-known documents, it registers, and sends him to
+ * /authorize, where he pastes his owner link. Its tokens stop when his owner device is removed,
+ * and read the shop through /mcp only. Off unless MCP_ENABLED is "1".
  *
  * Whatever a tool answers goes to OpenAI, so answers hold totals and menu item names only: never
  * customers, staff, order numbers or anything else that identifies a person.

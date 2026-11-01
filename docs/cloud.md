@@ -105,8 +105,8 @@ only: no customers, staff or order numbers.
 
 To add it: in ChatGPT, open Plugins (`chatgpt.com/plugins`), press +, choose **Add custom MCP server**,
 enter `<cloud address>/mcp`, then **Create as a plugin**. ChatGPT registers itself, so there is no
-client ID or secret to copy. It lists the tools without signing in (they hold no shop data). The first
-question about sales asks to sign in: paste the owner link on the approval page.
+client ID or secret to copy. ChatGPT opens the sign-in page while adding it: paste the owner link there.
+`server/discover` and `tools/list` also answer without a token and hold no shop data.
 
 To cut it off: `DELETE FROM mcp_links WHERE tenant_id = '<shop>'`. Removing the owner's device also
 stops it. There is no screen for this yet.
