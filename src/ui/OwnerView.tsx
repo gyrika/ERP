@@ -14,6 +14,7 @@ import { usePhotoUrl } from '../services/photos.ts';
 import { signedIn, subscribeAuth } from '../services/serverAuth.ts';
 import { readAll, subscribeEvents } from './eventLog.ts';
 import { useShopEvents } from '../services/ownerData.ts';
+import { ChatGptLink } from './ChatGptLink.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { GlanceSkeleton, GlanceView } from './Glance.tsx';
 import { glanceOf } from '../domain/glance.ts';
@@ -201,6 +202,8 @@ export function OwnerView({ phone = false, onBack, shop }: {
         {glance
           ? <GlanceView glance={glance} insights={insights} links={!phone && !shop} onOpen={setOpen} />
           : <GlanceSkeleton />}
+
+        {phone && !adminShop() && ownerToken() && <ChatGptLink />}
       </main>
 
       {opened && <Detail insight={opened} canReview={canReview} onClose={() => setOpen(null)} />}

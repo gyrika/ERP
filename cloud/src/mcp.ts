@@ -1,6 +1,6 @@
 import { lkDate, lkTime } from '../../src/domain/salesLedger.ts';
-import type { D1Like } from './cloud.ts';
-import { json, randomToken, sha256Hex } from './http.ts';
+import type { CloudDevice, D1Like, Kind } from './cloud.ts';
+import { HttpError, json, randomToken, sha256Hex } from './http.ts';
 
 /**
  * The owner's ChatGPT plugin (SCRUM-197): an MCP server that lets ChatGPT read the shop for him.
@@ -30,6 +30,8 @@ const CAPABILITIES_KEY = 'io.modelcontextprotocol/clientCapabilities';
 const CODE_MS = 5 * 60_000;
 const ACCESS_S = 3600;
 const REFRESH_MS = 90 * 24 * 3_600_000;
+/** How long the owner's Undo can bring back what he disconnected. */
+const UNDO_MS = 60_000;
 const TOP_ITEMS = 10;
 const OAUTH = '/api/v1/mcp';
 const RESOURCE_METADATA = '/.well-known/oauth-protected-resource';
@@ -39,6 +41,7 @@ export interface McpContext {
   db: D1Like;
   now: () => number;
   enabled?: boolean;
+  authenticate(req: Request, allowed: Kind[]): Promise<CloudDevice>;
 }
 
 /** Only ChatGPT's own callback: a code is never sent anywhere else, whoever registers. */
@@ -103,8 +106,8 @@ ${wrong ? '<p id="why" class="no">This link is not right. Paste the whole owner 
 
 const oauthError = (status: number, error: string) => json(status, { error });
 
-/** An owner device that still exists: ChatGPT's access lives only as long as the phone that approved it. */
-const OWNER_DEVICE = `EXISTS (SELECT 1 FROM devices d WHERE d.id = l.device_id AND d.tenant_id = l.tenant_id AND d.kind = 'owner')`;
+/** Not disconnected, and the owner device still exists: access lives only as long as the phone that approved it. */
+const STILL_LINKED = `l.revoked_at IS NULL AND EXISTS (SELECT 1 FROM devices d WHERE d.id = l.device_id AND d.tenant_id = l.tenant_id AND d.kind = 'owner')`;
 
 /** ChatGPT registers itself. Every registration gets the same public client: only the callback matters. */
 const register = async (req: Request): Promise<Response> => {
@@ -183,11 +186,33 @@ const token = async (req: Request, url: URL, c: McpContext): Promise<Response> =
   if (grant === 'refresh_token') {
     // A public client has no secret, so each refresh token works once.
     const done = await c.db.prepare(`UPDATE mcp_links AS l SET access_hash = ?, refresh_hash = ?, access_expires_at = ?, refresh_expires_at = ?
-      WHERE refresh_hash = ? AND refresh_expires_at > ? AND ${OWNER_DEVICE}`)
+      WHERE refresh_hash = ? AND refresh_expires_at > ? AND ${STILL_LINKED}`)
       .bind(await sha256Hex(access), await sha256Hex(refresh), t + ACCESS_S * 1000, t + REFRESH_MS, await sha256Hex(String(form.get('refresh_token') ?? '')), t).run();
     return done.meta.changes === 1 ? answer() : oauthError(400, 'invalid_grant');
   }
   return oauthError(400, 'unsupported_grant_type');
+};
+
+/** The owner's Disconnect button: only his phone can see or change this, for his own shop. */
+const connection = async (req: Request, path: string, c: McpContext): Promise<Response> => {
+  const { tenantId } = await c.authenticate(req, ['owner']);
+  const t = c.now();
+  if (path === 'connection') {
+    const row = await c.db.prepare(`SELECT COUNT(*) AS n FROM mcp_links l WHERE l.tenant_id = ? AND l.refresh_expires_at > ? AND ${STILL_LINKED}`)
+      .bind(tenantId, t).first<{ n: number }>();
+    return json(200, { connected: (row?.n ?? 0) > 0 });
+  }
+  if (path === 'disconnect') {
+    await c.db.batch([
+      c.db.prepare('DELETE FROM mcp_links WHERE tenant_id = ? AND revoked_at <= ?').bind(tenantId, t - UNDO_MS),
+      c.db.prepare('UPDATE mcp_links SET revoked_at = ? WHERE tenant_id = ? AND revoked_at IS NULL').bind(t, tenantId),
+    ]);
+    return json(200, { at: t });
+  }
+  const at = (await req.json().catch(() => null) as { at?: unknown } | null)?.at;
+  if (!Number.isSafeInteger(at) || (at as number) <= t - UNDO_MS) throw new HttpError(410, 'server', 'too late to undo');
+  await c.db.prepare('UPDATE mcp_links SET revoked_at = NULL WHERE tenant_id = ? AND revoked_at = ?').bind(tenantId, at).run();
+  return json(200, { ok: true });
 };
 
 /** Today in the shop, in Sri Lanka time: payments that still stand. */
@@ -285,7 +310,7 @@ const mcp = async (req: Request, url: URL, c: McpContext): Promise<Response> => 
   const h = req.headers.get('authorization');
   const bearer = h?.startsWith('Bearer ') ? h.slice(7) : null;
   const link = bearer
-    ? await c.db.prepare(`SELECT l.tenant_id FROM mcp_links l WHERE l.access_hash = ? AND l.access_expires_at > ? AND ${OWNER_DEVICE}`)
+    ? await c.db.prepare(`SELECT l.tenant_id FROM mcp_links l WHERE l.access_hash = ? AND l.access_expires_at > ? AND ${STILL_LINKED}`)
       .bind(await sha256Hex(bearer), t).first<{ tenant_id: string }>()
     : null;
   // A wrong or old token always hears 401, which is what makes ChatGPT refresh or sign in again.
@@ -364,5 +389,7 @@ export async function mcpRoutes(req: Request, url: URL, c: McpContext): Promise<
   if (path === `${OAUTH}/register` && req.method === 'POST') return register(req);
   if (path === `${OAUTH}/authorize` && (req.method === 'GET' || req.method === 'POST')) return authorize(req, url, c);
   if (path === `${OAUTH}/token` && req.method === 'POST') return token(req, url, c);
+  if (path === `${OAUTH}/connection` && req.method === 'GET') return connection(req, 'connection', c);
+  if ((path === `${OAUTH}/disconnect` || path === `${OAUTH}/reconnect`) && req.method === 'POST') return connection(req, path.slice(OAUTH.length + 1), c);
   return json(404, { error: 'server', message: 'not found' });
 }

@@ -316,6 +316,62 @@ test('the token runs out; a refresh works once; all of it dies with the owner de
   assert.equal((await refresh(third.refresh_token)).status, 400);
 });
 
+test("Disconnect: the owner's phone cuts ChatGPT off at once; Undo works for a minute; a new sign-in comes back", async () => {
+  const { handle, rpc, form, signIn, clock } = await setup();
+  const phone = (path: string, key: string | null = OWNER_KEY, body?: unknown) => handle(new Request(`${ORIGIN}/api/v1/mcp/${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: key ? { authorization: `Bearer ${key}` } : {},
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }));
+  const connected = async () => (await (await phone('connection')).json()).connected;
+  assert.equal(await connected(), false, 'nothing yet');
+
+  const link = await signIn();
+  const again = await signIn();
+  assert.equal(await connected(), true);
+
+  // Only an owner's phone: not a manager's, not ChatGPT's own token, not nobody.
+  for (const key of [MANAGER_KEY, link.access_token, null]) {
+    assert.notEqual((await phone('disconnect', key, {})).status, 200, String(key));
+    assert.notEqual((await phone('connection', key)).status, 200, String(key));
+  }
+  assert.equal((await rpc(link.access_token, 'ping')).status, 200, 'none of those did anything');
+
+  const { at } = await (await phone('disconnect', OWNER_KEY, {})).json();
+  assert.equal(await connected(), false);
+  assert.equal((await rpc(link.access_token, 'ping')).status, 401, 'every link is cut at once');
+  assert.equal((await rpc(again.access_token, 'ping')).status, 401);
+  const refresh = (refresh_token: string) => form('/api/v1/mcp/token', { grant_type: 'refresh_token', refresh_token, client_id: MCP_CLIENT_ID });
+  assert.equal((await refresh(link.refresh_token)).status, 400, 'and cannot refresh its way back');
+
+  assert.equal((await phone('reconnect', OTHER_KEY, { at })).status, 200);
+  assert.equal(await connected(), false, "another shop's owner changes nothing here");
+  assert.equal((await phone('reconnect', OWNER_KEY, { at: 'nonsense' })).status, 410);
+  assert.equal((await phone('reconnect', OWNER_KEY, { at })).status, 200);
+  assert.equal(await connected(), true, 'Undo');
+  assert.equal((await rpc(link.access_token, 'ping')).status, 200);
+
+  const second = await (await phone('disconnect', OWNER_KEY, {})).json();
+  clock.t += 60_000;
+  assert.equal((await phone('reconnect', OWNER_KEY, { at: second.at })).status, 410, 'too late');
+  assert.equal(await connected(), false);
+
+  await phone('disconnect', OWNER_KEY, {});
+  const fresh = await signIn();
+  assert.equal(await connected(), true, 'signing in again from ChatGPT connects it');
+  assert.equal((await rpc(fresh.access_token, 'ping')).status, 200);
+});
+
+test("Disconnect leaves another shop's ChatGPT alone, and is off with the server", async () => {
+  const { handle, rpc, signIn } = await setup();
+  const theirs = await signIn({ link: OTHER_KEY });
+  await signIn();
+  await handle(new Request(`${ORIGIN}/api/v1/mcp/disconnect`, { method: 'POST', headers: { authorization: `Bearer ${OWNER_KEY}` }, body: '{}' }));
+  assert.equal((await rpc(theirs.access_token, 'ping')).status, 200);
+  const off = await setup(false);
+  assert.equal((await off.handle(new Request(`${ORIGIN}/api/v1/mcp/connection`, { headers: { authorization: `Bearer ${OWNER_KEY}` } }))).status, 404);
+});
+
 test('a refresh token left unused for 90 days runs out', async () => {
   const { form, signIn, clock } = await setup();
   const { refresh_token } = await signIn();

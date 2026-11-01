@@ -108,8 +108,9 @@ enter `<cloud address>/mcp`, then **Create as a plugin**. ChatGPT registers itse
 client ID or secret to copy. ChatGPT opens the sign-in page while adding it: paste the owner link there.
 `server/discover` and `tools/list` also answer without a token and hold no shop data.
 
-To cut it off: `DELETE FROM mcp_links WHERE tenant_id = '<shop>'`. Removing the owner's device also
-stops it. There is no screen for this yet.
+To cut it off: **Disconnect** on the owner's phone, at the bottom of Today (it shows only while ChatGPT
+is connected, with Undo for a few seconds). Removing the owner's device also stops it. To connect again,
+sign in again from ChatGPT.
 
 ## The owner's questions page
 

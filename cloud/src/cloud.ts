@@ -123,7 +123,7 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
 
   const routes = async (req: Request, url: URL): Promise<Response> => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') return json(200, { ok: true, serverTime: now() });
-    const mcp = await mcpRoutes(req, url, { db, now, enabled: mcpEnabled });
+    const mcp = await mcpRoutes(req, url, { db, now, enabled: mcpEnabled, authenticate });
     if (mcp) return mcp;
     const online = await onlineRoutes(req, url, { db, now, ...order, authenticate });
     if (online) return online;
