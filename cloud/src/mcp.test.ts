@@ -100,7 +100,7 @@ test('a code goes only to ChatGPT, and only after the owner link', async () => {
   assert.ok(!(await asked.text()).includes('<script>'), 'the state is escaped');
   assert.match(asked.headers.get('content-security-policy')!, /frame-ancestors 'none'/);
 
-  for (const over of [
+  const wrongAsks: Record<string, string>[] = [
     { redirect_uri: 'https://evil.test/connector_platform_oauth_redirect' },
     { redirect_uri: 'https://chatgpt.com.evil.test/connector_platform_oauth_redirect' },
     { redirect_uri: 'http://chatgpt.com/connector_platform_oauth_redirect' },
@@ -108,7 +108,8 @@ test('a code goes only to ChatGPT, and only after the owner link', async () => {
     { code_challenge: '' },
     { code_challenge_method: 'plain' },
     { resource: 'https://evil.test/mcp' },
-  ]) {
+  ];
+  for (const over of wrongAsks) {
     assert.equal((await get(query(over))).status, 400, JSON.stringify(over));
     const r = await approve(over);
     assert.equal(r.status, 400, JSON.stringify(over));
