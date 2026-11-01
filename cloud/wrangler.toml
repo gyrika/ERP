@@ -20,7 +20,7 @@ binding = "AI"
 directory = "../dist-cloud"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/", "/api/*", "/mcp", "/.well-known/oauth-*", "/admin", "/admin/*", "/owner.webmanifest", "/manager.webmanifest", "/order.webmanifest", "/questions", "/get", "/download"]
+run_worker_first = ["/", "/api/*", "/mcp", "/mcp/*", "/.well-known/*", "/admin", "/admin/*", "/owner.webmanifest", "/manager.webmanifest", "/order.webmanifest", "/questions", "/get", "/download"]
 
 [vars]
 # The shop whose online orders cheesybeez.com takes (its id from the setup wizard): Nisal's

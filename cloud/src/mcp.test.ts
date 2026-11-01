@@ -64,8 +64,8 @@ test('off unless switched on', async () => {
 });
 
 test('ChatGPT can find everything from the first refusal', async () => {
-  const { get, rpc } = await setup();
-  const refused = await rpc(null, 'initialize');
+  const { get, handle } = await setup();
+  const refused = await handle(new Request(`${ORIGIN}/mcp`, { method: 'POST' })); // ChatGPT's first probe: an empty POST
   assert.equal(refused.status, 401);
   assert.equal(refused.headers.get('www-authenticate'), `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource", scope="sales.read"`);
   const resource = await (await get('/.well-known/oauth-protected-resource')).json();
@@ -76,6 +76,9 @@ test('ChatGPT can find everything from the first refusal', async () => {
   assert.deepEqual(server.code_challenge_methods_supported, ['S256']);
   assert.deepEqual(server.token_endpoint_auth_methods_supported, ['none']);
   assert.equal(server.registration_endpoint, `${ORIGIN}/api/v1/mcp/register`);
+  for (const other of ['/.well-known/openid-configuration', '/mcp/.well-known/openid-configuration']) {
+    assert.equal((await get(other)).status, 404, `${other} is not a web page`);
+  }
 });
 
 test('registration takes only ChatGPT callbacks', async () => {
@@ -156,13 +159,77 @@ test('MCP: starts, pings, lists its one read-only tool', async () => {
   assert.deepEqual(init.result.capabilities, { tools: {} });
   const newer = await (await rpc(access_token, 'initialize', { protocolVersion: '2099-01-01' })).json();
   assert.equal(newer.result.protocolVersion, '2025-11-25', 'our own version when it asks for an unknown one');
-  assert.deepEqual((await (await rpc(access_token, 'ping')).json()).result, {});
+  assert.equal((await (await rpc(access_token, 'ping')).json()).result.resultType, 'complete');
   const { tools } = (await (await rpc(access_token, 'tools/list')).json()).result;
   assert.deepEqual(tools.map((t: { name: string }) => t.name), ['get_today_sales']);
   assert.equal(tools[0].annotations.readOnlyHint, true);
   assert.deepEqual(tools[0].securitySchemes, [{ type: 'oauth2', scopes: ['sales.read'] }]);
   assert.equal((await (await rpc(access_token, 'tools/call', { name: 'delete_everything' })).json()).error.code, -32602);
   assert.equal((await (await rpc(access_token, 'no/such')).json()).error.code, -32601);
+});
+
+const MODERN = '2026-07-28';
+const modern = (id: unknown, method: string, params: Record<string, unknown> = {}, meta: Record<string, unknown> = {
+  'io.modelcontextprotocol/protocolVersion': MODERN, 'io.modelcontextprotocol/clientCapabilities': {},
+}) => JSON.stringify({ jsonrpc: '2.0', id, method, params: { ...params, _meta: meta } });
+const modernHeaders = (method: string, name?: string): Record<string, string> => ({
+  'content-type': 'application/json', 'mcp-protocol-version': MODERN, 'mcp-method': method, ...(name ? { 'mcp-name': name } : {}),
+});
+
+test('before sign-in ChatGPT can look and list, as it does: no shop data, and the tool call asks for sign-in', async () => {
+  const { handle, sale } = await setup();
+  sale('s1', SHOP, 480050, 'cash');
+  const post = (body: string, headers: Record<string, string>) => handle(new Request(`${ORIGIN}/mcp`, { method: 'POST', headers, body }));
+
+  const discovered = await post(modern('d', 'server/discover'), modernHeaders('server/discover'));
+  assert.equal(discovered.status, 200);
+  const { result: found } = await discovered.json();
+  assert.equal(found.resultType, 'complete');
+  assert.ok(found.supportedVersions.includes(MODERN));
+  assert.deepEqual(found.capabilities, { tools: {} });
+  assert.equal(found._meta['io.modelcontextprotocol/serverInfo'].name, 'cheesybeez');
+
+  const { result: listed } = await (await post(modern(1, 'tools/list'), modernHeaders('tools/list'))).json();
+  assert.equal(listed.resultType, 'complete');
+  assert.equal(listed.cacheScope, 'public');
+  assert.ok(listed.ttlMs > 0);
+  assert.deepEqual(listed.tools.map((x: { name: string }) => x.name), ['get_today_sales']);
+
+  const raw = await (await post(modern(2, 'tools/call', { name: 'get_today_sales', arguments: {} }), modernHeaders('tools/call', 'get_today_sales'))).text();
+  const { result: asked } = JSON.parse(raw);
+  assert.equal(asked.isError, true);
+  assert.equal(asked.structuredContent, undefined);
+  assert.ok(!raw.includes('4,800'), 'no shop data without a token');
+  const [challenge] = asked._meta['mcp/www_authenticate'];
+  assert.match(challenge, /resource_metadata="https:\/\/cloud\.test\/\.well-known\/oauth-protected-resource"/);
+  assert.match(challenge, /error="[a-z_]+"/);
+  assert.match(challenge, /error_description="[^"]+"/);
+});
+
+test('2026-07-28: a signed-in call reads the shop; requests that break the rules are refused', async () => {
+  const { handle, signIn, sale } = await setup();
+  sale('s1', SHOP, 480050, 'cash');
+  const { access_token } = await signIn();
+  const post = (body: string, headers: Record<string, string>) =>
+    handle(new Request(`${ORIGIN}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${access_token}`, ...headers }, body }));
+  const call = modern(1, 'tools/call', { name: 'get_today_sales', arguments: {} });
+
+  const { result } = await (await post(call, modernHeaders('tools/call', 'get_today_sales'))).json();
+  assert.equal(result.resultType, 'complete');
+  assert.equal(result.structuredContent.total, 'Rs 4,800.50');
+
+  const code = async (r: Response) => [r.status, (await r.json()).error.code];
+  assert.deepEqual(await code(await post(call, modernHeaders('tools/list', 'get_today_sales'))), [400, -32020], 'Mcp-Method differs');
+  assert.deepEqual(await code(await post(call, modernHeaders('tools/call', 'other'))), [400, -32020], 'Mcp-Name differs');
+  assert.deepEqual(await code(await post(call, { 'content-type': 'application/json' })), [400, -32020], 'headers missing');
+  const old = await post(modern(1, 'tools/list', {}, { 'io.modelcontextprotocol/protocolVersion': '1900-01-01', 'io.modelcontextprotocol/clientCapabilities': {} }), modernHeaders('tools/list'));
+  assert.equal(old.status, 400);
+  const { error } = await old.json();
+  assert.equal(error.code, -32022);
+  assert.ok(error.data.supported.includes(MODERN));
+  assert.deepEqual(await code(await post(modern(1, 'tools/list', {}, { 'io.modelcontextprotocol/protocolVersion': MODERN }), modernHeaders('tools/list'))), [400, -32602], 'capabilities missing');
+  assert.deepEqual(await code(await post(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), modernHeaders('tools/list'))), [400, -32602], '_meta missing');
+  assert.deepEqual(await code(await post(modern(1, 'no/such'), modernHeaders('no/such'))), [404, -32601]);
 });
 
 test('MCP: a notification gets no answer; only POST; bad JSON is refused', async () => {

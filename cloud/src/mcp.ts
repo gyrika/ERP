@@ -6,17 +6,27 @@ import { json, randomToken, sha256Hex } from './http.ts';
  * The owner's ChatGPT plugin (SCRUM-197): an MCP server that lets ChatGPT read the shop for him.
  *
  * MCP is JSON-RPC over HTTP; this server keeps no session, so it is a plain POST to /mcp, written
- * by hand because four methods do not justify a dependency in the Worker. ChatGPT signs in with
- * OAuth (authorization code + PKCE): it finds us through the /.well-known documents, registers, and
- * sends him to /authorize, where he pastes his owner link. Its tokens open /mcp only and stop when
- * his owner device is removed. Off unless the Worker's MCP_ENABLED var is "1".
+ * by hand because a few methods do not justify a dependency in the Worker. ChatGPT looks at the
+ * server and lists its tools BEFORE anyone signs in, so those answer without a token and hold no
+ * shop data. The first tool call without a token answers with a sign-in challenge: ChatGPT then
+ * uses OAuth (authorization code + PKCE), finds us through the /.well-known documents, registers,
+ * and sends him to /authorize, where he pastes his owner link. Its tokens stop when his owner
+ * device is removed, and read the shop through /mcp only. Off unless MCP_ENABLED is "1".
  *
  * Whatever a tool answers goes to OpenAI, so answers hold totals and menu item names only: never
  * customers, staff, order numbers or anything else that identifies a person.
  */
 export const MCP_CLIENT_ID = 'cheesybeez-chatgpt';
 export const MCP_SCOPE = 'sales.read';
-const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
+/** No handshake: each request says its version in _meta. */
+const MODERN_VERSION = '2026-07-28';
+/** With the initialize handshake. */
+const LEGACY_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
+const ALL_VERSIONS = [MODERN_VERSION, ...LEGACY_VERSIONS];
+const SERVER_INFO = { name: 'cheesybeez', title: 'CheesyBeez', version: '1.0.0' };
+const INSTRUCTIONS = "Answers the owner's questions about his shop. Use only the numbers the tools return.";
+const VERSION_KEY = 'io.modelcontextprotocol/protocolVersion';
+const CAPABILITIES_KEY = 'io.modelcontextprotocol/clientCapabilities';
 const CODE_MS = 5 * 60_000;
 const ACCESS_S = 3600;
 const REFRESH_MS = 90 * 24 * 3_600_000;
@@ -241,57 +251,96 @@ const TOOLS = [{
   securitySchemes: [{ type: 'oauth2', scopes: [MCP_SCOPE] }],
 }];
 
-const rpcResult = (id: unknown, result: unknown) => json(200, { jsonrpc: '2.0', id, result });
-const rpcError = (id: unknown, code: number, message: string, status = 200) => json(status, { jsonrpc: '2.0', id: id ?? null, error: { code, message } });
+const rpcResult = (id: unknown, result: Record<string, unknown>) => json(200, {
+  jsonrpc: '2.0',
+  id,
+  result: { resultType: 'complete', ...result, _meta: { ...(result._meta as object | undefined), 'io.modelcontextprotocol/serverInfo': SERVER_INFO } },
+});
+const rpcError = (id: unknown, code: number, message: string, status = 200, data?: unknown) =>
+  json(status, { jsonrpc: '2.0', id: id ?? null, error: { code, message, ...(data === undefined ? {} : { data }) } });
+
+/** Why this request breaks the 2026-07-28 rules, or null. Older clients send none of this. */
+const modernRefusal = (req: Request, id: unknown, method: string, params: Record<string, unknown> | undefined): Response | null => {
+  const meta = params?._meta as Record<string, unknown> | undefined;
+  const header = req.headers.get('mcp-protocol-version');
+  const version = meta?.[VERSION_KEY];
+  if (version === undefined && header !== MODERN_VERSION) return null;
+  if (version === undefined) return rpcError(id, -32602, `_meta needs ${VERSION_KEY}`, 400);
+  if (version !== MODERN_VERSION) return rpcError(id, -32022, 'Unsupported protocol version', 400, { supported: ALL_VERSIONS, requested: version });
+  if (meta?.[CAPABILITIES_KEY] === undefined) return rpcError(id, -32602, `_meta needs ${CAPABILITIES_KEY}`, 400);
+  if (header !== version) return rpcError(id, -32020, 'Header mismatch: MCP-Protocol-Version', 400);
+  if (req.headers.get('mcp-method') !== method) return rpcError(id, -32020, 'Header mismatch: Mcp-Method', 400);
+  if (method === 'tools/call' && req.headers.get('mcp-name') !== params?.name) return rpcError(id, -32020, 'Header mismatch: Mcp-Name', 400);
+  return null;
+};
 
 const mcp = async (req: Request, url: URL, c: McpContext): Promise<Response> => {
   const t = c.now();
+  const metadata = `${url.origin}${RESOURCE_METADATA}`;
+  const unauthorized = () => {
+    const r = json(401, { error: 'invalid_token' });
+    r.headers.set('www-authenticate', `Bearer resource_metadata="${metadata}", scope="${MCP_SCOPE}"`);
+    return r;
+  };
   const h = req.headers.get('authorization');
   const bearer = h?.startsWith('Bearer ') ? h.slice(7) : null;
   const link = bearer
     ? await c.db.prepare(`SELECT l.tenant_id FROM mcp_links l WHERE l.access_hash = ? AND l.access_expires_at > ? AND ${OWNER_DEVICE}`)
       .bind(await sha256Hex(bearer), t).first<{ tenant_id: string }>()
     : null;
-  if (!link) {
-    const r = json(401, { error: 'invalid_token' });
-    r.headers.set('www-authenticate', `Bearer resource_metadata="${url.origin}${RESOURCE_METADATA}", scope="${MCP_SCOPE}"`);
-    return r;
-  }
+  // A wrong or old token always hears 401, which is what makes ChatGPT refresh or sign in again.
+  if (bearer && !link) return unauthorized();
   // No session and nothing to stream, so POST is the whole of it.
   if (req.method !== 'POST') {
+    if (!link) return unauthorized();
     const r = json(405, { error: 'method_not_allowed' });
     r.headers.set('allow', 'POST');
     return r;
   }
   const body = await req.json().catch(() => undefined) as { id?: unknown; method?: unknown; params?: Record<string, unknown> } | undefined;
-  if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.method !== 'string') return rpcError(null, -32700, 'expected one JSON-RPC message', 400);
+  if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.method !== 'string') {
+    // ChatGPT's first probe is an empty POST: the 401 is how it finds the sign-in documents.
+    return link ? rpcError(null, -32700, 'expected one JSON-RPC message', 400) : unauthorized();
+  }
   const { id, method, params } = body;
   if (id === undefined) return new Response(null, { status: 202 }); // a notification needs no answer
+  const refused = modernRefusal(req, id, method, params);
+  if (refused) return refused;
 
   switch (method) {
+    case 'server/discover':
+      return rpcResult(id, { supportedVersions: ALL_VERSIONS, capabilities: { tools: {} }, instructions: INSTRUCTIONS, ttlMs: 3_600_000, cacheScope: 'public' });
     case 'initialize': {
       const asked = params?.protocolVersion;
       return rpcResult(id, {
-        protocolVersion: typeof asked === 'string' && PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
+        protocolVersion: typeof asked === 'string' && LEGACY_VERSIONS.includes(asked) ? asked : LEGACY_VERSIONS[0],
         capabilities: { tools: {} },
-        serverInfo: { name: 'cheesybeez', title: 'CheesyBeez', version: '1.0.0' },
-        instructions: "Answers the owner's questions about his shop. Use only the numbers the tools return.",
+        serverInfo: SERVER_INFO,
+        instructions: INSTRUCTIONS,
       });
     }
     case 'ping': return rpcResult(id, {});
-    case 'tools/list': return rpcResult(id, { tools: TOOLS });
+    case 'tools/list': return rpcResult(id, { tools: TOOLS, ttlMs: 300_000, cacheScope: 'public' });
     case 'tools/call': {
       if (params?.name !== 'get_today_sales') return rpcError(id, -32602, 'unknown tool');
+      // The only place shop data is read, and the sign-in challenge ChatGPT shows its linking screen for.
+      if (!link) {
+        return rpcResult(id, {
+          content: [{ type: 'text', text: 'Sign in to your shop first.' }],
+          isError: true,
+          _meta: { 'mcp/www_authenticate': [`Bearer resource_metadata="${metadata}", error="insufficient_scope", error_description="Sign in to your shop to continue"`] },
+        });
+      }
       const sales = await todaySales(c.db, link.tenant_id, t);
       return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify(sales) }], structuredContent: sales, isError: false });
     }
-    default: return rpcError(id, -32601, 'method not found');
+    default: return rpcError(id, -32601, 'method not found', params?._meta ? 404 : 200);
   }
 };
 
 export async function mcpRoutes(req: Request, url: URL, c: McpContext): Promise<Response | null> {
   const { pathname: path, origin } = url;
-  const mine = path === '/mcp' || path.startsWith(`${OAUTH}/`) || path.startsWith(RESOURCE_METADATA) || path.startsWith(AUTH_METADATA);
+  const mine = path === '/mcp' || path.startsWith('/mcp/') || path.startsWith(`${OAUTH}/`) || path.startsWith('/.well-known/');
   if (!mine) return null;
   if (!c.enabled) return json(404, { error: 'server', message: 'not found' });
   if (path === '/mcp') return mcp(req, url, c);

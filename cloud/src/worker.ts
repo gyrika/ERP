@@ -102,7 +102,7 @@ export default {
       }).then((r) => r ?? new Response('Not found', { status: 404 }));
     }
     if (url.pathname === '/api/v1/answers') return answersApi(request, env.DB, env.ANSWER_KEY);
-    if (url.pathname.startsWith('/api/') || url.pathname === '/mcp' || url.pathname.startsWith('/.well-known/oauth-')) return createCloud(env.DB, {
+    if (url.pathname.startsWith('/api/') || url.pathname === '/mcp' || url.pathname.startsWith('/mcp/') || url.pathname.startsWith('/.well-known/')) return createCloud(env.DB, {
       enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP, orderHours: env.ORDER_HOURS, orderPhone: env.ORDER_PHONE, orderAddress: env.ORDER_ADDRESS,
       ai: env.AI ?? null, aiDailyCalls: Number(env.AI_DAILY_CALLS) || undefined,
       mcpEnabled: env.MCP_ENABLED === '1',
