@@ -90,7 +90,7 @@ const notRight = () => page(400, '<h1>This connection is not right</h1><p>Start 
 interface Ask { redirectUri: string; state: string; challenge: string }
 
 const approvalPage = ({ redirectUri, state, challenge }: Ask, resource: string, wrong: boolean) => page(wrong ? 401 : 200, `<h1>Connect ChatGPT to your shop</h1>
-<p>ChatGPT will read today's sales: totals and which items sold. It cannot change anything. OpenAI keeps what it reads in your chat history.</p>
+<p>ChatGPT will read your sales, today's and past days': totals and which items sold. It cannot change anything. OpenAI keeps what it reads in your chat history.</p>
 <form method="post" action="${OAUTH}/authorize">
 <input type="hidden" name="client_id" value="${MCP_CLIENT_ID}">
 <input type="hidden" name="redirect_uri" value="${escapeHtml(redirectUri)}">
@@ -215,65 +215,202 @@ const connection = async (req: Request, path: string, c: McpContext): Promise<Re
   return json(200, { ok: true });
 };
 
-/** Today in the shop, in Sri Lanka time: payments that still stand. */
-export const todaySales = async (db: D1Like, tenantId: string, t: number) => {
-  const date = lkDate(t);
-  const sums = await db.prepare(`SELECT COUNT(*) AS orders,
+/** A period can reach back this far in one question; by_day keeps the answer small enough for a chat. */
+const MAX_DAYS = 92;
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_MS = 86_400_000;
+const dayNumber = (date: string): number => Date.parse(`${date}T00:00:00Z`) / DAY_MS;
+const dateOf = (day: number): string => new Date(day * DAY_MS).toISOString().slice(0, 10);
+const weekdayOf = (date: string): string => WEEKDAYS[new Date(dayNumber(date) * DAY_MS).getUTCDay()];
+/** A real calendar date: 2026-02-31 does not come back the same. */
+const isDate = (v: unknown): v is string =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(dayNumber(v)) && dateOf(dayNumber(v)) === v;
+
+interface Sums { orders: number; total: number; cash: number; transfer: number; other: number; discounts: number; online: number }
+
+/** Payments that still stand between two dates, in Sri Lanka time; `until` stops each day at that time. */
+const sumsOf = async (db: D1Like, tenantId: string, from: string, to: string, until: string | null): Promise<Sums> =>
+  (await db.prepare(`SELECT COUNT(*) AS orders,
       COALESCE(SUM(total), 0) AS total,
       COALESCE(SUM(CASE WHEN tender = 'cash' THEN total ELSE 0 END), 0) AS cash,
       COALESCE(SUM(CASE WHEN tender = 'transfer' THEN total ELSE 0 END), 0) AS transfer,
       COALESCE(SUM(CASE WHEN tender NOT IN ('cash', 'transfer') THEN total ELSE 0 END), 0) AS other,
       COALESCE(SUM(discount), 0) AS discounts,
       COALESCE(SUM(online), 0) AS online
-    FROM sales WHERE tenant_id = ? AND sale_date = ? AND status = 'paid'`).bind(tenantId, date)
-    .first<{ orders: number; total: number; cash: number; transfer: number; other: number; discounts: number; online: number }>();
-  const { results: items } = await db.prepare(`SELECT i.item_name AS name, SUM(i.qty) AS qty
+    FROM sales WHERE tenant_id = ? AND sale_date BETWEEN ? AND ? AND status = 'paid' AND (? IS NULL OR sale_time <= ?)`)
+    .bind(tenantId, from, to, until, until).first<Sums>())!;
+
+const moneyOf = (s: Sums) => ({
+  orders: s.orders,
+  total: rupees(s.total),
+  cash: rupees(s.cash),
+  bank_transfer: rupees(s.transfer),
+  other_payments: rupees(s.other),
+  discounts_given: rupees(s.discounts),
+  online_orders: s.online,
+});
+
+const topItems = async (db: D1Like, tenantId: string, from: string, to: string) =>
+  (await db.prepare(`SELECT i.item_name AS name, SUM(i.qty) AS qty
     FROM sale_items i JOIN sales s ON s.id = i.sale_id
-    WHERE s.tenant_id = ? AND i.tenant_id = ? AND s.sale_date = ? AND s.status = 'paid'
-    GROUP BY i.item_name ORDER BY qty DESC, name LIMIT ?`).bind(tenantId, tenantId, date, TOP_ITEMS).all<{ name: string; qty: number }>();
+    WHERE s.tenant_id = ? AND i.tenant_id = ? AND s.sale_date BETWEEN ? AND ? AND s.status = 'paid'
+    GROUP BY i.item_name ORDER BY qty DESC, name LIMIT ?`).bind(tenantId, tenantId, from, to, TOP_ITEMS).all<{ name: string; qty: number }>()).results;
+
+const comparison = (description: string, orders: number, total: number, against: number) => ({
+  description,
+  orders,
+  total: rupees(total),
+  change_percent: total > 0 ? Math.round(((against - total) * 100) / total) : null,
+});
+
+/**
+ * The usual for one day: the same weekday in the last 4 weeks the shop was open, as the Today screen
+ * counts it. Needs 2 such days, or there is no usual yet. `until` compares a day still in progress
+ * with the same days up to the same time.
+ */
+const usualFor = async (db: D1Like, tenantId: string, date: string, against: number, until: string | null) => {
+  const days = [7, 14, 21, 28].map((k) => dateOf(dayNumber(date) - k));
+  const { results } = await db.prepare(`SELECT sale_date,
+      SUM(CASE WHEN ? IS NULL OR sale_time <= ? THEN 1 ELSE 0 END) AS orders,
+      SUM(CASE WHEN ? IS NULL OR sale_time <= ? THEN total ELSE 0 END) AS total
+    FROM sales WHERE tenant_id = ? AND sale_date IN (?, ?, ?, ?) AND status = 'paid' GROUP BY sale_date`)
+    .bind(until, until, until, until, tenantId, ...days).all<{ orders: number; total: number }>();
+  if (results.length < 2) return null;
+  const average = (f: (r: { orders: number; total: number }) => number) => Math.round(results.reduce((n, r) => n + f(r), 0) / results.length);
+  const name = weekdayOf(date);
+  return comparison(`The usual ${name}${until ? ` by ${until}` : ''}: the average of the last ${results.length} ${name}s the shop was open`, average((r) => r.orders), average((r) => r.total), against);
+};
+
+const lastCopied = async (db: D1Like, tenantId: string, t: number) => {
   const copied = (await db.prepare('SELECT MAX(copied_at) AS at FROM events WHERE tenant_id = ?').bind(tenantId).first<{ at: number | null }>())?.at ?? null;
+  return copied === null ? null : { date: lkDate(copied), time: lkTime(copied), minutes_ago: Math.max(0, Math.floor((t - copied) / 60_000)) };
+};
+
+/** Today in the shop, in Sri Lanka time. */
+export const todaySales = async (db: D1Like, tenantId: string, t: number) => {
+  const date = lkDate(t);
+  const time = lkTime(t);
+  const sums = await sumsOf(db, tenantId, date, date, null);
   return {
     date,
-    time_now: lkTime(t),
-    orders: sums?.orders ?? 0,
-    total: rupees(sums?.total ?? 0),
-    cash: rupees(sums?.cash ?? 0),
-    bank_transfer: rupees(sums?.transfer ?? 0),
-    other_payments: rupees(sums?.other ?? 0),
-    discounts_given: rupees(sums?.discounts ?? 0),
-    online_orders: sums?.online ?? 0,
-    top_items: items,
-    last_copied_from_shop: copied === null ? null : { date: lkDate(copied), time: lkTime(copied), minutes_ago: Math.max(0, Math.floor((t - copied) / 60_000)) },
+    time_now: time,
+    ...moneyOf(sums),
+    top_items: await topItems(db, tenantId, date, date),
+    compared_with: await usualFor(db, tenantId, date, sums.total, time),
+    last_copied_from_shop: await lastCopied(db, tenantId, t),
   };
 };
+
+/** Any finished or running period; or, as a string, why those dates cannot be answered. */
+export const salesBetween = async (db: D1Like, tenantId: string, t: number, args: Record<string, unknown> | undefined) => {
+  const from = args?.date_from;
+  const to = args?.date_to;
+  if (!isDate(from) || !isDate(to)) return 'date_from and date_to must be real dates, written YYYY-MM-DD.';
+  const today = lkDate(t);
+  if (from > to) return 'date_from must not be after date_to.';
+  if (to > today) return `date_to is in the future. Today is ${today}.`;
+  const days = dayNumber(to) - dayNumber(from) + 1;
+  if (days > MAX_DAYS) return `That is ${days} days. Ask for at most ${MAX_DAYS} days at a time.`;
+
+  const sums = await sumsOf(db, tenantId, from, to, null);
+  const single = days === 1;
+  const running = to === today;
+  let compared: ReturnType<typeof comparison> | null;
+  if (single) {
+    compared = await usualFor(db, tenantId, from, sums.total, running ? lkTime(t) : null);
+  } else {
+    const before = dateOf(dayNumber(from) - days);
+    const end = dateOf(dayNumber(from) - 1);
+    const previous = await sumsOf(db, tenantId, before, end, null);
+    compared = previous.orders > 0 ? comparison(`The ${days} days before: ${before} to ${end}`, previous.orders, previous.total, sums.total) : null;
+  }
+  const { results: byDay } = await db.prepare(`SELECT sale_date AS date, COUNT(*) AS orders, SUM(total) AS total
+    FROM sales WHERE tenant_id = ? AND sale_date BETWEEN ? AND ? AND status = 'paid' GROUP BY sale_date ORDER BY sale_date`)
+    .bind(tenantId, from, to).all<{ date: string; orders: number; total: number }>();
+  return {
+    date_from: from,
+    date_to: to,
+    days,
+    includes_today_so_far: running,
+    ...moneyOf(sums),
+    top_items: await topItems(db, tenantId, from, to),
+    by_day: byDay.map((d) => ({ date: d.date, weekday: weekdayOf(d.date), orders: d.orders, total: rupees(d.total) })),
+    compared_with: compared,
+    last_copied_from_shop: await lastCopied(db, tenantId, t),
+  };
+};
+
+const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const SIGN_IN = [{ type: 'oauth2', scopes: [MCP_SCOPE] }];
+const MONEY_FIELDS = {
+  orders: { type: 'integer' },
+  total: { type: 'string', description: 'Rupees, already formatted' },
+  cash: { type: 'string' },
+  bank_transfer: { type: 'string' },
+  other_payments: { type: 'string' },
+  discounts_given: { type: 'string' },
+  online_orders: { type: 'integer' },
+  top_items: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, qty: { type: 'integer' } }, required: ['name', 'qty'] } },
+  compared_with: {
+    type: ['object', 'null'],
+    description: 'What to compare with; null when the shop has too little history to say.',
+    properties: {
+      description: { type: 'string' },
+      orders: { type: 'integer' },
+      total: { type: 'string' },
+      change_percent: { type: ['integer', 'null'], description: 'How far this period is above (+) or below (-) the comparison' },
+    },
+  },
+  last_copied_from_shop: {
+    type: ['object', 'null'],
+    properties: { date: { type: 'string' }, time: { type: 'string' }, minutes_ago: { type: 'integer' } },
+  },
+};
+const MONEY_REQUIRED = ['orders', 'total', 'cash', 'bank_transfer', 'other_payments', 'discounts_given', 'online_orders', 'top_items', 'compared_with', 'last_copied_from_shop'];
 
 const TOOLS = [{
   name: 'get_today_sales',
   title: "Today's sales",
-  description: "Today's orders, takings by payment type, discounts and best-selling items at the owner's shop, in Sri Lanka time. Sales arrive when the shop PC is online: check last_copied_from_shop and say so if it is old.",
+  description: "Today's orders, takings by payment type, discounts and best-selling items at the owner's shop, in Sri Lanka time, compared with the usual for this weekday by this time. Sales arrive when the shop PC is online: check last_copied_from_shop and say so if it is old.",
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   outputSchema: {
     type: 'object',
-    properties: {
-      date: { type: 'string', description: 'YYYY-MM-DD' },
-      time_now: { type: 'string', description: 'HH:MM' },
-      orders: { type: 'integer' },
-      total: { type: 'string', description: 'Rupees, already formatted' },
-      cash: { type: 'string' },
-      bank_transfer: { type: 'string' },
-      other_payments: { type: 'string' },
-      discounts_given: { type: 'string' },
-      online_orders: { type: 'integer' },
-      top_items: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, qty: { type: 'integer' } }, required: ['name', 'qty'] } },
-      last_copied_from_shop: {
-        type: ['object', 'null'],
-        properties: { date: { type: 'string' }, time: { type: 'string' }, minutes_ago: { type: 'integer' } },
-      },
-    },
-    required: ['date', 'time_now', 'orders', 'total', 'cash', 'bank_transfer', 'other_payments', 'discounts_given', 'online_orders', 'top_items', 'last_copied_from_shop'],
+    properties: { date: { type: 'string', description: 'YYYY-MM-DD' }, time_now: { type: 'string', description: 'HH:MM' }, ...MONEY_FIELDS },
+    required: ['date', 'time_now', ...MONEY_REQUIRED],
   },
-  annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-  securitySchemes: [{ type: 'oauth2', scopes: [MCP_SCOPE] }],
+  annotations: READ_ONLY,
+  securitySchemes: SIGN_IN,
+}, {
+  name: 'get_sales',
+  title: 'Sales for any dates',
+  description: `Orders, takings, discounts and best-selling items for one day or a period of up to ${MAX_DAYS} days, in Sri Lanka time, with each day's total. One day is compared with the usual for that weekday; a period with the same number of days before it. The numbers say what happened, not why: do not state a cause they do not show.`,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      date_from: { type: 'string', description: 'First day, YYYY-MM-DD' },
+      date_to: { type: 'string', description: 'Last day, YYYY-MM-DD. The same as date_from for one day.' },
+    },
+    required: ['date_from', 'date_to'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      date_from: { type: 'string' },
+      date_to: { type: 'string' },
+      days: { type: 'integer' },
+      includes_today_so_far: { type: 'boolean', description: 'True when today is not over, so a period is still growing' },
+      by_day: {
+        type: 'array',
+        description: 'Only days with sales',
+        items: { type: 'object', properties: { date: { type: 'string' }, weekday: { type: 'string' }, orders: { type: 'integer' }, total: { type: 'string' } }, required: ['date', 'weekday', 'orders', 'total'] },
+      },
+      ...MONEY_FIELDS,
+    },
+    required: ['date_from', 'date_to', 'days', 'includes_today_so_far', 'by_day', ...MONEY_REQUIRED],
+  },
+  annotations: READ_ONLY,
+  securitySchemes: SIGN_IN,
 }];
 
 const rpcResult = (id: unknown, result: Record<string, unknown>) => json(200, {
@@ -347,7 +484,8 @@ const mcp = async (req: Request, url: URL, c: McpContext): Promise<Response> => 
     case 'ping': return rpcResult(id, {});
     case 'tools/list': return rpcResult(id, { tools: TOOLS, ttlMs: 300_000, cacheScope: 'public' });
     case 'tools/call': {
-      if (params?.name !== 'get_today_sales') return rpcError(id, -32602, 'unknown tool');
+      const tool = params?.name;
+      if (tool !== 'get_today_sales' && tool !== 'get_sales') return rpcError(id, -32602, 'unknown tool');
       // The only place shop data is read, and the sign-in challenge ChatGPT shows its linking screen for.
       if (!link) {
         return rpcResult(id, {
@@ -356,7 +494,10 @@ const mcp = async (req: Request, url: URL, c: McpContext): Promise<Response> => 
           _meta: { 'mcp/www_authenticate': [`Bearer resource_metadata="${metadata}", error="insufficient_scope", error_description="Sign in to your shop to continue"`] },
         });
       }
-      const sales = await todaySales(c.db, link.tenant_id, t);
+      const sales = tool === 'get_today_sales'
+        ? await todaySales(c.db, link.tenant_id, t)
+        : await salesBetween(c.db, link.tenant_id, t, params?.arguments as Record<string, unknown> | undefined);
+      if (typeof sales === 'string') return rpcResult(id, { content: [{ type: 'text', text: sales }], isError: true });
       return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify(sales) }], structuredContent: sales, isError: false });
     }
     default: return rpcError(id, -32601, 'method not found', params?._meta ? 404 : 200);

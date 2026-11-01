@@ -98,8 +98,8 @@ Add to Home Screen (iPhone) makes it an app (`/manager.webmanifest`).
 
 ## The owner's ChatGPT (SCRUM-197)
 
-A ChatGPT plugin reads today's sales through an MCP server at `/mcp` (`cloud/src/mcp.ts`). It is
-read-only. It is on for staging and off on the live cloud until `MCP_ENABLED = "1"` is added to
+A ChatGPT plugin reads sales through an MCP server at `/mcp` (`cloud/src/mcp.ts`): today, and any day or
+period up to 92 days, compared with the usual for that weekday or the period before. It is read-only. It is on for staging and off on the live cloud until `MCP_ENABLED = "1"` is added to
 `[vars]` in `wrangler.toml`. What it reads goes to OpenAI, so answers hold totals and menu item names
 only: no customers, staff or order numbers.
 

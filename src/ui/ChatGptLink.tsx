@@ -52,7 +52,7 @@ export function ChatGptLink() {
       {failed && <p className="owner__note" role="alert">{failed}</p>}
       {state !== 'hidden' && (
         <p className="owner__install owner__chatgpt">
-          <span>ChatGPT can read today's sales.</span>
+          <span>ChatGPT can read your sales.</span>
           <button type="button" className="chip" disabled={state === 'busy'} onClick={() => void disconnect()}>
             {state === 'busy' ? 'Disconnecting…' : 'Disconnect'}
           </button>

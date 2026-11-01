@@ -60,10 +60,10 @@ test('Disconnect: one tap, no dialog, says so only once the cloud has done it, a
 
   finish(Response.json({ at: 1234 }));
   expect(await screen.findByText('ChatGPT disconnected')).toBeTruthy();
-  expect(screen.queryByText("ChatGPT can read today's sales.")).toBeNull();
+  expect(screen.queryByText("ChatGPT can read your sales.")).toBeNull();
 
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
-  expect(await screen.findByText("ChatGPT can read today's sales.")).toBeTruthy();
+  expect(await screen.findByText("ChatGPT can read your sales.")).toBeTruthy();
   expect(screen.queryByText('ChatGPT disconnected')).toBeNull();
   expect(calls.at(-1)).toBe('/api/v1/mcp/reconnect');
 });

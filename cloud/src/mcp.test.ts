@@ -161,9 +161,11 @@ test('MCP: starts, pings, lists its one read-only tool', async () => {
   assert.equal(newer.result.protocolVersion, '2025-11-25', 'our own version when it asks for an unknown one');
   assert.equal((await (await rpc(access_token, 'ping')).json()).result.resultType, 'complete');
   const { tools } = (await (await rpc(access_token, 'tools/list')).json()).result;
-  assert.deepEqual(tools.map((t: { name: string }) => t.name), ['get_today_sales']);
-  assert.equal(tools[0].annotations.readOnlyHint, true);
-  assert.deepEqual(tools[0].securitySchemes, [{ type: 'oauth2', scopes: ['sales.read'] }]);
+  assert.deepEqual(tools.map((t: { name: string }) => t.name), ['get_today_sales', 'get_sales']);
+  for (const tool of tools) {
+    assert.equal(tool.annotations.readOnlyHint, true, tool.name);
+    assert.deepEqual(tool.securitySchemes, [{ type: 'oauth2', scopes: ['sales.read'] }], tool.name);
+  }
   assert.equal((await (await rpc(access_token, 'tools/call', { name: 'delete_everything' })).json()).error.code, -32602);
   assert.equal((await (await rpc(access_token, 'no/such')).json()).error.code, -32601);
 });
@@ -193,7 +195,7 @@ test('before sign-in ChatGPT can look and list, as it does: no shop data, and th
   assert.equal(listed.resultType, 'complete');
   assert.equal(listed.cacheScope, 'public');
   assert.ok(listed.ttlMs > 0);
-  assert.deepEqual(listed.tools.map((x: { name: string }) => x.name), ['get_today_sales']);
+  assert.deepEqual(listed.tools.map((x: { name: string }) => x.name), ['get_today_sales', 'get_sales']);
 
   const raw = await (await post(modern(2, 'tools/call', { name: 'get_today_sales', arguments: {} }), modernHeaders('tools/call', 'get_today_sales'))).text();
   const { result: asked } = JSON.parse(raw);
@@ -264,6 +266,7 @@ test("today: his shop's standing payments, totals and item names only", async ()
     date: '2026-11-02', time_now: '12:00', orders: 2, total: 'Rs 5,800.50', cash: 'Rs 4,800.50', bank_transfer: 'Rs 1,000.00',
     other_payments: 'Rs 0.00', discounts_given: 'Rs 0.00', online_orders: 0,
     top_items: [{ name: 'Devilled Chicken', qty: 3 }, { name: 'Margherita', qty: 1 }],
+    compared_with: null,
     last_copied_from_shop: { date: '2026-11-02', time: '11:50', minutes_ago: 10 },
   };
   assert.deepEqual(result.structuredContent, want);
@@ -278,6 +281,129 @@ test('each owner reads only his own shop', async () => {
   const read = async (link: string) => (await (await rpc((await signIn({ link })).access_token, 'tools/call', { name: 'get_today_sales' })).json()).result.structuredContent.total;
   assert.equal(await read(OWNER_KEY), 'Rs 10.00');
   assert.equal(await read(OTHER_KEY), 'Rs 20.00');
+});
+
+const LAST_MONDAYS = ['2026-10-26', '2026-10-19', '2026-10-12', '2026-10-05']; // the four Mondays before Monday 2 November
+
+const timedSale = (db: ReturnType<typeof fakeD1>['db'], id: string, tenant: string, date: string, time: string, total: number) => {
+  db.prepare(`INSERT INTO sales (id, tenant_id, order_number, sale_date, sale_time, paid_at, items_count, subtotal, discount, total,
+    tender, tendered, change_given, cashier, online, status, event_seq) VALUES (?, ?, 1, ?, ?, 0, 1, ?, 0, ?, 'cash', ?, 0, 'Secret Cashier', 0, 'paid', 1)`)
+    .run(id, tenant, date, time, total, total, total);
+};
+
+test('get_sales: one past day, against the usual for that weekday', async () => {
+  const { db, rpc, signIn, item, sale } = await setup();
+  const ask = async (args: unknown) => (await (await rpc((await signIn()).access_token, 'tools/call', { name: 'get_sales', arguments: args })).json()).result;
+  timedSale(db, 'd', SHOP, '2026-10-26', '12:00', 120000);
+  item('d', SHOP, 'Margherita', 2);
+  sale('undone', SHOP, 99900, 'cash', 'undone', '2026-10-26');
+  timedSale(db, 'other', 'shop-b', '2026-10-26', '12:00', 777700);
+  // Mondays before it: two open, one with no sales at all (closed: not counted as zero).
+  timedSale(db, 'u1', SHOP, '2026-10-19', '12:00', 100000);
+  timedSale(db, 'u2', SHOP, '2026-10-12', '12:00', 50000);
+  timedSale(db, 'u3', SHOP, '2026-10-12', '13:00', 50000);
+
+  const { structuredContent: day } = await ask({ date_from: '2026-10-26', date_to: '2026-10-26' });
+  assert.equal(day.total, 'Rs 1,200.00');
+  assert.equal(day.orders, 1);
+  assert.equal(day.includes_today_so_far, false);
+  assert.deepEqual(day.top_items, [{ name: 'Margherita', qty: 2 }]);
+  assert.deepEqual(day.by_day, [{ date: '2026-10-26', weekday: 'Monday', orders: 1, total: 'Rs 1,200.00' }]);
+  assert.equal(day.compared_with.total, 'Rs 1,000.00');
+  assert.equal(day.compared_with.change_percent, 20);
+  assert.match(day.compared_with.description, /usual Monday.*last 2 Mondays/);
+});
+
+test('get_sales: with fewer than 2 open days to go on, it says there is no usual', async () => {
+  const { db, rpc, signIn } = await setup();
+  timedSale(db, 'd', SHOP, '2026-10-26', '12:00', 120000);
+  timedSale(db, 'u', SHOP, '2026-10-19', '12:00', 100000);
+  const { result } = await (await rpc((await signIn()).access_token, 'tools/call', { name: 'get_sales', arguments: { date_from: '2026-10-26', date_to: '2026-10-26' } })).json();
+  assert.equal(result.structuredContent.compared_with, null);
+});
+
+test('today is compared with the usual by this time, not with whole past days', async () => {
+  const { db, rpc, signIn } = await setup(); // it is 12:00 on a Monday
+  timedSale(db, 'now', SHOP, '2026-11-02', '11:00', 100000);
+  for (const [i, date] of LAST_MONDAYS.entries()) {
+    timedSale(db, `m${i}`, SHOP, date, '11:30', 50000); // by noon
+    timedSale(db, `e${i}`, SHOP, date, '20:00', 900000); // the evening has not happened yet today
+  }
+  const token = (await signIn()).access_token;
+  const call = async (name: string, args = {}) => (await (await rpc(token, 'tools/call', { name, arguments: args })).json()).result.structuredContent;
+  const today = await call('get_today_sales');
+  assert.equal(today.compared_with.total, 'Rs 500.00');
+  assert.equal(today.compared_with.orders, 1);
+  assert.equal(today.compared_with.change_percent, 100);
+  assert.match(today.compared_with.description, /by 12:00/);
+  assert.deepEqual((await call('get_sales', { date_from: '2026-11-02', date_to: '2026-11-02' })).compared_with, today.compared_with);
+  const past = await call('get_sales', { date_from: '2026-10-26', date_to: '2026-10-26' });
+  assert.equal(past.total, 'Rs 9,500.00', 'a finished day counts all of it');
+});
+
+test('get_sales: a period, each day in it, and the same number of days before', async () => {
+  const { db, rpc, signIn } = await setup();
+  timedSale(db, 'a', SHOP, '2026-10-20', '12:00', 100000);
+  timedSale(db, 'b', SHOP, '2026-10-22', '12:00', 200000);
+  timedSale(db, 'outside', SHOP, '2026-10-23', '12:00', 400000);
+  timedSale(db, 'p', SHOP, '2026-10-18', '12:00', 150000); // the 3 days before: 17 to 19
+  timedSale(db, 'too-old', SHOP, '2026-10-16', '12:00', 800000);
+  const { result } = await (await rpc((await signIn()).access_token, 'tools/call', { name: 'get_sales', arguments: { date_from: '2026-10-20', date_to: '2026-10-22' } })).json();
+  const r = result.structuredContent;
+  assert.equal(r.days, 3);
+  assert.equal(r.total, 'Rs 3,000.00');
+  assert.deepEqual(r.by_day.map((d: { date: string }) => d.date), ['2026-10-20', '2026-10-22'], 'only days with sales');
+  assert.equal(r.compared_with.total, 'Rs 1,500.00');
+  assert.equal(r.compared_with.change_percent, 100);
+  assert.match(r.compared_with.description, /3 days before: 2026-10-17 to 2026-10-19/);
+});
+
+test('get_sales: a period reaching today says it is still growing; nothing before it means no comparison', async () => {
+  const { db, rpc, signIn } = await setup();
+  timedSale(db, 'a', SHOP, '2026-11-02', '11:00', 100000);
+  const { result } = await (await rpc((await signIn()).access_token, 'tools/call', { name: 'get_sales', arguments: { date_from: '2026-11-01', date_to: '2026-11-02' } })).json();
+  assert.equal(result.structuredContent.includes_today_so_far, true);
+  assert.equal(result.structuredContent.compared_with, null);
+});
+
+test('get_sales: dates it cannot answer are explained to the model, and read nothing', async () => {
+  const { db, rpc, signIn } = await setup();
+  timedSale(db, 'a', SHOP, '2026-10-26', '12:00', 123400);
+  const token = (await signIn()).access_token;
+  for (const [args, why] of [
+    [{}, /real dates/],
+    [{ date_from: '2026-10-26' }, /real dates/],
+    [{ date_from: 'yesterday', date_to: '2026-10-26' }, /real dates/],
+    [{ date_from: '2026-02-31', date_to: '2026-03-01' }, /real dates/],
+    [{ date_from: "2026-10-26' OR 1=1", date_to: '2026-10-26' }, /real dates/],
+    [{ date_from: '2026-10-27', date_to: '2026-10-26' }, /not be after/],
+    [{ date_from: '2026-11-02', date_to: '2026-11-03' }, /future.*2026-11-02/],
+    [{ date_from: '2026-01-01', date_to: '2026-10-26' }, /at most 92 days/],
+  ] as const) {
+    const raw = await (await rpc(token, 'tools/call', { name: 'get_sales', arguments: args })).text();
+    const { result } = JSON.parse(raw);
+    assert.equal(result.isError, true, JSON.stringify(args));
+    assert.match(result.content[0].text, why, JSON.stringify(args));
+    assert.equal(result.structuredContent, undefined);
+    assert.ok(!raw.includes('1,234'), 'no sales in a refusal');
+  }
+  const { result: most } = await (await rpc(token, 'tools/call', { name: 'get_sales', arguments: { date_from: '2026-08-03', date_to: '2026-11-02' } })).json();
+  assert.equal(most.structuredContent.days, 92, 'the limit itself is allowed');
+});
+
+test('get_sales needs sign-in like the other tool, and answers only for his own shop', async () => {
+  const { db, rpc, signIn } = await setup();
+  timedSale(db, 'mine', SHOP, '2026-10-26', '12:00', 100000);
+  timedSale(db, 'theirs', 'shop-b', '2026-10-26', '12:00', 200000);
+  const args = { date_from: '2026-10-26', date_to: '2026-10-26' };
+  const raw = await (await rpc(null, 'tools/call', { name: 'get_sales', arguments: args })).text();
+  const { result: anon } = JSON.parse(raw);
+  assert.equal(anon.isError, true);
+  assert.ok(anon._meta['mcp/www_authenticate']);
+  assert.ok(!raw.includes('1,000') && !raw.includes('2,000'));
+  const read = async (link: string) => (await (await rpc((await signIn({ link })).access_token, 'tools/call', { name: 'get_sales', arguments: args })).json()).result.structuredContent.total;
+  assert.equal(await read(OWNER_KEY), 'Rs 1,000.00');
+  assert.equal(await read(OTHER_KEY), 'Rs 2,000.00');
 });
 
 test('a day with no sales says so plainly', async () => {
