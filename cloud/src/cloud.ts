@@ -2,9 +2,9 @@ import type { Actor } from '../../src/domain/auth.ts';
 import { PULL_LIMIT, PUSH_BATCH, type ApiError, type PullResponse, type SyncedEvent } from '../../src/domain/sync.ts';
 import { validatePush } from '../../server/validate.ts';
 import { aiRoutes, type AiLike } from './ai.ts';
-import { gptRoutes } from './gpt.ts';
 import { HttpError, json, sha256Hex } from './http.ts';
 import { managerRoutes, parseActor } from './manager.ts';
+import { mcpRoutes } from './mcp.ts';
 import { onlineRoutes } from './online.ts';
 import { projectSales } from './sales.ts';
 
@@ -86,12 +86,12 @@ export interface CloudOptions {
   ai?: AiLike | null;
   /** Model calls per shop per day (wrangler.toml AI_DAILY_CALLS); unset = ai.ts AI_DAILY_CALLS. */
   aiDailyCalls?: number;
-  /** The owner's Custom GPT signs in with this (a Worker secret, GPT_CLIENT_SECRET, SCRUM-197); unset = off. */
-  gptClientSecret?: string;
+  /** The owner's ChatGPT plugin's MCP server (wrangler.toml MCP_ENABLED, SCRUM-197); unset = off. */
+  mcpEnabled?: boolean;
 }
 
 export function createCloud(db: D1Like, options: CloudOptions | (() => number) = {}) {
-  const { now = Date.now, enrolCode, ai = null, aiDailyCalls, gptClientSecret, ...order } = typeof options === 'function' ? { now: options } as CloudOptions : options;
+  const { now = Date.now, enrolCode, ai = null, aiDailyCalls, mcpEnabled, ...order } = typeof options === 'function' ? { now: options } as CloudOptions : options;
   const authenticate = async (req: Request, allowed: Kind[]): Promise<CloudDevice> => {
     const h = req.headers.get('authorization');
     const token = h?.startsWith('Bearer ') ? h.slice(7) : null;
@@ -123,8 +123,8 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
 
   const routes = async (req: Request, url: URL): Promise<Response> => {
     if (url.pathname === '/api/v1/health' && req.method === 'GET') return json(200, { ok: true, serverTime: now() });
-    const gpt = await gptRoutes(req, url, { db, now, clientSecret: gptClientSecret });
-    if (gpt) return gpt;
+    const mcp = await mcpRoutes(req, url, { db, now, enabled: mcpEnabled });
+    if (mcp) return mcp;
     const online = await onlineRoutes(req, url, { db, now, ...order, authenticate });
     if (online) return online;
     const manager = await managerRoutes(req, url, { db, now, authenticate });

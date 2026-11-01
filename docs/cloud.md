@@ -98,19 +98,16 @@ Add to Home Screen (iPhone) makes it an app (`/manager.webmanifest`).
 
 ## The owner's ChatGPT (SCRUM-197)
 
-A private Custom GPT on the owner's own ChatGPT account reads today's sales. It needs a plan that can
-create GPTs (not Free). It is read-only, and off until the secret below is set. What it reads goes to
-OpenAI, so answers hold totals and menu item names only: no customers, staff or order numbers.
+A ChatGPT plugin reads today's sales through an MCP server at `/mcp` (`cloud/src/mcp.ts`). It is
+read-only. It is on for staging and off on the live cloud until `MCP_ENABLED = "1"` is added to
+`[vars]` in `wrangler.toml`. What it reads goes to OpenAI, so answers hold totals and menu item names
+only: no customers, staff or order numbers.
 
-1. Set the secret: `openssl rand -base64 32`, then `npx wrangler secret put GPT_CLIENT_SECRET` in `cloud/`.
-2. In ChatGPT: Explore GPTs → Create → Configure → Create new action.
-3. Schema: Import from URL, `https://cheesybeez-cloud.cheesybeez-cloud.workers.dev/api/v1/gpt/openapi.json`.
-4. Authentication: OAuth. Client ID `cheesybeez-gpt`, the secret from step 1, Authorization URL
-   `…/api/v1/gpt/authorize`, Token URL `…/api/v1/gpt/token`, Scope `today`.
-5. Save the GPT as **Only me**. Check that the callback shown is `https://chatgpt.com/aip/g-…/oauth/callback`.
-6. Ask "How were sales today?", press Sign in, and paste the owner link.
+To add it: in ChatGPT, open Plugins (`chatgpt.com/plugins`), press +, choose **Add custom MCP server**,
+enter `<cloud address>/mcp`, then **Create as a plugin**. ChatGPT registers itself, so there is no
+client ID or secret to copy. When it asks to sign in, paste the owner link on the approval page.
 
-To cut it off: `DELETE FROM gpt_links WHERE tenant_id = '<shop>'`. Removing the owner's device also
+To cut it off: `DELETE FROM mcp_links WHERE tenant_id = '<shop>'`. Removing the owner's device also
 stops it. There is no screen for this yet.
 
 ## The owner's questions page
