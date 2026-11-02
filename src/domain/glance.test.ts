@@ -80,3 +80,12 @@ test('every Rs 100 sold adds up to 100, and is not shown before the first sale',
   assert.equal(split.food + split.waste + split.kept, 100);
   assert.match(split.explain, /^Of every Rs 100 sold today:/);
 });
+
+test('Money says what was paid: the drawer today, the bills this month, and suppliers are no cost (SCRUM-105)', () => {
+  const actor = { id: 'o', name: 'Owner', role: 'owner' as const };
+  const paid = (id: string, fields: object) => ({ id, shopId: 'shop', at: NOW, orderNumber: 0 as const, actor, type: 'money.out' as const, what: 'gas' as const, from: 'drawer' as const, cents: 250000, ...fields });
+  const money = glance([paid('a', {}), paid('b', { what: 'supplier', supplierId: 's1', cents: 700000 })]).stations.find((s) => s.id === 'money')!;
+  assert.equal(money.href, '#money');
+  assert.match(money.explain, /Paid out of the drawer today: Rs 9,500\./);
+  assert.match(money.explain, /Bills and other costs this month: Rs 2,500\.\nGas: Rs 2,500/);
+});

@@ -343,3 +343,20 @@ test('warehouse records (SCRUM-184) pass with their fields and nothing loose', (
   assert.ok(!ok({ type: 'stock.grn', orderId: 'p', supplierId: 's', approvedBy: null, lines: [{ itemId: 'i', ordered: 1, received: 1, accepted: 1, warehouseId: 7 }] }));
   assert.ok(ok({ type: 'stock.grn', orderId: 'p', supplierId: 's', approvedBy: null, lines: [{ itemId: 'i', ordered: 1, received: 1, accepted: 1, warehouseId: 'wh-2' }] }));
 });
+
+test('money out: whole cents above nothing, a known kind, and a name for who paid it (SCRUM-105)', () => {
+  const out = { ...base, type: 'money.out', what: 'gas', from: 'drawer', cents: 250000 };
+  const ok = (e: object) => !('reason' in validatePush({ deviceId: 'd', events: [e] }, 'shop-1'));
+  assert.ok(ok(out));
+  assert.ok(ok({ ...base, type: 'money.out_undone', outId: 'event-1' }));
+  assert.ok(ok({ ...base, type: 'money.out_restored', outId: 'event-1' }));
+  assert.equal(ok({ ...out, cents: 10.5 }), false);
+  assert.equal(ok({ ...out, cents: 0 }), false);
+  assert.equal(ok({ ...out, what: 'lunch' }), false);
+  assert.equal(ok({ ...out, from: 'pocket' }), false);
+  assert.equal(ok({ ...out, what: 'other' }), false);
+  assert.equal(ok({ ...out, what: 'supplier' }), false);
+  assert.equal(ok({ ...out, orderNumber: 7 }), false);
+  assert.equal(ok({ ...out, actor: undefined }), false);
+  assert.equal(ok({ ...base, type: 'money.out_undone' }), false);
+});
