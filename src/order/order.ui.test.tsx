@@ -18,6 +18,7 @@ const shopCalls = () => vi.mocked(fetch).mock.calls.filter(([url]) => url === '/
 
 beforeEach(() => {
   localStorage.clear();
+  history.replaceState(null, '');
   setMenuState(EMPTY_MENU_STATE);
   answers = [];
   hours = null;
@@ -349,4 +350,65 @@ test('no delivery set up: pickup only, no choice to make', async () => {
   await user.click(screen.getByRole('button', { name: 'Add Fish Burger' }));
   await user.click(screen.getByRole('button', { name: /View order/ }));
   expect(within(screen.getByRole('dialog', { name: 'Your order' })).queryByRole('radiogroup')).toBeNull();
+});
+
+/** The phone's Back button; jsdom answers it a moment later. */
+const pressBack = () => act(async () => {
+  const popped = new Promise((done) => window.addEventListener('popstate', done, { once: true }));
+  history.back();
+  await popped;
+});
+
+test("the phone's Back closes the item, keeping the customer on the site; × leaves no extra Back behind", async () => {
+  const user = userEvent.setup();
+  render(<OrderSite />);
+  await screen.findByText('Open for pickup');
+  const before = history.length;
+
+  await user.click(card(/Fish Burger/i));
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  await pressBack();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByRole('heading', { name: 'Pizza' })).toBeTruthy();
+
+  await user.click(card(/Fish Burger/i));
+  await user.click(screen.getByRole('button', { name: 'Close' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  await vi.waitFor(() => expect(history.state).toBeNull());
+  expect(history.length).toBeLessThanOrEqual(before + 1);
+});
+
+test("the phone's Back closes checkout and the order is still there", async () => {
+  const user = userEvent.setup();
+  render(<OrderSite />);
+  await screen.findByText('Open for pickup');
+  await user.click(screen.getByRole('button', { name: 'Add Fish Burger' }));
+  await user.click(screen.getByRole('button', { name: /View order/ }));
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  await pressBack();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getByRole('button', { name: /1 item · Rs 450 · View order/ })).toBeTruthy();
+});
+
+test('an order still going: back to the menu by link or Back, and See your order returns to it', async () => {
+  localStorage.setItem('cb.order.current', JSON.stringify({ id: 'o-aaaaaaaaaa', token: 't' }));
+  myOrder = {
+    id: 'o-aaaaaaaaaa', createdAt: Date.now(), status: 'new', kind: 'pickup', name: 'Kasun', note: '',
+    lines: [{ itemId: 'fish-burger', qty: 1, adds: [], outs: [] }], deliveryFee: 0, distanceKm: null, total: 45000, orderNumber: null, readyBy: null, reason: null,
+  };
+  const user = userEvent.setup();
+  render(<OrderSite />);
+  expect(await screen.findByText('Sent to the shop')).toBeTruthy();
+
+  await user.click(screen.getByRole('button', { name: 'Back to the menu' }));
+  expect(screen.getByRole('heading', { name: 'Pizza' })).toBeTruthy();
+  expect(localStorage.getItem('cb.order.current')).toContain('o-aaaaaaaaaa');
+  expect(within(screen.getByRole('banner')).getByRole('button', { name: 'See your order' })).toBeTruthy();
+
+  await user.click(screen.getByRole('button', { name: 'See your order' }));
+  expect(await screen.findByText('Sent to the shop')).toBeTruthy();
+  await vi.waitFor(() => expect(history.state?.oLayer).toBe(true));
+  await pressBack();
+  expect(screen.getByRole('heading', { name: 'Pizza' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'See your order' })).toBeTruthy();
 });

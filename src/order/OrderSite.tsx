@@ -180,6 +180,28 @@ function useEscape(onClose: () => void) {
   }, [onClose]);
 }
 
+/**
+ * The phone's Back closes what is open instead of leaving the site: anything open on top of the menu
+ * holds one history entry, and closing it any other way takes that entry off again.
+ */
+function useBackCloses(layer: boolean, close: () => void) {
+  const latest = useRef({ layer, close });
+  latest.current = { layer, close };
+  useEffect(() => {
+    if (layer) { if (!history.state?.oLayer) history.pushState({ oLayer: true }, ''); }
+    else if (history.state?.oLayer) history.back();
+  }, [layer]);
+  useEffect(() => {
+    const onPop = () => {
+      if (!history.state?.oLayer) latest.current.close();
+      // Forward onto an entry whose sheet is gone: nothing to show there.
+      else if (!latest.current.layer) history.back();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+}
+
 function Sheet({ label, onClose, children }: { label: string; onClose: () => void; children: React.ReactNode }) {
   useEscape(onClose);
   return (
@@ -520,7 +542,7 @@ const DELIVERY_STEPS = ['Sent', 'Accepted', 'On the way'] as const;
 const at = (ms: number) => new Date(ms).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true });
 
 /** The order after it is placed: one big line saying where it is, and the number to say at the counter. */
-function Status({ placed, onDone, onAgain }: { placed: Placed; onDone: () => void; onAgain: () => void }) {
+function Status({ placed, onDone, onAgain, onBack }: { placed: Placed; onDone: () => void; onAgain: () => void; onBack: () => void }) {
   const [order, setOrder] = useState<MyOrder | null>(null);
   const [lost, setLost] = useState(false);
   useEffect(() => {
@@ -608,6 +630,12 @@ function Status({ placed, onDone, onAgain }: { placed: Placed; onDone: () => voi
           )}
         </>
       )}
+      {/* Still going: the order stays remembered, and the menu offers the way back to it. */}
+      {!ended && (
+        <div className="o-actions">
+          <button type="button" className="o-link" onClick={onBack}>Back to the menu</button>
+        </div>
+      )}
     </main>
   );
 }
@@ -623,6 +651,12 @@ export function OrderSite() {
   const [open, setOpen] = useState<MenuItem | null>(null);
   const [sizeFor, setSizeFor] = useState<MenuItem | null>(null);
   const [checkout, setCheckout] = useState(false);
+  /** The status page is showing; false once the customer went back to the menu with an order still going. */
+  const [seeing, setSeeing] = useState(true);
+  const onStatus = placed !== null && seeing;
+  useBackCloses(open !== null || sizeFor !== null || checkout || onStatus, () => {
+    setOpen(null); setSizeFor(null); setCheckout(false); setSeeing(false);
+  });
   /** Bumps on every add: replays the bar's pop and the toast. */
   const [added, setAdded] = useState(0);
   const [toast, setToast] = useState(false);
@@ -666,9 +700,9 @@ export function OrderSite() {
     else add({ itemId: m.id, qty: 1, ...(m.variants ? { size: m.variants[0].id } : {}), adds: [], outs: [] });
   };
   const count = useMemo(() => basket.reduce((n, l) => n + l.qty, 0), [basket]);
-  useReveal(placed);
+  useReveal(onStatus);
 
-  if (placed) {
+  if (onStatus) {
     return (
       <div className="o-page">
         <Header taking={taking} shop={shop} onRetry={retry} />
@@ -677,6 +711,7 @@ export function OrderSite() {
             placed={placed}
             onDone={() => { remembered.setCurrent(null); setPlaced(null); }}
             onAgain={() => { setBasket(remembered.last()); remembered.setCurrent(null); setPlaced(null); setCheckout(true); }}
+            onBack={() => setSeeing(false)}
           />
         </div>
       </div>
@@ -685,7 +720,7 @@ export function OrderSite() {
 
   return (
     <div className="o-page">
-      <Header taking={taking} shop={shop} onRetry={retry} />
+      <Header taking={taking} shop={shop} onRetry={retry} onSeeOrder={placed ? () => setSeeing(true) : undefined} />
       {/* Edge to edge; the headline stays in the centred container. */}
       <section className="o-hero">
         <picture>
@@ -764,7 +799,7 @@ export function OrderSite() {
       {checkout && (
         <Checkout
           basket={basket} shop={shop} taking={taking} onRetry={retry} onChange={setBasket} onClose={() => setCheckout(false)}
-          onPlaced={(p) => { remembered.setLast(basket); remembered.setCurrent(p); setBasket([]); setCheckout(false); setPlaced(p); }}
+          onPlaced={(p) => { remembered.setLast(basket); remembered.setCurrent(p); setBasket([]); setCheckout(false); setPlaced(p); setSeeing(true); }}
         />
       )}
     </div>
@@ -775,20 +810,22 @@ export function OrderSite() {
  * Logo left, the shop's state right: the only place the page says whether it takes orders.
  * Loading is a quiet placeholder; a failed check offers Retry and never claims closed.
  */
-function Header({ taking, shop, onRetry }: { taking: Taking; shop: ShopInfo | null; onRetry: () => void }) {
+function Header({ taking, shop, onRetry, onSeeOrder }: { taking: Taking; shop: ShopInfo | null; onRetry: () => void; onSeeOrder?: () => void }) {
   return (
     <header className="o-head">
       <div className="o-wrap o-head__in">
         <span className="o-brand">
           <img src="/icons/icon-192.png" alt="" width={32} height={32} />CheesyBeez
         </span>
-        {taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}
-        {(taking === 'open' || taking === 'closed') && (
+        {/* An order still going takes the pill's place: always on screen, and the header keeps its height. */}
+        {onSeeOrder && <button type="button" className="o-link" onClick={onSeeOrder}>See your order</button>}
+        {!onSeeOrder && taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}
+        {!onSeeOrder && (taking === 'open' || taking === 'closed') && (
           <span className={`o-pill o-pill--${taking}`} role="status">
             {statusText(taking === 'open', shop?.hours ?? null, Date.now(), Boolean(shop?.delivery))}
           </span>
         )}
-        {taking === 'failed' && (
+        {!onSeeOrder && taking === 'failed' && (
           <button type="button" className="o-pill o-pill--retry" onClick={onRetry} aria-label="We couldn't check if we're open. Retry">
             Couldn&apos;t check · <u>Retry</u>
           </button>
