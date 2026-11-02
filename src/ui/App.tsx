@@ -228,7 +228,6 @@ export function App({
       if (e.key === 'F8' && !sheet && PLATFORMS[0] && reg.order.sentAt === undefined) {
         e.preventDefault(); setTyped(null); setSheet({ kind: 'platform', platform: PLATFORMS[0] }); return;
       }
-      if (mod && key === 'z') { e.preventDefault(); reg.undo(); return; }
       if (mod && key === 'z') { e.preventDefault(); if (noted) undoNoted(); else reg.undo(); return; }
       if (mod && e.key === 'Enter' && !sheet && !reg.paid) {
         e.preventDefault();
