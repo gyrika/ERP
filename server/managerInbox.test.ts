@@ -13,6 +13,12 @@ const counted = (id: string, actor: { id: string; name: string; role: string } =
   counted: 1000, expected: 2000, entries: [], reason: 'unknown', valueCents: -260000, tier: 'daily',
 } as SyncEvent);
 
+test("the shop takes a draft order from the owner's ChatGPT (SCRUM-198)", () => {
+  const draft = { id: 'd', shopId: SHOP, at: 5000, orderNumber: 0, type: 'stock.draft_set', supplierId: 'sup_prima', lines: [{ itemId: 'inv-0001', packs: 2 }],
+    actor: { id: 'chatgpt-dev', name: 'ChatGPT, for the owner', role: 'owner' } } as SyncEvent;
+  assert.equal(takesFromPhone(draft), true);
+});
+
 test('what the shop takes from a phone: stock by a manager or owner; count lists by an owner', () => {
   assert.equal(takesFromPhone(counted('a')), true);
   assert.equal(takesFromPhone(counted('b', { ...ravi, role: 'cashier' })), false);

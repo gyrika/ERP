@@ -1782,6 +1782,11 @@ button.glance__card:disabled { cursor: default; }
 @media (max-width: 1000px) {
   .glance { grid-template-columns: minmax(0, 1fr); }
   .glance__main { padding-bottom: 230px; }
+  /* Undo stays reachable above the black screen (SCRUM-197). */
+  .owner .toast { z-index: 21; }
+  /* Disconnect scrolls clear of the black screen, even at its tallest (42dvh). */
+  .owner__main:has(.owner__chatgpt) .glance__main { padding-bottom: 0; }
+  .owner__chatgpt { margin-bottom: calc(42dvh + 16px); }
   .glance__screen { position: fixed; left: 0; right: 0; top: auto; bottom: 0; z-index: 20; min-height: 0; max-height: 42dvh; overflow-y: auto; border-radius: 22px 22px 0 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.18); }
 }
 @media (max-width: 560px) {
