@@ -1,7 +1,8 @@
 import { itemById } from './menu.ts';
 import { fmt } from './money.ts';
 import { discountLabel, lineAdjustment, lineGross, totals } from './totals.ts';
-import type { PaidOrder, Tender } from './types.ts';
+import type { Cents, LineSpec, PaidOrder, Tender } from './types.ts';
+import type { DeliveryPin } from './online.ts';
 import { lineItemName } from './halves.ts';
 
 /**
@@ -9,7 +10,8 @@ import { lineItemName } from './halves.ts';
  * steps, both pure: `receipt()` lays the paper out as text lines, `escpos()`
  * turns them into the printer's bytes. The same lines feed the on-screen
  * preview, so what the owner approves is what prints.
- * The kitchen never gets paper (CLAUDE.md): this is the customer's receipt only.
+ * The kitchen never gets paper (CLAUDE.md): this is the customer's receipt only, and the
+ * delivery bill that goes in the customer's bag (`deliveryBill`).
  */
 
 /** Font A on 80 mm paper: 48 characters a line (24 when printed double width). */
@@ -82,22 +84,12 @@ export function receipt(
     rule(width),
     { text: twoCols(`Order ${paid.number}`, receiptTime(paid.paidAt), width) },
     { text: `Cashier: ${cashier}` },
-    ...(paid.online ? [{ text: 'Online order: collected' }] : []),
+    ...(paid.online ? [{ text: paid.online.delivery ? 'Online order: delivered' : 'Online order: collected' }] : []),
     rule(width),
   ];
 
   for (const l of paid.lines) {
-    const item = itemById(l.itemId);
-    const size = item.variants?.find((v) => v.id === l.size)?.label;
-    const name = `${l.qty} x ${lineItemName(l).replace(/½/g, '1/2')}${size ? ` ${size}` : ''}`; // the printer has no ½
-    const [first, ...rest] = wrap(name, width - 12);
-    out.push({ text: twoCols(first, fmt(lineGross(l)), width) });
-    rest.forEach((text) => out.push({ text: `    ${text}` }));
-    // Paid extras explain the price; leave-outs and notes are for the kitchen, not the receipt.
-    for (const id of l.adds) {
-      const label = item.adds.find((o) => o.id === id)?.label;
-      if (label) out.push({ text: `    + ${label}` });
-    }
+    out.push(...itemLines(l, lineGross(l), width));
     const adj = lineAdjustment(paid, l);
     if (adj > 0) out.push({ text: twoCols('    Price adjusted', minus(adj), width) });
   }
@@ -106,6 +98,7 @@ export function receipt(
   if (t.lineAdjust > 0 || t.orderDiscount > 0) out.push({ text: twoCols('Subtotal', fmt(t.subtotal - t.lineAdjust), width) });
   const d = paid.adjust?.discount;
   if (d && t.orderDiscount > 0) out.push({ text: twoCols(discountLabel(d), minus(t.orderDiscount), width) });
+  if (t.deliveryFee > 0) out.push({ text: twoCols('Delivery', fmt(t.deliveryFee), width) });
   out.push({ text: twoCols('TOTAL', `Rs ${fmt(paid.total)}`, width / 2), bold: true, big: true });
   if (paid.tender === 'cash') {
     out.push({ text: twoCols('Cash', fmt(paid.tendered), width) });
@@ -114,6 +107,69 @@ export function receipt(
     out.push({ text: twoCols('Paid by', TENDER_LABEL[paid.tender], width) });
   }
   out.push(rule(width), { text: shop.footer, center: true });
+  return out;
+}
+
+/** One item on paper: "2 x Devilled Chicken Large" and its price, then its paid extras. */
+const itemLines = (l: Pick<LineSpec, 'itemId' | 'qty' | 'size' | 'adds' | 'half'>, price: Cents, width: number): ReceiptLine[] => {
+  const item = itemById(l.itemId);
+  const size = item.variants?.find((v) => v.id === l.size)?.label;
+  const name = `${l.qty} x ${lineItemName(l).replace(/½/g, '1/2')}${size ? ` ${size}` : ''}`; // the printer has no ½
+  const [first, ...rest] = wrap(name, width - 12);
+  const out: ReceiptLine[] = [{ text: twoCols(first, fmt(price), width) }, ...rest.map((text) => ({ text: `    ${text}` }))];
+  // Paid extras explain the price; leave-outs and notes are for the kitchen, not the receipt.
+  for (const id of l.adds) {
+    const label = item.adds.find((o) => o.id === id)?.label;
+    if (label) out.push({ text: `    + ${label}` });
+  }
+  return out;
+};
+
+/** What the delivery bill needs from the online order (src/domain/online.ts). */
+export interface DeliveryBillOrder {
+  orderNumber: number | null;
+  name: string;
+  phone: string;
+  address: string | null;
+  pin: DeliveryPin | null;
+  note: string;
+  lines: Pick<LineSpec, 'itemId' | 'qty' | 'size' | 'adds'>[];
+  deliveryFee: Cents;
+  distanceKm: number | null;
+  total: Cents;
+}
+
+/**
+ * The delivery bill (SCRUM-193), printed when the rider leaves and put in the customer's bag:
+ * who and where for the rider, what is in the bag, and the cash to collect at the door.
+ * `prices`: each line's price, in the order's order (the counter's sent prices).
+ */
+export function deliveryBill(
+  o: DeliveryBillOrder, prices: Cents[], opts: { at: number; shop?: ShopHeader; width?: number },
+): ReceiptLine[] {
+  const { at, shop = SHOP_HEADER, width = RECEIPT_WIDTH } = opts;
+  const out: ReceiptLine[] = [
+    { text: shop.name, center: true, bold: true, big: true },
+    ...shop.lines.map((text) => ({ text, center: true })),
+    { text: 'DELIVERY', center: true, bold: true },
+    rule(width),
+    { text: twoCols(`Order ${o.orderNumber ?? ''}`, receiptTime(at), width) },
+    { text: o.name, bold: true },
+    { text: `${o.phone.slice(0, 3)} ${o.phone.slice(3, 6)} ${o.phone.slice(6)}`, bold: true },
+    ...wrap(o.address ?? '', width).map((text) => ({ text })),
+    // Paper cannot be tapped and a link would wrap: the location as two numbers Maps understands when typed.
+    ...(o.pin ? [{ text: `Location: ${o.pin.lat}, ${o.pin.lng}` }] : []),
+    ...(o.note ? wrap(`Note: ${o.note}`, width).map((text) => ({ text })) : []),
+    rule(width),
+  ];
+  o.lines.forEach((l, i) => out.push(...itemLines(l, prices[i] ?? 0, width)));
+  out.push(rule(width));
+  if (o.deliveryFee > 0) out.push({ text: twoCols(`Delivery${o.distanceKm !== null ? ` ${o.distanceKm} km` : ''}`, fmt(o.deliveryFee), width) });
+  out.push(
+    { text: twoCols('COLLECT', `Rs ${fmt(o.total)}`, width / 2), bold: true, big: true },
+    { text: 'Cash on delivery', center: true },
+    rule(width), { text: shop.footer, center: true },
+  );
   return out;
 }
 

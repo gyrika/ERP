@@ -1,4 +1,4 @@
-import { escpos, opensDrawer, receipt } from '../domain/receipt.ts';
+import { escpos, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
 import type { PaidOrder } from '../domain/types.ts';
 import { syncToken } from './pairing.ts';
 
@@ -25,9 +25,15 @@ const base64 = (bytes: Uint8Array): string => {
  * never opens the drawer and is marked COPY.
  */
 export async function printReceipt(paid: PaidOrder, cashier: string, { reprint = false } = {}): Promise<PrintResult> {
+  return send(escpos(receipt(paid, { cashier, copy: reprint }), { openDrawer: !reprint && opensDrawer(paid) }));
+}
+
+/** The delivery bill for the customer's bag (SCRUM-193). Nothing is paid yet, so the drawer stays shut. */
+export const printDeliveryBill = (lines: ReceiptLine[]): Promise<PrintResult> => send(escpos(lines));
+
+async function send(bytes: Uint8Array): Promise<PrintResult> {
   const token = syncToken();
   if (!token) return 'unavailable';
-  const bytes = escpos(receipt(paid, { cashier, copy: reprint }), { openDrawer: !reprint && opensDrawer(paid) });
   try {
     const r = await fetch('/api/v1/print', {
       method: 'POST',

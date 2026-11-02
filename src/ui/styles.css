@@ -147,6 +147,14 @@ a.corner__key { text-decoration: none; }
 .online__going { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 16px; }
 .online__going li { display: flex; gap: 10px; align-items: baseline; }
 .online__going span { margin-left: auto; color: var(--ink-2); font-size: 14px; }
+.online__going li { align-items: center; }
+.online__going .online__kind { margin-left: 0; }
+.online__going .chip { min-height: 48px; }
+/* Delivery (SCRUM-193): a quiet tag, the address the rider needs, and the fee as its own line. */
+.online__kind { padding: 2px 10px; border-radius: 980px; background: var(--chip); color: var(--ink); font-size: 13px; font-weight: 600; }
+.online__address { margin: 0; font-size: 16px; line-height: 1.4; }
+.online__address a { color: inherit; font-weight: 600; }
+.online__fee { display: flex; gap: 8px; color: var(--ink-2); }
 .syncsign { font-size: 14px; font-weight: 500; color: var(--ink-2); margin-right: 10px; animation: fade 200ms var(--ease); }
 .kitchen .syncsign { font-size: 18px; color: var(--warn); }
 .kchip__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }

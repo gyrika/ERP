@@ -16,7 +16,8 @@ export interface OnlineState {
 }
 export type OnlineAnswer =
   | { status: 'accepted'; orderNumber: number; readyBy: number }
-  | { status: 'declined'; reason: string };
+  | { status: 'declined'; reason: string }
+  | { status: 'out' };
 
 const EVERY_MS = 5_000;
 const NONE: OnlineState = { available: false, open: false, connected: false, orders: [] };

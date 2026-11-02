@@ -5,9 +5,10 @@ import type { OnlineOrder } from '../domain/online.ts';
 import { lock } from '../services/serverAuth.ts';
 import { Root } from './Root.tsx';
 
-const order = (id: string, name: string): OnlineOrder => ({
-  id, createdAt: Date.now() - 120_000, status: 'new', name, phone: '0771234567', note: 'Ring the bell', total: 360000, orderNumber: null, readyBy: null, reason: null,
-  lines: [{ itemId: 'devilled-chicken', qty: 2, size: 'L', adds: [], outs: ['no-onion'] }],
+const order = (id: string, name: string, more: Partial<OnlineOrder> = {}): OnlineOrder => ({
+  id, createdAt: Date.now() - 120_000, status: 'new', kind: 'pickup', name, phone: '0771234567', address: null, pin: null, note: 'Ring the bell',
+  deliveryFee: 0, distanceKm: null, total: 360000, orderNumber: null, readyBy: null, reason: null,
+  lines: [{ itemId: 'devilled-chicken', qty: 2, size: 'L', adds: [], outs: ['no-onion'] }], ...more,
 });
 
 /** The shop server: the counter's login and its online orders, remembering the answers it was given. */
@@ -85,4 +86,38 @@ test('the switch: not taking orders until the counter says so', async () => {
   expect(server.open).toBe(true);
   await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('true'));
   expect(toggle.textContent).toContain('Online');
+});
+
+test('a delivery: the address and map for the rider, accepted with a ride time, Out as he leaves, the fee in the total', async () => {
+  const server = shopServer();
+  server.orders = [order('o-cccccccccc', 'Kasun', {
+    kind: 'delivery', address: '12 Station Rd, Thalawathugoda', pin: { lat: 6.82351, lng: 79.89012 }, deliveryFee: 25000, distanceKm: 4.6, total: 385000,
+  })];
+  const user = userEvent.setup();
+  render(<Root />);
+  await user.keyboard('1111');
+  await user.click(await screen.findByRole('button', { name: 'Online orders: 1 new' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Online orders' }));
+  const kasun = within(sheet.getByRole('article', { name: 'Delivery order from Kasun' }));
+  expect(kasun.getByText('12 Station Rd, Thalawathugoda', { exact: false })).toBeTruthy();
+  expect(kasun.getByRole('link', { name: 'Map' }).getAttribute('href')).toBe('https://www.google.com/maps/search/?api=1&query=6.82351,79.89012');
+  expect(kasun.getByText('4.6 km', { exact: false })).toBeTruthy();
+  expect(kasun.queryByRole('button', { name: '15 min' })).toBeNull();
+  await user.click(kasun.getByRole('button', { name: 'Decline' }));
+  expect(kasun.getByRole('button', { name: 'Too far to deliver' })).toBeTruthy();
+  await user.click(kasun.getByRole('button', { name: 'Back' }));
+  await user.click(kasun.getByRole('button', { name: '45 min' }));
+  expect(server.answers[0]).toMatchObject({ status: 'accepted', orderNumber: 1001 });
+
+  await user.click(await sheet.findByRole('button', { name: 'Order 1001: out with the rider' }));
+  expect(server.answers[1]).toEqual({ id: 'o-cccccccccc', status: 'out' });
+  expect(await sheet.findByText('On the way · collect 3,850')).toBeTruthy();
+
+  await user.keyboard('{Escape}');
+  const panel = within(screen.getByRole('complementary', { name: 'Current order' }));
+  const row = within(panel.getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ });
+  expect(within(row).getByText(/^Delivery · /)).toBeTruthy();
+  await user.keyboard('{F2}');
+  const ticket = within(within(screen.getByRole('main', { name: 'Orders to make' })).getByRole('article', { name: 'Order 1001' }));
+  expect(ticket.getByText(/^Delivery · by /)).toBeTruthy();
 });

@@ -10,7 +10,7 @@ import {
   type ManagerChange, type Refusal,
 } from '../domain/manager.ts';
 import { discountLabel } from '../domain/totals.ts';
-import type { LineSpec, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
+import type { Cents, LineSpec, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
 import { demoSnapshot } from '../fake/demo.ts';
 import { currentCashier, shopId } from '../services/auth.ts';
 import { appendEvent } from './eventLog.ts';
@@ -220,15 +220,15 @@ export function useRegister() {
 
   /**
    * An online order the counter accepted: it takes the next number and goes straight to the
-   * kitchen, waiting to be paid at pickup. The order on screen is left alone (a new one moves
+   * kitchen, waiting to be paid at pickup (a delivery: when the rider is back with the cash). The order on screen is left alone (a new one moves
    * up a number). Not undoable here: the customer has already been told.
    */
-  const acceptOnline = useCallback((specs: LineSpec[], pickupBy: number): number => {
+  const acceptOnline = useCallback((specs: LineSpec[], pickupBy: number, delivery?: { fee: Cents }): number => {
     seal();
     const s = ref.current;
     const at = Date.now();
     const number = s.nextNumber;
-    const online = { pickupBy };
+    const online = { pickupBy, ...(delivery ? { delivery } : {}) };
     const order = { ...markSent(addLines(emptyOrder(number), specs), at), online };
     const ticket: NewTicket = { id: newLineId(), shopId: shopId(), number, lines: order.lines, firedAt: at, addOn: false, online };
     const onScreen = !s.paid && s.order.sentAt === undefined && s.order.number === number ? { ...s.order, number: number + 1 } : s.order;
