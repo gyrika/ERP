@@ -4,6 +4,9 @@ import {
 import '@xyflow/react/dist/base.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Actor } from '../../domain/auth.ts';
+import { billParts, BILLS_NODE } from '../../domain/billShare.ts';
+import { activePlaces, placeOfCard, valueColumn, valuePlacesFromEvents, type ValuePlace } from '../../domain/valuePlaces.ts';
+import { addPlace, editPlace, putInPlace } from '../../services/valuePlaceStore.ts';
 import { RATES_QUESTION, resourcesQuestion, type Answer } from '../../domain/costing.ts';
 import { menuItems } from '../../domain/menu.ts';
 import { prepItems } from '../../domain/prep.ts';
@@ -25,7 +28,7 @@ import { useOwner } from '../RecipeLines.tsx';
 import { FlowPanel, type PanelActions, type Selection } from './FlowPanel.tsx';
 import {
   EDGE_TYPES, MIN_ZOOM, NODE_TYPES, nodeShare, rs, stockAmount,
-  type CanvasEdge, type CanvasNode, type CanvasView, type Place, type VfEdge, type VfNode, type WhAddNode, type WhEdge, type WhNode, type Worth,
+  type CanvasEdge, type CanvasNode, type CanvasView, type Place, type VaAddNode, type VaHeadNode, type VaNode, type VfEdge, type VfNode, type WhAddNode, type WhEdge, type WhNode, type Worth,
 } from './FlowParts.tsx';
 import { TypeOut } from '../TypeOut.tsx';
 import { activeWarehouses, byWarehouse, homeOf, livesIn, shownSplit, type StockEntry, type Warehouse, type Warehouses } from '../../domain/warehouses.ts';
@@ -56,12 +59,28 @@ import './visualFlow.css';
 export default function VisualFlowView({ onRegister }: { onRegister?: () => void }) {
   const owner = useOwner();
   useEffect(() => { if (owner) recipesViewed(owner); }, [owner]);
+  // The drawing keeps the whole screen: the shop's list is a drawer, opened from the strip (or Ctrl K).
+  const [nav, setNav] = useState(false);
   return (
     <div className="owner vf-page">
-      <OwnerNav current="flow" onRegister={onRegister} />
+      <OwnerNav current="flow" onRegister={onRegister} drawer={owner ? nav : undefined} onDrawer={setNav} />
       {owner
-        ? <ReactFlowProvider><Studio owner={owner} /></ReactFlowProvider>
+        ? <ReactFlowProvider><Studio owner={owner} onMenu={() => setNav(true)} /></ReactFlowProvider>
         : <main className="owner__main" aria-label="Visual Flow"><p className="vf-muted">Only the owner sees the recipes.</p></main>}
+    </div>
+  );
+}
+
+/** Fitting leaves room at the top for the strip and the sentence that float over the drawing. */
+const FIT = { top: '128px', right: '32px', bottom: '32px', left: '32px' } as const;
+
+/** The drawing's point, typed over the top of the canvas when the item or view changes, then out of the way. */
+function Said({ text }: { text: string }) {
+  const [gone, setGone] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setGone(true), 6000); return () => clearTimeout(t); }, []);
+  return (
+    <div className={`vf-say${gone ? ' vf-say--gone' : ''}`} aria-live="polite">
+      <TypeOut text={text} className="vf-say__text" />
     </div>
   );
 }
@@ -95,7 +114,7 @@ interface Toast { id: number; text: string; undo?: () => void; next?: { label: s
 /** #flow/<focus>: a dish's flow can be linked to (and survives a reload). */
 const focusFromHash = () => (location.hash.startsWith('#flow/') ? decodeURIComponent(location.hash.slice('#flow/'.length)) : null);
 
-function Studio({ owner }: { owner: Actor }) {
+function Studio({ owner, onMenu }: { owner: Actor; onMenu: () => void }) {
   useMenu();
   const menu = menuItems();
   const { ctx: published, drafts, events, stock } = useFlowData();
@@ -127,6 +146,8 @@ function Studio({ owner }: { owner: Actor }) {
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
   const [toast, setToast] = useState<Toast | null>(null);
   const [picking, setPicking] = useState<'focus' | Holder | null>(null);
+  /** The filter chips, opened from the strip's Filter button. */
+  const [filtering, setFiltering] = useState(false);
   const flow = useReactFlow();
 
   const known = options.some((o) => o.id === focus);
@@ -143,13 +164,17 @@ function Studio({ owner }: { owner: Actor }) {
   }, []);
 
   const sold = useMemo(() => soldUnits(events, current, Date.now()), [events, current]);
+  const bills = useMemo(() => billParts(events, menu, Date.now()), [events, menu]);
   const graph = useMemo(
-    () => viewOf(buildFlow({ focus: current, ctx, menu, sold, collapsed, drafts }), drawn),
-    [current, ctx, menu, sold, collapsed, drafts, drawn],
+    () => viewOf(buildFlow({ focus: current, ctx, menu, sold, collapsed, drafts, bills }), drawn),
+    [current, ctx, menu, sold, collapsed, drafts, bills, drawn],
   );
   // The canvas draws the biggest inputs and folds the rest into one card; the panel keeps them all.
   // Not in the Warehouse view: every raw item there takes its warehouse's line.
-  const { graph: drawing, small } = useMemo(() => (view === 'warehouse' ? { graph, small: null } : foldSmall(graph)), [graph, view]);
+  const valuePlaces = useMemo(() => valuePlacesFromEvents(events), [events]);
+  // With places, every ingredient and cost takes its line too: the column has to add up to the whole cost.
+  const unfolded = view === 'warehouse' || (view === 'financial' && activePlaces(valuePlaces).length > 0);
+  const { graph: drawing, small } = useMemo(() => (unfolded ? { graph, small: null } : foldSmall(graph)), [graph, unfolded]);
   const positions = useMemo(() => {
     const heights = new Map(drawing.nodes.flatMap((n) => (sizes[n.id] ? [[n.id, sizes[n.id].height] as const] : [])));
     return layout(drawing, heights);
@@ -240,6 +265,30 @@ function Studio({ owner }: { owner: Actor }) {
   const active = useMemo(() => new Set(suppliers.map((x) => x.id)), [suppliers]);
   const buying = useMemo(() => ({ items: stock.rows, suppliers, purchases }), [stock.rows, suppliers, purchases]);
 
+  // The Financial view's Value addition column: the places left of what goes in, a line to each.
+  const valueCol = useMemo(() => {
+    if (view !== 'financial') return null;
+    const xs = drawing.nodes.map((n) => positions.get(n.id)?.x ?? 0);
+    const minX = xs.length ? Math.min(...xs) : 0;
+    const isIn = (kind: string) => kind === 'raw' || kind === 'resource';
+    const rawX = drawing.nodes.every((n) => isIn(n.kind) || (positions.get(n.id)?.x ?? 0) !== minX) ? minX : minX - COL_W;
+    const items = drawing.nodes.filter((n) => isIn(n.kind)).map((n) => ({ id: n.id, cents: n.cents, y: positions.get(n.id)?.y ?? 0 }));
+    return { ...valueColumn(valuePlaces, items, rowH), rawX, vaX: rawX - COL_W };
+  }, [view, drawing.nodes, positions, valuePlaces, rowH]);
+  const [pickedVa, setPickedVa] = useState<string | null>(null);
+  const putIn = useCallback((nodeId: string, placeId: string) => {
+    const to = activePlaces(valuePlaces).find((p) => p.id === placeId);
+    if (!to || placeOfCard(valuePlaces, nodeId) === placeId) return;
+    say(`${graph.nodes.find((n) => n.id === nodeId)?.name ?? 'It'}: in ${to.name}`, putInPlace(valuePlaces, nodeId, placeId, owner));
+  }, [valuePlaces, graph.nodes, say, owner]);
+  const addOnePlace = useCallback(() => {
+    const made = addPlace(valuePlaces, owner);
+    say(`${made.name} added: type its own name`, made.undo);
+    setSel(null);
+    setPickedVa(made.id);
+  }, [valuePlaces, owner, say]);
+  useEffect(() => { if (sel) setPickedVa(null); }, [sel]);
+
   /** Puts base units of price-list items into their suppliers' carts; says what happened. */
   const toCart = useCallback((buy: ReadonlyMap<string, number>) => {
     const added = cartShortages(buy, stock.rows, purchases, active);
@@ -326,7 +375,8 @@ function Studio({ owner }: { owner: Actor }) {
     for (const id of ids) {
       const e = graph.edges.find((x) => x.id === id);
       const h = e && holderOf(e.target, answers, menu);
-      if (!e || !h?.editable || e.kind === 'money') continue;
+      // The bills' line comes from what was paid: it changes under Money out.
+      if (!e || !h?.editable || e.kind === 'money' || e.source === BILLS_NODE) continue;
       if (e.kind === 'resource') {
         actions.setResources(h, resourcesOf(h.key, answers).filter((_, i) => i !== e.index), `Took it out of ${h.name}`);
       } else {
@@ -353,7 +403,7 @@ function Studio({ owner }: { owner: Actor }) {
   const lit = useMemo(() => (picked && picked !== current ? pathOf(drawing, picked) : null), [drawing, picked, current]);
   const nodes: CanvasNode[] = useMemo(() => [...drawing.nodes.map((n): VfNode => ({
     id: n.id, type: 'vf', measured: sizes[n.id],
-    position: moved[n.id] ?? (column?.itemY.has(n.id) ? { x: column.rawX, y: column.itemY.get(n.id)! } : positions.get(n.id)) ?? { x: 0, y: 0 },
+    position: moved[n.id] ?? (column?.itemY.has(n.id) ? { x: column.rawX, y: column.itemY.get(n.id)! } : valueCol?.itemY.has(n.id) ? { x: valueCol.rawX, y: valueCol.itemY.get(n.id)! } : positions.get(n.id)) ?? { x: 0, y: 0 },
     selected: sel?.kind === 'node' && picked === n.id, deletable: false,
     data: {
       node: n, view, focus: n.id === current, focusName,
@@ -363,7 +413,7 @@ function Studio({ owner }: { owner: Actor }) {
       faded: !!lit && !lit.nodes.has(n.id),
       worth: view !== 'stock' ? undefined : n.id === current ? { cents: behind, share: 0 } : worths.get(n.id),
       place: view === 'warehouse' && n.id !== current ? places.get(n.id) : undefined,
-      stored: !!column && n.id.startsWith('stock:') && column.itemY.has(n.id),
+      stored: (!!column && n.id.startsWith('stock:') && column.itemY.has(n.id)) || !!valueCol?.itemY.has(n.id),
     },
   })), ...(column ? [
     ...column.cards.map((c): WhNode => {
@@ -375,7 +425,15 @@ function Studio({ owner }: { owner: Actor }) {
       };
     }),
     { id: 'wh:+', type: 'whAdd', position: { x: column.whX, y: column.addY }, measured: sizes['wh:+'], selectable: false, draggable: false, deletable: false, data: { onAdd: addOne } } satisfies WhAddNode,
-  ] : [])], [drawing.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind, places, lit, picked, column, inWarehouse, pickedWh, addOne]);
+  ] : []), ...(valueCol ? [
+    { id: 'va:head', type: 'vaHead', position: { x: valueCol.vaX, y: valueCol.headY }, measured: sizes['va:head'], selectable: false, draggable: false, deletable: false, data: { head: true } } satisfies VaHeadNode,
+    ...valueCol.cards.map((c): VaNode => ({
+      id: `va:${c.id}`, type: 'va', position: moved[`va:${c.id}`] ?? { x: valueCol.vaX, y: c.y }, measured: sizes[`va:${c.id}`],
+      selected: pickedVa === c.id, deletable: false,
+      data: { name: c.name, adds: c.adds, soFar: c.soFar, share: c.share, dim: !!pickedVa && pickedVa !== c.id },
+    })),
+    { id: 'va:+', type: 'vaAdd', position: { x: valueCol.vaX, y: valueCol.addY }, measured: sizes['va:+'], selectable: false, draggable: false, deletable: false, data: { onAdd: addOnePlace } } satisfies VaAddNode,
+  ] : [])], [drawing.nodes, moved, positions, sizes, sel, view, current, focusName, actions.toggle, stocks, matches, answers, worths, behind, places, lit, picked, column, inWarehouse, pickedWh, addOne, valueCol, pickedVa, addOnePlace]);
   const edges: CanvasEdge[] = useMemo(() => [...drawing.edges.map((e): VfEdge => ({
     id: e.id, source: e.source, target: e.target, type: 'vf', selected: sel?.kind === 'edge' && sel.id === e.id,
     deletable: e.kind !== 'money' && e.source !== SMALL_ID,
@@ -388,7 +446,12 @@ function Studio({ owner }: { owner: Actor }) {
       reconnectable: l.home ? 'source' : false,
       data: { home: l.home, label: st && l.qty ? stockAmount(st, l.qty) : null, onSelect: () => setSel({ kind: 'node', id: l.itemId }) },
     };
-  }) ?? [])], [drawing.edges, graph.breakdown.total, sel, view, lit, column, stocks]);
+  }) ?? []), ...(valueCol?.links.map((l): WhEdge => ({
+    id: l.id, source: `va:${l.placeId}`, target: l.itemId, type: 'wh', deletable: false,
+    // Dragged by its place's end to another place.
+    reconnectable: 'source',
+    data: { home: true, label: null, onSelect: () => setSel({ kind: 'node', id: l.itemId }) },
+  })) ?? [])], [drawing.edges, graph.breakdown.total, sel, view, lit, column, stocks, valueCol]);
   /** A folded card's line opens the card: its lines are many lines at once. */
   const pick = (kind: 'node' | 'edge', id: string) => setSel(kind === 'edge' && id.startsWith(`${SMALL_ID}>`) ? { kind: 'node', id: SMALL_ID } : { kind, id });
 
@@ -419,11 +482,11 @@ function Studio({ owner }: { owner: Actor }) {
   useEffect(() => {
     if (fitted.current === fitKey) return;
     fitted.current = fitKey;
-    const t = setTimeout(() => void flow.fitView({ duration: 200, padding: 0.12 }), 60);
+    const t = setTimeout(() => void flow.fitView({ duration: 200, padding: FIT }), 60);
     return () => clearTimeout(t);
   }, [fitKey, flow]);
 
-  // Keys: 1 2 3 4 the views, F fits, Esc lets go, Ctrl+Z undoes, Ctrl+P publishes.
+  // Keys: 1 2 3 4 the views, F fits the whole drawing, + and - zoom, Esc lets go, Ctrl+Z undoes, Ctrl+P publishes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -436,15 +499,25 @@ function Studio({ owner }: { owner: Actor }) {
         if (to) keepIn(sel.id, to.id);
         return;
       }
+      // An ingredient or cost picked in the Financial view: 1 to 9 puts it in that place.
+      if (valueCol && sel?.kind === 'node' && valueCol.itemY.has(sel.id) && /^[1-9]$/.test(e.key)) {
+        const to = valueCol.cards[Number(e.key) - 1];
+        if (to) putIn(sel.id, to.id);
+        return;
+      }
+      if (e.key === 'Escape' && pickedVa) { e.preventDefault(); setPickedVa(null); return; }
+      if (e.key === 'Escape' && filtering) { e.preventDefault(); setFiltering(false); return; }
       if (e.key === 'Escape' && pickedWh) { e.preventDefault(); setPickedWh(null); return; }
       const v = VIEWS[Number(e.key) - 1];
       if (v) { setView(v.id); return; }
-      if (e.key.toLowerCase() === 'f') void flow.fitView({ duration: 200, padding: 0.15 });
+      if (e.key.toLowerCase() === 'f') void flow.fitView({ duration: 200, padding: FIT });
+      if (e.key === '+' || e.key === '=') void flow.zoomIn({ duration: 150 });
+      if (e.key === '-') void flow.zoomOut({ duration: 150 });
       if (e.key === 'Escape' && sel) { e.preventDefault(); setSel(null); } // lets go first; the next Esc goes back
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toast, flow, sel, view, places, stock.warehouses, keepIn, pickedWh]);
+  }, [toast, flow, sel, view, places, stock.warehouses, keepIn, pickedWh, filtering, valueCol, putIn, pickedVa]);
 
   const pickCommands = useMemo(() => {
     if (picking === 'focus') return options.map((o) => ({ id: o.id, label: `${o.group} · ${o.label}`, run: () => setFocus(o.id) }));
@@ -460,81 +533,102 @@ function Studio({ owner }: { owner: Actor }) {
   return (
     <main className="vf" aria-label="Visual Flow">
       <div className="vf-notices"><ReleaseNotices /></div>
-      <header className="vf-bar">
-        <button type="button" className="vf-focus" onClick={() => setPicking('focus')} aria-label={`Showing ${focusName}. Choose another item`}>
-          <span className="vf-focus__name">{focusName || 'Choose an item'}</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-        </button>
-        <div className="vf-views" role="group" aria-label="View">
-          {VIEWS.map((v, i) => (
-            <button key={v.id} type="button" className="pill" aria-pressed={view === v.id} onClick={() => setView(v.id)} title={`${v.label} (${i + 1})`}>{v.label}</button>
-          ))}
-        </div>
-        <div className="chips chips--tight vf-filter" role="group" aria-label="Show">
-          {FILTERS.map((f) => (
-            <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>
-          ))}
-        </div>
-        <div className="vf-publish">
-          {plan.length > 0 && (
-            <>
-              <button type="button" className="linkbtn vf-discard" onClick={discard}>Discard</button>
-              <button type="button" className="vf-primary" onClick={publish} disabled={!!blocked}
-                title={blocked ? `Not yet: ${blocked.problem}` : undefined}>
-                Publish {plan.length === 1 ? '1 change' : `${plan.length} changes`}
-              </button>
-            </>
-          )}
-        </div>
-      </header>
       <div className="vf-body">
-        <div className="vf-draw">
-        {said && <div className="vf-say" aria-live="polite"><TypeOut text={said} className="vf-say__text" /></div>}
         <div className="vf-canvas">
           <ReactFlow
             nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} edgeTypes={EDGE_TYPES}
             onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
             onNodeClick={(_, n) => {
-              if (n.type === 'whAdd') return;
+              if (n.type === 'whAdd' || n.type === 'vaAdd' || n.type === 'vaHead') return;
+              if (n.type === 'va') { setSel(null); setPickedVa(n.id.slice('va:'.length)); return; }
               if (n.type === 'wh') { setSel(null); setPickedWh(n.id.slice('wh:'.length)); return; }
               pick('node', n.id);
             }}
             onEdgeClick={(_, e) => (e.type === 'wh' ? setSel({ kind: 'node', id: e.target }) : pick('edge', e.id))}
-            onPaneClick={() => { setSel(null); setPickedWh(null); }}
+            onPaneClick={() => { setSel(null); setPickedWh(null); setPickedVa(null); setFiltering(false); }}
             onConnect={(c: Connection) => {
               if (!c.source || !c.target) return;
               if (c.source.startsWith('wh:')) keepIn(c.target, c.source.slice('wh:'.length));
+              else if (c.source.startsWith('va:')) putIn(c.target, c.source.slice('va:'.length));
               else connect(c.source, c.target);
             }}
             onReconnect={(old, c) => {
               if (old.type === 'wh' && c.source?.startsWith('wh:') && c.target === old.target) keepIn(old.target, c.source.slice('wh:'.length));
+              if (old.type === 'wh' && c.source?.startsWith('va:') && c.target === old.target) putIn(old.target, c.source.slice('va:'.length));
             }}
             edgesReconnectable={false}
             isValidConnection={(c) => {
               if (!c.source || !c.target || c.source === c.target) return false;
+              // A place's line goes to an ingredient or a cost.
+              if (c.source.startsWith('va:')) return !!valueCol?.itemY.has(c.target);
               // A warehouse's line goes to a raw card only.
               if (c.source.startsWith('wh:')) return c.target.startsWith('stock:') && !!column?.itemY.has(c.target);
               return connectProblem(holderOf(c.target, answers, menu), lineFor(c.source, ctx), answers) === null;
             }}
-            connectionRadius={32} minZoom={MIN_ZOOM} maxZoom={2} fitView fitViewOptions={{ padding: 0.12 }} proOptions={{ hideAttribution: true }}
+            connectionRadius={32} minZoom={MIN_ZOOM} maxZoom={2} fitView fitViewOptions={{ padding: FIT }} proOptions={{ hideAttribution: true }}
             deleteKeyCode={['Delete', 'Backspace']} nodesConnectable elementsSelectable
             aria-label={`How ${focusName} is made`}
           >
             <Background gap={24} size={1} />
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
+          {/* Only the drawing is on screen; the rest comes when asked for: the shop's list (☰), the
+              filters (Filter), a card's details (tap it). */}
+          <header className="vf-strip">
+            <button type="button" className="vf-menu" onClick={onMenu} aria-label="Show the parts of the shop">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="14" y2="17" />
+              </svg>
+            </button>
+            <button type="button" className="vf-focus" onClick={() => setPicking('focus')} aria-label={`Showing ${focusName}. Choose another item`}>
+              <span className="vf-focus__name">{focusName || 'Choose an item'}</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+            <div className="vf-views" role="group" aria-label="View">
+              {VIEWS.map((v, i) => (
+                <button key={v.id} type="button" className="pill" aria-pressed={view === v.id} onClick={() => setView(v.id)} title={`${v.label} (${i + 1})`}>{v.label}</button>
+              ))}
+            </div>
+            <div className="vf-filterwrap">
+              <button type="button" className="chip vf-filterbtn" aria-expanded={filtering} aria-pressed={filter !== 'all'} onClick={() => setFiltering((o) => !o)}>
+                {filter === 'all' ? 'Filter' : `Filter · ${FILTERS.find((f) => f.id === filter)?.label}`}
+              </button>
+              {filtering && (
+                <div className="chips chips--tight vf-filter" role="group" aria-label="Show">
+                  {FILTERS.map((f) => (
+                    <button key={f.id} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => { setFilter(f.id); setFiltering(false); }}>{f.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="vf-publish">
+              {plan.length > 0 && (
+                <>
+                  <button type="button" className="linkbtn vf-discard" onClick={discard}>Discard</button>
+                  <button type="button" className="vf-primary" onClick={publish} disabled={!!blocked}
+                    title={blocked ? `Not yet: ${blocked.problem}` : undefined}>
+                    Publish {plan.length === 1 ? '1 change' : `${plan.length} changes`}
+                  </button>
+                </>
+              )}
+            </div>
+          </header>
+          {said && <Said key={`${current}|${view}|${said}`} text={said} />}
           {view === 'warehouse' && (
             <WarehouseOverlay warehouses={stock.warehouses} owner={owner} picked={stock.warehouses.list.find((x) => x.id === pickedWh) ?? null}
               selected={sel?.kind === 'node' ? sel.id : null} place={sel?.kind === 'node' ? places.get(sel.id) : undefined}
               stock={sel?.kind === 'node' ? stocks.get(sel.id) ?? null : null} name={sel?.kind === 'node' ? nameOf(sel.id) : ''}
               say={say} keepIn={keepIn} onMove={setMoving} />
           )}
+          {view === 'financial' && pickedVa && valuePlaces.list.some((p) => p.id === pickedVa && !p.archived) && (
+            <ValuePlacePanel key={pickedVa} place={valuePlaces.list.find((p) => p.id === pickedVa)!} owner={owner} say={say} onGone={() => setPickedVa(null)} />
+          )}
           {graph.nodes.length <= 1 && (
             <p className="vf-empty">No recipe yet. Choose it on the right: add an ingredient, or drag one in.</p>
           )}
         </div>
-        </div>
         <FlowPanel
+          open={!!sel} onClose={() => setSel(null)} said={said ?? ''}
           graph={graph} view={drawn} worths={worths} behind={behind} sel={sel} ctx={ctx} menu={menu} events={events} drafts={drafts} plan={plan}
           focusName={focusName} actions={actions} stocks={stocks} makesOf={(key) => prepItems(published.answers).find((p) => p.key === key)?.makes ?? null} sent={sent}
           ordering={ordering} buying={buying} small={small}
@@ -558,6 +652,35 @@ function Studio({ owner }: { owner: Actor }) {
         </div>
       )}
     </main>
+  );
+}
+
+/** One value-adding place: its name typed in place (Enter or leaving the box saves), Remove. Its cards go to the first place. */
+function ValuePlacePanel({ place, owner, say, onGone }: { place: ValuePlace; owner: Actor; say: (text: string, undo?: () => void) => void; onGone: () => void }) {
+  const [name, setName] = useState(place.name);
+  const [problem, setProblem] = useState<string | null>(null);
+  const save = () => {
+    if (name.trim() === place.name) return;
+    const r = editPlace(place, { name }, owner);
+    if (typeof r === 'string') { setProblem(r); return; }
+    setProblem(null);
+    say(`${place.name} is now ${name.trim()}`, r);
+  };
+  const remove = () => {
+    const r = editPlace(place, { archived: true }, owner);
+    if (typeof r === 'string') return;
+    say(`${place.name} removed`, r);
+    onGone();
+  };
+  return (
+    <aside className="vf-wh" aria-label={place.name}>
+      <input className="inv-modal__input vf-wh__name" value={name} maxLength={40} aria-label="Place name" name="place-name" autoComplete="off" spellCheck={false}
+        autoFocus={/^Place \d+$/.test(place.name)} onChange={(e) => setName(e.target.value)} onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }} />
+      {problem && <p className="vf-wh__error" role="alert">{problem}</p>}
+      <button type="button" className="chip" onClick={remove}>Remove</button>
+      <span className="vf-wh__keys">Drag a place&apos;s line onto an ingredient or cost, or pick that card and press the place&apos;s number.</span>
+    </aside>
   );
 }
 

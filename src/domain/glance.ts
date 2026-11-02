@@ -4,6 +4,7 @@ import { stockFromEvents, stockStatus } from './inventory.ts';
 import { queue, ticketsFromEvents } from './kitchen.ts';
 import { menuItems } from './menu.ts';
 import { fmt, unitPrice } from './money.ts';
+import { MONEY_LABEL, drawerOutToday, moneyMonth, moneyOutFromEvents, monthOf } from './moneyOut.ts';
 import { OUT_TOO_LONG_MS } from './online.ts';
 import { grnValueCents, purchasesFromEvents } from './purchaseOrders.ts';
 import { formatStock } from './itemStory.ts';
@@ -217,14 +218,20 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
   const unpaid = unpaidDeliveries(events, today, now);
   const owed = unpaid.reduce((n, d) => n + d.due, 0);
   const overdue = unpaid.filter((d) => now - d.readyBy > OUT_TOO_LONG_MS);
+  // What the shop paid (SCRUM-105). The phone has no Money out page: these words are its view of it.
+  const paidOut = moneyOutFromEvents(events);
+  const drawerOut = drawerOutToday(paidOut, now);
+  const thisMonth = moneyMonth(paidOut, monthOf(now));
   const money: Station = {
-    id: 'money', label: 'Money', value: rs(total), tone: overdue.length ? 'warn' : 'ok', badge: overdue.length, href: null,
+    id: 'money', label: 'Money', value: rs(total), tone: overdue.length ? 'warn' : 'ok', badge: overdue.length, href: '#money',
     explain: [
       `Money: ${rs(total)} taken today.`,
       ...[...byTender].filter(([, c]) => c > 0).map(([t, c]) => `${TENDER[t]}: ${rs(c)}`),
-      ...(byTender.get('cash') ? ['The drawer should hold the cash plus the opening float.'] : []),
+      ...(drawerOut ? [`Paid out of the drawer today: ${rs(drawerOut)}.`] : []),
+      ...(byTender.get('cash') ? [`The drawer should hold the cash plus the opening float${drawerOut ? ', less what was paid out' : ''}.`] : []),
       ...(unpaid.length ? [`About ${rs(owed)} still to come from ${plural(unpaid.length, 'delivery', 'deliveries')}, paid when the rider is back.`] : []),
       ...overdue.map((d) => `Delivery ${d.number} was ready at ${clock(d.readyBy)} and is not paid yet.`),
+      ...(thisMonth.costs ? [`Bills and other costs this month: ${rs(thisMonth.costs)}.`, ...thisMonth.byWhat.map((w) => `${MONEY_LABEL[w.what]}: ${rs(w.cents)}`)] : []),
     ].join('\n'),
   };
 

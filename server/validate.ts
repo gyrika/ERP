@@ -8,6 +8,8 @@ import { checkDraft } from '../src/domain/recipeDrafts.ts';
 import { isGapReason } from '../src/domain/counting.ts';
 import { checkWaste } from '../src/domain/waste.ts';
 import { checkMiss, SHORTHAND_EVENT_TYPES } from '../src/domain/shorthandMisses.ts';
+import { checkMoneyOut, MONEY_EVENT_TYPES } from '../src/domain/moneyOut.ts';
+import { checkValueEvent, VALUE_EVENT_TYPES } from '../src/domain/valuePlaces.ts';
 import { checkPrepLimit, checkPrepOrder } from '../src/domain/prep.ts';
 import { checkWarehouseName, isStockKey, isWarehouseId } from '../src/domain/warehouses.ts';
 import { checkTableEvent, TABLE_EVENT_TYPES, VISION_EVENT_TYPES } from '../src/domain/tables.ts';
@@ -19,7 +21,7 @@ import {
 
 const TYPES = new Set<string>([
   ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...PREP_EVENT_TYPES, ...MENU_EVENT_TYPES, ...RECIPE_EVENT_TYPES, ...SHORTHAND_EVENT_TYPES,
-  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES,
+  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES,
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -74,7 +76,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (!Number.isSafeInteger(e.at)) return { reason: `event ${e.id} has no time` };
     if (e.shopId !== tenantId) return { reason: `event ${e.id} belongs to another shop`, wrongShop: true };
     if (e.type.startsWith('order.') || e.type.startsWith('stock.') || e.type.startsWith('prep.') || e.type.startsWith('menu.') || e.type.startsWith('recipe.') || e.type.startsWith('shorthand.')
-      || e.type.startsWith('table.') || e.type.startsWith('vision.')) {
+      || e.type.startsWith('table.') || e.type.startsWith('vision.') || e.type.startsWith('money.') || e.type.startsWith('value.')) {
       const a = e.actor;
       if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
         return { reason: `event ${e.id} does not say who did it` };
@@ -248,6 +250,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'recipe.draft_set' && (
       e.orderNumber !== 0 || !shortString(e.question, 200) || !(e.after === null || checkDraft(String(e.question), e.after) === null)
     )) return { reason: `event ${e.id} has an invalid recipe draft` };
+    if (e.type.startsWith('value.') && checkValueEvent(e as { type: string }) !== null) return { reason: `event ${e.id} has an invalid value addition` };
+    if (e.type === 'money.out' && (e.orderNumber !== 0 || checkMoneyOut(e) !== null)) return { reason: `event ${e.id} has an invalid money out` };
+    if ((e.type === 'money.out_undone' || e.type === 'money.out_restored') && !shortString(e.outId)) return { reason: `event ${e.id} names no money out` };
     if (e.type === 'shorthand.missed' && (e.orderNumber !== 0 || checkMiss(e.text, e.unresolved, e.gaveUp) !== null)) {
       return { reason: `event ${e.id} has an invalid shorthand miss` };
     }

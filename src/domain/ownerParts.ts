@@ -6,6 +6,7 @@ import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
 import { MENU } from './menu.ts';
 import { effectiveMenu, menuStateFromEvents } from './menuEdits.ts';
 import { fmt } from './money.ts';
+import { moneyMonth, moneyOutFromEvents, monthOf } from './moneyOut.ts';
 import { expectedBy, purchasesFromEvents } from './purchaseOrders.ts';
 import { stockSettingsFromEvents } from './stockSettings.ts';
 import { draftsFromEvents } from './recipeDrafts.ts';
@@ -18,7 +19,7 @@ import { visionPart } from './visionPage.ts';
  * and a badge only when something there needs a decision. Pure, like insights.ts: events in,
  * lines out. Nothing is a count for its own sake ("Onion out", not "60 items").
  */
-export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'items' | 'flow' | 'vision' | 'setup';
+export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'money' | 'items' | 'flow' | 'vision' | 'setup';
 
 export interface PartLine {
   preview: string;
@@ -74,6 +75,10 @@ export const ownerParts = (events: readonly SyncEvent[], now: number): Record<Pa
       preview: summary.orders ? `Rs ${fmt(summary.salesCents)} · ${plural(summary.orders, 'order')}` : 'No sales yet today',
       badge: insights.filter((i) => i.tone === 'attention').length,
     },
+    money: (() => {
+      const { costs } = moneyMonth(moneyOutFromEvents(events), monthOf(now));
+      return { preview: costs ? `Rs ${fmt(costs)} this month` : 'Nothing recorded this month', badge: 0 };
+    })(),
     items: {
       preview: out.length ? `${names(out.map((r) => r.name))} out`
         : soldOut.length ? `${names(soldOut.map((m) => m.name.en))} sold out today`

@@ -28,6 +28,8 @@ interface Env {
   AI?: AiLike;
   /** Model calls per shop per day (wrangler.toml [vars]); unset = 300. */
   AI_DAILY_CALLS?: string;
+  /** "1" switches on the owner's ChatGPT plugin's MCP server (wrangler.toml [vars], SCRUM-197). */
+  MCP_ENABLED?: string;
   /** The developer's /admin password (npm run admin-key in cloud/). */
   ADMIN_KEY?: string;
   /** The owner's page: the cloud build of the app (npm run build:cloud), served as static files. */
@@ -107,10 +109,11 @@ export default {
       }).then((r) => r ?? new Response('Not found', { status: 404 }));
     }
     if (url.pathname === '/api/v1/answers') return answersApi(request, env.DB, env.ANSWER_KEY);
-    if (url.pathname.startsWith('/api/')) return createCloud(env.DB, {
+    if (url.pathname.startsWith('/api/') || url.pathname === '/mcp' || url.pathname.startsWith('/mcp/') || url.pathname.startsWith('/.well-known/')) return createCloud(env.DB, {
       enrolCode: env.ENROL_CODE, orderShop: env.ORDER_SHOP, orderHours: env.ORDER_HOURS, orderPhone: env.ORDER_PHONE, orderAddress: env.ORDER_ADDRESS,
       shopLocation: env.SHOP_LOCATION, deliveryPerKm: env.DELIVERY_PER_KM, deliveryMaxKm: env.DELIVERY_MAX_KM, roadKm: orsRoadKm(env.ORS_API_KEY),
       ai: env.AI ?? null, aiDailyCalls: Number(env.AI_DAILY_CALLS) || undefined,
+      mcpEnabled: env.MCP_ENABLED === '1',
     })(request);
     if (url.pathname === '/get' || url.pathname === '/download') {
       return latestRelease().then((rel) => new Response(downloadPage(rel), {

@@ -80,7 +80,7 @@ export default function FloorView({ onBack }: { onBack: () => void }) {
           const frees = autoFreeAt(t, settings);
           return (
             <FloorTile key={t.id} t={t} now={now} selected={i === at} onPick={() => setPicked(i)}>
-              {frees !== null && <span className="floor__time">frees itself in {Math.max(1, Math.ceil((frees - now) / 60_000))} min</span>}
+              {frees !== null && <span className="floor__time">frees itself in {Math.max(1, Math.ceil((frees - now) / 1000))} s</span>}
             </FloorTile>
           );
         })}

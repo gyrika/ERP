@@ -96,6 +96,31 @@ Add to Home Screen (iPhone) makes it an app (`/manager.webmanifest`).
 - No PIN on the phone: it is that person's phone. A lost phone: delete its row in `devices`
   (as for the owner's phone).
 
+## The owner's ChatGPT (SCRUM-197)
+
+A ChatGPT plugin reads the shop through an MCP server at `/mcp` (`cloud/src/mcp.ts`). Sales: today, and any day or
+period up to 92 days, compared with the usual for that weekday or the period before. SCRUM-198 adds what needs
+attention, stock, what each dish earns and supplier orders, and one tool that writes: it fills in a supplier's
+**draft** order. A person still places it. It is on for staging and live (`MCP_ENABLED = "1"` in `cloud/wrangler.toml`).
+What it reads goes to OpenAI, so answers hold no customers, staff or order numbers.
+
+**Where the rest comes from.** This Worker is on the free plan and cannot fold the shop's whole history per
+question, so the shop server builds a digest (`src/domain/ownerDigest.ts`) in a below-normal-priority child process
+(`server/digestWorker.ts`) and uploads it (`PUT /api/v1/mcp/digest`, table `owner_digests`). It asks
+`GET /api/v1/mcp/wanted` first and does nothing, with no extra process, unless ChatGPT is connected. Connected: at
+most every 10 minutes when something is new, at least every half hour. The digest is an allowlist: no staff names,
+order numbers, free-text notes or phone numbers, and a new To do card goes out only once it is listed in `CARDS`.
+A draft goes through the inbox as `stock.draft_set`, signed "ChatGPT, for the owner".
+
+To add it: in ChatGPT, open Plugins (`chatgpt.com/plugins`), press +, choose **Add custom MCP server**,
+enter `<cloud address>/mcp`, then **Create as a plugin**. ChatGPT registers itself, so there is no
+client ID or secret to copy. ChatGPT opens the sign-in page while adding it: paste the owner link there.
+`server/discover` and `tools/list` also answer without a token and hold no shop data.
+
+To cut it off: **Disconnect** on the owner's phone, at the bottom of Today (it shows only while ChatGPT
+is connected, with Undo for a few seconds). Removing the owner's device also stops it. To connect again,
+sign in again from ChatGPT.
+
 ## The owner's questions page
 
 `/questions?k=<key>` is a plain page (no account, no app) where the owner answers what the POS still
@@ -136,7 +161,7 @@ the cloud address root.
   in `[vars]`), measured by road from the shop. Off until `SHOP_LOCATION = "lat,lng"` is set from a
   Google Maps pin on the shop (never guessed). Road distances come from openrouteservice.org (free,
   2,000 a day, no card): sign up, create a key, `npx wrangler secret put ORS_API_KEY`. Without a key,
-  or when it does not answer, the straight line × 1.3 is used. Migration 0009 runs on release.
+  or when it does not answer, the straight line × 1.3 is used. Migration 0012 runs on release.
   The customer picks *Delivery*, types the address and shares their location (required: the fee is
   by distance); `/api/v1/delivery-quote` shows the km and fee before ordering, and the cloud works
   it out again when the order is placed (never the phone's). Past 5 km: "choose pickup, or call". At the counter: *Ready in 30/45/60/90 min*, or decline *Too far to

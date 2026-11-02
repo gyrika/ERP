@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useS
 import { liveBlocked, unzonedNote } from '../../domain/cameraSetup.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
 import {
-  CPU_LIMIT_STEP, MAX_CPU_LIMIT, MIN_CPU_LIMIT, tablesFromEvents, visionFromEvents, type FloorTable, type TableState, type VisionSettings,
+  tablesFromEvents, visionFromEvents, type FloorTable, type TableState, type VisionMode, type VisionSettings,
 } from '../../domain/tables.ts';
 import {
   cameraHealth, parseVisionPick, tablesToday, visionHash, whyState, type TableDay, type VisionPick,
@@ -21,7 +21,7 @@ import { CvProgress } from '../cameras/CvProgress.tsx';
 import { columns, FloorTile, WORD } from '../floor/FloorTile.tsx';
 import { setTable, undoTable } from '../tablesStore.ts';
 import { PinLine } from './PinLine.tsx';
-import { PinCancelled, TableForm, TimerFields, type WithPin } from './setupParts.tsx';
+import { PinCancelled, TableForm, type WithPin } from './setupParts.tsx';
 import './vision.css';
 import './page.css';
 
@@ -41,8 +41,6 @@ const CameraViews = import.meta.env.VITE_SITE === 'cloud' ? null : lazy(() => im
  */
 
 const LOOK_MS = 1000;
-/** The CPU slider records once the owner stops moving it. */
-const SETTLE_MS = 700;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const clock = (t: number) => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const busy = (s: CvStatus | null) => s?.phase === 'downloading' || s?.phase === 'verifying';
@@ -131,45 +129,46 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
   }, [pack, client]);
   const needsActivate = pack != null && pack.phase !== 'ready';
   const [activateError, setActivateError] = useState('');
-  const activate = () => {
-    setActivateError('');
-    withPin('activate computer vision', async (p) => { setPack(await client.activate(p)); })
-      .catch((e: unknown) => { if (!(e instanceof PinCancelled)) setActivateError(message(e)); });
-  };
 
-  // ----- On / Off, Shadow / Live and the CPU limit: one `vision.settings_set` each -----
+  // ----- On / Off: one `vision.settings_set` each -----
   /** A change waiting for the CV pack. */
-  const [waiting, setWaiting] = useState<Partial<VisionSettings> | null>(null);
+  const [waiting, setWaiting] = useState<VisionMode | null>(null);
   const [cv, setCv] = useState<CvStatus | null>(null);
   const [said, setSaid] = useState('');
   const [error, setError] = useState('');
 
   /** The CV pack before Shadow or Live, with its progress; then the change. */
-  const run = useCallback(async (p: string, patch: Partial<VisionSettings>) => {
+  const run = useCallback(async (p: string, mode: VisionMode) => {
     if (!settings) return;
     setError('');
-    if (patch.mode && patch.mode !== 'off') {
+    if (mode !== 'off') {
       let st = await client.status(p);
       if (st.phase === 'idle' || st.phase === 'failed') st = await client.activate(p);
       setCv(st);
       setPack(st);
-      if (st.phase !== 'ready') { setWaiting(patch); return; }
+      if (st.phase !== 'ready') { setWaiting(mode); return; }
     }
     setWaiting(null);
-    await client.save(p, { ...settings, ...patch });
-    setSaid(patch.mode ? (patch.mode === 'off' ? 'Computer vision is off.' : 'Computer vision is on.') : `CPU limit ${patch.cpuLimit}%.`);
+    await client.save(p, mode);
+    setSaid(mode === 'off' ? 'Computer vision is off.' : 'Computer vision is on.');
   }, [client, settings]);
 
-  const change = (patch: Partial<VisionSettings>) => {
-    if (!canChange || !settings) return;
-    if (patch.mode === settings.mode && patch.cpuLimit === undefined) return;
-    if (patch.mode === 'live' && blocked) return;
-    const what = patch.mode ? (patch.mode === 'off' ? 'turn computer vision off' : 'turn computer vision on') : `set the CPU limit to ${patch.cpuLimit}%`;
-    withPin(what, (p) => run(p, patch)).catch((e: unknown) => { if (!(e instanceof PinCancelled)) setError(message(e)); });
+  // Activate turns CV on once the pack is here (owner, 2026-10-30), with or without cameras yet: nothing
+  // runs until a camera is in use, and the switch turns it off.
+  const activate = () => {
+    setActivateError('');
+    withPin('activate computer vision', (p) => run(p, 'live'))
+      .catch((e: unknown) => { if (!(e instanceof PinCancelled)) setActivateError(message(e)); });
+  };
+
+  const change = (mode: VisionMode) => {
+    if (!canChange || !settings || mode === settings.mode) return;
+    if (mode === 'live' && blocked) return;
+    withPin(mode === 'off' ? 'turn computer vision off' : 'turn computer vision on', (p) => run(p, mode)).catch((e: unknown) => { if (!(e instanceof PinCancelled)) setError(message(e)); });
   };
   const on = settings ? settings.mode !== 'off' : false;
   // On is Live (Shadow is gone, owner 2026-10-27): the cameras set the floor.
-  const toggle = () => change({ mode: on ? 'off' : 'live' });
+  const toggle = () => change(on ? 'off' : 'live');
 
   // The CV pack is on its way: look again each second, then make the change it was waiting for.
   useEffect(() => {
@@ -300,7 +299,7 @@ export default function VisionView({ hash = '#vision', onRegister, phone = false
   } else {
     body = (
       <Overview settings={settings} canChange={canChange} lockedWhy={lockedWhy} blocked={blocked} unzoned={unzoned}
-        health={health} perf={perf} phone={phone} client={client} withPin={withPin} onChange={change} cameras={vision.cameras} />
+        health={health} perf={perf} phone={phone} cameras={vision.cameras} />
     );
   }
 
@@ -397,8 +396,8 @@ function PanelTitle({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
-/** The panel with nothing picked: how CV is doing now (Performance), the CPU limit, the timers. */
-function Overview({ settings, canChange, lockedWhy, blocked, unzoned, health, perf, phone, client, withPin, onChange, cameras }: {
+/** The panel with nothing picked: how CV is doing now (Performance). The rules and CPU limit are fixed (tables.ts). */
+function Overview({ settings, canChange, lockedWhy, blocked, unzoned, health, perf, phone, cameras }: {
   settings: VisionSettings; canChange: boolean; lockedWhy: string;
   /** Why CV cannot be turned on yet, and the tables the cameras cannot see. */
   blocked: string | null; unzoned: string | null;
@@ -406,20 +405,8 @@ function Overview({ settings, canChange, lockedWhy, blocked, unzoned, health, pe
   /** The worker's numbers now, while the owner watches (null: not watching, or the worker is not running). */
   perf: ViewsPerf | null;
   phone: boolean;
-  client: ReturnType<typeof visionClient>; withPin: WithPin;
-  onChange: (patch: Partial<VisionSettings>) => void;
   cameras: ReturnType<typeof visionFromEvents>['cameras'];
 }) {
-  // ----- the CPU limit: the slider settles, then one event -----
-  const [cpuDraft, setCpuDraft] = useState<number | null>(null);
-  const commitCpu = useRef((_: number) => {});
-  commitCpu.current = (value) => { if (value !== settings.cpuLimit) onChange({ cpuLimit: value }); setCpuDraft(null); };
-  useEffect(() => {
-    if (cpuDraft === null) return;
-    const t = setTimeout(() => commitCpu.current(cpuDraft), SETTLE_MS);
-    return () => clearTimeout(t);
-  }, [cpuDraft]);
-
   const name = (id: string) => cameras.find((c) => c.id === id)?.name ?? id;
   const now = perf?.perf ?? null;
   // Now (live, every 2 s) when the owner watches; else the last heartbeat the shop kept.
@@ -464,19 +451,6 @@ function Overview({ settings, canChange, lockedWhy, blocked, unzoned, health, pe
           {now && perf && <p className="setup__hint">{perf.views} {perf.views === 1 ? 'view' : 'views'} open on this page.</p>}
         </>}
       </section>
-
-      <label className="vpanel__group vision__cpu">
-        <span className="vpanel__label">CPU limit <b className="num">{cpuDraft ?? settings.cpuLimit}%</b></span>
-        <input type="range" min={MIN_CPU_LIMIT} max={MAX_CPU_LIMIT} step={CPU_LIMIT_STEP} value={cpuDraft ?? settings.cpuLimit}
-          disabled={!canChange} aria-valuetext={`${cpuDraft ?? settings.cpuLimit}% of the shop PC`}
-          onChange={(e) => setCpuDraft(Number(e.target.value))} />
-        <span className="setup__hint">More reads more frames; the counter comes first.</span>
-      </label>
-
-      <details className="vpanel__more">
-        <summary>Timers</summary>
-        <TimerFields key={`${settings.shortVisitS}-${settings.leftCheckS}-${settings.autoFreeS}`} client={client} withPin={withPin} settings={settings} disabled={!canChange} />
-      </details>
 
       {!canChange && <p className="setup__hint">{lockedWhy}</p>}
       {phone && health && (

@@ -5,7 +5,7 @@ import {
   presetPath, RTSP_PRESETS, type Brand,
 } from '../../domain/cameraSetup.ts';
 import {
-  TIMER_LIMITS, timersOf, type CameraSpec, type Point, type TableSpec, type Timers, type VisionSettings, type ZoneSpec,
+  type CameraSpec, type Point, type TableSpec, type ZoneSpec,
 } from '../../domain/tables.ts';
 import type { CameraDraft, CameraLogins } from '../../services/setupClient.ts';
 import type { VisionClient } from '../../services/visionClient.ts';
@@ -429,64 +429,6 @@ export function TableForm({ client, withPin, tables, table, onSaved, onRemoved }
         {note && <span className="setup__hint" role="status">{note}</span>}
         {table && <button type="button" className="chip chip--danger cam__remove" onClick={() => void remove()}>Remove</button>}
       </div>
-    </div>
-  );
-}
-
-// ----- the timers -----
-
-/** The owner's three timers (2026-10-26), in plain words; each shown in seconds or minutes, as the owner picks (2026-10-27). */
-type Unit = 'min' | 's';
-const TIMERS: { key: keyof Timers; label: string; unit: Unit }[] = [
-  { key: 'shortVisitS', label: 'A visit shorter than this needs no cleaning', unit: 'min' },
-  { key: 'leftCheckS', label: 'Empty this long counts as left', unit: 's' },
-  { key: 'autoFreeS', label: 'Free again by itself after', unit: 'min' },
-];
-const per = (unit: Unit) => (unit === 'min' ? 60 : 1);
-/** Seconds shown in a unit: whole seconds, minutes to two places. */
-const shown = (seconds: number, unit: Unit) => Math.round((seconds / per(unit)) * 100) / 100;
-
-export function TimerFields({ client, withPin, settings, disabled }: { client: VisionClient; withPin: WithPin; settings: VisionSettings; disabled: boolean }) {
-  const [timers, setTimers] = useState<Timers>(() => timersOf(settings));
-  const [units, setUnits] = useState<Record<keyof Timers, Unit>>(() => Object.fromEntries(TIMERS.map((t) => [t.key, t.unit])) as Record<keyof Timers, Unit>);
-  const [dirty, setDirty] = useState(false);
-  const [note, setNote] = useState('');
-  const [error, setError] = useState('');
-  const save = () => attempt(() => withPin('save the timers', async (p) => {
-    await client.save(p, { ...settings, ...timers });
-    setDirty(false); setNote('Saved.');
-  }), setError);
-  const valid = TIMERS.every((t) => Number.isSafeInteger(timers[t.key]) && timers[t.key] >= TIMER_LIMITS[t.key][0] && timers[t.key] <= TIMER_LIMITS[t.key][1]);
-  return (
-    <div className="panel-form">
-      {TIMERS.map((t) => {
-        const unit = units[t.key];
-        const id = `timer-${t.key}`;
-        return (
-          <div key={t.key} className="setup__field panel-form__row">
-            <label htmlFor={id}>{t.label}</label>
-            <span className="panel-form__unit">
-              <input id={id} type="number" inputMode="decimal" disabled={disabled} min={TIMER_LIMITS[t.key][0] / per(unit)} max={TIMER_LIMITS[t.key][1] / per(unit)}
-                step={unit === 'min' ? 0.5 : 1} value={shown(timers[t.key], unit)}
-                onChange={(e) => { setTimers((v) => ({ ...v, [t.key]: Math.round(Number(e.target.value) * per(unit)) })); setDirty(true); setNote(''); }} />
-              {/* The number stays the same time; only how it is shown changes. */}
-              <span className="units" role="radiogroup" aria-label={`${t.label}: in`}>
-                {(['s', 'min'] as const).map((u) => (
-                  <button key={u} type="button" role="radio" aria-checked={unit === u} className="units__pick"
-                    onClick={() => setUnits((x) => ({ ...x, [t.key]: u }))}>{u}</button>
-                ))}
-              </span>
-            </span>
-          </div>
-        );
-      })}
-      {error && <p className="setup__error" role="alert">{error}</p>}
-      {!disabled && (
-        <div className="panel-form__foot">
-          <button type="button" className="chip chip--solid" disabled={!dirty || !valid} onClick={() => void save()}>Save timers</button>
-          {note && <span className="setup__hint" role="status">{note}</span>}
-        </div>
-      )}
     </div>
   );
 }

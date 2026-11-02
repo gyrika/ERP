@@ -32,11 +32,11 @@ const cameraSaw = (table: FloorTable, c: TableChange, previous: TableChange | un
     if (c.to === 'needs_cleaning') {
       const frees = autoFreeAt(table, s);
       const then = table.state !== 'needs_cleaning' ? '' : frees === null ? '; waits for staff to clean it'
-        : frees - now <= MIN ? '; frees itself in under a minute' : `; frees itself in ${Math.ceil((frees - now) / MIN)} min`;
+        : `; frees itself in ${Math.max(1, Math.ceil((frees - now) / 1000))} s`;
       return `Left at ${clock(c.at)}${visit}${then}.`;
     }
   }
-  if (c.from === 'needs_cleaning' && c.to === 'free') return `Freed itself at ${clock(c.at)}, ${Math.round(s.autoFreeS / 60)} min after it needed cleaning.`;
+  if (c.from === 'needs_cleaning' && c.to === 'free') return `Freed itself at ${clock(c.at)}, ${s.autoFreeS} s after it needed cleaning.`;
   return `Set by the cameras at ${clock(c.at)}.`;
 };
 
@@ -44,7 +44,7 @@ const cameraSaw = (table: FloorTable, c: TableChange, previous: TableChange | un
  * Why a table is in its state, in one sentence: what the cameras saw, by the owner's rules
  * (`observe` in tables.ts: seen, left after a visit, frees itself), or who set it and what ends a
  * staff hold (`staffSet`: the next time presence flips). Camera changes from the old Shadow mode
- * moved nothing, so they are left out. The tracker's 10 s left check is not an event, so it is never shown as running.
+ * moved nothing, so they are left out.
  */
 export const whyState = (table: FloorTable, events: readonly SyncEvent[], settings: VisionSettings, now: number): string => {
   const mine = tableChanges(events).filter((c) => c.tableId === table.id);

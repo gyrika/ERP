@@ -13,28 +13,27 @@ export type TableState = 'free' | 'occupied' | 'needs_cleaning' | 'reserved';
 export const TABLE_STATES: readonly TableState[] = ['free', 'occupied', 'needs_cleaning', 'reserved'];
 
 /**
- * The owner's table rules (2026-10-26), each a timer in seconds. A visit shorter than `shortVisitS`
- * needs no cleaning; a table empty for `leftCheckS` counts as left (so a missed frame at 1 fps does
- * not end a visit); a table waiting to be cleaned frees itself after `autoFreeS`.
+ * The owner's table rules (fixed 2026-10-30, not settings), in seconds. Someone seen: occupied. Nobody
+ * seen: left at once. A visit of 3 minutes or more needs cleaning for 20 seconds, then the table is
+ * free; a shorter one is free at once.
  */
 export const DEFAULT_SHORT_VISIT_S = 180;
-export const DEFAULT_LEFT_CHECK_S = 10;
-export const DEFAULT_AUTO_FREE_S = 300;
-/** What the server accepts for each timer, in whole seconds. */
-export const TIMER_LIMITS = { shortVisitS: [0, 3600], leftCheckS: [1, 300], autoFreeS: [60, 7200] } as const;
+export const DEFAULT_LEFT_CHECK_S = 0;
+export const DEFAULT_AUTO_FREE_S = 20;
+/** What the server accepts in timers on old events, in whole seconds: they still sync, and are ignored. */
+const TIMER_LIMITS = { shortVisitS: [0, 3600], leftCheckS: [1, 300], autoFreeS: [60, 7200] } as const;
 /** Wi-Fi cameras one shop PC can watch ("Use for CV" on). */
 export const MAX_CAMERAS = 4;
 /** Cameras the owner may set up in all, most of them off (SCRUM-171). */
 export const MAX_CAMERA_LIST = 16;
 
 /**
- * The share of the shop PC's CPU the camera worker may use (SCRUM-174), in percent: the owner may
- * raise it from 15 to 50 in steps of 5. The worker (SCRUM-170) enforces it by reading fewer frames.
+ * The share of the shop PC's CPU the camera worker may use, in percent: fixed (owner, 2026-10-30).
+ * The worker (SCRUM-170) enforces it by reading fewer frames. Old events may carry another: it is ignored.
  */
-export const DEFAULT_CPU_LIMIT = 15;
-export const MIN_CPU_LIMIT = 5;
-export const MAX_CPU_LIMIT = 50;
-export const CPU_LIMIT_STEP = 5;
+export const DEFAULT_CPU_LIMIT = 50;
+const MIN_CPU_LIMIT = 5;
+const MAX_CPU_LIMIT = 50;
 
 /** Off: no cameras. Shadow: the cameras' changes are recorded, the floor follows staff only. Live: the cameras set the floor. */
 export type VisionMode = 'off' | 'shadow' | 'live';
@@ -170,11 +169,10 @@ export const visionFromEvents = (events: readonly SyncEvent[]): Vision => {
     if (!isVision(e)) continue;
     switch (e.type) {
       case 'vision.settings_set':
-        // Before 2026-10-26 the timers were seatS/leaveS/cleanAlertS, which the new rules have no use
-        // for: such an event keeps its mode and CPU limit, and the timers fall back to the defaults.
-        // Shadow is gone (owner, 2026-10-27): CV is Off or Live. A shop left in Shadow is Off until the
+        // The rules and the CPU limit are fixed (owner, 2026-10-30): an event keeps only its mode, whatever
+        // timers or limit it carries. Shadow is gone (owner, 2026-10-27): CV is Off or Live. A shop left in Shadow is Off until the
         // owner turns it on; its old camera changes stay history only (foldTables).
-        v.settings = { mode: e.mode === 'shadow' ? 'off' : e.mode, ...('shortVisitS' in e ? timersOf(e) : DEFAULT_TIMERS), cpuLimit: e.cpuLimit ?? DEFAULT_CPU_LIMIT };
+        v.settings = { ...DEFAULT_VISION_SETTINGS, mode: e.mode === 'shadow' ? 'off' : e.mode };
         break;
       case 'vision.cameras_set': v.cameras = e.cameras; break;
       case 'vision.zones_set': v.zones = { ...v.zones, [e.cameraId]: e.zones }; break;
@@ -327,9 +325,10 @@ const rtspPath = (v: unknown): boolean => typeof v === 'string' && v.length <= 2
 const TIMER_KEYS = ['shortVisitS', 'leftCheckS', 'autoFreeS'] as const;
 /** The timers before 2026-10-26: still accepted, so old events still sync. */
 const OLD_TIMER_KEYS = ['seatS', 'leaveS', 'cleanAlertS'] as const;
-/** One set of timers, all of it: the new three, or the old three. */
+/** No timers (since 2026-10-30), or on an old event one set of them, all of it: the three, or the older three. */
 const timersValid = (e: Record<string, unknown>): boolean => {
   const has = (keys: readonly string[]) => keys.filter((k) => k in e).length;
+  if (!has(TIMER_KEYS) && !has(OLD_TIMER_KEYS)) return true;
   if (has(TIMER_KEYS) === TIMER_KEYS.length && !has(OLD_TIMER_KEYS)) return TIMER_KEYS.every((k) => wholeIn(e[k], TIMER_LIMITS[k][0], TIMER_LIMITS[k][1]));
   if (has(OLD_TIMER_KEYS) === OLD_TIMER_KEYS.length && !has(TIMER_KEYS)) {
     return wholeIn(e.seatS, 10, 3600) && wholeIn(e.leaveS, 10, 3600) && wholeIn(e.cleanAlertS, 0, 7200);

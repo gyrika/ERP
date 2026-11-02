@@ -28,6 +28,7 @@ const PAGES: (VoicePage & { need: Need })[] = [
   { id: 'register', label: "Register: take a customer's order and charge it (e.g. new order, back to selling)", hash: '', words: ['register', 'till', 'counter', 'home'], need: null },
   { id: 'kitchen', label: "Kitchen screen: tickets to cook (e.g. what is cooking now)", hash: '#kitchen', words: ['kitchen', 'tickets'], need: null },
   { id: 'owner', label: "Owner view: takings and sales numbers (e.g. how much money today, how many burgers sold)", hash: '#owner', words: ['owner', 'takings', 'sales', 'dashboard'], need: 'seesOwner' },
+  { id: 'money', label: "Money out: bills and cash paid, electricity, gas, rent, wages (e.g. we paid the electricity bill, how much went on gas)", hash: '#money', words: ['money out', 'bills', 'expenses'], need: 'seesOwner' },
   { id: 'menu', label: "Menu: dish prices, names, sold out (e.g. make the burger 500 rupees, hide a dish)", hash: '#items/finished', words: ['menu', 'prices', 'sold out'], need: 'seesOwner' },
   { id: 'items', label: "Stock: ingredients and how much is left (e.g. do we have enough chicken)", hash: '#items', words: ['stock', 'inventory', 'raw materials'], need: 'managesStock' },
   { id: 'low', label: "Low stock: ingredients running out or not enough, lowest first (e.g. what is running low, cheese madi)", hash: '#items/low', words: ['low stock', 'running low', 'running out', 'low'], need: 'managesStock' },

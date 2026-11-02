@@ -20,9 +20,10 @@ binding = "AI"
 directory = "../dist-cloud"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/", "/api/*", "/admin", "/admin/*", "/owner.webmanifest", "/manager.webmanifest", "/order.webmanifest", "/questions", "/get", "/download"]
+run_worker_first = ["/", "/api/*", "/mcp", "/mcp/*", "/.well-known/*", "/admin", "/admin/*", "/owner.webmanifest", "/manager.webmanifest", "/order.webmanifest", "/questions", "/get", "/download"]
 
 [vars]
+MCP_ENABLED = "1" # the owner's ChatGPT plugin (SCRUM-197, SCRUM-198)
 # The shop whose online orders cheesybeez.com takes (its id from the setup wizard): Nisal's
 # shop, installed 2026-10-13. Off until the counter switches "Taking orders" on.
 ORDER_SHOP = "cheesybeez-thalwila-2862"
@@ -59,3 +60,4 @@ binding = "AI"
 
 [env.staging.vars]
 ORDER_SHOP = "cheesybeez-staging-test-1c7f" # the laptop test shop
+MCP_ENABLED = "1" # the owner's ChatGPT plugin (SCRUM-197, SCRUM-198)

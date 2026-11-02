@@ -91,3 +91,12 @@ test('Money: cash still to come from deliveries, and a delivery long past its ti
   assert.match(money.explain, /Delivery 2003 was ready at 4:00 pm and is not paid yet\./);
   assert.deepEqual([money.tone, money.badge], ['warn', 1]);
 });
+
+test('Money says what was paid: the drawer today, the bills this month, and suppliers are no cost (SCRUM-105)', () => {
+  const actor = { id: 'o', name: 'Owner', role: 'owner' as const };
+  const paid = (id: string, fields: object) => ({ id, shopId: 'shop', at: NOW, orderNumber: 0 as const, actor, type: 'money.out' as const, what: 'gas' as const, from: 'drawer' as const, cents: 250000, ...fields });
+  const money = glance([paid('a', {}), paid('b', { what: 'supplier', supplierId: 's1', cents: 700000 })]).stations.find((s) => s.id === 'money')!;
+  assert.equal(money.href, '#money');
+  assert.match(money.explain, /Paid out of the drawer today: Rs 9,500\./);
+  assert.match(money.explain, /Bills and other costs this month: Rs 2,500\.\nGas: Rs 2,500/);
+});
