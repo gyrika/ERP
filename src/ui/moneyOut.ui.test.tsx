@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FAKE_STAFF } from '../fake/data.ts';
 import { moneyOutFromEvents } from '../domain/moneyOut.ts';
+import { OWED_SINCE } from '../domain/supplierOwed.ts';
 import { currentCashier } from '../services/auth.ts';
 import { App } from './App.tsx';
 import { appendEvent, readAll } from './eventLog.ts';
@@ -198,7 +199,8 @@ const delivery = (id: string, cents: number, at: number) => {
 };
 
 test('a supplier payment connects to its GRNs: owed shows, Pay ticks them, and a part payment leaves the rest owed', async () => {
-  const now = Date.now();
+  // Never before the line, whatever the clock or time zone the tests run in.
+  const now = Math.max(Date.now(), OWED_SINCE + 60_000);
   delivery('1', 500000, now - 2000);
   delivery('2', 300000, now - 1000);
   const user = userEvent.setup();
