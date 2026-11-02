@@ -81,6 +81,12 @@ test('every Rs 100 sold adds up to 100, and is not shown before the first sale',
   assert.match(split.explain, /^Of every Rs 100 sold today:/);
 });
 
+test('Money: Uber Eats orders are counted, and said to be paid later by Uber, not in the drawer', () => {
+  const money = glance([...todays, paid(at(0, 14), 2500, 'uber')]).stations.find((s) => s.id === 'money')!;
+  assert.match(money.explain, /Uber Eats: Rs 2,500/);
+  assert.match(money.explain, /Uber Eats pays the shop later, less its commission: not in the drawer\./);
+});
+
 test('Money: cash still to come from deliveries, and a delivery long past its time', () => {
   const line = { id: 'l1', itemId: 'devilled-chicken', qty: 1, size: 'L' as const, adds: [], outs: [], sent: true, unit: 200000 };
   const sent = (number: number, readyBy: number): SyncEvent => ({ id: `s${number}`, shopId: 's', at: readyBy - 45 * 60_000, orderNumber: number, actor: ravi,

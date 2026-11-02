@@ -1,4 +1,5 @@
 import { answersFromEvents, menuCost, type CostContext } from './costing.ts';
+import { PLATFORMS } from './platforms.ts';
 import { salesFrom, ticketTimes, type Insight, type ShopData } from './insights.ts';
 import { stockFromEvents, stockStatus } from './inventory.ts';
 import { queue, ticketsFromEvents } from './kitchen.ts';
@@ -76,7 +77,7 @@ const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? 'am' : 'pm'}`;
 const clock = (t: number) => { const d = new Date(t); return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'am' : 'pm'}`; };
 const rs = (c: Cents) => `Rs ${fmt(Math.round(c / 100) * 100)}`;
 const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
-const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free' };
+const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats' };
 
 /**
  * Today's deliveries (SCRUM-193) sent to the kitchen and not paid yet: the rider still has the food
@@ -229,6 +230,7 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
       ...[...byTender].filter(([, c]) => c > 0).map(([t, c]) => `${TENDER[t]}: ${rs(c)}`),
       ...(drawerOut ? [`Paid out of the drawer today: ${rs(drawerOut)}.`] : []),
       ...(byTender.get('cash') ? [`The drawer should hold the cash plus the opening float${drawerOut ? ', less what was paid out' : ''}.`] : []),
+      ...PLATFORMS.filter((p) => byTender.get(p.id)).map((p) => `${p.name} pays the shop later, less its commission: not in the drawer.`),
       ...(unpaid.length ? [`About ${rs(owed)} still to come from ${plural(unpaid.length, 'delivery', 'deliveries')}, paid when the rider is back.`] : []),
       ...overdue.map((d) => `Delivery ${d.number} was ready at ${clock(d.readyBy)} and is not paid yet.`),
       ...(thisMonth.costs ? [`Bills and other costs this month: ${rs(thisMonth.costs)}.`, ...thisMonth.byWhat.map((w) => `${MONEY_LABEL[w.what]}: ${rs(w.cents)}`)] : []),

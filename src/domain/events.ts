@@ -1,4 +1,5 @@
 import type { Actor } from './auth.ts';
+import type { PlatformMark } from './platforms.ts';
 import type { Cents, Discount, OnlineMark, OrderLine, Tender } from './types.ts';
 import type { CameraSpec, TableSpec, TableState, VisionMode, ZoneSpec } from './tables.ts';
 
@@ -23,7 +24,7 @@ interface Audited {
 }
 
 export type OrderEvent =
-  | (Base & { type: 'order.sent'; ticketId: string; lines: OrderLine[]; addOn: boolean; online?: OnlineMark })
+  | (Base & { type: 'order.sent'; ticketId: string; lines: OrderLine[]; addOn: boolean; online?: OnlineMark; platform?: PlatformMark })
   | (Base & { type: 'order.send_undone'; ticketId: string })
   | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents })
   | (Base & { type: 'order.payment_undone' })

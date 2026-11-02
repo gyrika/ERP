@@ -344,6 +344,17 @@ test('warehouse records (SCRUM-184) pass with their fields and nothing loose', (
   assert.ok(ok({ type: 'stock.grn', orderId: 'p', supplierId: 's', approvedBy: null, lines: [{ itemId: 'i', ordered: 1, received: 1, accepted: 1, warehouseId: 'wh-2' }] }));
 });
 
+test('a delivery app\'s mark on a send: a known app and a clean code, or refused', () => {
+  const send = (platform: unknown) => ({
+    ...base, orderNumber: 1001, type: 'order.sent', ticketId: 't1', addOn: false,
+    lines: [{ id: 'l1', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [], sent: true }], platform,
+  });
+  assert.ok(!('reason' in validatePush({ events: [send({ id: 'uber', code: '4F2A9' })] }, 'shop-1')));
+  const refused = validatePush({ events: [send({ id: 'uber', code: '<b>' })] }, 'shop-1');
+  assert.ok('reason' in refused && refused.reason.includes('delivery app'));
+  assert.ok('reason' in validatePush({ events: [send({ id: 'foodpanda', code: 'AB12' })] }, 'shop-1'));
+});
+
 test('money out: whole cents above nothing, a known kind, and a name for who paid it (SCRUM-105)', () => {
   const out = { ...base, type: 'money.out', what: 'gas', from: 'drawer', cents: 250000 };
   const ok = (e: object) => !('reason' in validatePush({ deviceId: 'd', events: [e] }, 'shop-1'));
