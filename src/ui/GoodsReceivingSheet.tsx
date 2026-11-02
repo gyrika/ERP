@@ -9,6 +9,8 @@ import {
 } from '../domain/purchaseOrders.ts';
 import type { StockSettings } from '../domain/stockSettings.ts';
 import { receiveGoods, undoGrn, useWarehouses, type InventoryRow } from '../services/inventoryStore.ts';
+import { useMoneyOut, useRemovedGrns } from '../services/moneyOutStore.ts';
+import { grnsOwed } from '../domain/supplierOwed.ts';
 import { activeWarehouses, homeOf } from '../domain/warehouses.ts';
 import { ChoiceCard } from './flow/ChoiceCard.tsx';
 import { DoneStep } from './flow/DoneStep.tsx';
@@ -118,6 +120,9 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   const [asking, setAsking] = useState(false);
   /** The manager whose PIN was accepted, deciding. */
   const [deciding, setDeciding] = useState<Actor | null>(null);
+  const moneyOut = useMoneyOut();
+  const removedGrns = useRemovedGrns();
+  const owedRows = grnsOwed(purchases.grns, moneyOut, removedGrns);
   const [decisions, setDecisions] = useState<GrnDecisions>({ short: null, over: null });
   /** The manager's final note: optional, kept on the GRN. */
   const [note, setNote] = useState('');
@@ -283,13 +288,19 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   const view = (id: string) => { setViewing(id); setError(''); setStep('grn'); };
   const pinOpen = asking || (undoing !== null && undoing.manager === null);
   const shared = { onClose, keys: !pinOpen, error, inline };
+  const payment = (id: string) => {
+    if (removedGrns.has(id)) return ' · Removed from unpaid';
+    const row = owedRows.find((r) => r.id === id);
+    if (!row || row.value === 0) return '';
+    return row.owed === 0 ? ' · Paid' : ` · Owes Rs ${fmt(row.owed)}`;
+  };
   const history = purchases.grns.length > 0 && (
     <section aria-label="GRN history" className="flow__list">
       <p className="flow-hint">GRN history</p>
       {purchases.grns.map((g) => (
         <ChoiceCard key={g.id} name={`${g.grnNo} · ${supplierName(g.supplierId)}`} tone={g.undone ? undefined : 'ok'}
           corner={g.undone ? `Undone by ${g.undone.by ?? 'a manager'}` : g.approvedBy ? `Approved by ${g.approvedBy.name}` : undefined}
-          line={`${g.poNo} · ${day(g.at)} · Rs ${fmt(grnValueCents(g.lines))} · Received by ${g.receivedBy}${g.undone ? ` · Undone: ${g.undone.reason}` : ''}`}
+          line={`${g.poNo} · ${day(g.at)} · Rs ${fmt(grnValueCents(g.lines))} · Received by ${g.receivedBy}${payment(g.id)}${g.undone ? ` · Undone: ${g.undone.reason}` : ''}`}
           label={`Open ${g.grnNo}`} onClick={() => view(g.id)} />
       ))}
     </section>
@@ -344,7 +355,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           extra={!shown.undone && undoCheck(purchases, shown.id, Date.now(), settings.grnUndoHours) === null
             ? <button type="button" className="linkbtn flow__back" aria-label={`Undo ${shown.grnNo}`} onClick={() => startUndo(shown)}>Undo</button> : undefined}>
           <RejectionNotices />
-          <GrnDocument grn={shown} supplier={supplier} itemName={itemName} unitOf={unitOf} warehouseName={warehouseName} />
+          <GrnDocument paidCents={owedRows.find((r) => r.id === shown.id)?.paid} owedCents={owedRows.find((r) => r.id === shown.id)?.owed} grn={shown} supplier={supplier} itemName={itemName} unitOf={unitOf} warehouseName={warehouseName} />
         </FlowSheet>
         {pins}
       </>

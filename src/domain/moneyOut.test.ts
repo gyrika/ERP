@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Actor } from './auth.ts';
 import {
-  checkMoneyOut, defaultMonth, drawerOutToday, mayPayOut, moneyMonth, moneyOutFromEvents, monthLabel, monthOf, shiftMonth, type MoneyEvent,
+  DEFAULT_CHOICES, rentRows, checkChoiceChosen, checkChoices, checkMoneyOut, defaultMonth, drawerOutToday, lastPaidEach, mayPayOut, moneyChoices, moneyMonth,
+  moneyOutFromEvents, monthLabel, monthOf, removedGrns, rentsPaid, shiftMonth, type MoneyEvent,
 } from './moneyOut.ts';
 
 const cashier: Actor = { id: 'c1', name: 'Cashier One', role: 'cashier' };
@@ -106,4 +107,107 @@ test("a cashier cannot remove someone else's entry; a manager or owner can", () 
 
 test('other events are ignored, and a removal of nothing does nothing', () => {
   assert.deepEqual(moneyOutFromEvents([{ type: 'order.paid' }, undo('ghost', owner)]), []);
+});
+
+const base = { what: 'gas', from: 'drawer', cents: 164700 };
+
+test('gas keeps its size and how many; rent keeps which; both survive the fold', () => {
+  const all = moneyOutFromEvents([
+    out('g', { choiceId: 'gas-5', note: '5kg', qty: 2, cents: 329400 }),
+    out('r', { what: 'rent', from: 'bank', choiceId: 'rent-land', note: 'Land', cents: 2000000, month: '2026-11' }),
+  ]);
+  assert.deepEqual([all[0].choiceId, all[0].qty, all[0].note], ['gas-5', 2, '5kg']);
+  assert.deepEqual([all[1].choiceId, all[1].note], ['rent-land', 'Land']);
+});
+
+test('the month shows gas by size and rent by place; older entries with neither still count', () => {
+  const all = moneyOutFromEvents([
+    out('a', { choiceId: 'gas-5', note: '5kg', qty: 2, cents: 300000 }),
+    out('b', { choiceId: 'gas-5', note: '5kg', cents: 150000 }),
+    out('c', { choiceId: 'gas-12.5', note: '12.5kg', cents: 400000 }),
+    out('old', { cents: 100000 }),
+    out('r', { what: 'rent', from: 'bank', choiceId: 'rent-room-1', note: 'Room 1', cents: 1000000 }),
+  ]);
+  const m = moneyMonth(all, monthOf(at));
+  assert.deepEqual(m.parts.gas, [
+    { label: '5kg', cents: 450000, qty: 3 }, { label: '12.5kg', cents: 400000, qty: 1 }, { label: 'Not said', cents: 100000, qty: 1 },
+  ]);
+  assert.deepEqual(m.parts.rent, [{ label: 'Room 1', cents: 1000000, qty: 1 }]);
+  assert.equal(m.costs, 1950000);
+});
+
+test('the last price is per cylinder, from the newest of that size; never paid is null', () => {
+  const all = moneyOutFromEvents([
+    out('a', { choiceId: 'gas-5', qty: 1, cents: 150000 }),
+    out('b', { choiceId: 'gas-5', qty: 2, cents: 329400 }),
+    out('c', { choiceId: 'gas-12.5', cents: 406500 }),
+  ]);
+  assert.equal(lastPaidEach(all, 'gas-5'), 164700);
+  assert.equal(lastPaidEach(all, 'gas-2.5'), null);
+});
+
+test('which rents are paid goes by the month it is for, and an undone one is not paid', () => {
+  const all = moneyOutFromEvents([
+    out('a', { what: 'rent', from: 'bank', choiceId: 'rent-land', month: '2026-10' }),
+    out('b', { what: 'rent', from: 'bank', choiceId: 'rent-room-1', month: '2026-11' }),
+    out('c', { what: 'rent', from: 'bank', choiceId: 'rent-room-2', month: '2026-11' }),
+    undo('c', owner),
+  ]);
+  assert.deepEqual([...rentsPaid(all, '2026-11')], ['rent-room-1']);
+  assert.deepEqual([...rentsPaid(all, '2026-10')], ['rent-land']);
+});
+
+test('the new fields belong to their kind only; entries from before them stay valid', () => {
+  assert.equal(checkMoneyOut(base), null, 'an older gas entry with no size');
+  assert.equal(checkMoneyOut({ ...base, choiceId: 'gas-5', qty: 2 }), null);
+  assert.match(checkMoneyOut({ ...base, what: 'water', choiceId: 'x' }) ?? '', /gas and rent/);
+  assert.match(checkMoneyOut({ ...base, qty: 0 }) ?? '', /how many/);
+  assert.match(checkMoneyOut({ ...base, qty: 1.5 }) ?? '', /how many/);
+  assert.match(checkMoneyOut({ ...base, what: 'rent', qty: 2 }) ?? '', /how many/);
+  assert.match(checkMoneyOut({ ...base, grnIds: ['g'] }) ?? '', /deliveries/);
+  assert.equal(checkMoneyOut({ ...base, what: 'supplier', supplierId: 's', grnIds: ['g'] }), null);
+  assert.match(checkMoneyOut({ ...base, what: 'supplier', supplierId: 's', grnIds: [1] }) ?? '', /deliveries/);
+  assert.match(checkChoiceChosen('gas', undefined) ?? '', /size/);
+  assert.match(checkChoiceChosen('rent', undefined) ?? '', /which rent/);
+  assert.equal(checkChoiceChosen('water', undefined), null);
+});
+
+test("the lists start as the owner's, and the latest edit stands; a bad list is refused", () => {
+  assert.deepEqual(moneyChoices([]).gas.map((c) => c.label), ['2.5kg', '5kg', '12.5kg']);
+  assert.deepEqual(moneyChoices([]).rent.map((c) => c.label), ['Room 1', 'Room 2', 'Land']);
+  const set = (label: string) => ({ type: 'money.choices_set', what: 'rent', choices: [{ id: 'r', label }] });
+  assert.deepEqual(moneyChoices([set('A'), set('B')]).rent, [{ id: 'r', label: 'B' }]);
+  assert.deepEqual(moneyChoices([set('A')]).gas, DEFAULT_CHOICES.gas, 'the other list is left alone');
+  assert.equal(checkChoices('gas', DEFAULT_CHOICES.gas), null);
+  assert.match(checkChoices('water', DEFAULT_CHOICES.gas) ?? '', /gas or rent/);
+  assert.match(checkChoices('gas', []) ?? '', /at least one/);
+  assert.match(checkChoices('gas', [{ id: 'a', label: ' ' }]) ?? '', /name/);
+  assert.match(checkChoices('gas', [{ id: 'a', label: 'X' }, { id: 'b', label: 'x' }]) ?? '', /same name/);
+  assert.match(checkChoices('gas', [{ id: 'a', label: 'X' }, { id: 'a', label: 'Y' }]) ?? '', /same/);
+});
+
+test('renaming a rent leaves what was paid under its old name', () => {
+  const events = [out('a', { what: 'rent', from: 'bank', choiceId: 'rent-land', note: 'Land' }), { type: 'money.choices_set', what: 'rent', choices: [{ id: 'rent-land', label: 'Back land' }] }];
+  assert.equal(moneyOutFromEvents(events)[0].note, 'Land');
+});
+
+test('every rent has a row for the month, paid or not; one no longer on the list still shows', () => {
+  const all = moneyOutFromEvents([
+    out('a', { what: 'rent', from: 'bank', choiceId: 'rent-land', note: 'Land', cents: 2000000, month: '2026-11' }),
+    out('b', { what: 'rent', from: 'bank', choiceId: 'rent-land', note: 'Land', cents: 500000, month: '2026-11' }),
+    out('c', { what: 'rent', from: 'bank', choiceId: 'rent-old', note: 'Old room', cents: 100000, month: '2026-11' }),
+    out('d', { what: 'rent', from: 'bank', cents: 100000, month: '2026-11' }),
+    out('e', { what: 'rent', from: 'bank', choiceId: 'rent-room-1', note: 'Room 1', cents: 900000, month: '2026-10' }),
+  ]);
+  assert.deepEqual(rentRows(all, DEFAULT_CHOICES.rent, '2026-11').map((r) => [r.label, r.cents]), [
+    ['Room 1', 0], ['Room 2', 0], ['Land', 2500000], ['Old room', 100000], ['Not said', 100000],
+  ]);
+});
+
+test('only the owner takes a GRN off the unpaid list, and Undo puts it back', () => {
+  const ev = (type: string, actor: Actor, grnId = 'g1') => ({ id: `${type}${actor.id}`, shopId: 's', at, orderNumber: 0, actor, type, grnId });
+  assert.deepEqual([...removedGrns([ev('money.grn_removed', owner)])], ['g1']);
+  assert.deepEqual([...removedGrns([ev('money.grn_removed', cashier)])], [], 'a cashier never');
+  assert.deepEqual([...removedGrns([ev('money.grn_removed', owner), ev('money.grn_restored', owner)])], []);
+  assert.deepEqual(moneyOutFromEvents([ev('money.grn_removed', owner)]), [], 'not a payment');
 });
