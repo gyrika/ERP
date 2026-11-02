@@ -101,8 +101,8 @@ Add to Home Screen (iPhone) makes it an app (`/manager.webmanifest`).
 A ChatGPT plugin reads the shop through an MCP server at `/mcp` (`cloud/src/mcp.ts`). Sales: today, and any day or
 period up to 92 days, compared with the usual for that weekday or the period before. SCRUM-198 adds what needs
 attention, stock, what each dish earns and supplier orders, and one tool that writes: it fills in a supplier's
-**draft** order. A person still places it. It is on for staging and live (`MCP_ENABLED = "1"` in `cloud/wrangler.toml`).toml`. What it reads goes to OpenAI, so answers hold totals and menu item names
-only: no customers, staff or order numbers.
+**draft** order. A person still places it. It is on for staging and live (`MCP_ENABLED = "1"` in `cloud/wrangler.toml`).
+What it reads goes to OpenAI, so answers hold no customers, staff or order numbers.
 
 **Where the rest comes from.** This Worker is on the free plan and cannot fold the shop's whole history per
 question, so the shop server builds a digest (`src/domain/ownerDigest.ts`) in a below-normal-priority child process
