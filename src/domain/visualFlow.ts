@@ -7,6 +7,7 @@ import type { Draft } from './recipeDrafts.ts';
 import { PREPS, PRODUCTS, type BookLine } from './recipeBook.ts';
 import { FREE_INGREDIENTS } from './recipeMap.ts';
 import { prepItems, prepKey } from './prep.ts';
+import { billOfLine, billsForDish, BILLS_NODE, type BillKind, type BillPart } from './billShare.ts';
 import { RESOURCE_LABEL, RESOURCE_UNIT, resourceCost, type Rates, type ResourceKind, type ResourceLine } from './resources.ts';
 import { fmt } from './money.ts';
 import type { Cents, MenuItem } from './types.ts';
@@ -17,7 +18,8 @@ import type { Cents, MenuItem } from './types.ts';
  * dish; his resources (electricity, labour, equipment, other costs) flow into the stage that
  * uses them. Pure, like costing.ts: his answers in, nodes and edges out, every amount per ONE
  * of the item in focus. Costs are his food costs (costing.ts, the same numbers as the Recipes
- * screen) plus the resources; nothing is estimated, a gap stays a gap.
+ * screen) plus the resources; nothing is guessed, a gap stays a gap. Real electricity, gas and water bills
+ * replace his typed estimates of the same once they can be shared out (billShare.ts).
  *
  * Node ids: `recipe:<item>:<size>` and `addon:<extra>` (a dish or extra, by its recipe question),
  * `semi:<key>` (a batch, prep.ts keys), `product:<name>` (a recipe of his sheet used inside
@@ -68,7 +70,8 @@ export interface FlowEdge {
   partial: boolean;
 }
 
-export interface Breakdown { materials: number; electricity: number; labour: number; overhead: number; total: number }
+/** bills: the real electricity, gas and water bills' share (billShare.ts); they replace typed estimates of the same. */
+export interface Breakdown { materials: number; electricity: number; bills: number; labour: number; overhead: number; total: number }
 
 export interface FlowGraph {
   focus: string;
@@ -82,6 +85,8 @@ export interface FlowGraph {
   priceCents: Cents | null;
   /** Sold over the last SALES_DAYS (dishes only). */
   sold: number;
+  /** The real bills in its cost: what each adds to one, and where that comes from. */
+  billed: { part: BillPart; cents: number }[];
 }
 
 export const SALES_DAYS = 28;
@@ -96,6 +101,8 @@ export interface FlowInput {
   collapsed?: ReadonlySet<string>;
   /** The questions with an open draft, to mark their recipes. */
   drafts?: ReadonlyMap<string, Draft>;
+  /** The real bills to spread over a dish (billParts); none: only his typed estimates. */
+  bills?: readonly BillPart[];
 }
 
 // ----- what a node is -----
@@ -216,9 +223,13 @@ const priceOf = (focus: string, menu: readonly MenuItem[]): Cents | null => {
   return null;
 };
 
-export const buildFlow = ({ focus, ctx, menu, sold = 0, collapsed = new Set(), drafts = new Map() }: FlowInput): FlowGraph => {
+export const buildFlow = ({ focus, ctx, menu, sold = 0, collapsed = new Set(), drafts = new Map(), bills = [] }: FlowInput): FlowGraph => {
   const { answers } = ctx;
   const rates = ratesOf(answers);
+  // Only a dish has cook minutes to share a bill by; a batch or an extra keeps his estimates.
+  const dish = focus.startsWith('recipe:') ? menu.find((m) => m.id === after(focus).split(':')[0]) : undefined;
+  const billShares = billsForDish(bills, dish);
+  const billedKinds = new Set<BillKind>(billShares.map((b) => b.part.kind));
   const nodes = new Map<string, FlowNode>();
   const edges = new Map<string, FlowEdge>();
   const missing = new Set<string>();
@@ -292,6 +303,9 @@ export const buildFlow = ({ focus, ctx, menu, sold = 0, collapsed = new Set(), d
     const own = h.key ? resourcesOf(h.key, answers) : [];
     const runs = id === focus ? 1 : batches;
     own.forEach((r, i) => {
+      // The real bill stands in for this estimate of the same money.
+      const bill = billOfLine(r);
+      if (bill && billedKinds.has(bill)) return;
       const { byKind, unrated: u } = resourceCost([r], rates);
       unrated ||= u;
       const cents = byKind[r.kind] * runs;
@@ -310,6 +324,13 @@ export const buildFlow = ({ focus, ctx, menu, sold = 0, collapsed = new Set(), d
   if (root) {
     visit(focus, root, 1, 0);
     if (!root.lines.length && focus.startsWith('recipe:')) missing.add(focus);
+    const billCents = billShares.reduce((s, b) => s + b.cents, 0);
+    if (billCents > 0) {
+      const res = node(BILLS_NODE, 'resource', 'Bills & gas', 'Rs');
+      res.qty = billCents / 100;
+      res.cents = billCents;
+      edge({ id: `${BILLS_NODE}>${focus}#0`, source: BILLS_NODE, target: focus, kind: 'resource', index: -1, line: null, resource: null, unit: 'Rs' }, res.qty, billCents, false);
+    }
   }
   if (unrated) missing.add(RATES_QUESTION);
 
@@ -318,9 +339,9 @@ export const buildFlow = ({ focus, ctx, menu, sold = 0, collapsed = new Set(), d
   const kindCents = (k: ResourceKind) => nodes.get(`res:${k}`)?.cents ?? 0;
   const materials = all.filter((n) => n.kind === 'raw').reduce((s, n) => s + n.cents, 0);
   const breakdown: Breakdown = {
-    materials, electricity: kindCents('electricity'), labour: kindCents('labour'), overhead: kindCents('equipment') + kindCents('other'), total: 0,
+    materials, electricity: kindCents('electricity'), bills: nodes.get(BILLS_NODE)?.cents ?? 0, labour: kindCents('labour'), overhead: kindCents('equipment') + kindCents('other'), total: 0,
   };
-  breakdown.total = breakdown.materials + breakdown.electricity + breakdown.labour + breakdown.overhead;
+  breakdown.total = breakdown.materials + breakdown.electricity + breakdown.bills + breakdown.labour + breakdown.overhead;
   const top = nodes.get(focus);
   if (top) { top.cents = breakdown.total; top.qty = 1; top.missing = [...missing]; }
   for (const n of all) n.share = breakdown.total > 0 ? Math.min(1, n.cents / breakdown.total) : 0;
@@ -361,7 +382,7 @@ export const buildFlow = ({ focus, ctx, menu, sold = 0, collapsed = new Set(), d
   const visibleEdges = [...edges.values()].filter((e) => shown.has(e.source) && shown.has(e.target) && !(nodes.get(e.target)!.collapsed && e.target !== focus));
 
   return {
-    focus, nodes: visibleNodes, edges: visibleEdges, breakdown, missing: [...missing], complete: missing.size === 0, priceCents, sold,
+    focus, nodes: visibleNodes, edges: visibleEdges, breakdown, missing: [...missing], complete: missing.size === 0, priceCents, sold, billed: billShares,
   };
 };
 

@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { billOfLine, BILLS_NODE, type BillKind, type BillPart } from '../../domain/billShare.ts';
 import { gapName, MAX_WASTE, RATES_QUESTION, UNITS, type Answer, type CostContext } from '../../domain/costing.ts';
 import type { BookLine } from '../../domain/recipeBook.ts';
 import { versionsOf, type Draft, type PublishStep } from '../../domain/recipeDrafts.ts';
@@ -130,7 +131,8 @@ function Figures({ node: n, graph, view, focusName, ctx }: Props & { node: FlowN
     return (
       <dl className="vf-figures">
         <dt>Materials</dt><dd className="num">{rs(b.materials)}</dd>
-        <dt>Electricity</dt><dd className="num">{rs(b.electricity)}</dd>
+        {b.bills > 0 && <><dt>Bills &amp; gas</dt><dd className="num">{rs(b.bills)}</dd></>}
+        {(b.electricity > 0 || b.bills === 0) && <><dt>Electricity</dt><dd className="num">{rs(b.electricity)}</dd></>}
         <dt>Labour</dt><dd className="num">{rs(b.labour)}</dd>
         <dt>Overhead</dt><dd className="num">{rs(b.overhead)}</dd>
         <dt className="vf-figures__total">Costs to make</dt><dd className="vf-figures__total num">{rs(b.total)}</dd>
@@ -155,6 +157,7 @@ function Figures({ node: n, graph, view, focusName, ctx }: Props & { node: FlowN
     );
   }
   if (focus) return null;
+  if (n.id === BILLS_NODE) return <dl className="vf-figures"><dt>Adds to its cost</dt><dd className="num">{rs(n.cents)} · {pct(n.share)}</dd></dl>;
   return (
     <dl className="vf-figures">
       <dt>Each {focusName} takes</dt><dd className="num">{n.kind === 'resource' && n.unit === 'Rs' ? rs(n.qty * 100) : nodeShare(n, ctx.answers) ?? amount(n.qty, n.unit)}</dd>
@@ -188,7 +191,7 @@ function NodeDetails(p: Props & { node: FlowNode }) {
           {item.workingPriceCents > 0 ? `${rs(item.workingPriceCents)} for ${amount(item.packQty, item.baseUnit)}, the latest price.` : 'No price yet: enter it under Items › Raw materials.'}
         </p>
       )}
-      {n.kind === 'resource' && <RatesEditor {...p} />}
+      {n.id === BILLS_NODE ? <BillDetails graph={p.graph} /> : n.kind === 'resource' && <RatesEditor {...p} />}
       {h && !h.editable && <p className="vf-muted">A recipe from your sheet used inside another: it changes in your sheet.</p>}
       {h?.editable && <RecipeEditor {...p} h={h} node={n} />}
       {n.recipe && n.id !== p.graph.focus && n.inputs > 0 && (
@@ -355,11 +358,12 @@ function FoldTitle({ id, count, open, children }: { id: string; count: number; o
   );
 }
 
-function RecipeEditor({ h, node, ctx, actions }: Props & { h: Holder; node: FlowNode }) {
+function RecipeEditor({ h, node, ctx, actions, graph }: Props & { h: Holder; node: FlowNode }) {
   const [stage, setStage] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const isBatch = !h.question.startsWith('recipe:') && !h.question.startsWith('addon:');
   const resources = resourcesOf(h.key, ctx.answers);
+  const isBilled = (r: ResourceLine) => { const k = billOfLine(r); return !!k && graph.billed.some((b) => b.part.kind === k); };
   const linesFolded = useFolded('ingredients');
   const resourcesFolded = useFolded('resources');
   const addStage = (e: FormEvent) => {
@@ -424,7 +428,7 @@ function RecipeEditor({ h, node, ctx, actions }: Props & { h: Holder; node: Flow
             <li key={i} className="vf-line">
               <button type="button" className="vf-line__open" onClick={() => actions.select({ kind: 'edge', id: `res:${r.kind}>${node.id}#${i}` })}>
                 <span className="vf-line__name">{r.label || RESOURCE_LABEL[r.kind]}</span>
-                <span className="vf-line__qty num">{r.kind === 'other' ? rs(r.cents) : amount(r.qty, RESOURCE_UNIT[r.kind])}</span>
+                <span className="vf-line__qty num">{isBilled(r) ? 'Real bill used' : r.kind === 'other' ? rs(r.cents) : amount(r.qty, RESOURCE_UNIT[r.kind])}</span>
               </button>
               <button type="button" className="vf-x" aria-label={`Take ${r.label || RESOURCE_LABEL[r.kind]} out`}
                 onClick={() => actions.setResources(h, resources.filter((_, j) => j !== i), `Took ${(r.label || RESOURCE_LABEL[r.kind]).toLowerCase()} out of ${h.name}`)}>×</button>
@@ -435,6 +439,31 @@ function RecipeEditor({ h, node, ctx, actions }: Props & { h: Holder; node: Flow
           {RESOURCE_KINDS.map((k) => <button key={k} type="button" className="vf-add" onClick={() => addResource(k)}>+ {RESOURCE_LABEL[k]}</button>)}
         </div>
       </section>
+    </>
+  );
+}
+
+const BILL_NAME: Record<BillKind, string> = { electricity: 'Electricity', gas: 'Gas', water: 'Water' };
+
+const billSpan = (p: BillPart): string => {
+  const day = (at: number) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  // A meter bill is one whole month; gas runs from cylinder to cylinder.
+  return p.kind === 'gas' ? `${day(p.from)} to ${day(p.to)}` : new Date(p.from).toLocaleDateString('en-GB', { month: 'long' });
+};
+
+/** Each real bill's share of this dish, and the bill and sales it comes from. */
+function BillDetails({ graph }: { graph: FlowGraph }) {
+  return (
+    <>
+      <dl className="vf-figures">
+        {graph.billed.map(({ part, cents }) => (
+          <Fragment key={part.kind}><dt>{BILL_NAME[part.kind]}</dt><dd className="num">{rs(cents)}</dd></Fragment>
+        ))}
+      </dl>
+      {graph.billed.map(({ part }) => (
+        <p key={part.kind} className="vf-muted">{BILL_NAME[part.kind]}: {rs(part.cents)}, {billSpan(part)}, over {amount(Math.round(part.minutes), 'cook min')} sold.</p>
+      ))}
+      <p className="vf-muted">Shared by cook time. Change a bill under Money out.</p>
     </>
   );
 }
@@ -456,6 +485,7 @@ function EdgeDetails(p: Props & { edge: FlowEdge }) {
       <dt>Costs</dt><dd className="num">{rs(e.cents)}</dd>
     </dl>
   );
+  if (e.source === BILLS_NODE) return <>{head}<BillDetails graph={graph} /></>;
   if (e.kind === 'money') return <>{head}{view === 'financial' && <Figures {...p} node={graph.nodes.find((n) => n.id === 'profit')!} />}</>;
   if (!h?.editable) return <>{head}{flows}<p className="vf-muted">A recipe from your sheet: it changes in your sheet.</p></>;
 

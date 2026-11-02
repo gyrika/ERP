@@ -184,6 +184,7 @@
 .vf-whcard--archived { border-style: dashed; opacity: 0.7; }
 .vf-whadd { width: 200px; min-height: 48px; border-radius: 14px; border: 1px dashed var(--ink-3); background: transparent; color: var(--ink-2); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; transition: background-color 150ms var(--ease); }
 .vf-whadd:hover { background: var(--chip); }
+.vf-vahead { width: 200px; margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); }
 .vf-handle--off { visibility: hidden; }
 .vf-edge--elsewhere { stroke-dasharray: 4 5; }
 .vf-wh__where { font-size: 14px; color: var(--ink-2); }
