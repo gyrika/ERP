@@ -67,9 +67,9 @@ test('ChatGPT can find everything from the first refusal', async () => {
   const { get, handle } = await setup();
   const refused = await handle(new Request(`${ORIGIN}/mcp`, { method: 'POST' })); // ChatGPT's first probe: an empty POST
   assert.equal(refused.status, 401);
-  assert.equal(refused.headers.get('www-authenticate'), `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource", scope="sales.read"`);
+  assert.equal(refused.headers.get('www-authenticate'), `Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource", scope="shop.owner"`);
   const resource = await (await get('/.well-known/oauth-protected-resource')).json();
-  assert.deepEqual(resource, { resource: `${ORIGIN}/mcp`, authorization_servers: [ORIGIN], scopes_supported: ['sales.read'] });
+  assert.deepEqual(resource, { resource: `${ORIGIN}/mcp`, authorization_servers: [ORIGIN], scopes_supported: ['shop.owner'] });
   assert.equal((await get('/.well-known/oauth-protected-resource/mcp')).status, 200);
   const server = await (await get('/.well-known/oauth-authorization-server')).json();
   assert.equal(server.issuer, ORIGIN);
@@ -151,7 +151,7 @@ test('a code needs its verifier, works once, in time, for the same address', asy
   assert.equal((await exchange(late)).status, 400, 'too late');
 });
 
-test('MCP: starts, pings, lists its one read-only tool', async () => {
+test('MCP: starts, pings, lists its tools; only the draft tool writes', async () => {
   const { rpc, signIn } = await setup();
   const { access_token } = await signIn();
   const init = await (await rpc(access_token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } })).json();
@@ -161,10 +161,11 @@ test('MCP: starts, pings, lists its one read-only tool', async () => {
   assert.equal(newer.result.protocolVersion, '2025-11-25', 'our own version when it asks for an unknown one');
   assert.equal((await (await rpc(access_token, 'ping')).json()).result.resultType, 'complete');
   const { tools } = (await (await rpc(access_token, 'tools/list')).json()).result;
-  assert.deepEqual(tools.map((t: { name: string }) => t.name), ['get_today_sales', 'get_sales']);
+  assert.deepEqual(tools.map((t: { name: string }) => t.name), ['get_today_sales', 'get_sales', 'get_attention', 'get_stock', 'get_menu_profit', 'get_supplier_orders', 'draft_supplier_order']);
   for (const tool of tools) {
-    assert.equal(tool.annotations.readOnlyHint, true, tool.name);
-    assert.deepEqual(tool.securitySchemes, [{ type: 'oauth2', scopes: ['sales.read'] }], tool.name);
+    assert.equal(tool.annotations.readOnlyHint, tool.name !== 'draft_supplier_order', tool.name);
+    assert.equal(tool.annotations.destructiveHint, false, tool.name);
+    assert.deepEqual(tool.securitySchemes, [{ type: 'oauth2', scopes: ['shop.owner'] }], tool.name);
   }
   assert.equal((await (await rpc(access_token, 'tools/call', { name: 'delete_everything' })).json()).error.code, -32602);
   assert.equal((await (await rpc(access_token, 'no/such')).json()).error.code, -32601);
@@ -195,7 +196,7 @@ test('before sign-in ChatGPT can look and list, as it does: no shop data, and th
   assert.equal(listed.resultType, 'complete');
   assert.equal(listed.cacheScope, 'public');
   assert.ok(listed.ttlMs > 0);
-  assert.deepEqual(listed.tools.map((x: { name: string }) => x.name), ['get_today_sales', 'get_sales']);
+  assert.deepEqual(listed.tools.map((x: { name: string }) => x.name), ['get_today_sales', 'get_sales', 'get_attention', 'get_stock', 'get_menu_profit', 'get_supplier_orders', 'draft_supplier_order']);
 
   const raw = await (await post(modern(2, 'tools/call', { name: 'get_today_sales', arguments: {} }), modernHeaders('tools/call', 'get_today_sales'))).text();
   const { result: asked } = JSON.parse(raw);
@@ -518,4 +519,177 @@ test('helpers', async () => {
   assert.ok(!isChatGptCallback('https://chatgpt.com/connector/oauth/../evil'));
   // RFC 7636's own example.
   assert.equal(await s256('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'), 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+});
+
+// ----- SCRUM-198: the digest from the shop PC, and the draft -----
+
+const SHOP_KEY = 'shop-server-key-aaaaaaaaaaaaaaaaaaaaa';
+const OTHER_SHOP_KEY = 'shop-server-key-bbbbbbbbbbbbbbbbbbbbb';
+const DIGEST = {
+  version: 1, computedAt: NOON - 5 * 60_000,
+  attention: [{ tone: 'attention', title: 'Flour is low', detail: 'Lasts 2 days.', items: [{ what: 'Flour', note: 'order soon', amountCents: 150050 }] }],
+  stock: [
+    { id: 'flour', name: 'Flour', category: 'Dry', status: 'low', onHand: '5 kg', usedPerDay: '2 kg', lastsDays: 2.5, pack: '25 kg', packPriceCents: 640000, onHandPacks: 0.2, suggestedPacks: 2, onOrderPacks: 0, supplierIds: ['sup-a'], countedAt: 1 },
+    { id: 'salt', name: 'Salt', category: 'Dry', status: 'ok', onHand: '9 kg', usedPerDay: null, lastsDays: null, pack: '1 kg', packPriceCents: 10000, onHandPacks: 9, suggestedPacks: 0, onOrderPacks: 0, supplierIds: ['sup-a'], countedAt: 1 },
+    { id: 'cheese', name: 'Cheese', category: 'Dairy', status: 'unknown', onHand: null, usedPerDay: null, lastsDays: null, pack: '2 kg', packPriceCents: 500000, onHandPacks: null, suggestedPacks: 0, onOrderPacks: 1, supplierIds: ['sup-b'], countedAt: null },
+  ],
+  semiProcessed: [{ name: 'Dough', onHand: '4 pcs', status: 'low' }],
+  dishes: [
+    { name: 'Margherita', size: 'L', priceCents: 200000, foodCostCents: 80000, marginPercent: 60, soldLast28Days: 12, canMake: 3 },
+    { name: 'Loss Leader', size: '', priceCents: 10000, foodCostCents: 15000, marginPercent: -50, soldLast28Days: 1, canMake: null },
+    { name: 'New Pizza', size: 'M', priceCents: 150000, foodCostCents: null, marginPercent: null, soldLast28Days: 0, canMake: null },
+  ],
+  unansweredCosts: 4,
+  suppliers: [
+    { id: 'sup-a', name: 'Supplier A', leadDays: 2, draft: [{ itemId: 'salt', name: 'Salt', packs: 1, unitPriceCents: 9000 }], suggested: [{ itemId: 'flour', name: 'Flour', packs: 2 }], openOrders: [] },
+    { id: 'sup-b', name: 'Supplier B', leadDays: null, draft: [], suggested: [], openOrders: [{ number: 'PO-7', status: 'Open', placedAt: NOON - 86_400_000, lines: [{ itemId: 'cheese', name: 'Cheese', packs: 1 }] }] },
+  ],
+};
+
+async function withDigest() {
+  const s = await setup();
+  for (const [tenant, key] of [[SHOP, SHOP_KEY], ['shop-b', OTHER_SHOP_KEY]]) {
+    s.db.prepare('INSERT INTO devices (id, tenant_id, kind, token_hash, created_at) VALUES (?, ?, ?, ?, 0)').run(`srv-${key}`, tenant, 'shop_server', await sha256Hex(key));
+  }
+  const upload = (key: string, body: unknown) => s.handle(new Request(`${ORIGIN}/api/v1/mcp/digest`, {
+    method: 'PUT', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body),
+  }));
+  const call = async (bearer: string, name: string, args: unknown = {}) => {
+    const { result } = await (await s.rpc(bearer, 'tools/call', { name, arguments: args })).json();
+    return result as { isError: boolean; structuredContent: Record<string, any>; content: { text: string }[] };
+  };
+  const inbox = () => s.db.prepare('SELECT tenant_id, device_id, body FROM inbox ORDER BY seq').all() as { tenant_id: string; device_id: string; body: string }[];
+  return { ...s, upload, call, inbox };
+}
+
+test('the shop PC is asked for a digest only while ChatGPT is connected, and only by its own shop', async () => {
+  const s = await withDigest();
+  const wanted = (key: string) => s.get('/api/v1/mcp/wanted', key);
+  assert.deepEqual(await (await wanted(SHOP_KEY)).json(), { wanted: false });
+  await s.signIn();
+  assert.deepEqual(await (await wanted(SHOP_KEY)).json(), { wanted: true });
+  assert.deepEqual(await (await wanted(OTHER_SHOP_KEY)).json(), { wanted: false }, 'the other shop has no ChatGPT');
+  assert.equal((await wanted(OWNER_KEY)).status, 403, "an owner's phone is not a shop server");
+  assert.equal((await s.upload(OWNER_KEY, { digest: DIGEST })).status, 403);
+});
+
+test('off with the server: the shop PC hears 404 and stays quiet', async () => {
+  const { get } = await setup(false);
+  assert.equal((await get('/api/v1/mcp/wanted', SHOP_KEY)).status, 404);
+});
+
+test('an upload that is not a digest, or far too big, is refused', async () => {
+  const s = await withDigest();
+  assert.equal((await s.upload(SHOP_KEY, 'not json')).status, 400);
+  assert.equal((await s.upload(SHOP_KEY, { digest: {} })).status, 400);
+  assert.equal((await s.upload(SHOP_KEY, { digest: { computedAt: 1, x: 'y'.repeat(1_000_001) } })).status, 413);
+});
+
+test('before the first digest each tool says so; sales still work', async () => {
+  const s = await withDigest();
+  const { access_token } = await s.signIn();
+  for (const name of ['get_attention', 'get_stock', 'get_menu_profit', 'get_supplier_orders', 'draft_supplier_order']) {
+    const r = await s.call(access_token, name, { supplier_id: 'sup-a', lines: [{ item_id: 'flour', packs: 1 }] });
+    assert.equal(r.isError, true, name);
+    assert.match(r.content[0].text, /has not sent this yet/, name);
+  }
+  assert.equal((await s.call(access_token, 'get_today_sales')).isError, false);
+  assert.equal(s.inbox().length, 0);
+});
+
+test('attention, stock, profit and orders read the digest, with its age, in rupees', async () => {
+  const s = await withDigest();
+  const { access_token } = await s.signIn();
+  assert.equal((await s.upload(SHOP_KEY, { digest: DIGEST })).status, 200);
+
+  const attention = (await s.call(access_token, 'get_attention')).structuredContent;
+  assert.equal(attention.as_of.minutes_ago, 5);
+  assert.deepEqual(attention.cards[0].items[0], { what: 'Flour', note: 'order soon', amount: 'Rs 1,500.50' });
+
+  const stock = (await s.call(access_token, 'get_stock')).structuredContent;
+  assert.equal(stock.items.length, 3);
+  assert.equal(stock.items[2].on_hand, null, 'never counted stays unknown');
+  assert.deepEqual(stock.can_make, [{ name: 'Margherita', size: 'L', can_make: 3 }]);
+  const low = (await s.call(access_token, 'get_stock', { only_needing_attention: true })).structuredContent;
+  assert.deepEqual(low.items.map((i: { item_id: string }) => i.item_id), ['flour']);
+
+  const profit = (await s.call(access_token, 'get_menu_profit')).structuredContent;
+  assert.deepEqual(profit.dishes[0], { name: 'Margherita', size: 'L', price: 'Rs 2,000.00', food_cost: 'Rs 800.00', earned_each: 'Rs 1,200.00', margin_percent: 60, sold_last_28_days: 12 });
+  assert.equal(profit.dishes[1].earned_each, '-Rs 50.00', 'a dish that loses money says so');
+  assert.equal(profit.dishes[2].food_cost, null, 'an unpriced recipe is not guessed');
+  assert.equal(profit.unanswered_cost_questions, 4);
+
+  const orders = (await s.call(access_token, 'get_supplier_orders')).structuredContent;
+  assert.equal(orders.suppliers[0].draft[0].pack_price, 'Rs 90.00');
+  assert.equal(orders.suppliers[1].open_orders[0].number, 'PO-7');
+});
+
+test('the digest answers only its own shop', async () => {
+  const s = await withDigest();
+  await s.upload(SHOP_KEY, { digest: DIGEST });
+  const other = await s.signIn({ link: `${ORIGIN}/?owner=${OTHER_KEY}#owner` });
+  assert.equal((await s.call(other.access_token, 'get_stock')).isError, true);
+});
+
+test('a draft goes to the shop inbox as a valid owner event, keeps other lines and their prices, and can be undone', async () => {
+  const s = await withDigest();
+  const { access_token } = await s.signIn();
+  await s.upload(SHOP_KEY, { digest: DIGEST });
+
+  const first = (await s.call(access_token, 'draft_supplier_order', { supplier_id: 'sup-a', lines: [{ item_id: 'flour', packs: 2 }] })).structuredContent;
+  assert.equal(first.changed, true);
+  assert.deepEqual(first.to_undo, { supplier_id: 'sup-a', lines: [{ item_id: 'flour', packs: 0 }] });
+  assert.match(first.nothing_is_ordered, /only a draft/);
+  const [row] = s.inbox();
+  assert.equal(row.tenant_id, SHOP);
+  const event = JSON.parse(row.body);
+  assert.equal(event.type, 'stock.draft_set');
+  assert.equal(event.shopId, SHOP);
+  assert.equal(event.actor.role, 'owner');
+  assert.equal(event.actor.name, 'ChatGPT, for the owner');
+  assert.deepEqual(event.lines, [{ itemId: 'salt', packs: 1, unitPriceCents: 9000 }, { itemId: 'flour', packs: 2 }]);
+
+  // Before the shop's next digest, a second request builds on the first.
+  const second = (await s.call(access_token, 'draft_supplier_order', { supplier_id: 'sup-a', lines: [{ item_id: 'salt', packs: 0 }] })).structuredContent;
+  assert.deepEqual(second.draft, [{ item_id: 'flour', name: 'Flour', packs: 2 }]);
+  assert.deepEqual(second.to_undo.lines, [{ item_id: 'salt', packs: 1 }]);
+  assert.equal(s.inbox().length, 2);
+
+  // The same again changes nothing and writes nothing.
+  assert.equal((await s.call(access_token, 'draft_supplier_order', { supplier_id: 'sup-a', lines: [{ item_id: 'flour', packs: 2 }] })).structuredContent.changed, false);
+  assert.equal(s.inbox().length, 2);
+
+  // Undo with what the answer gave.
+  await s.call(access_token, 'draft_supplier_order', first.to_undo);
+  assert.deepEqual(JSON.parse(s.inbox().at(-1)!.body).lines, []);
+});
+
+test('a draft is refused without writing when it makes no sense; only this tool ever writes', async () => {
+  const s = await withDigest();
+  const { access_token } = await s.signIn();
+  await s.upload(SHOP_KEY, { digest: DIGEST });
+  const refused: [unknown, RegExp][] = [
+    [{ supplier_id: 'nope', lines: [{ item_id: 'flour', packs: 1 }] }, /Unknown supplier/],
+    [{ supplier_id: 'sup-a', lines: [] }, /1 to 50/],
+    [{ supplier_id: 'sup-a', lines: [{ item_id: 'nope', packs: 1 }] }, /Unknown item_id/],
+    [{ supplier_id: 'sup-a', lines: [{ item_id: 'cheese', packs: 1 }] }, /does not sell Cheese/],
+    [{ supplier_id: 'sup-a', lines: [{ item_id: 'flour', packs: -1 }] }, /from 0 to 1000/],
+    [{ supplier_id: 'sup-a', lines: [{ item_id: 'flour', packs: 5000 }] }, /from 0 to 1000/],
+    [{ supplier_id: 'sup-a', lines: [{ item_id: 'flour', packs: '2' }] }, /from 0 to 1000/],
+  ];
+  for (const [args, why] of refused) {
+    const r = await s.call(access_token, 'draft_supplier_order', args);
+    assert.equal(r.isError, true, JSON.stringify(args));
+    assert.match(r.content[0].text, why);
+  }
+  for (const name of ['get_attention', 'get_stock', 'get_menu_profit', 'get_supplier_orders']) await s.call(access_token, name);
+  assert.equal(s.inbox().length, 0);
+});
+
+test('a draft warns when an item is already on an open order', async () => {
+  const s = await withDigest();
+  const { access_token } = await s.signIn();
+  await s.upload(SHOP_KEY, { digest: DIGEST });
+  const r = (await s.call(access_token, 'draft_supplier_order', { supplier_id: 'sup-b', lines: [{ item_id: 'cheese', packs: 1 }] })).structuredContent;
+  assert.deepEqual(r.already_on_an_open_order, ['Cheese']);
 });

@@ -1,4 +1,7 @@
 import { lkDate, lkTime } from '../../src/domain/salesLedger.ts';
+import type { DigestLine, OwnerDigest } from '../../src/domain/ownerDigest.ts';
+import type { SyncEvent } from '../../src/domain/sync.ts';
+import { validatePush } from '../../server/validate.ts';
 import type { CloudDevice, D1Like, Kind } from './cloud.ts';
 import { HttpError, json, randomToken, sha256Hex } from './http.ts';
 
@@ -11,20 +14,23 @@ import { HttpError, json, randomToken, sha256Hex } from './http.ts';
  * answers with a sign-in challenge. ChatGPT signs in with OAuth (authorization code + PKCE): an
  * empty POST gets a 401 pointing at the /.well-known documents, it registers, and sends him to
  * /authorize, where he pastes his owner link. Its tokens stop when his owner device is removed,
- * and read the shop through /mcp only. Off unless MCP_ENABLED is "1".
+ * and open the shop through /mcp only. Off unless MCP_ENABLED is "1".
  *
- * Whatever a tool answers goes to OpenAI, so answers hold totals and menu item names only: never
- * customers, staff, order numbers or anything else that identifies a person.
+ * Whatever a tool answers goes to OpenAI, so answers never hold customers, staff, order numbers or
+ * anything else that identifies a person. Sales come from the ledger here; the rest comes from the
+ * digest the shop server uploads while ChatGPT is connected (src/domain/ownerDigest.ts, SCRUM-198),
+ * because this free-plan Worker cannot fold the shop's whole history for each question. The one
+ * thing it can write is a supplier's draft order, into the inbox: placing an order stays a person's.
  */
 export const MCP_CLIENT_ID = 'cheesybeez-chatgpt';
-export const MCP_SCOPE = 'sales.read';
+export const MCP_SCOPE = 'shop.owner';
 /** No handshake: each request says its version in _meta. */
 const MODERN_VERSION = '2026-07-28';
 /** With the initialize handshake. */
 const LEGACY_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
 const ALL_VERSIONS = [MODERN_VERSION, ...LEGACY_VERSIONS];
 const SERVER_INFO = { name: 'cheesybeez', title: 'CheesyBeez', version: '1.0.0' };
-const INSTRUCTIONS = "Answers the owner's questions about his shop. Use only the numbers the tools return.";
+const INSTRUCTIONS = "Answers the owner's questions about his shop. Use only the numbers the tools return, and say how old they are when as_of is more than an hour old. A what-if on a price is your own arithmetic on those numbers: say so. It can fill in a supplier's draft order only when he asks; it cannot place an order.";
 const VERSION_KEY = 'io.modelcontextprotocol/protocolVersion';
 const CAPABILITIES_KEY = 'io.modelcontextprotocol/clientCapabilities';
 const CODE_MS = 5 * 60_000;
@@ -90,7 +96,7 @@ const notRight = () => page(400, '<h1>This connection is not right</h1><p>Start 
 interface Ask { redirectUri: string; state: string; challenge: string }
 
 const approvalPage = ({ redirectUri, state, challenge }: Ask, resource: string, wrong: boolean) => page(wrong ? 401 : 200, `<h1>Connect ChatGPT to your shop</h1>
-<p>ChatGPT will read your sales, today's and past days': totals and which items sold. It cannot change anything. OpenAI keeps what it reads in your chat history.</p>
+<p>ChatGPT will read your sales, what needs attention, your stock, supplier prices and orders, and what each dish costs and earns. No staff names. It can fill in a supplier's draft order when you ask; you place the order yourself in the app. It cannot change anything else. OpenAI keeps what it reads in your chat history.</p>
 <form method="post" action="${OAUTH}/authorize">
 <input type="hidden" name="client_id" value="${MCP_CLIENT_ID}">
 <input type="hidden" name="redirect_uri" value="${escapeHtml(redirectUri)}">
@@ -340,7 +346,161 @@ export const salesBetween = async (db: D1Like, tenantId: string, t: number, args
   };
 };
 
+/** A digest bigger than this is not one: a whole shop's is tens of KB, and D1 rows stop at 2 MB. */
+const MAX_DIGEST_CHARS = 1_000_000;
+/** How many pending drafts to look back through; the shop server takes them within seconds. */
+const PENDING_INBOX = 50;
+const MAX_DRAFT_LINES = 50;
+const MAX_PACKS = 1000;
+
+interface Digest { digest: OwnerDigest; computedAt: number }
+
+const NO_DIGEST = 'The shop PC has not sent this yet. It sends it a few minutes after ChatGPT connects, while the PC is on and online. Sales still work.';
+
+const digestOf = async (db: D1Like, tenantId: string): Promise<Digest | null> => {
+  const row = await db.prepare('SELECT computed_at, body FROM owner_digests WHERE tenant_id = ?').bind(tenantId).first<{ computed_at: number; body: string }>();
+  return row ? { digest: JSON.parse(row.body) as OwnerDigest, computedAt: row.computed_at } : null;
+};
+
+const asOf = (computedAt: number, t: number) => ({ date: lkDate(computedAt), time: lkTime(computedAt), minutes_ago: Math.max(0, Math.floor((t - computedAt) / 60_000)) });
+
+const attentionAnswer = ({ digest, computedAt }: Digest, t: number) => ({
+  as_of: asOf(computedAt, t),
+  cards: digest.attention.map((c) => ({
+    tone: c.tone,
+    title: c.title,
+    detail: c.detail,
+    items: c.items.map((i) => ({ what: i.what, note: i.note ?? null, amount: i.amountCents === undefined ? null : rupees(i.amountCents) })),
+  })),
+});
+
+const stockAnswer = ({ digest, computedAt }: Digest, t: number, args: Record<string, unknown> | undefined) => {
+  const onlyAttention = args?.only_needing_attention === true;
+  const items = onlyAttention ? digest.stock.filter((i) => i.status === 'out' || i.status === 'low' || i.status === 'unsure') : digest.stock;
+  return {
+    as_of: asOf(computedAt, t),
+    items: items.map((i) => ({
+      item_id: i.id,
+      name: i.name,
+      category: i.category,
+      status: i.status,
+      on_hand: i.onHand,
+      used_per_day: i.usedPerDay,
+      lasts_days: i.lastsDays,
+      pack: i.pack,
+      pack_price: rupees(i.packPriceCents),
+      suggested_packs: i.suggestedPacks,
+      on_order_packs: i.onOrderPacks,
+      supplier_ids: i.supplierIds,
+    })),
+    semi_processed: digest.semiProcessed,
+    can_make: digest.dishes.filter((d) => d.canMake !== null).map((d) => ({ name: d.name, size: d.size, can_make: d.canMake as number })),
+  };
+};
+
+const profitAnswer = ({ digest, computedAt }: Digest, t: number) => ({
+  as_of: asOf(computedAt, t),
+  dishes: digest.dishes.map((d) => {
+    const earned = d.foodCostCents === null ? null : d.priceCents - d.foodCostCents;
+    return {
+      name: d.name,
+      size: d.size,
+      price: rupees(d.priceCents),
+      food_cost: d.foodCostCents === null ? null : rupees(d.foodCostCents),
+      earned_each: earned === null ? null : earned < 0 ? `-${rupees(-earned)}` : rupees(earned),
+      margin_percent: d.marginPercent,
+      sold_last_28_days: d.soldLast28Days,
+    };
+  }),
+  unanswered_cost_questions: digest.unansweredCosts,
+});
+
+const packsOut = (l: DigestLine) => ({ item_id: l.itemId, name: l.name, packs: l.packs, ...(l.unitPriceCents === undefined ? {} : { pack_price: rupees(l.unitPriceCents) }) });
+
+const ordersAnswer = ({ digest, computedAt }: Digest, t: number) => ({
+  as_of: asOf(computedAt, t),
+  suppliers: digest.suppliers.map((s) => ({
+    supplier_id: s.id,
+    name: s.name,
+    usual_days_to_deliver: s.leadDays,
+    draft: s.draft.map(packsOut),
+    suggested: s.suggested.map(packsOut),
+    open_orders: s.openOrders.map((o) => ({ number: o.number, status: o.status, placed_on: lkDate(o.placedAt), lines: o.lines.map(packsOut) })),
+  })),
+});
+
+/** The newest draft for this supplier the shop has not folded in yet: a second request must build on the first. */
+const pendingDraft = async (db: D1Like, tenantId: string, supplierId: string, computedAt: number) => {
+  const { results } = await db.prepare('SELECT body FROM inbox WHERE tenant_id = ? AND received_at > ? ORDER BY seq DESC LIMIT ?')
+    .bind(tenantId, computedAt, PENDING_INBOX).all<{ body: string }>();
+  for (const { body } of results) {
+    const e = JSON.parse(body) as SyncEvent;
+    if (e.type === 'stock.draft_set' && e.supplierId === supplierId) return e.lines;
+  }
+  return null;
+};
+
+/**
+ * Sets some lines of one supplier's draft, leaving the others as they are; 0 packs takes a line off.
+ * Nothing is ordered: the owner or a manager places it on the Order page. The answer says what would
+ * put the draft back. Prices are never set here, so a line keeps the price it had, or the item's own.
+ */
+const setDraftLines = async (db: D1Like, tenantId: string, deviceId: string, found: Digest, t: number, args: Record<string, unknown> | undefined) => {
+  const { digest } = found;
+  const supplierId = args?.supplier_id;
+  const lines = args?.lines;
+  const supplier = digest.suppliers.find((s) => s.id === supplierId);
+  if (!supplier) return 'Unknown supplier_id. Use one from get_supplier_orders.';
+  if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_DRAFT_LINES) return `lines must hold 1 to ${MAX_DRAFT_LINES} items.`;
+
+  const pending = await pendingDraft(db, tenantId, supplier.id, found.computedAt);
+  const before = new Map<string, { packs: number; unitPriceCents?: number }>(
+    (pending ?? supplier.draft).map((l) => [l.itemId, { packs: l.packs, ...(l.unitPriceCents === undefined ? {} : { unitPriceCents: l.unitPriceCents }) }]),
+  );
+  const after = new Map(before);
+  const toUndo = new Map<string, number>();
+  for (const line of lines as { item_id?: unknown; packs?: unknown }[]) {
+    const packs = line?.packs;
+    const item = digest.stock.find((i) => i.id === line?.item_id);
+    if (!item) return `Unknown item_id ${JSON.stringify(line?.item_id)}. Use one from get_stock.`;
+    if (!item.supplierIds.includes(supplier.id)) return `${supplier.name} does not sell ${item.name} according to the shop's price list.`;
+    if (typeof packs !== 'number' || !Number.isFinite(packs) || packs < 0 || packs > MAX_PACKS) return `packs for ${item.name} must be from 0 to ${MAX_PACKS}.`;
+    if (!toUndo.has(item.id)) toUndo.set(item.id, before.get(item.id)?.packs ?? 0);
+    if (packs === 0) after.delete(item.id);
+    else after.set(item.id, { ...after.get(item.id), packs });
+  }
+
+  const nameOf = (id: string) => digest.stock.find((i) => i.id === id)?.name ?? id;
+  const unchanged = after.size === before.size && [...after].every(([id, l]) => before.get(id)?.packs === l.packs);
+  if (!unchanged) {
+    const event = {
+      id: crypto.randomUUID(),
+      shopId: tenantId,
+      type: 'stock.draft_set',
+      at: t,
+      orderNumber: 0,
+      actor: { id: `chatgpt-${deviceId}`, name: 'ChatGPT, for the owner', role: 'owner' },
+      supplierId: supplier.id,
+      lines: [...after].map(([itemId, l]) => ({ itemId, ...l })),
+    };
+    const checked = validatePush({ events: [event] }, tenantId);
+    if ('reason' in checked) return `The shop would refuse this draft: ${checked.reason}.`;
+    await db.prepare('INSERT INTO inbox (tenant_id, id, device_id, received_at, body) VALUES (?, ?, ?, ?, ?)')
+      .bind(tenantId, event.id, deviceId, t, JSON.stringify(event)).run();
+  }
+  const ordered = new Set(supplier.openOrders.flatMap((o) => o.lines.map((l) => l.itemId)));
+  return {
+    supplier: supplier.name,
+    changed: !unchanged,
+    draft: [...after].map(([id, l]) => ({ item_id: id, name: nameOf(id), packs: l.packs })),
+    already_on_an_open_order: [...after.keys()].filter((id) => ordered.has(id)).map(nameOf),
+    to_undo: { supplier_id: supplier.id, lines: [...toUndo].map(([item_id, packs]) => ({ item_id, packs })) },
+    nothing_is_ordered: "This is only a draft on the app's Order page. A person places it. It reaches the shop within a minute while the PC is online.",
+  };
+};
+
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const DRAFT_ONLY = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const SIGN_IN = [{ type: 'oauth2', scopes: [MCP_SCOPE] }];
 const MONEY_FIELDS = {
   orders: { type: 'integer' },
@@ -367,6 +527,18 @@ const MONEY_FIELDS = {
   },
 };
 const MONEY_REQUIRED = ['orders', 'total', 'cash', 'bank_transfer', 'other_payments', 'discounts_given', 'online_orders', 'top_items', 'compared_with', 'last_copied_from_shop'];
+
+const NO_INPUT = { type: 'object', properties: {}, additionalProperties: false };
+const AS_OF = {
+  type: 'object',
+  description: 'When the shop PC worked this out, in Sri Lanka time',
+  properties: { date: { type: 'string' }, time: { type: 'string' }, minutes_ago: { type: 'integer' } },
+  required: ['date', 'time', 'minutes_ago'],
+};
+const PACK_LINES = {
+  type: 'array',
+  items: { type: 'object', properties: { item_id: { type: 'string' }, name: { type: 'string' }, packs: { type: 'number' }, pack_price: { type: 'string' } }, required: ['item_id', 'name', 'packs'] },
+};
 
 const TOOLS = [{
   name: 'get_today_sales',
@@ -411,7 +583,169 @@ const TOOLS = [{
   },
   annotations: READ_ONLY,
   securitySchemes: SIGN_IN,
+}, {
+  name: 'get_attention',
+  title: 'What needs attention',
+  description: "The owner's To do list from his Today screen: what needs a decision first, then news. Use it for \"anything I should deal with?\". It never names staff: do not guess who.",
+  inputSchema: NO_INPUT,
+  outputSchema: {
+    type: 'object',
+    properties: {
+      as_of: AS_OF,
+      cards: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            tone: { type: 'string', description: 'attention, info or good' },
+            title: { type: 'string' },
+            detail: { type: 'string' },
+            items: { type: 'array', items: { type: 'object', properties: { what: { type: 'string' }, note: { type: ['string', 'null'] }, amount: { type: ['string', 'null'] } }, required: ['what', 'note', 'amount'] } },
+          },
+          required: ['tone', 'title', 'detail', 'items'],
+        },
+      },
+    },
+    required: ['as_of', 'cards'],
+  },
+  annotations: READ_ONLY,
+  securitySchemes: SIGN_IN,
+}, {
+  name: 'get_stock',
+  title: 'Stock',
+  description: 'Every stock item: status, what is on hand, use per day, how many days it lasts, what is on order, and how many of each dish the stock can make. status unknown means never counted, not empty; unsure means sales could not be taken off it. A count is only as good as the last shelf count.',
+  inputSchema: {
+    type: 'object',
+    properties: { only_needing_attention: { type: 'boolean', description: 'Only items that are out, low or unsure' } },
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      as_of: AS_OF,
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            item_id: { type: 'string' },
+            name: { type: 'string' },
+            category: { type: 'string' },
+            status: { type: 'string', description: 'out, low, unsure, ok or unknown' },
+            on_hand: { type: ['string', 'null'] },
+            used_per_day: { type: ['string', 'null'] },
+            lasts_days: { type: ['number', 'null'] },
+            pack: { type: 'string' },
+            pack_price: { type: 'string' },
+            suggested_packs: { type: 'number' },
+            on_order_packs: { type: 'number' },
+            supplier_ids: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['item_id', 'name', 'category', 'status', 'on_hand', 'used_per_day', 'lasts_days', 'pack', 'pack_price', 'suggested_packs', 'on_order_packs', 'supplier_ids'],
+        },
+      },
+      semi_processed: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, onHand: { type: 'string' }, status: { type: 'string' } }, required: ['name', 'onHand', 'status'] } },
+      can_make: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, size: { type: 'string' }, can_make: { type: 'integer' } }, required: ['name', 'size', 'can_make'] } },
+    },
+    required: ['as_of', 'items', 'semi_processed', 'can_make'],
+  },
+  annotations: READ_ONLY,
+  securitySchemes: SIGN_IN,
+}, {
+  name: 'get_menu_profit',
+  title: 'What each dish earns',
+  description: 'Every dish and size on the menu: price, food cost, what it earns each, margin, and how many sold in the last 28 days. Food cost is ingredients only, not labour or rent. food_cost is null until every part of the recipe has a price: do not estimate it. For a what-if on a price, work it out from these numbers and say it is your own arithmetic.',
+  inputSchema: NO_INPUT,
+  outputSchema: {
+    type: 'object',
+    properties: {
+      as_of: AS_OF,
+      dishes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            size: { type: 'string' },
+            price: { type: 'string' },
+            food_cost: { type: ['string', 'null'] },
+            earned_each: { type: ['string', 'null'] },
+            margin_percent: { type: ['integer', 'null'] },
+            sold_last_28_days: { type: 'number' },
+          },
+          required: ['name', 'size', 'price', 'food_cost', 'earned_each', 'margin_percent', 'sold_last_28_days'],
+        },
+      },
+      unanswered_cost_questions: { type: 'integer', description: 'Recipe questions on the Recipes screen holding some dishes back' },
+    },
+    required: ['as_of', 'dishes', 'unanswered_cost_questions'],
+  },
+  annotations: READ_ONLY,
+  securitySchemes: SIGN_IN,
+}, {
+  name: 'get_supplier_orders',
+  title: 'Supplier orders',
+  description: "For each supplier: the draft waiting on the Order page, what the reorder rule suggests buying now, open orders, and the usual days to deliver. Call this before draft_supplier_order.",
+  inputSchema: NO_INPUT,
+  outputSchema: {
+    type: 'object',
+    properties: {
+      as_of: AS_OF,
+      suppliers: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            supplier_id: { type: 'string' },
+            name: { type: 'string' },
+            usual_days_to_deliver: { type: ['number', 'null'] },
+            draft: PACK_LINES,
+            suggested: PACK_LINES,
+            open_orders: { type: 'array', items: { type: 'object', properties: { number: { type: 'string' }, status: { type: 'string' }, placed_on: { type: 'string' }, lines: PACK_LINES }, required: ['number', 'status', 'placed_on', 'lines'] } },
+          },
+          required: ['supplier_id', 'name', 'usual_days_to_deliver', 'draft', 'suggested', 'open_orders'],
+        },
+      },
+    },
+    required: ['as_of', 'suppliers'],
+  },
+  annotations: READ_ONLY,
+  securitySchemes: SIGN_IN,
+}, {
+  name: 'draft_supplier_order',
+  title: "Fill in a supplier's draft order",
+  description: "Sets items on one supplier's draft order on the app's Order page, in packs; other lines stay, and 0 packs takes a line off. Use only when the owner asks for it. It orders nothing and sends nothing: he or a manager places it. Tell him what changed, and if he says undo, call this again with to_undo from the answer.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      supplier_id: { type: 'string', description: 'From get_supplier_orders' },
+      lines: {
+        type: 'array',
+        minItems: 1,
+        maxItems: MAX_DRAFT_LINES,
+        items: { type: 'object', properties: { item_id: { type: 'string', description: 'From get_stock' }, packs: { type: 'number', minimum: 0, maximum: MAX_PACKS } }, required: ['item_id', 'packs'], additionalProperties: false },
+      },
+    },
+    required: ['supplier_id', 'lines'],
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      supplier: { type: 'string' },
+      changed: { type: 'boolean' },
+      draft: { type: 'array', items: { type: 'object', properties: { item_id: { type: 'string' }, name: { type: 'string' }, packs: { type: 'number' } }, required: ['item_id', 'name', 'packs'] } },
+      already_on_an_open_order: { type: 'array', items: { type: 'string' } },
+      to_undo: { type: 'object', properties: { supplier_id: { type: 'string' }, lines: { type: 'array', items: { type: 'object', properties: { item_id: { type: 'string' }, packs: { type: 'number' } }, required: ['item_id', 'packs'] } } }, required: ['supplier_id', 'lines'] },
+      nothing_is_ordered: { type: 'string' },
+    },
+    required: ['supplier', 'changed', 'draft', 'already_on_an_open_order', 'to_undo', 'nothing_is_ordered'],
+  },
+  annotations: DRAFT_ONLY,
+  securitySchemes: SIGN_IN,
 }];
+
+const TOOL_NAMES = new Set(TOOLS.map((tool) => tool.name));
 
 const rpcResult = (id: unknown, result: Record<string, unknown>) => json(200, {
   jsonrpc: '2.0',
@@ -436,6 +770,20 @@ const modernRefusal = (req: Request, id: unknown, method: string, params: Record
   return null;
 };
 
+const answerTool = async (tool: string, db: D1Like, link: { tenant_id: string; device_id: string }, t: number, args: Record<string, unknown> | undefined): Promise<string | Record<string, unknown>> => {
+  if (tool === 'get_today_sales') return todaySales(db, link.tenant_id, t);
+  if (tool === 'get_sales') return salesBetween(db, link.tenant_id, t, args);
+  const found = await digestOf(db, link.tenant_id);
+  if (!found) return NO_DIGEST;
+  switch (tool) {
+    case 'get_attention': return attentionAnswer(found, t);
+    case 'get_stock': return stockAnswer(found, t, args);
+    case 'get_menu_profit': return profitAnswer(found, t);
+    case 'get_supplier_orders': return ordersAnswer(found, t);
+    default: return setDraftLines(db, link.tenant_id, link.device_id, found, t, args);
+  }
+};
+
 const mcp = async (req: Request, url: URL, c: McpContext): Promise<Response> => {
   const t = c.now();
   const metadata = `${url.origin}${RESOURCE_METADATA}`;
@@ -447,8 +795,8 @@ const mcp = async (req: Request, url: URL, c: McpContext): Promise<Response> => 
   const h = req.headers.get('authorization');
   const bearer = h?.startsWith('Bearer ') ? h.slice(7) : null;
   const link = bearer
-    ? await c.db.prepare(`SELECT l.tenant_id FROM mcp_links l WHERE l.access_hash = ? AND l.access_expires_at > ? AND ${STILL_LINKED}`)
-      .bind(await sha256Hex(bearer), t).first<{ tenant_id: string }>()
+    ? await c.db.prepare(`SELECT l.tenant_id, l.device_id FROM mcp_links l WHERE l.access_hash = ? AND l.access_expires_at > ? AND ${STILL_LINKED}`)
+      .bind(await sha256Hex(bearer), t).first<{ tenant_id: string; device_id: string }>()
     : null;
   // A wrong or old token always hears 401, which is what makes ChatGPT refresh or sign in again.
   if (bearer && !link) return unauthorized();
@@ -485,7 +833,7 @@ const mcp = async (req: Request, url: URL, c: McpContext): Promise<Response> => 
     case 'tools/list': return rpcResult(id, { tools: TOOLS, ttlMs: 300_000, cacheScope: 'public' });
     case 'tools/call': {
       const tool = params?.name;
-      if (tool !== 'get_today_sales' && tool !== 'get_sales') return rpcError(id, -32602, 'unknown tool');
+      if (typeof tool !== 'string' || !TOOL_NAMES.has(tool)) return rpcError(id, -32602, 'unknown tool');
       // The only place shop data is read, and the sign-in challenge ChatGPT shows its linking screen for.
       if (!link) {
         return rpcResult(id, {
@@ -494,14 +842,33 @@ const mcp = async (req: Request, url: URL, c: McpContext): Promise<Response> => 
           _meta: { 'mcp/www_authenticate': [`Bearer resource_metadata="${metadata}", error="insufficient_scope", error_description="Sign in to your shop to continue"`] },
         });
       }
-      const sales = tool === 'get_today_sales'
-        ? await todaySales(c.db, link.tenant_id, t)
-        : await salesBetween(c.db, link.tenant_id, t, params?.arguments as Record<string, unknown> | undefined);
-      if (typeof sales === 'string') return rpcResult(id, { content: [{ type: 'text', text: sales }], isError: true });
-      return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify(sales) }], structuredContent: sales, isError: false });
+      const args = params?.arguments as Record<string, unknown> | undefined;
+      const answer = await answerTool(tool, c.db, link, t, args);
+      if (typeof answer === 'string') return rpcResult(id, { content: [{ type: 'text', text: answer }], isError: true });
+      return rpcResult(id, { content: [{ type: 'text', text: JSON.stringify(answer) }], structuredContent: answer, isError: false });
     }
     default: return rpcError(id, -32601, 'method not found', params?._meta ? 404 : 200);
   }
+};
+
+/** The shop server's side: whether to bother, and the upload. Only a shop server, for its own shop. */
+const digestRoutes = async (req: Request, path: string, c: McpContext): Promise<Response> => {
+  const { tenantId } = await c.authenticate(req, ['shop_server']);
+  const t = c.now();
+  if (path === 'wanted') {
+    const row = await c.db.prepare(`SELECT COUNT(*) AS n FROM mcp_links l WHERE l.tenant_id = ? AND l.refresh_expires_at > ? AND ${STILL_LINKED}`)
+      .bind(tenantId, t).first<{ n: number }>();
+    return json(200, { wanted: (row?.n ?? 0) > 0 });
+  }
+  const text = await req.text();
+  if (text.length > MAX_DIGEST_CHARS) return json(413, { error: 'too_large' });
+  let digest: { computedAt?: unknown } | undefined;
+  try { digest = (JSON.parse(text) as { digest?: { computedAt?: unknown } }).digest; } catch { /* answered below */ }
+  if (!digest || !Number.isSafeInteger(digest.computedAt)) return json(400, { error: 'not_a_digest' });
+  await c.db.prepare(`INSERT INTO owner_digests (tenant_id, computed_at, uploaded_at, body) VALUES (?, ?, ?, ?)
+    ON CONFLICT (tenant_id) DO UPDATE SET computed_at = excluded.computed_at, uploaded_at = excluded.uploaded_at, body = excluded.body`)
+    .bind(tenantId, digest.computedAt as number, t, JSON.stringify(digest)).run();
+  return json(200, { ok: true });
 };
 
 export async function mcpRoutes(req: Request, url: URL, c: McpContext): Promise<Response | null> {
@@ -530,6 +897,8 @@ export async function mcpRoutes(req: Request, url: URL, c: McpContext): Promise<
   if (path === `${OAUTH}/register` && req.method === 'POST') return register(req);
   if (path === `${OAUTH}/authorize` && (req.method === 'GET' || req.method === 'POST')) return authorize(req, url, c);
   if (path === `${OAUTH}/token` && req.method === 'POST') return token(req, url, c);
+  if (path === `${OAUTH}/wanted` && req.method === 'GET') return digestRoutes(req, 'wanted', c);
+  if (path === `${OAUTH}/digest` && req.method === 'PUT') return digestRoutes(req, 'digest', c);
   if (path === `${OAUTH}/connection` && req.method === 'GET') return connection(req, 'connection', c);
   if ((path === `${OAUTH}/disconnect` || path === `${OAUTH}/reconnect`) && req.method === 'POST') return connection(req, path.slice(OAUTH.length + 1), c);
   return json(404, { error: 'server', message: 'not found' });

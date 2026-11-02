@@ -98,10 +98,19 @@ Add to Home Screen (iPhone) makes it an app (`/manager.webmanifest`).
 
 ## The owner's ChatGPT (SCRUM-197)
 
-A ChatGPT plugin reads sales through an MCP server at `/mcp` (`cloud/src/mcp.ts`): today, and any day or
-period up to 92 days, compared with the usual for that weekday or the period before. It is read-only. It is on for staging and off on the live cloud until `MCP_ENABLED = "1"` is added to
-`[vars]` in `wrangler.toml`. What it reads goes to OpenAI, so answers hold totals and menu item names
+A ChatGPT plugin reads the shop through an MCP server at `/mcp` (`cloud/src/mcp.ts`). Sales: today, and any day or
+period up to 92 days, compared with the usual for that weekday or the period before. SCRUM-198 adds what needs
+attention, stock, what each dish earns and supplier orders, and one tool that writes: it fills in a supplier's
+**draft** order. A person still places it. It is on for staging and live (`MCP_ENABLED = "1"` in `cloud/wrangler.toml`).toml`. What it reads goes to OpenAI, so answers hold totals and menu item names
 only: no customers, staff or order numbers.
+
+**Where the rest comes from.** This Worker is on the free plan and cannot fold the shop's whole history per
+question, so the shop server builds a digest (`src/domain/ownerDigest.ts`) in a below-normal-priority child process
+(`server/digestWorker.ts`) and uploads it (`PUT /api/v1/mcp/digest`, table `owner_digests`). It asks
+`GET /api/v1/mcp/wanted` first and does nothing, with no extra process, unless ChatGPT is connected. Connected: at
+most every 10 minutes when something is new, at least every half hour. The digest is an allowlist: no staff names,
+order numbers, free-text notes or phone numbers, and a new To do card goes out only once it is listed in `CARDS`.
+A draft goes through the inbox as `stock.draft_set`, signed "ChatGPT, for the owner".
 
 To add it: in ChatGPT, open Plugins (`chatgpt.com/plugins`), press +, choose **Add custom MCP server**,
 enter `<cloud address>/mcp`, then **Create as a plugin**. ChatGPT registers itself, so there is no
