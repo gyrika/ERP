@@ -270,6 +270,21 @@ button { cursor: pointer; }
 .o-form input { min-height: var(--target); padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--page); color: var(--heading); font-size: var(--text-body); }
 .o-form input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .o-hint { color: var(--bad); font-size: var(--text-caption); font-weight: 400; }
+.o-form textarea { min-height: calc(var(--target) * 1.6); padding: var(--space-1) var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--page); color: var(--heading); font: inherit; font-size: var(--text-body); resize: vertical; }
+.o-form textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* Pickup or delivery (SCRUM-193): two big halves, the chosen one filled. */
+.o-kind { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-1); margin-top: var(--space-2); }
+.o-kind button { min-height: 56px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); padding: 0 var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-card); background: transparent; color: var(--heading); font: inherit; font-weight: 600; transition: background 150ms var(--ease), border-color 150ms var(--ease); }
+.o-kind button[aria-checked='true'] { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
+.o-kind svg { width: 20px; height: 20px; stroke-width: 1.75; }
+.o-kind__fee { font-size: var(--text-caption); font-weight: 500; opacity: 0.8; white-space: nowrap; }
+.o-fee { display: flex; justify-content: space-between; padding-top: var(--space-1); color: var(--body); }
+.o-locate { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); }
+.o-locate__ok { display: inline-flex; align-items: center; gap: var(--space-half); color: var(--heading); font-weight: 600; }
+.o-locate svg { width: 18px; height: 18px; stroke-width: 1.75; }
+/* .o-btn is styled for desktop only; the location button needs it on phones too. */
+.o-locate .o-btn { min-height: var(--target); display: inline-flex; align-items: center; gap: var(--space-1); padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--card); color: var(--heading); font: inherit; font-weight: 600; }
 .o-error { margin: 0; color: var(--bad); font-weight: 500; }
 .o-muted { color: var(--caption); font-size: var(--text-caption); font-weight: 400; }
 .o-center { margin: 0; text-align: center; }

@@ -24,7 +24,7 @@ const setUp = (mode: 'off' | 'shadow' | 'live') => [
     { id: 'cam2', name: 'Store room', ip: '192.168.1.21', rtspPath: '/stream2', enabled: false },
   ] }),
   ev({ type: 'vision.zones_set', cameraId: 'cam1', zones: [zone] }),
-  ev({ type: 'vision.settings_set', mode, shortVisitS: 180, leftCheckS: 10, autoFreeS: 300, cpuLimit: 20 }),
+  ev({ type: 'vision.settings_set', mode }),
 ];
 const until = async (ok: () => boolean, ms = 5000) => {
   const end = Date.now() + ms;
@@ -38,8 +38,8 @@ test("the worker's config: Live only (a shop left in the old Shadow is Off), the
   assert.equal(workerConfig(setUp('live'), null, login), null, 'no pack (or a new one on its way): paused');
   const c = workerConfig(setUp('live'), 'C:/pack', login)!;
   assert.equal(c.mode, 'live');
-  assert.equal(c.cpuLimit, 20);
-  assert.deepEqual([c.shortVisitS, c.leftCheckS, c.autoFreeS], [180, 10, 300], 'the owner\'s table rules');
+  assert.equal(c.cpuLimit, 50);
+  assert.deepEqual([c.shortVisitS, c.leftCheckS, c.autoFreeS], [180, 0, 20], 'the owner\'s table rules');
   assert.deepEqual(c.cameras.map((x) => x.id), ['cam1'], 'only "Use for CV" cameras');
   assert.equal(c.cameras[0].url, 'rtsp://admin:p%40ss@192.168.1.20:554/stream2');
   assert.deepEqual(c.cameras[0].zones, [zone]);

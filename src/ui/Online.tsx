@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { DECLINE_REASONS, READY_IN_MINUTES, type OnlineOrder } from '../domain/online.ts';
+import {
+  DECLINE_REASONS, DELIVER_IN_MINUTES, DELIVERY_DECLINE_REASONS, pinLink, READY_IN_MINUTES, type OnlineOrder,
+} from '../domain/online.ts';
 import { fmt } from '../domain/money.ts';
 import { onlineOrders, type OnlineState } from '../services/onlineClient.ts';
 import { chime } from './chime.ts';
@@ -7,8 +9,10 @@ import { describe } from './ShorthandBar.tsx';
 
 /**
  * Online orders at the counter (cheesybeez.com). Serves the cashier: a customer at home
- * has ordered for pickup and waits to hear back. What they need next: see the order,
- * accept it with a time (it goes straight to the kitchen) or decline it with a reason.
+ * has ordered for pickup or delivery and waits to hear back. What they need next: see the
+ * order, accept it with a time (it goes straight to the kitchen) or decline it with a reason;
+ * for a delivery, tap Out as the rider leaves (the bill for the bag prints), then Charge the
+ * cash he brings back as for any order.
  */
 export const useOnline = (): OnlineState => useSyncExternalStore(onlineOrders.subscribe, onlineOrders.get);
 
@@ -47,21 +51,30 @@ function NewOrder({ order, onAccept, onDecline }: {
   order: OnlineOrder; onAccept: (minutes: number) => void; onDecline: (reason: string) => void;
 }) {
   const [declining, setDeclining] = useState(false);
+  const delivery = order.kind === 'delivery';
   return (
-    <article className="online__order" aria-label={`Online order from ${order.name}`}>
+    <article className="online__order" aria-label={`${delivery ? 'Delivery' : 'Online'} order from ${order.name}`}>
       <header className="online__who">
+        {delivery && <span className="online__kind">Delivery</span>}
         <b>{order.name}</b>
         <span className="num">{order.phone}</span>
         <span>{ago(order.createdAt, Date.now())}</span>
         <b className="num online__total">{fmt(order.total)}</b>
       </header>
+      {delivery && <Address order={order} />}
       <ul className="online__lines">
         {order.lines.map((l, i) => <li key={i}>{describe(l)}</li>)}
+        {delivery && (
+          <li className="online__fee">
+            <span>Delivery{order.distanceKm !== null && <span className="num"> {order.distanceKm} km</span>}</span>
+            <span className="num">· {fmt(order.deliveryFee)}</span>
+          </li>
+        )}
       </ul>
       {order.note && <p className="online__note">“{order.note}”</p>}
       {declining ? (
         <div className="chips" role="group" aria-label="Why decline">
-          {DECLINE_REASONS.map((r) => (
+          {(delivery ? DELIVERY_DECLINE_REASONS : DECLINE_REASONS).map((r) => (
             <button key={r} type="button" className="chip chip--danger" onClick={() => onDecline(r)}>{r}</button>
           ))}
           <button type="button" className="linkbtn" onClick={() => setDeclining(false)}>Back</button>
@@ -69,7 +82,7 @@ function NewOrder({ order, onAccept, onDecline }: {
       ) : (
         <div className="chips" role="group" aria-label="Accept: ready in">
           <span className="online__ask">Ready in</span>
-          {READY_IN_MINUTES.map((m) => (
+          {(delivery ? DELIVER_IN_MINUTES : READY_IN_MINUTES).map((m) => (
             <button key={m} type="button" className="chip chip--solid num" onClick={() => onAccept(m)}>{m} min</button>
           ))}
           <button type="button" className="linkbtn linkbtn--danger" onClick={() => setDeclining(true)}>Decline</button>
@@ -79,10 +92,40 @@ function NewOrder({ order, onAccept, onDecline }: {
   );
 }
 
-export function OnlineSheet({ state, onAccept, onClose }: {
+/** Where the rider goes: the address as typed, and the customer's shared location when there is one. */
+function Address({ order }: { order: OnlineOrder }) {
+  return (
+    <p className="online__address">
+      {order.address}
+      {order.pin && <> · <a href={pinLink(order.pin)} target="_blank" rel="noopener noreferrer">Map</a></>}
+    </p>
+  );
+}
+
+/** One accepted order: when it is ready, and for a delivery, Out as the rider leaves and the cash to come. */
+function Going({ order, onOut }: { order: OnlineOrder; onOut: () => void }) {
+  const delivery = order.kind === 'delivery';
+  const when = order.status === 'out' ? `On the way · collect ${fmt(order.total)}`
+    : order.status === 'ready' ? (delivery ? 'Ready for the rider' : 'Ready for pickup')
+      : `Ready by ${order.readyBy ? clock(order.readyBy) : '…'}`;
+  return (
+    <li>
+      <b className="num">{order.orderNumber}</b> {order.name}
+      {delivery && <span className="online__kind">Delivery</span>}
+      <span>{when}</span>
+      {delivery && order.status !== 'out' && (
+        <button type="button" className="chip chip--solid" onClick={onOut} aria-label={`Order ${order.orderNumber}: out with the rider`}>Out</button>
+      )}
+    </li>
+  );
+}
+
+export function OnlineSheet({ state, onAccept, onOut, onClose }: {
   state: OnlineState;
   /** Puts the order in the kitchen and tells the customer. Returns why not, or null. */
   onAccept: (order: OnlineOrder, minutes: number) => Promise<string | null>;
+  /** The rider is leaving with a delivery: tells the customer and prints the bill for the bag. Returns why not, or null. */
+  onOut: (order: OnlineOrder) => Promise<string | null>;
   onClose: () => void;
 }) {
   const [error, setError] = useState('');
@@ -93,7 +136,7 @@ export function OnlineSheet({ state, onAccept, onClose }: {
   }, [onClose]);
 
   const fresh = state.orders.filter((o) => o.status === 'new');
-  const going = state.orders.filter((o) => o.status === 'accepted' || o.status === 'ready');
+  const going = state.orders.filter((o) => o.status === 'accepted' || o.status === 'ready' || o.status === 'out');
   const act = async (p: Promise<string | null>) => setError((await p) ?? '');
 
   return (
@@ -132,12 +175,7 @@ export function OnlineSheet({ state, onAccept, onClose }: {
             <section className="group" aria-label="Accepted">
               <h2>Accepted</h2>
               <ul className="online__going">
-                {going.map((o) => (
-                  <li key={o.id}>
-                    <b className="num">{o.orderNumber}</b> {o.name}
-                    <span>{o.status === 'ready' ? 'Ready for pickup' : `Ready by ${o.readyBy ? clock(o.readyBy) : '…'}`}</span>
-                  </li>
-                ))}
+                {going.map((o) => <Going key={o.id} order={o} onOut={() => void act(onOut(o))} />)}
               </ul>
             </section>
           )}

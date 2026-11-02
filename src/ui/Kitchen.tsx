@@ -208,7 +208,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                 {t.platform && <span className="ticket__tag">{platformLabel(t.platform)}</span>}
                 {t.online && !t.addOn && (
                   <span className="ticket__tag">
-                    Online · pickup {new Date(t.online.pickupBy).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    {t.online.delivery ? 'Delivery · by' : 'Online · pickup'} {new Date(t.online.pickupBy).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 )}
                 <span className="ticket__time num" aria-label={`Waiting ${elapsedLabel(elapsed)}`}>

@@ -28,6 +28,7 @@ import { useVoice, VoiceNote } from './VoiceKey.tsx';
 import { navData, navigate, onNavigate, startNav, useBackKeys } from './nav.ts';
 
 /** Visual Flow carries its own drawing library: loaded when it is opened, so the Register stays light. */
+import { MoneyOutView } from './MoneyOutView.tsx';
 const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
 /** The floor (SCRUM-168): loaded when it is opened, so the Register does not grow. */
 const FloorView = lazy(() => import('./floor/FloorView.tsx'));
@@ -247,6 +248,8 @@ export function Root() {
   if ((hash === '#flow' || hash.startsWith('#flow/')) && seesOwner) {
     return <Suspense fallback={<div className="owner" aria-busy="true" />}><VisualFlowView key={hash} onRegister={() => go('')} /></Suspense>;
   }
+  // What the shop paid (SCRUM-105): owners and managers; a cashier records cash out from the Register.
+  if (hash === '#money' && seesOwner) return <MoneyOutView onRegister={() => go('')} />;
   if (hash === TABLES && seesFloor) {
     return <Suspense fallback={<div className="floor" aria-busy="true" />}><FloorView onBack={() => go('')} /></Suspense>;
   }

@@ -4,6 +4,7 @@ import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
 import { photoFolder } from './photos.ts';
 import { startManagerInbox } from './managerInbox.ts';
+import { startOwnerDigest } from './ownerDigest.ts';
 import type { Device } from './store.ts';
 import { dryRunPrinter, switchablePrinter, systemPrinter } from './printer.ts';
 import { startOnline, type Online } from './online.ts';
@@ -82,6 +83,7 @@ cv.start();
 let replicator: ReturnType<typeof startReplicator> | null = null;
 let online: Online | null = null;
 let inbox: ReturnType<typeof startManagerInbox> | null = null;
+let ownerDigest: ReturnType<typeof startOwnerDigest> | null = null;
 /** The local device the manager phones' events are filed under: made the first time one arrives. */
 const inboxDevice = async (shop: string): Promise<Device> => {
   const id = settings.get().managerInboxDevice;
@@ -95,6 +97,7 @@ const startCloud = () => {
   replicator?.stop();
   online?.stop();
   inbox?.stop();
+  ownerDigest?.stop();
   const link = cloudLink();
   const shop = cloudShop();
   replicator = link && shop ? startReplicator({
@@ -114,6 +117,8 @@ const startCloud = () => {
     cursor: () => settings.get().managerInboxSeq ?? 0,
     setCursor: (seq) => { if (seq !== settings.get().managerInboxSeq) settings.set({ managerInboxSeq: seq }); },
   }) : null;
+  // What the owner's ChatGPT reads beyond sales, only while it is connected (SCRUM-198).
+  ownerDigest = link && shop ? startOwnerDigest({ url: link.url, token: link.token, tenantId: shop, store }) : null;
 };
 
 // The developer's Shops screen: only where server/.env has the admin password (the developer's laptop).
@@ -192,6 +197,6 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
-const stop = () => { setup.stopViews(); void vision.stop(); replicator?.stop(); online?.stop(); inbox?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
+const stop = () => { setup.stopViews(); void vision.stop(); replicator?.stop(); online?.stop(); inbox?.stop(); ownerDigest?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

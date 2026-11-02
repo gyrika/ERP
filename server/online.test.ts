@@ -9,12 +9,15 @@ const SHOP = 'cheesybeez-thalwila-ab12';
 const pizza = { itemId: 'devilled-chicken', qty: 1, size: 'L', adds: [], outs: [] };
 
 /** The real cloud on Node's SQLite, a shop server talking to it, and a switch for the internet. */
-async function setup(at = new Date(2026, 9, 13, 19, 0).getTime()) {
+async function setup(at = new Date(2026, 9, 13, 19, 0).getTime(), delivers = false) {
   const { d1, db } = fakeD1();
   db.prepare("INSERT INTO shops (id, name, created_at) VALUES (?, 'CheesyBeez Thalwila', 0)").run(SHOP);
   db.prepare("INSERT INTO devices (id, tenant_id, kind, token_hash, created_at) VALUES ('d', ?, 'shop_server', ?, 0)").run(SHOP, await sha256Hex('server-key'));
   const clock = { t: at };
-  const cloud = createCloud(d1, { now: () => clock.t, orderShop: SHOP });
+  const cloud = createCloud(d1, {
+    now: () => clock.t, orderShop: SHOP,
+    ...(delivers ? { shopLocation: '6.8235,79.8901', deliveryPerKm: '50', deliveryMaxKm: '5', roadKm: async () => 4.6 } : {}),
+  });
   const net = { up: true };
   const http = (async (url: string, init?: RequestInit) => {
     if (!net.up) throw new TypeError('fetch failed');
@@ -25,8 +28,8 @@ async function setup(at = new Date(2026, 9, 13, 19, 0).getTime()) {
     url: 'https://cloud.test', token: 'server-key', fetch: http, every: 3_600_000, now: () => clock.t,
     isOpen: () => open, setOpen: (v) => { open = v; },
   });
-  const customer = async (phone = '0771234567') => (await cloud(new Request('https://cloud.test/api/v1/orders', {
-    method: 'POST', body: JSON.stringify({ name: 'Kasun', phone, lines: [pizza], note: 'Ring the bell' }),
+  const customer = async (phone = '0771234567', more: Record<string, unknown> = {}) => (await cloud(new Request('https://cloud.test/api/v1/orders', {
+    method: 'POST', body: JSON.stringify({ name: 'Kasun', phone, lines: [pizza], note: 'Ring the bell', ...more }),
   }))).json() as Promise<{ id: string; token: string }>;
   const status = async (o: { id: string; token: string }) =>
     ((await (await cloud(new Request(`https://cloud.test/api/v1/orders/${o.id}?t=${o.token}`))).json()) as { status: string }).status;
@@ -85,5 +88,24 @@ test('declining an order the customer can no longer get is refused with a reason
   clock.t += 30 * 60_000;
   await online.pollNow();
   assert.equal(isOpen(), true, 'once a night only: it stays on');
+  online.stop();
+});
+
+test('a delivery: ready when the kitchen taps Done, out when the rider leaves, delivered when the cash is paid in', async () => {
+  const { online, customer, status, clock } = await setup(undefined, true);
+  const mine = await customer('0771234567', { kind: 'delivery', address: '12 Station Rd, Thalawathugoda', pin: { lat: 6.84, lng: 79.9 } });
+  await online.pollNow();
+  assert.deepEqual(online.view().orders.map((o) => [o.kind, o.address, o.distanceKm, o.deliveryFee]), [['delivery', '12 Station Rd, Thalawathugoda', 4.6, 25000]]);
+  await online.answer(mine.id, { status: 'accepted', orderNumber: 1030, readyBy: clock.t + 45 * 60_000 });
+  online.onEvents([ev('kitchen.bumped', 1030)]);
+  await online.pollNow();
+  assert.equal(await status(mine), 'ready');
+  await online.answer(mine.id, { status: 'out' });
+  assert.equal(await status(mine), 'out');
+  assert.deepEqual(online.view().orders.map((o) => o.status), ['out'], 'still on the counter while the rider has it');
+  online.onEvents([ev('order.paid', 1030)]);
+  await online.pollNow();
+  assert.equal(await status(mine), 'delivered');
+  assert.deepEqual(online.view().orders, []);
   online.stop();
 });

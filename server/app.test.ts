@@ -212,6 +212,22 @@ test('the server checks roles: a cashier cannot discount, even by sending the ev
   await s.stop();
 });
 
+test('a cashier pays gas from the drawer, but not rent or from the bank; a manager may (SCRUM-105)', async () => {
+  const s = await staffed();
+  await s.login('1111');
+  await s.login('2580', 'manager');
+  const nimal = { id: s.cashier.id, name: 'Nimal', role: 'cashier' };
+  const boss = { id: s.manager.id, name: 'Ravi', role: 'manager' };
+  const out = (id: string, actor: object, what: string, from: string) =>
+    ({ id, shopId: SHOP, at: 5000, orderNumber: 0, actor, type: 'money.out', what, from, cents: 100000 });
+  const res = await (await s.push(s.tokens.counter, [
+    out('m1', nimal, 'gas', 'drawer'), out('m2', nimal, 'gas', 'bank'), out('m3', nimal, 'rent', 'drawer'), out('m4', boss, 'rent', 'bank'),
+  ])).json();
+  assert.deepEqual(res.accepted.map((a: { id: string }) => a.id).sort(), ['m1', 'm4']);
+  assert.deepEqual(res.rejected.map((r: { id: string }) => r.id).sort(), ['m2', 'm3']);
+  await s.stop();
+});
+
 test('a cashier records a kitchen Remake and its Undo, but not the bin\'s waste (SCRUM-177)', async () => {
   const s = await staffed();
   await s.login('1111');

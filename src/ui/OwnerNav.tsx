@@ -26,6 +26,7 @@ const WORK: { id: Section; label: string }[] = [
   { id: 'order', label: 'Order' },
   { id: 'count', label: 'Count' },
   { id: 'owner', label: 'Today' },
+  { id: 'money', label: 'Money out' },
 ];
 const THINGS: { id: Section; label: string }[] = [{ id: 'items', label: 'Items' }, { id: 'flow', label: 'Visual Flow' }, { id: 'vision', label: 'Computer vision' }];
 const SETTINGS: { id: Section; label: string } = { id: 'setup', label: 'Settings' };
@@ -49,16 +50,23 @@ const ICONS: Record<Section, ReactNode> = {
   order: icon(<><path d="M5 4h2l2 11h9l2-8H8" /><circle cx="10" cy="19" r="1.5" /><circle cx="17" cy="19" r="1.5" /></>),
   count: icon(<><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4V3h6v1M9 10l2 2 4-4M9 16h6" /></>),
   owner: icon(<><path d="M4 19V10M10 19V5M16 19v-7M22 19H2" /></>),
+  money: icon(<><rect x="3" y="7" width="18" height="12" rx="2" /><path d="M12 2v9M8.5 7.5L12 11l3.5-3.5" /></>),
   items: icon(<><path d="M3 8l9-5 9 5v8l-9 5-9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>),
   flow: icon(<><rect x="2" y="4" width="6" height="5" rx="1.5" /><rect x="2" y="15" width="6" height="5" rx="1.5" /><rect x="16" y="9.5" width="6" height="5" rx="1.5" /><path d="M8 6.5c4 0 4 5.5 8 5.5M8 17.5c4 0 4-5.5 8-5.5" /></>),
   vision: icon(<><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>),
   setup: icon(<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
 };
 
-export function OwnerNav({ current, onRegister }: {
+export function OwnerNav({ current, onRegister, drawer: held, onDrawer }: {
   current: Section;
   /** Back to selling. Without it, a plain link to the Register. */
   onRegister?: () => void;
+  /**
+   * Given, the list is a drawer at every width, opened by the screen's own button (Visual Flow keeps
+   * the whole screen for its drawing).
+   */
+  drawer?: boolean;
+  onDrawer?: (open: boolean) => void;
 }) {
   const role = useSyncExternalStore(subscribeAuth, () => signedIn()?.role ?? null);
   const isOwner = !usesLogin() || role === 'owner';
@@ -68,7 +76,10 @@ export function OwnerNav({ current, onRegister }: {
   const events = data.state === 'loading' ? undefined : data.events;
   const at = data.state === 'loading' ? 0 : data.at ?? Date.now();
   const lines = useMemo(() => (events ? linesFor(events, at) : null), [events, at]);
-  const [drawer, setDrawer] = useState(false);
+  const [own, setOwn] = useState(false);
+  const drawerOnly = held !== undefined;
+  const drawer = drawerOnly ? held : own;
+  const setDrawer = (open: boolean) => (drawerOnly ? onDrawer?.(open) : setOwn(open));
   const [asking, setAsking] = useState(false);
 
   const shown = (list: { id: Section; label: string }[]) => list.filter((p) => !phone || PHONE.has(p.id));
@@ -86,7 +97,7 @@ export function OwnerNav({ current, onRegister }: {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [phone, asking, drawer]);
+  }, [phone, asking, drawer, drawerOnly, onDrawer]);
 
   /** Sell is the register itself; the rest are this area's screens. */
   const go = (id: Section) => { if (id === 'sell') sell(); else location.hash = `#${id}`; };
@@ -119,16 +130,16 @@ export function OwnerNav({ current, onRegister }: {
 
   return (
     <>
-      <div className="side-top">
+      {!drawerOnly && <div className="side-top">
         <button type="button" className="side-top__open" aria-label="Show the parts of the shop" aria-expanded={drawer} onClick={() => setDrawer(true)}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
             <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="14" y2="17" />
           </svg>
         </button>
         <span className="side-top__title">{here?.label ?? 'CheesyBeez'}</span>
-      </div>
+      </div>}
       {drawer && <div className="side__scrim" onClick={() => setDrawer(false)} />}
-      <nav className={`side${drawer ? ' side--open' : ''}`} aria-label="Owner sections">
+      <nav className={`side${drawerOnly ? ' side--drawer' : ''}${drawer ? ' side--open' : ''}`} aria-label="Owner sections">
         <div className="side__head">
           <span className="brand">CheesyBeez</span>
         </div>

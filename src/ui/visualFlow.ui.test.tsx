@@ -11,6 +11,8 @@ beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/#flow'
 afterEach(() => { cleanup(); setMenuState(EMPTY_MENU_STATE); });
 
 const panel = () => within(screen.getByRole('complementary', { name: 'Details' }));
+/** The details slide in only for a picked card: the dish's own card opens its figures. */
+const openDish = async () => fireEvent.click(await screen.findByText('Margherita Large', { selector: '.vf-node__name' }, { timeout: 5000 }));
 
 test('the owner sees how a pizza is made, from flour through the dough to the pizza, and each opening is recorded', async () => {
   render(<Root />);
@@ -20,6 +22,7 @@ test('the owner sees how a pizza is made, from flour through the dough to the pi
   for (const name of ['Pizza Dough Culture', 'Pizza Dough Batch', '12inch Dough Ball']) {
     expect(await screen.findByText(name, { selector: '.vf-node__name' }, { timeout: 5000 })).toBeTruthy();
   }
+  await openDish();
   expect(panel().getByRole('heading', { name: 'Margherita Large' })).toBeTruthy();
   expect(readAll().some((e) => e.type === 'recipe.viewed')).toBe(true);
 });
@@ -30,6 +33,7 @@ test('a change is a draft with Undo; Publish makes it the recipe, a new version,
   await screen.findByRole('main', { name: 'Visual Flow' });
 
   // Add basil to the pizza from the panel.
+  await openDish();
   await user.click(panel().getByRole('button', { name: 'Add an ingredient' }));
   await user.keyboard('Raw · Basil');
   await user.keyboard('{Enter}');
@@ -63,6 +67,7 @@ test('three views of the same drawing: 2 for cost, 3 for what it earns', async (
   await screen.findByRole('main', { name: 'Visual Flow' });
   await user.keyboard('2');
   expect(screen.getByRole('button', { name: 'Cost' }).getAttribute('aria-pressed')).toBe('true');
+  await openDish();
   expect(panel().getByText('Costs to make')).toBeTruthy();
   expect(panel().getByText('Labour')).toBeTruthy();
   await user.keyboard('3');
@@ -129,13 +134,19 @@ test('one filter at a time: Raw dims the semi-processed cards; the dish in focus
   await screen.findByRole('main', { name: 'Visual Flow' });
   const flour = (await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 })).closest('.vf-node')!;
   const culture = screen.getByText('Pizza Dough Culture', { selector: '.vf-node__name' }).closest('.vf-node')!;
-  const show = within(screen.getByRole('group', { name: 'Show' }));
   expect(screen.queryByRole('group', { name: 'Warehouse' })).toBeNull();
-  await user.click(show.getByRole('button', { name: 'Raw' }));
+  // The filters wait behind one button: tap it, pick one, and they fold away again.
+  expect(screen.queryByRole('group', { name: 'Show' })).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Filter' }));
+  await user.click(within(screen.getByRole('group', { name: 'Show' })).getByRole('button', { name: 'Raw' }));
+  expect(screen.queryByRole('group', { name: 'Show' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Filter · Raw' })).toBeTruthy();
   expect(flour.className).not.toContain('vf-node--dim');
   expect(culture.className).toContain('vf-node--dim');
-  await user.click(show.getByRole('button', { name: 'Semi-processed' })); // one at a time: Semi instead of Raw
-  expect(show.getByRole('button', { name: 'Raw' }).getAttribute('aria-pressed')).toBe('false');
+  await user.click(screen.getByRole('button', { name: 'Filter · Raw' }));
+  await user.click(within(screen.getByRole('group', { name: 'Show' })).getByRole('button', { name: 'Semi-processed' })); // one at a time: Semi instead of Raw
+  await user.click(screen.getByRole('button', { name: 'Filter · Semi-processed' }));
+  expect(within(screen.getByRole('group', { name: 'Show' })).getByRole('button', { name: 'Raw' }).getAttribute('aria-pressed')).toBe('false');
   expect(flour.className).toContain('vf-node--dim');
   expect(document.querySelector('.vf-node--focus')!.className).not.toContain('vf-node--dim');
 });
@@ -219,4 +230,24 @@ test('the drawing says its point first, folds the small inputs into one card, an
   expect(card('Pizza Dough Batch').className).not.toContain('vf-node--faded');
   expect(card('Margherita Large').className).not.toContain('vf-node--faded');
   expect(card('Mozzarella Blend').className).toContain('vf-node--faded');
+});
+
+test('only the drawing is on screen: the shop list is a drawer behind ☰, and a card\'s details slide in and out', async () => {
+  const user = userEvent.setup();
+  render(<Root />);
+  await screen.findByRole('main', { name: 'Visual Flow' });
+  await screen.findByText('Pizza Flour', { selector: '.vf-node__name' }, { timeout: 5000 });
+  expect(document.querySelector('.side')!.className).toContain('side--drawer');
+  expect(document.querySelector('.side')!.className).not.toContain('side--open');
+  expect(screen.queryByRole('complementary', { name: 'Details' })).toBeNull();
+
+  await user.click(screen.getByRole('button', { name: 'Show the parts of the shop' }));
+  expect(document.querySelector('.side')!.className).toContain('side--open');
+  await user.keyboard('{Escape}');
+  expect(document.querySelector('.side')!.className).not.toContain('side--open');
+
+  fireEvent.click(screen.getByText('Pizza Flour', { selector: '.vf-node__name' }));
+  expect(panel().getByRole('heading', { name: 'Pizza Flour' })).toBeTruthy();
+  await user.keyboard('{Escape}');
+  expect(screen.queryByRole('complementary', { name: 'Details' })).toBeNull();
 });
