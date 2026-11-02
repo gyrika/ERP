@@ -3,7 +3,6 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FAKE_STAFF } from '../fake/data.ts';
 import { moneyOutFromEvents } from '../domain/moneyOut.ts';
-import { OWED_SINCE } from '../domain/supplierOwed.ts';
 import { currentCashier } from '../services/auth.ts';
 import { App } from './App.tsx';
 import { appendEvent, readAll } from './eventLog.ts';
@@ -146,22 +145,40 @@ test('gas: nothing records without a size; the last price fills in per cylinder,
   expect(live()[1]).toMatchObject({ qty: 2, cents: 320000, note: '5kg' });
 });
 
-test('rent asks which, says which are paid this month, and Money out says which are left', async () => {
+test('the page lists every rent, paid or not, with Pay; Pay opens on that rent with the last price, and a paid one shows its amount', async () => {
   const user = userEvent.setup();
   render(<MoneyOutView />);
-  await user.click(screen.getByRole('button', { name: 'Add money out' }));
-  await user.click(screen.getByRole('button', { name: /Rent/ }));
-  expect((screen.getByRole('button', { name: 'Choose which rent' }) as HTMLButtonElement).disabled).toBe(true);
-  await user.click(screen.getByRole('button', { name: /Land$/ }));
-  await user.keyboard('20000{Enter}');
-  expect(live()).toMatchObject([{ what: 'rent', choiceId: 'rent-land', note: 'Land' }]);
+  const rent = () => screen.getByRole('region', { name: 'Rent' });
+  expect(within(rent()).getAllByText('Not paid')).toHaveLength(3);
+  for (const name of ['Room 1', 'Room 2', 'Land']) expect(within(rent()).getByText(name)).toBeTruthy();
 
-  expect(screen.getByText('Rent not paid yet: Room 1, Room 2')).toBeTruthy();
-  expect(within(screen.getByRole('list', { name: 'Rent by which' })).getByText('Land')).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Add money out' }));
+  await user.click(within(rent()).getByRole('button', { name: 'Pay Land' }));
+  const sheet = screen.getByRole('dialog', { name: 'Money out' });
+  expect(within(sheet).getByRole('button', { name: /Land$/ }).getAttribute('aria-pressed')).toBe('true');
+  await user.keyboard('20000{Enter}');
+  expect(live()).toMatchObject([{ what: 'rent', choiceId: 'rent-land', note: 'Land', cents: 2000000 }]);
+  expect(within(rent()).getByText('Rs 20,000')).toBeTruthy();
+  expect(within(rent()).getAllByText('Not paid')).toHaveLength(2);
+
+  // Paid again: the last price is there, and the sheet marks it paid.
+  await user.click(within(rent()).getByRole('button', { name: 'Pay Land' }));
   const again = screen.getByRole('dialog', { name: 'Money out' });
-  await user.click(within(again).getByRole('button', { name: /Rent/ }));
+  expect((within(again).getByRole('textbox', { name: /How much/ }) as HTMLInputElement).value).toBe('20000');
   expect(within(again).getByRole('button', { name: /Land\s*paid/ })).toBeTruthy();
+});
+
+test('more rents are added right on the page, with Undo', async () => {
+  const user = userEvent.setup();
+  render(<MoneyOutView />);
+  const rent = () => screen.getByRole('region', { name: 'Rent' });
+  await user.click(within(rent()).getByRole('button', { name: 'Add or change rents' }));
+  await user.click(within(rent()).getByRole('button', { name: 'Add a rent' }));
+  await user.type(within(rent()).getByRole('textbox', { name: 'Name 4' }), 'Store');
+  await user.click(within(rent()).getByRole('button', { name: 'Save' }));
+  expect(within(rent()).getByText('Store')).toBeTruthy();
+  expect(within(rent()).getByRole('button', { name: 'Pay Store' })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(within(rent()).queryByText('Store')).toBeNull();
 });
 
 test('sizes and rents are editable, with Undo; a cashier cannot edit them', async () => {
@@ -172,21 +189,22 @@ test('sizes and rents are editable, with Undo; a cashier cannot edit them', asyn
   unmount();
 
   render(<MoneyOutView />);
+  const dialog = () => within(screen.getByRole('dialog', { name: 'Money out' }));
   await user.click(screen.getByRole('button', { name: 'Add money out' }));
-  await user.click(screen.getByRole('button', { name: /Rent/ }));
-  await user.click(screen.getByRole('button', { name: 'Edit rents' }));
+  await user.click(dialog().getByRole('button', { name: /^(\d\s*)?Rent$/ }));
+  await user.click(dialog().getByRole('button', { name: 'Edit rents' }));
   const first = screen.getByRole('textbox', { name: 'Name 1' });
   await user.clear(first);
   await user.type(first, 'Front room');
-  await user.click(screen.getByRole('button', { name: 'Add a rent' }));
-  expect((screen.getByRole('button', { name: 'Give each one a name' }) as HTMLButtonElement).disabled).toBe(true);
+  await user.click(dialog().getByRole('button', { name: 'Add a rent' }));
+  expect((dialog().getByRole('button', { name: 'Give each one a name' }) as HTMLButtonElement).disabled).toBe(true);
   await user.type(screen.getByRole('textbox', { name: 'Name 4' }), 'Store');
-  await user.click(screen.getByRole('button', { name: 'Save' }));
-  expect(screen.getByRole('button', { name: /Front room$/ })).toBeTruthy();
-  expect(screen.getByRole('button', { name: /Store$/ })).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Undo' }));
-  expect(screen.getByRole('button', { name: /Room 1$/ })).toBeTruthy();
-  expect(screen.queryByRole('button', { name: /Store$/ })).toBeNull();
+  await user.click(dialog().getByRole('button', { name: 'Save' }));
+  expect(dialog().getByRole('button', { name: /Front room$/ })).toBeTruthy();
+  expect(dialog().getByRole('button', { name: /Store$/ })).toBeTruthy();
+  await user.click(dialog().getByRole('button', { name: 'Undo' }));
+  expect(dialog().getByRole('button', { name: /Room 1$/ })).toBeTruthy();
+  expect(dialog().queryByRole('button', { name: /Store$/ })).toBeNull();
 });
 
 const delivery = (id: string, cents: number, at: number) => {
@@ -198,43 +216,91 @@ const delivery = (id: string, cents: number, at: number) => {
   } as never);
 };
 
-test('a supplier payment connects to its GRNs: owed shows, Pay ticks them, and a part payment leaves the rest owed', async () => {
-  // Never before the line, whatever the clock or time zone the tests run in.
-  const now = Math.max(Date.now(), OWED_SINCE + 60_000);
-  delivery('1', 500000, now - 2000);
+test('Money out lists every unpaid GRN, old ones too: Pay opens on it, and a part payment leaves the rest owed', async () => {
+  const now = Date.now();
+  delivery('1', 500000, new Date(2026, 0, 15).getTime());
   delivery('2', 300000, now - 1000);
   const user = userEvent.setup();
   render(<MoneyOutView />);
-  const owed = screen.getByRole('region', { name: 'Owed to suppliers' });
-  expect(owed.textContent).toContain('8,000');
-  expect(owed.textContent).toContain('2 GRNs');
+  const list = () => screen.getByRole('region', { name: 'Unpaid GRNs' });
+  expect(list().textContent).toContain('8,000');
+  expect(list().textContent).toContain('2 unpaid GRNs');
+  expect(list().textContent).toContain('GRN-1');
+  expect(list().textContent).toContain('GRN-2');
 
-  await user.click(within(owed).getByRole('button', { name: /^Pay / }));
+  await user.click(within(list()).getByRole('button', { name: 'Pay GRN-1' }));
   const sheet = screen.getByRole('dialog', { name: 'Money out' });
   const amount = within(sheet).getByRole('textbox', { name: /How much/ }) as HTMLInputElement;
-  expect(amount.value).toBe('8000');
-  // Untick the newer delivery: the amount follows.
-  await user.click(within(sheet).getByRole('button', { name: /GRN-2/ }));
   expect(amount.value).toBe('5000');
   await user.clear(amount);
   await user.type(amount, '2000{Enter}');
   expect(live()).toMatchObject([{ what: 'supplier', supplierId: 'sup_litro', cents: 200000 }]);
   expect(live()[0].grnIds).toHaveLength(1);
 
-  const after = screen.getByRole('region', { name: 'Owed to suppliers' });
-  expect(after.textContent).toContain('6,000');
+  expect(list().textContent).toContain('6,000');
+  expect(list().textContent).toContain('Rs 2,000 of Rs 5,000 paid');
   expect(screen.getByRole('list', { name: 'Entries' }).textContent).toContain('GRN-1');
 });
 
-test('a supplier with no GRN owed can still be paid, and the page says how it counts', async () => {
+test('the owner removes a GRN from the unpaid list, with Undo: it leaves the Register too, and no money is recorded', async () => {
+  delivery('1', 500000, Date.now() - 1000);
+  const user = userEvent.setup();
+  const { unmount } = render(<MoneyOutView />);
+  await user.click(within(screen.getByRole('region', { name: 'Unpaid GRNs' })).getByRole('button', { name: 'Remove GRN-1' }));
+  expect(screen.queryByRole('region', { name: 'Unpaid GRNs' })).toBeNull();
+  expect(live()).toEqual([]);
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('region', { name: 'Unpaid GRNs' })).toBeTruthy();
+  await user.click(within(screen.getByRole('region', { name: 'Unpaid GRNs' })).getByRole('button', { name: 'Remove GRN-1' }));
+  unmount();
+
+  render(<App />);
+  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: /Supplier/ }));
+  expect(screen.getByText(/No GRN is waiting to be paid/)).toBeTruthy();
+});
+
+test('a supplier is paid only through a GRN: with none, nothing can be recorded', async () => {
   const user = userEvent.setup();
   render(<MoneyOutView />);
-  expect(screen.queryByRole('region', { name: 'Owed to suppliers' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Unpaid GRNs' })).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Add money out' }));
   await user.click(screen.getByRole('button', { name: /Supplier/ }));
-  await user.click(screen.getByRole('button', { name: /Litro/ }));
-  expect(screen.getByText(/counts towards the next delivery/)).toBeTruthy();
-  await user.keyboard('1000{Enter}');
-  expect(live()[0]).toMatchObject({ what: 'supplier', cents: 100000 });
-  expect(live()[0].grnIds).toBeUndefined();
+  expect(screen.getByText(/No GRN is waiting to be paid/)).toBeTruthy();
+  await user.type(screen.getByRole('textbox', { name: /How much/ }), '1000');
+  expect((screen.getByRole('button', { name: 'No GRN to pay' }) as HTMLButtonElement).disabled).toBe(true);
+  await user.keyboard('{Enter}');
+  expect(live()).toEqual([]);
+});
+
+test('the Register: F6, Supplier lists the owner\'s unpaid GRNs; a key picks one, the amount fills in; never more than it owes', async () => {
+  const now = Date.now();
+  delivery('7', 500000, now - 2000);
+  delivery('8', 300000, now - 1000);
+  const user = userEvent.setup();
+  render(<App />);
+  await user.keyboard('{F6}');
+  const sheet = screen.getByRole('dialog', { name: 'Money out' });
+  await user.click(within(sheet).getByRole('button', { name: /Supplier/ }));
+  expect(within(sheet).queryByRole('group', { name: 'Which supplier' })).toBeNull();
+  expect((within(sheet).getByRole('button', { name: 'Choose the GRN' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(within(sheet).getByRole('button', { name: /GRN-8/ })).toBeTruthy();
+
+  await user.keyboard('1');
+  const amount = within(sheet).getByRole('textbox', { name: /How much/ }) as HTMLInputElement;
+  expect(amount.value).toBe('5000');
+  await user.clear(amount);
+  await user.type(amount, '5001');
+  expect((within(sheet).getByRole('button', { name: 'More than the GRN owes' }) as HTMLButtonElement).disabled).toBe(true);
+  await user.clear(amount);
+  await user.type(amount, '5000{Enter}');
+  expect(live()).toMatchObject([{ what: 'supplier', supplierId: 'sup_litro', cents: 500000, from: 'drawer' }]);
+  expect(live()[0].grnIds).toHaveLength(1);
+
+  // Paid: it no longer asks, and the other stays.
+  await user.keyboard('{F6}');
+  const next = screen.getByRole('dialog', { name: 'Money out' });
+  await user.click(within(next).getByRole('button', { name: /Supplier/ }));
+  expect(within(next).queryByRole('button', { name: /GRN-7/ })).toBeNull();
+  expect(within(next).getByRole('button', { name: /GRN-8/ })).toBeTruthy();
 });

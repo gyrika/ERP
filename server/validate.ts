@@ -255,6 +255,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       e.orderNumber !== 0 || !shortString(e.question, 200) || !(e.after === null || checkDraft(String(e.question), e.after) === null)
     )) return { reason: `event ${e.id} has an invalid recipe draft` };
     if (e.type.startsWith('value.') && checkValueEvent(e as { type: string }) !== null) return { reason: `event ${e.id} has an invalid value addition` };
+    if ((e.type === 'money.grn_removed' || e.type === 'money.grn_restored') && (e.orderNumber !== 0 || !shortString(e.grnId))) return { reason: `event ${e.id} names no GRN` };
     if (e.type === 'money.choices_set' && (e.orderNumber !== 0 || checkChoices(e.what, e.choices) !== null)) return { reason: `event ${e.id} has an invalid list` };
     if (e.type === 'money.out' && (e.orderNumber !== 0 || checkMoneyOut(e) !== null)) return { reason: `event ${e.id} has an invalid money out` };
     if ((e.type === 'money.out_undone' || e.type === 'money.out_restored') && !shortString(e.outId)) return { reason: `event ${e.id} names no money out` };

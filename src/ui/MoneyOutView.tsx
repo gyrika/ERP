@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { canManage } from '../domain/auth.ts';
 import { fmt } from '../domain/money.ts';
 import {
-  FROM_LABEL, MONEY_LABEL, drawerOutToday, moneyMonth, monthLabel, monthOf, rentsPaid, shiftMonth, type MoneyOut,
+  FROM_LABEL, MONEY_LABEL, drawerOutToday, moneyMonth, monthLabel, monthOf, rentRows, shiftMonth, type MoneyOut,
 } from '../domain/moneyOut.ts';
-import { grnsOwed, suppliersOwed } from '../domain/supplierOwed.ts';
-import { currentCashier } from '../services/auth.ts';
+import { grnsOwed } from '../domain/supplierOwed.ts';
+import { currentCashier, currentOwner } from '../services/auth.ts';
 import { useCatalog, usePurchases } from '../services/inventoryStore.ts';
-import { removeMoneyOut, useMoneyChoices, useMoneyOut } from '../services/moneyOutStore.ts';
-import { MoneyOutSheet } from './MoneyOutSheet.tsx';
+import { removeGrnFromOwed, removeMoneyOut, setMoneyChoices, useMoneyChoices, useMoneyOut, useRemovedGrns } from '../services/moneyOutStore.ts';
+import { ChoiceEditor, MoneyOutSheet } from './MoneyOutSheet.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 
 /**
@@ -24,6 +24,8 @@ export function MoneyOutView({ onRegister }: { onRegister?: () => void }) {
   const [month, setMonth] = useState(() => monthOf(now));
   const [adding, setAdding] = useState(false);
   const [paying, setPaying] = useState<string | undefined>(undefined);
+  const [payingRent, setPayingRent] = useState<{ choiceId: string; month: string } | undefined>(undefined);
+  const [editingRents, setEditingRents] = useState(false);
   const purchases = usePurchases();
   const { suppliers } = useCatalog();
   const choices = useMoneyChoices();
@@ -31,13 +33,14 @@ export function MoneyOutView({ onRegister }: { onRegister?: () => void }) {
   const shown = moneyMonth(all, month);
   const biggest = Math.max(1, ...shown.byWhat.map((w) => w.cents));
   const drawer = drawerOutToday(all, Date.now());
-  const owed = suppliersOwed(grnsOwed(purchases.grns, all));
-  const owedTotal = owed.reduce((n, s) => n + s.owed, 0);
+  const removedList = useRemovedGrns();
+  const owed = grnsOwed(purchases.grns, all, removedList).filter((g) => g.owed > 0);
+  const owedTotal = owed.reduce((n, g) => n + g.owed, 0);
+  const owner = currentOwner();
   const grnNo = new Map(purchases.grns.map((g) => [g.id, g.grnNo]));
   const supplierName = (id: string) => suppliers.find((s) => s.id === id)?.name ?? 'Supplier';
-  // Which rent is still to pay: this month, or a month where some were paid.
-  const paidRents = rentsPaid(all, month);
-  const rentsLeft = month === monthOf(now) || shown.parts.rent.length > 0 ? choices.rent.filter((c) => !paidRents.has(c.id)) : [];
+  const rents = rentRows(all, choices.rent, month);
+  const onList = new Set(choices.rent.map((c) => c.id));
 
   const me = currentCashier();
   const remove = (o: MoneyOut) => {
@@ -76,11 +79,11 @@ export function MoneyOutView({ onRegister }: { onRegister?: () => void }) {
                 <span>{MONEY_LABEL[w.what]}</span>
                 <span className="money-out__track"><i style={{ width: `${(w.cents / biggest) * 100}%` }} /></span>
                 <span className="num">Rs {fmt(w.cents)}</span>
-                {(w.what === 'gas' || w.what === 'rent') && shown.parts[w.what].length > 0 && (
-                  <ul className="money-out__parts" aria-label={`${MONEY_LABEL[w.what]} by ${w.what === 'gas' ? 'size' : 'which'}`}>
-                    {shown.parts[w.what].map((p) => (
+                {w.what === 'gas' && shown.parts.gas.length > 0 && (
+                  <ul className="money-out__parts" aria-label="Gas by size">
+                    {shown.parts.gas.map((p) => (
                       <li key={p.label}>
-                        <span>{w.what === 'gas' ? `${p.qty} × ${p.label}` : p.label}</span>
+                        <span>{`${p.qty} × ${p.label}`}</span>
                         <span className="num">Rs {fmt(p.cents)}</span>
                       </li>
                     ))}
@@ -91,20 +94,52 @@ export function MoneyOutView({ onRegister }: { onRegister?: () => void }) {
           </ul>
         )}
 
-        {rentsLeft.length > 0 && <p className="money-out__left">Rent not paid yet: {rentsLeft.map((c) => c.label).join(', ')}</p>}
+        <section className="money-out__owed" aria-label="Rent">
+          <div className="money-out__head">
+            <h2>Rent</h2>
+            {!editingRents && <button type="button" className="linkbtn" onClick={() => setEditingRents(true)}>Add or change rents</button>}
+          </div>
+          {editingRents
+            ? <ChoiceEditor what="rent" choices={choices.rent}
+                onCancel={() => setEditingRents(false)}
+                onSave={(next) => {
+                  const undo = setMoneyChoices('rent', next, me);
+                  setEditingRents(false);
+                  setDone({ message: 'Rents changed', undo });
+                }} />
+            : (
+              <ul className="money-out__list">
+                {rents.map((r) => (
+                  <li key={r.id || 'not-said'} className="money-out__row">
+                    <span className="money-out__what"><b>{r.label}</b></span>
+                    {r.cents > 0
+                      ? <span className="num">Rs {fmt(r.cents)}</span>
+                      : <span className="money-out__unpaid">Not paid</span>}
+                    {onList.has(r.id) && (
+                      <button type="button" className="linkbtn" aria-label={`Pay ${r.label}`} onClick={() => setPayingRent({ choiceId: r.id, month })}>Pay</button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+        </section>
 
         {owed.length > 0 && (
-          <section className="money-out__owed" aria-label="Owed to suppliers">
-            <p className="money-out__total"><b className="num">Rs {fmt(owedTotal)}</b> <span>owed to suppliers</span></p>
+          <section className="money-out__owed" aria-label="Unpaid GRNs">
+            <p className="money-out__total"><b className="num">Rs {fmt(owedTotal)}</b> <span>{owed.length} unpaid {owed.length === 1 ? 'GRN' : 'GRNs'}</span></p>
             <ul className="money-out__list">
-              {owed.map((s) => (
-                <li key={s.supplierId} className="money-out__row">
+              {owed.map((g) => (
+                <li key={g.id} className="money-out__row">
                   <span className="money-out__what">
-                    <b>{supplierName(s.supplierId)}</b>
-                    <small>{s.grns} {s.grns === 1 ? 'GRN' : 'GRNs'}</small>
+                    <b>{g.grnNo} · {supplierName(g.supplierId)}</b>
+                    <small>{dayOf(g.at)}{g.paid > 0 ? ` · Rs ${fmt(g.paid)} of Rs ${fmt(g.value)} paid` : ''}</small>
                   </span>
-                  <span className="num">Rs {fmt(s.owed)}</span>
-                  <button type="button" className="linkbtn" aria-label={`Pay ${supplierName(s.supplierId)}`} onClick={() => setPaying(s.supplierId)}>Pay</button>
+                  <span className="num">Rs {fmt(g.owed)}</span>
+                  <button type="button" className="linkbtn" aria-label={`Pay ${g.grnNo}`} onClick={() => setPaying(g.id)}>Pay</button>
+                  {owner && (
+                    <button type="button" className="linkbtn" aria-label={`Remove ${g.grnNo}`}
+                      onClick={() => setDone({ message: `${g.grnNo} is off the unpaid list`, undo: removeGrnFromOwed(g.id, owner) })}>Remove</button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -136,12 +171,13 @@ export function MoneyOutView({ onRegister }: { onRegister?: () => void }) {
             </ul>
           )}
       </main>
-      {(adding || paying) && (
+      {(adding || paying || payingRent) && (
         <MoneyOutSheet
           full
-          paySupplier={paying}
-          onClose={() => { setAdding(false); setPaying(undefined); }}
-          onDone={(message, undo) => { setAdding(false); setPaying(undefined); setDone({ message, undo }); }}
+          payGrn={paying}
+          payRent={payingRent}
+          onClose={() => { setAdding(false); setPaying(undefined); setPayingRent(undefined); }}
+          onDone={(message, undo) => { setAdding(false); setPaying(undefined); setPayingRent(undefined); setDone({ message, undo }); }}
         />
       )}
     </div>

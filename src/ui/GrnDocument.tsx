@@ -13,8 +13,11 @@ const when = (at: number) => new Date(at).toLocaleString('en-GB', { day: 'numeri
  * (printGrn). Quantities and prices in what each item is received in (packs, kg), money in
  * rupees from integer cents. The approver is kept on the record, never shown.
  */
-export function GrnDocument({ grn, supplier, itemName, unitOf, warehouseName }: {
+export function GrnDocument({ grn, supplier, itemName, unitOf, warehouseName, paidCents, owedCents }: {
   grn: PurchaseGrn;
+  /** What the Register or the owner has paid on it (SCRUM-204); missing: not tracked. */
+  paidCents?: number;
+  owedCents?: number;
   supplier: string;
   itemName: (id: string) => string;
   /** The warehouse a line went into (SCRUM-184), when it says. */
@@ -75,6 +78,18 @@ export function GrnDocument({ grn, supplier, itemName, unitOf, warehouseName }: 
             <th colSpan={returned ? 5 : 4} scope="row" className="bill__sum">Final total</th>
             <td className="bill__num bill__grand num" aria-label={`${grn.grnNo} final total`}>Rs {fmt(grnValueCents(grn.lines))}</td>
           </tr>
+          {paidCents !== undefined && (
+            <tr>
+              <th colSpan={returned ? 5 : 4} scope="row" className="bill__sum">Paid</th>
+              <td className="bill__num num" aria-label={`${grn.grnNo} paid`}>Rs {fmt(paidCents)}</td>
+            </tr>
+          )}
+          {owedCents !== undefined && (
+            <tr>
+              <th colSpan={returned ? 5 : 4} scope="row" className="bill__sum">Still owed</th>
+              <td className="bill__num num" aria-label={`${grn.grnNo} still owed`}>Rs {fmt(owedCents)}</td>
+            </tr>
+          )}
         </tfoot>
       </table>
       {notes.length > 0 && <ul className="grn-doc__notes">{notes.map((n) => <li key={n}>{n}</li>)}</ul>}

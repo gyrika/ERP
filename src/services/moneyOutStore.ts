@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import {
-  moneyChoices, moneyOutFromEvents, type ChoiceWhat, type MoneyChoice, type MoneyChoices, type MoneyEvent, type MoneyOut,
+  moneyChoices, moneyOutFromEvents, removedGrns, type ChoiceWhat, type MoneyChoice, type MoneyChoices, type MoneyEvent, type MoneyOut,
 } from '../domain/moneyOut.ts';
 import { appendEvent, readAll, subscribeEvents } from '../ui/eventLog.ts';
 
@@ -31,6 +31,18 @@ export const setMoneyChoices = (what: ChoiceWhat, choices: MoneyChoice[], actor:
   appendEvent({ type: 'money.choices_set', at: Date.now(), orderNumber: 0, actor, what, choices });
   return () => { appendEvent({ type: 'money.choices_set', at: Date.now(), orderNumber: 0, actor, what, choices: before }); };
 };
+
+/** The owner takes a GRN off the unpaid list; returns its Undo. */
+export const removeGrnFromOwed = (grnId: string, owner: Actor): (() => void) => {
+  appendEvent({ type: 'money.grn_removed', at: Date.now(), orderNumber: 0, actor: owner, grnId });
+  return () => { appendEvent({ type: 'money.grn_restored', at: Date.now(), orderNumber: 0, actor: owner, grnId }); };
+};
+
+export function useRemovedGrns(): ReadonlySet<string> {
+  const [removed, setRemoved] = useState(() => removedGrns(readAll()));
+  useEffect(() => subscribeEvents(() => setRemoved(removedGrns(readAll()))), []);
+  return removed;
+}
 
 export function useMoneyChoices(): MoneyChoices {
   const [choices, setChoices] = useState(() => moneyChoices(readAll()));

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Actor } from './auth.ts';
 import {
-  DEFAULT_CHOICES, checkChoiceChosen, checkChoices, checkMoneyOut, defaultMonth, drawerOutToday, lastPaidEach, mayPayOut, moneyChoices, moneyMonth,
-  moneyOutFromEvents, monthLabel, monthOf, rentsPaid, shiftMonth, type MoneyEvent,
+  DEFAULT_CHOICES, rentRows, checkChoiceChosen, checkChoices, checkMoneyOut, defaultMonth, drawerOutToday, lastPaidEach, mayPayOut, moneyChoices, moneyMonth,
+  moneyOutFromEvents, monthLabel, monthOf, removedGrns, rentsPaid, shiftMonth, type MoneyEvent,
 } from './moneyOut.ts';
 
 const cashier: Actor = { id: 'c1', name: 'Cashier One', role: 'cashier' };
@@ -189,4 +189,25 @@ test("the lists start as the owner's, and the latest edit stands; a bad list is 
 test('renaming a rent leaves what was paid under its old name', () => {
   const events = [out('a', { what: 'rent', from: 'bank', choiceId: 'rent-land', note: 'Land' }), { type: 'money.choices_set', what: 'rent', choices: [{ id: 'rent-land', label: 'Back land' }] }];
   assert.equal(moneyOutFromEvents(events)[0].note, 'Land');
+});
+
+test('every rent has a row for the month, paid or not; one no longer on the list still shows', () => {
+  const all = moneyOutFromEvents([
+    out('a', { what: 'rent', from: 'bank', choiceId: 'rent-land', note: 'Land', cents: 2000000, month: '2026-11' }),
+    out('b', { what: 'rent', from: 'bank', choiceId: 'rent-land', note: 'Land', cents: 500000, month: '2026-11' }),
+    out('c', { what: 'rent', from: 'bank', choiceId: 'rent-old', note: 'Old room', cents: 100000, month: '2026-11' }),
+    out('d', { what: 'rent', from: 'bank', cents: 100000, month: '2026-11' }),
+    out('e', { what: 'rent', from: 'bank', choiceId: 'rent-room-1', note: 'Room 1', cents: 900000, month: '2026-10' }),
+  ]);
+  assert.deepEqual(rentRows(all, DEFAULT_CHOICES.rent, '2026-11').map((r) => [r.label, r.cents]), [
+    ['Room 1', 0], ['Room 2', 0], ['Land', 2500000], ['Old room', 100000], ['Not said', 100000],
+  ]);
+});
+
+test('only the owner takes a GRN off the unpaid list, and Undo puts it back', () => {
+  const ev = (type: string, actor: Actor, grnId = 'g1') => ({ id: `${type}${actor.id}`, shopId: 's', at, orderNumber: 0, actor, type, grnId });
+  assert.deepEqual([...removedGrns([ev('money.grn_removed', owner)])], ['g1']);
+  assert.deepEqual([...removedGrns([ev('money.grn_removed', cashier)])], [], 'a cashier never');
+  assert.deepEqual([...removedGrns([ev('money.grn_removed', owner), ev('money.grn_restored', owner)])], []);
+  assert.deepEqual(moneyOutFromEvents([ev('money.grn_removed', owner)]), [], 'not a payment');
 });

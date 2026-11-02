@@ -1906,6 +1906,10 @@ button.glance__card:disabled { cursor: default; }
 .money-out__row .linkbtn { min-height: 48px; }
 .money-out__parts { grid-column: 2 / -1; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); font-size: 14px; }
 .money-out__parts li { display: flex; justify-content: space-between; gap: 12px; }
+.money-out__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.money-out__head h2 { margin: 0; font-size: 16px; font-weight: 500; }
+.money-out__head .linkbtn { min-height: 48px; }
+.money-out__unpaid { color: var(--ink-3); }
 .money-out__left, .money-out__hint { margin: 0; color: var(--ink-2); font-size: 14px; }
 .money-out__owed { display: flex; flex-direction: column; gap: 8px; }
 .money-out__paid { color: var(--ink-3); font-size: 13px; }

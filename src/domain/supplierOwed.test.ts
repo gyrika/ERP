@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { MoneyOut } from './moneyOut.ts';
-import { grnsOwed, OWED_SINCE, suppliersOwed } from './supplierOwed.ts';
+import { checkGrnPayment, grnsOwed } from './supplierOwed.ts';
 
 const actor = { id: 'c', name: 'C', role: 'cashier' as const };
-const day = (n: number) => OWED_SINCE + n * 86_400_000;
+const day = (n: number) => new Date(2026, 10, 3).getTime() + n * 86_400_000;
 const grn = (id: string, cents: number, at = day(1), supplierId = 's1', undone = false) => ({
   id, grnNo: id.toUpperCase(), supplierId, at, undone: undone ? { at, reason: 'x', by: null } : null,
   lines: [{ itemId: 'i', ordered: 1, received: 1, unitPriceCents: cents }],
@@ -39,15 +39,25 @@ test('an undone GRN owes nothing; what paid it moves to the next one', () => {
   assert.deepEqual(owed(rows), { b: 0 });
 });
 
-test('deliveries from before payments were linked are not debts', () => {
-  assert.deepEqual(grnsOwed([grn('old', 1000, OWED_SINCE - 1)], []), []);
+test('every unpaid GRN counts, however old', () => {
+  assert.deepEqual(owed(grnsOwed([grn('old', 1000, new Date(2026, 0, 1).getTime())], [])), { old: 1000 });
+});
+
+test('a GRN the owner removed is off the list, and no money goes to it', () => {
+  const rows = grnsOwed([grn('a', 1000), grn('b', 1000, day(2))], [pay(500)], new Set(['a']));
+  assert.deepEqual(owed(rows), { b: 500 });
 });
 
 test('an undone payment is simply not in the list, so the GRN is owed again', () => {
   assert.deepEqual(owed(grnsOwed([grn('a', 1000)], [])), { a: 1000 });
 });
 
-test('who is owed, most first, leaving out whoever is paid up', () => {
-  const rows = grnsOwed([grn('a', 1000), grn('b', 2000, day(2)), grn('c', 9000, day(1), 's2'), grn('d', 500, day(1), 's3')], [pay(500, ['d'], 's3')]);
-  assert.deepEqual(suppliersOwed(rows), [{ supplierId: 's2', owed: 9000, grns: 1 }, { supplierId: 's1', owed: 3000, grns: 2 }]);
+test('a supplier payment needs a GRN, and cannot be more than the ticked GRNs owe', () => {
+  const rows = grnsOwed([grn('a', 1000), grn('b', 500, day(2))], []);
+  assert.equal(checkGrnPayment([], 1000, []), 'No GRN to pay');
+  assert.equal(checkGrnPayment([], 1000, rows), 'Choose the GRN');
+  assert.equal(checkGrnPayment(['a'], 1001, rows), 'More than the GRN owes');
+  assert.equal(checkGrnPayment(['a'], 1000, rows), null);
+  assert.equal(checkGrnPayment(['a'], 400, rows), null, 'part of it is fine');
+  assert.equal(checkGrnPayment(['a', 'b'], 1500, rows), null);
 });

@@ -370,6 +370,9 @@ test('money out: whole cents above nothing, a known kind, and a name for who pai
   assert.equal(ok({ ...out, orderNumber: 7 }), false);
   assert.equal(ok({ ...out, actor: undefined }), false);
   assert.equal(ok({ ...base, type: 'money.out_undone' }), false);
+  assert.ok(ok({ ...base, type: 'money.grn_removed', grnId: 'g1' }));
+  assert.ok(ok({ ...base, type: 'money.grn_restored', grnId: 'g1' }));
+  assert.equal(ok({ ...base, type: 'money.grn_removed' }), false);
   assert.ok(ok({ ...out, choiceId: 'gas-5', note: '5kg', qty: 2 }));
   assert.ok(ok({ ...out, what: 'supplier', supplierId: 's1', grnIds: ['g1'] }));
   assert.equal(ok({ ...out, qty: 0 }), false);

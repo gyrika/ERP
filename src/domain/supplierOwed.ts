@@ -7,24 +7,18 @@ import type { Cents } from './types.ts';
  * payment pays it. Pure: GRNs and payments in, what is owed out. Nothing is stored: it follows
  * from the two, so undoing a GRN or a payment puts it right by itself.
  *
- * A payment goes first to the GRNs it names, oldest first. Anything left (paid more, a named GRN
- * undone, or paid with no GRN named) goes to that supplier's oldest unpaid GRN: money paid to a
- * supplier is never lost, however it was recorded.
+ * A payment goes first to the GRNs it names, oldest first. Anything left (a named GRN undone, or an
+ * older entry that named none) goes to that supplier's oldest unpaid GRN: money paid to a supplier
+ * is never lost, however it was recorded. New payments always name a GRN (checkGrnPayment).
  */
-
-/**
- * Deliveries before this were never tracked against payments: without a line, every old GRN would
- * read as a debt the shop has already paid. 3 Nov 2026, when Money out began to link them.
- */
-export const OWED_SINCE = new Date(2026, 10, 3).getTime();
 
 export interface GrnOwed { id: string; grnNo: string; supplierId: string; at: number; value: Cents; paid: Cents; owed: Cents }
 type Grn = Pick<PurchaseGrn, 'id' | 'grnNo' | 'supplierId' | 'at' | 'lines' | 'undone'>;
 
-/** Every delivery that counts, oldest first, with what is paid and owed. */
-export const grnsOwed = (grns: readonly Grn[], paid: readonly MoneyOut[], since: number = OWED_SINCE): GrnOwed[] => {
+/** Every delivery, however old, oldest first, with what is paid and owed; not the undone, nor those the owner removed. */
+export const grnsOwed = (grns: readonly Grn[], paid: readonly MoneyOut[], removed: ReadonlySet<string> = new Set()): GrnOwed[] => {
   const rows: GrnOwed[] = grns
-    .filter((g) => !g.undone && g.at >= since)
+    .filter((g) => !g.undone && !removed.has(g.id))
     .map((g) => ({ id: g.id, grnNo: g.grnNo, supplierId: g.supplierId, at: g.at, value: grnValueCents(g.lines), paid: 0, owed: grnValueCents(g.lines) }))
     .sort((a, b) => a.at - b.at);
   const pay = (row: GrnOwed, cents: Cents): Cents => {
@@ -49,15 +43,13 @@ export const grnsOwed = (grns: readonly Grn[], paid: readonly MoneyOut[], since:
   return rows;
 };
 
-export interface SupplierOwed { supplierId: string; owed: Cents; grns: number }
-
-/** Who is owed, most first. */
-export const suppliersOwed = (rows: readonly GrnOwed[]): SupplierOwed[] => {
-  const by = new Map<string, SupplierOwed>();
-  for (const r of rows) {
-    if (r.owed <= 0) continue;
-    const s = by.get(r.supplierId) ?? { supplierId: r.supplierId, owed: 0, grns: 0 };
-    by.set(r.supplierId, { ...s, owed: s.owed + r.owed, grns: s.grns + 1 });
-  }
-  return [...by.values()].sort((a, b) => b.owed - a.owed);
+/**
+ * A supplier is paid only against its GRNs (the owner, 2026-11-03): null when this can be recorded,
+ * else what is missing. The screen asks this; the server cannot, since older entries name no GRN.
+ */
+export const checkGrnPayment = (grnIds: readonly string[], cents: Cents | null, rows: readonly GrnOwed[]): string | null => {
+  if (grnIds.length === 0) return rows.length === 0 ? 'No GRN to pay' : 'Choose the GRN';
+  const owed = rows.filter((r) => grnIds.includes(r.id)).reduce((n, r) => n + r.owed, 0);
+  if (cents !== null && cents > owed) return 'More than the GRN owes';
+  return null;
 };

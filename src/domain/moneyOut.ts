@@ -63,10 +63,12 @@ export type MoneyEvent =
   | (MoneyBase & { type: 'money.out_undone'; outId: string })
   /** Undo of that removal. */
   | (MoneyBase & { type: 'money.out_restored'; outId: string })
+  /** The owner takes a GRN off the unpaid list (paid long ago, or not owed): its stock and record stay. */
+  | (MoneyBase & { type: 'money.grn_removed' | 'money.grn_restored'; grnId: string })
   /** The whole list of cylinder sizes or rents, as a manager or the owner left it. */
   | (MoneyBase & { type: 'money.choices_set'; what: ChoiceWhat; choices: MoneyChoice[] });
 
-export const MONEY_EVENT_TYPES = ['money.out', 'money.out_undone', 'money.out_restored', 'money.choices_set'] as const satisfies readonly MoneyEvent['type'][];
+export const MONEY_EVENT_TYPES = ['money.out', 'money.out_undone', 'money.out_restored', 'money.choices_set', 'money.grn_removed', 'money.grn_restored'] as const satisfies readonly MoneyEvent['type'][];
 
 export const MAX_MONEY_OUT: Cents = 10_000_000_00;
 const MAX_NOTE = 120;
@@ -120,6 +122,18 @@ export const checkChoices = (what: unknown, choices: unknown): string | null => 
   return null;
 };
 
+/** The GRNs the owner took off the unpaid list, as things stand. */
+export const removedGrns = (events: readonly { type: string }[]): ReadonlySet<string> => {
+  const out = new Set<string>();
+  for (const raw of events) {
+    if (raw.type !== 'money.grn_removed' && raw.type !== 'money.grn_restored') continue;
+    const e = raw as Extract<MoneyEvent, { type: 'money.grn_removed' | 'money.grn_restored' }>;
+    if (e.actor.role !== 'owner') continue;
+    if (e.type === 'money.grn_removed') out.add(e.grnId); else out.delete(e.grnId);
+  }
+  return out;
+};
+
 /** The lists as they stand: the latest of each, else the owner's defaults. */
 export const moneyChoices = (events: readonly { type: string }[]): MoneyChoices => {
   const out: MoneyChoices = { ...DEFAULT_CHOICES };
@@ -162,8 +176,8 @@ export const moneyOutFromEvents = (events: readonly { type: string }[]): MoneyOu
   const all = new Map<string, MoneyOut>();
   const removed = new Set<string>();
   for (const raw of events) {
-    if (!raw.type.startsWith('money.') || raw.type === 'money.choices_set') continue;
-    const e = raw as Exclude<MoneyEvent, { type: 'money.choices_set' }>;
+    if (raw.type !== 'money.out' && raw.type !== 'money.out_undone' && raw.type !== 'money.out_restored') continue;
+    const e = raw as Extract<MoneyEvent, { type: 'money.out' | 'money.out_undone' | 'money.out_restored' }>;
     if (e.type === 'money.out') {
       all.set(e.id, {
         id: e.id, at: e.at, actor: e.actor, what: e.what, from: e.from, cents: e.cents, month: e.month ?? monthOf(e.at),
@@ -220,6 +234,22 @@ export const lastPaidEach = (all: readonly MoneyOut[], choiceId: string): Cents 
     if (all[i].choiceId === choiceId) return Math.round(all[i].cents / (all[i].qty ?? 1));
   }
   return null;
+};
+
+export interface RentRow { id: string; label: string; cents: Cents }
+/**
+ * Every rent for a month: the shop's list, paid or not (0), then anything paid that is no longer on
+ * the list, so the rows always add up to what the month says for rent.
+ */
+export const rentRows = (all: readonly MoneyOut[], choices: readonly MoneyChoice[], month: MonthKey): RentRow[] => {
+  const rows = new Map<string, RentRow>(choices.map((c) => [c.id, { id: c.id, label: c.label, cents: 0 }]));
+  for (const o of all) {
+    if (o.what !== 'rent' || o.month !== month) continue;
+    const id = o.choiceId ?? '';
+    const row = rows.get(id) ?? { id, label: o.note ?? 'Not said', cents: 0 };
+    rows.set(id, { ...row, cents: row.cents + o.cents });
+  }
+  return [...rows.values()];
 };
 
 /** The rents paid for a month, so nobody pays one twice or misses one. */

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKey } from 'react';
-import { grnsOwed } from '../domain/supplierOwed.ts';
+import { checkGrnPayment, grnsOwed, type GrnOwed } from '../domain/supplierOwed.ts';
 import { fmt, parseLKR } from '../domain/money.ts';
 import {
   CHOICE_ASK, FROM_LABEL, MONEY_LABEL, MONEY_WHATS, cashierWhats, checkChoiceChosen, checkChoices, checkMoneyOut, defaultMonth, isChoiceWhat,
   isMonthly, lastPaidEach, monthLabel, monthOf, rentsPaid, shiftMonth, type ChoiceWhat, type MoneyChoice, type MoneyFrom, type MoneyWhat,
 } from '../domain/moneyOut.ts';
 import { currentCashier } from '../services/auth.ts';
-import { recordMoneyOut, setMoneyChoices, useMoneyChoices, useMoneyOut } from '../services/moneyOutStore.ts';
+import { recordMoneyOut, setMoneyChoices, useMoneyChoices, useMoneyOut, useRemovedGrns } from '../services/moneyOutStore.ts';
 import { useCatalog, usePurchases } from '../services/inventoryStore.ts';
 import type { Actor } from '../domain/auth.ts';
 import { NumberInput } from './NumberInput.tsx';
@@ -16,7 +16,7 @@ const amountText = (cents: number) => `${Math.trunc(cents / 100)}${cents % 100 ?
 const shortDay = (at: number) => new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 /** The sizes or rents, as a manager or the owner wants them. Nothing changes until Save, which offers Undo. */
-function ChoiceEditor({ what, choices, onSave, onCancel }: {
+export function ChoiceEditor({ what, choices, onSave, onCancel }: {
   what: ChoiceWhat; choices: MoneyChoice[]; onSave: (next: MoneyChoice[]) => void; onCancel: () => void;
 }) {
   const [rows, setRows] = useState(choices);
@@ -45,15 +45,17 @@ function ChoiceEditor({ what, choices, onSave, onCancel }: {
  * Money out (SCRUM-105). Serves a cashier handing over cash with someone waiting, or the owner
  * with a bill in his hand. Already knows who is acting and the date; needs only: what for, how
  * much, and where it came from. Saved at once with Undo in the toast: no confirmation.
- * Gas asks the size and rent asks which (SCRUM-204), and a supplier lists what is still owed on its
- * GRNs; each fills in the amount from what it knows, and the amount stays editable.
+ * Gas asks the size and rent asks which (SCRUM-204). A supplier is paid only against a GRN: the
+ * Register lists the same unpaid GRNs the owner sees. Each fills in the amount, which stays editable.
  * `full`: rent, wages and the bank too (managers and the owner); a cashier gets the drawer only.
  */
-export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onClose, onDone }: {
+export function MoneyOutSheet({ actor = currentCashier(), full, payGrn, payRent, onClose, onDone }: {
   actor?: Actor;
   full: boolean;
-  /** Opens already paying this supplier. */
-  paySupplier?: string;
+  /** Opens already paying this GRN. */
+  payGrn?: string;
+  /** Opens already paying this rent, for this month. */
+  payRent?: { choiceId: string; month: string };
   onClose: () => void;
   /** After recording: what to say, and its Undo. */
   onDone: (message: string, undo: () => void) => void;
@@ -61,8 +63,9 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
   const { suppliers } = useCatalog();
   const purchases = usePurchases();
   const paid = useMoneyOut();
+  const removed = useRemovedGrns();
   const choices = useMoneyChoices();
-  const [what, setWhat] = useState<MoneyWhat | null>(paySupplier ? 'supplier' : null);
+  const [what, setWhat] = useState<MoneyWhat | null>(payGrn ? 'supplier' : payRent ? 'rent' : null);
   const [amount, setAmount] = useState('');
   /** The amount is one this sheet worked out, so it may follow the choice; once typed it is left alone. */
   const [worked, setWorked] = useState(false);
@@ -73,8 +76,8 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
   const [undoEdit, setUndoEdit] = useState<(() => void) | null>(null);
   const [from, setFrom] = useState<MoneyFrom>('drawer');
   const [note, setNote] = useState('');
-  const [supplierId, setSupplierId] = useState<string | null>(paySupplier ?? null);
-  const [month, setMonth] = useState<string | null>(null);
+  const [supplierId, setSupplierId] = useState<string | null>(null);
+  const [month, setMonth] = useState<string | null>(payRent?.month ?? null);
   const amountRef = useRef<HTMLInputElement>(null);
   const [now] = useState(() => Date.now());
 
@@ -90,7 +93,7 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
   const list = isChoiceWhat(what) ? choices[what] : null;
   const chosen = list?.find((c) => c.id === choiceId);
   const count = Number(qty);
-  const unpaid = grnsOwed(purchases.grns, paid).filter((g) => g.supplierId === supplierId && g.owed > 0);
+  const unpaid = grnsOwed(purchases.grns, paid, removed).filter((g) => g.owed > 0);
   const entry = {
     what, from, cents,
     ...(what === 'other' ? { note: note.trim() } : what === 'supplier' && supplier ? { note: supplier.name } : chosen ? { note: chosen.label } : {}),
@@ -100,9 +103,11 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
     ...(what === 'gas' ? { qty: count } : {}),
     ...(what && isMonthly(what) && month ? { month } : {}),
   };
-  const problem = checkChoiceChosen(what, chosen?.id) ?? (amount === '' && what ? 'Type the amount' : checkMoneyOut(entry));
-  // Which of the list a key picks: until one is chosen, 1-3 mean the size, not what it was for.
+  const noGrn = what === 'supplier' ? checkGrnPayment(grnIds, cents, unpaid) : null;
+  const problem = checkChoiceChosen(what, chosen?.id) ?? noGrn ?? (amount === '' && what ? 'Type the amount' : checkMoneyOut(entry));
+  // Which of the list a key picks: until one is chosen, 1-3 mean the size or the GRN, not what it was for.
   const picking = list && !chosen ? list : null;
+  const pickingGrn = what === 'supplier' && grnIds.length === 0 ? unpaid.slice(0, 9) : null;
   const paidRents = rentsPaid(paid, month ?? monthOf(now));
 
   /** Fills the amount, unless someone typed their own. */
@@ -120,7 +125,8 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
     setQty('1');
     setEditing(false);
     if (worked) { setAmount(''); setWorked(false); }
-    if (!isChoiceWhat(w)) focusAmount();
+    if (worked || w !== 'supplier') { setGrnIds([]); setSupplierId(null); }
+    if (!isChoiceWhat(w) && w !== 'supplier') focusAmount();
   };
   const pick = (c: MoneyChoice) => {
     setChoiceId(c.id);
@@ -133,25 +139,31 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
     const each = chosen ? lastPaidEach(paid, chosen.id) : null;
     if (each !== null && Number(text) > 0) work(each * Number(text));
   };
-  /** Paying a supplier: everything owed is ticked, the amount follows the ticks. */
-  const owing = (ids: string[], rows = unpaid) => {
+  /** The amount follows the ticks. */
+  const owing = (ids: string[]) => {
     setGrnIds(ids);
-    work(ids.length === 0 ? null : rows.filter((g) => ids.includes(g.id)).reduce((n, g) => n + g.owed, 0));
+    setSupplierId(ids.length === 0 ? null : unpaid.find((g) => g.id === ids[0])?.supplierId ?? null);
+    work(ids.length === 0 ? null : unpaid.filter((g) => ids.includes(g.id)).reduce((n, g) => n + g.owed, 0));
   };
-  const pickSupplier = (id: string) => {
-    setSupplierId(id);
-    const rows = grnsOwed(purchases.grns, paid).filter((g) => g.supplierId === id && g.owed > 0);
-    owing(rows.map((g) => g.id), rows);
+  /** One payment goes to one supplier: ticking another's GRN starts again from that one. */
+  const tickGrn = (g: GrnOwed) => {
+    if (g.supplierId !== supplierId) owing([g.id]);
+    else owing(grnIds.includes(g.id) ? grnIds.filter((x) => x !== g.id) : [...grnIds, g.id]);
     focusAmount();
   };
   const started = useRef(false);
   useEffect(() => {
-    if (started.current || !paySupplier) return;
+    if (started.current) return;
     started.current = true;
-    pickSupplier(paySupplier);
-    // Once, when opened to pay this supplier.
+    if (payGrn && unpaid.some((g) => g.id === payGrn)) {
+      owing([payGrn]);
+      focusAmount();
+    }
+    const rent = payRent && choices.rent.find((c) => c.id === payRent.choiceId);
+    if (rent) pick(rent);
+    // Once, when opened to pay this GRN or rent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paySupplier]);
+  }, []);
 
   const submit = () => {
     if (problem || !what || cents === null) return;
@@ -165,7 +177,8 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
     if (e.target instanceof HTMLInputElement) return;
     const n = Number(e.key) - 1;
     if (picking?.[n]) { e.preventDefault(); pick(picking[n]); return; }
-    if (!picking && whats[n]) { e.preventDefault(); choose(whats[n]); }
+    if (pickingGrn?.[n]) { e.preventDefault(); tickGrn(pickingGrn[n]); return; }
+    if (!picking && !pickingGrn && whats[n]) { e.preventDefault(); choose(whats[n]); }
   };
 
   const thisMonth = monthOf(now);
@@ -185,19 +198,12 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
             <div className="chips" role="group" aria-label="What for">
               {whats.map((w, i) => (
                 <button key={w} type="button" className="chip" aria-pressed={what === w} onClick={() => choose(w)}>
-                  {!picking && <kbd>{i + 1}</kbd>}{MONEY_LABEL[w]}
+                  {!picking && !pickingGrn && <kbd>{i + 1}</kbd>}{MONEY_LABEL[w]}
                 </button>
               ))}
             </div>
             {what === 'other' && (
               <input className="note" type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What was it?" aria-label="What was it?" maxLength={120} />
-            )}
-            {what === 'supplier' && (
-              <div className="chips chips--tight" role="group" aria-label="Which supplier">
-                {suppliers.map((s) => (
-                  <button key={s.id} type="button" className="chip" aria-pressed={supplierId === s.id} onClick={() => pickSupplier(s.id)}>{s.name}</button>
-                ))}
-              </div>
             )}
           </section>
 
@@ -235,17 +241,17 @@ export function MoneyOutSheet({ actor = currentCashier(), full, paySupplier, onC
             </section>
           )}
 
-          {what === 'supplier' && supplierId && (
+          {what === 'supplier' && (
             <section className="group">
-              <h2>For which GRNs</h2>
+              <h2>Which GRN</h2>
               {unpaid.length === 0
-                ? <p className="money-out__hint">Nothing owed on a GRN. This counts towards the next delivery.</p>
+                ? <p className="money-out__hint">No GRN is waiting to be paid. A supplier is paid once its delivery is received.</p>
                 : (
-                  <div className="chips chips--tight" role="group" aria-label="For which GRNs">
-                    {unpaid.map((g) => (
-                      <button key={g.id} type="button" className="chip" aria-pressed={grnIds.includes(g.id)}
-                        onClick={() => owing(grnIds.includes(g.id) ? grnIds.filter((x) => x !== g.id) : [...grnIds, g.id])}>
-                        {g.grnNo} · {shortDay(g.at)} · <span className="num">Rs {fmt(g.owed)}</span>
+                  <div className="chips chips--tight" role="group" aria-label="Which GRN">
+                    {unpaid.map((g, i) => (
+                      <button key={g.id} type="button" className="chip" aria-pressed={grnIds.includes(g.id)} onClick={() => tickGrn(g)}>
+                        {pickingGrn && i < 9 && <kbd>{i + 1}</kbd>}
+                        {g.grnNo} · {suppliers.find((s) => s.id === g.supplierId)?.name ?? 'Supplier'} · {shortDay(g.at)} · <span className="num">Rs {fmt(g.owed)}</span>
                       </button>
                     ))}
                   </div>

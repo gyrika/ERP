@@ -98,6 +98,7 @@ export const mayRecord = (role: Role, type: string, remake = false): boolean => 
   // Money out (SCRUM-105): whoever works the counter; what a cashier may pay is mayPayOut (moneyOut.ts).
   if (type === 'money.out' || type === 'money.out_undone' || type === 'money.out_restored') return role !== 'kitchen';
   if (type === 'money.choices_set') return managesRole(role);
+  if (type === 'money.grn_removed' || type === 'money.grn_restored') return role === 'owner';
   return false;
 };
 

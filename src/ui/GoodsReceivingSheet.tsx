@@ -9,7 +9,7 @@ import {
 } from '../domain/purchaseOrders.ts';
 import type { StockSettings } from '../domain/stockSettings.ts';
 import { receiveGoods, undoGrn, useWarehouses, type InventoryRow } from '../services/inventoryStore.ts';
-import { useMoneyOut } from '../services/moneyOutStore.ts';
+import { useMoneyOut, useRemovedGrns } from '../services/moneyOutStore.ts';
 import { grnsOwed } from '../domain/supplierOwed.ts';
 import { activeWarehouses, homeOf } from '../domain/warehouses.ts';
 import { ChoiceCard } from './flow/ChoiceCard.tsx';
@@ -121,7 +121,8 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   /** The manager whose PIN was accepted, deciding. */
   const [deciding, setDeciding] = useState<Actor | null>(null);
   const moneyOut = useMoneyOut();
-  const owedRows = grnsOwed(purchases.grns, moneyOut);
+  const removedGrns = useRemovedGrns();
+  const owedRows = grnsOwed(purchases.grns, moneyOut, removedGrns);
   const [decisions, setDecisions] = useState<GrnDecisions>({ short: null, over: null });
   /** The manager's final note: optional, kept on the GRN. */
   const [note, setNote] = useState('');
@@ -288,6 +289,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   const pinOpen = asking || (undoing !== null && undoing.manager === null);
   const shared = { onClose, keys: !pinOpen, error, inline };
   const payment = (id: string) => {
+    if (removedGrns.has(id)) return ' · Removed from unpaid';
     const row = owedRows.find((r) => r.id === id);
     if (!row || row.value === 0) return '';
     return row.owed === 0 ? ' · Paid' : ` · Owes Rs ${fmt(row.owed)}`;
@@ -353,7 +355,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           extra={!shown.undone && undoCheck(purchases, shown.id, Date.now(), settings.grnUndoHours) === null
             ? <button type="button" className="linkbtn flow__back" aria-label={`Undo ${shown.grnNo}`} onClick={() => startUndo(shown)}>Undo</button> : undefined}>
           <RejectionNotices />
-          <GrnDocument grn={shown} supplier={supplier} itemName={itemName} unitOf={unitOf} warehouseName={warehouseName} />
+          <GrnDocument paidCents={owedRows.find((r) => r.id === shown.id)?.paid} owedCents={owedRows.find((r) => r.id === shown.id)?.owed} grn={shown} supplier={supplier} itemName={itemName} unitOf={unitOf} warehouseName={warehouseName} />
         </FlowSheet>
         {pins}
       </>
