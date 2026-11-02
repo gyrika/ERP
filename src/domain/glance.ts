@@ -4,6 +4,7 @@ import { stockFromEvents, stockStatus } from './inventory.ts';
 import { queue, ticketsFromEvents } from './kitchen.ts';
 import { menuItems } from './menu.ts';
 import { fmt, unitPrice } from './money.ts';
+import { MONEY_LABEL, drawerOutToday, moneyMonth, moneyOutFromEvents, monthOf } from './moneyOut.ts';
 import { grnValueCents, purchasesFromEvents } from './purchaseOrders.ts';
 import { formatStock } from './itemStory.ts';
 import type { SyncEvent } from './sync.ts';
@@ -194,12 +195,18 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
 
   const byTender = new Map<Tender, Cents>();
   for (const s of todays) byTender.set(s.tender, (byTender.get(s.tender) ?? 0) + s.total);
+  // What the shop paid (SCRUM-105). The phone has no Money out page: these words are its view of it.
+  const paidOut = moneyOutFromEvents(events);
+  const drawerOut = drawerOutToday(paidOut, now);
+  const thisMonth = moneyMonth(paidOut, monthOf(now));
   const money: Station = {
-    id: 'money', label: 'Money', value: rs(total), tone: 'ok', badge: 0, href: null,
+    id: 'money', label: 'Money', value: rs(total), tone: 'ok', badge: 0, href: '#money',
     explain: [
       `Money: ${rs(total)} taken today.`,
       ...[...byTender].filter(([, c]) => c > 0).map(([t, c]) => `${TENDER[t]}: ${rs(c)}`),
-      ...(byTender.get('cash') ? ['The drawer should hold the cash plus the opening float.'] : []),
+      ...(drawerOut ? [`Paid out of the drawer today: ${rs(drawerOut)}.`] : []),
+      ...(byTender.get('cash') ? [`The drawer should hold the cash plus the opening float${drawerOut ? ', less what was paid out' : ''}.`] : []),
+      ...(thisMonth.costs ? [`Bills and other costs this month: ${rs(thisMonth.costs)}.`, ...thisMonth.byWhat.map((w) => `${MONEY_LABEL[w.what]}: ${rs(w.cents)}`)] : []),
     ].join('\n'),
   };
 

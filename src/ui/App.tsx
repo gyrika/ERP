@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
-import { seesTakings } from '../domain/auth.ts';
+import { canManage, seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { bareLine, orderTotal, unsentLines } from '../domain/order.ts';
@@ -7,6 +7,7 @@ import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/t
 import { currentCashier } from '../services/auth.ts';
 import { canPrint, printReceipt } from '../services/printer.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
+import { MoneyOutSheet } from './MoneyOutSheet.tsx';
 import { ExtrasSheet } from './ExtrasSheet.tsx';
 import { KitchenChip } from './KitchenChip.tsx';
 import { OnlineChip, OnlineSheet, useOnline } from './Online.tsx';
@@ -36,6 +37,7 @@ type Sheet =
   | { kind: 'pin' }
   | { kind: 'online' }
   | { kind: 'waste' }
+  | { kind: 'money' }
   | null;
 
 /** The Tables chip carries the floor's fold (SCRUM-168): loaded beside the Register, so the Register does not grow. */
@@ -106,14 +108,14 @@ export function App({
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
   const [sound, setSound] = useState(soundOn);
-  /** The last waste, for its Undo (toast and Ctrl+Z) while the toast shows. */
-  const [wasted, setWasted] = useState<{ id: number; message: string; undo: () => void } | null>(null);
+  /** The last waste or money out, for its Undo (toast and Ctrl+Z) while the toast shows. */
+  const [noted, setNoted] = useState<{ id: number; message: string; undo: () => void } | null>(null);
   useEffect(() => {
-    if (!wasted) return;
-    const t = setTimeout(() => setWasted(null), 6000);
+    if (!noted) return;
+    const t = setTimeout(() => setNoted(null), 6000);
     return () => clearTimeout(t);
-  }, [wasted]);
-  const undoWaste = useCallback(() => { wasted?.undo(); setWasted(null); }, [wasted]);
+  }, [noted]);
+  const undoNoted = useCallback(() => { noted?.undo(); setNoted(null); }, [noted]);
   const fleet = useFleet();
   const { endManagerSession } = reg;
   const mode = useManagerMode(useCallback(() => {
@@ -121,8 +123,8 @@ export function App({
     setPalette(false);
     setPendingVoid(null);
     setAdjusting(null);
-    setSheet((s) => (s?.kind === 'edit' || s?.kind === 'waste' ? null : s));
-    setWasted(null);
+    setSheet((s) => (s?.kind === 'edit' || s?.kind === 'waste' || s?.kind === 'money' ? null : s));
+    setNoted(null);
     endManagerSession();
   }, [endManagerSession]));
   const manager = mode.manager;
@@ -171,11 +173,13 @@ export function App({
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
+      if (e.key === 'F6' && !sheet && !palette) { e.preventDefault(); setTyped(null); setSheet({ kind: 'money' }); return; }
+
       if (manager) {
         // Esc leaves manager mode from ANY state: palette, sheet, half-done void or adjustment.
         if (e.key === 'Escape') { e.preventDefault(); mode.exit(); return; }
         if (mod && key === 'm') { e.preventDefault(); mode.exit(); return; }
-        if (mod && key === 'z') { e.preventDefault(); if (wasted) undoWaste(); else reg.undoManager(manager); return; }
+        if (mod && key === 'z') { e.preventDefault(); if (noted) undoNoted(); else reg.undoManager(manager); return; }
         if (mod && key === 'k') { e.preventDefault(); setPalette(true); return; }
         if (palette || sheet || adjusting) return; // they own their keys (Enter, typing)
         if (pendingVoid) {
@@ -202,7 +206,7 @@ export function App({
 
       // Cashier mode.
       if (mod && key === 'm' && !sheet) { e.preventDefault(); setTyped(null); setSheet({ kind: 'pin' }); return; }
-      if (mod && key === 'z') { e.preventDefault(); reg.undo(); return; }
+      if (mod && key === 'z') { e.preventDefault(); if (noted) undoNoted(); else reg.undo(); return; }
       if (mod && e.key === 'Enter' && !sheet && !reg.paid) {
         e.preventDefault();
         if (hasNew) reg.send(); else if (canCharge) setSheet({ kind: 'pay' });
@@ -215,7 +219,7 @@ export function App({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [reg, sheet, typed, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
-    selected, selectedLine, askVoid, askAdjust, toggleChip, manage, wasted, undoWaste]);
+    selected, selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted]);
 
   // Tapping empty space outside an opened order goes back to the "Waiting to pay" list.
   // Cards, buttons and the order panel itself are not background, so adding a round still works.
@@ -276,6 +280,8 @@ export function App({
       { id: 'leave', label: 'Leave manager mode', hint: 'Esc', run: mode.exit },
     );
     list.push({ id: 'waste', label: 'Waste: something was thrown away', hint: 'W', run: () => setSheet({ kind: 'waste' }) });
+    list.push({ id: 'money', label: 'Money out: a bill paid, or cash from the drawer', hint: 'F6', run: () => setSheet({ kind: 'money' }) });
+    list.push({ id: 'money-page', label: 'Money out this month', run: () => { location.hash = '#money'; } });
     if (canManageStock) {
       list.push({ id: 'receive', label: 'Receive: a delivery came', run: () => { location.hash = '#receive'; } });
       list.push({ id: 'order', label: 'Order: what to buy', run: () => { location.hash = '#order'; } });
@@ -312,6 +318,7 @@ export function App({
                 <MicIcon /> Voice <kbd>F9</kbd>
               </button>
             )}
+            <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out <kbd>F6</kbd></button>
             {/* The owner and managers see their own screen without any shortcut. */}
             {onOwner && <button type="button" className="corner__key" onClick={onOwner}>Owner view <kbd>F3</kbd></button>}
             {onSwitch
@@ -403,7 +410,15 @@ export function App({
         <WasteSheet
           actor={manager}
           onClose={closeSheet}
-          onWasted={(message, undo) => { closeSheet(); setWasted({ id: Date.now(), message, undo }); }}
+          onWasted={(message, undo) => { closeSheet(); setNoted({ id: Date.now(), message, undo }); }}
+        />
+      )}
+      {sheet?.kind === 'money' && (
+        <MoneyOutSheet
+          actor={manager ?? currentCashier()}
+          full={Boolean(manager) || canManage(currentCashier())}
+          onClose={closeSheet}
+          onDone={(message, undo) => { closeSheet(); setNoted({ id: Date.now(), message, undo }); }}
         />
       )}
       {palette && manager && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
@@ -411,13 +426,13 @@ export function App({
       {/* Hidden under an open sheet, like the toasts: it never covers the sheet, the order or the primary action. */}
       {onTables && !sheet && !palette && <Suspense fallback={null}><CleaningNote /></Suspense>}
       {/* Hidden under an open sheet: it would cover the sheet's buttons (e.g. Card). */}
-      {wasted && manager && !sheet && !palette && (
-        <div className="toast" role="status" key={`waste-${wasted.id}`}>
-          <span>{wasted.message}</span>
-          <button type="button" onClick={undoWaste}>Undo</button>
+      {noted && !sheet && !palette && (
+        <div className="toast" role="status" key={`waste-${noted.id}`}>
+          <span>{noted.message}</span>
+          <button type="button" onClick={undoNoted}>Undo</button>
         </div>
       )}
-      {reg.toast && !wasted && !sheet && !palette && (
+      {reg.toast && !noted && !sheet && !palette && (
         <div className="toast" role="status" key={reg.toast.id}>
           <span>{reg.toast.message}</span>
           {reg.toast.manager
