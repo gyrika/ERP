@@ -18,6 +18,20 @@ export type MoneyFrom = 'drawer' | 'bank';
 export type MonthKey = string;
 
 export const MONEY_WHATS: readonly MoneyWhat[] = ['electricity', 'gas', 'water', 'rent', 'wages', 'supplier', 'other'];
+/** Paid for one of a short list the shop keeps: which gas cylinder, which rent. */
+export type ChoiceWhat = 'gas' | 'rent';
+export const isChoiceWhat = (what: unknown): what is ChoiceWhat => what === 'gas' || what === 'rent';
+export interface MoneyChoice { id: string; label: string }
+export type MoneyChoices = Record<ChoiceWhat, MoneyChoice[]>;
+/** The owner's three cylinder sizes, and his two rooms and one land (2026-11-02). He renames them. */
+export const DEFAULT_CHOICES: MoneyChoices = {
+  gas: [{ id: 'gas-2.5', label: '2.5kg' }, { id: 'gas-5', label: '5kg' }, { id: 'gas-12.5', label: '12.5kg' }],
+  rent: [{ id: 'rent-room-1', label: 'Room 1' }, { id: 'rent-room-2', label: 'Room 2' }, { id: 'rent-land', label: 'Land' }],
+};
+export const CHOICE_ASK: Record<ChoiceWhat, { title: string; none: string; edit: string; add: string }> = {
+  gas: { title: 'Which size', none: 'Choose the size', edit: 'Edit sizes', add: 'Add a size' },
+  rent: { title: 'Which rent', none: 'Choose which rent', edit: 'Edit rents', add: 'Add a rent' },
+};
 export const MONEY_LABEL: Record<MoneyWhat, string> = {
   electricity: 'Electricity', gas: 'Gas', water: 'Water', rent: 'Rent', wages: 'Wages', supplier: 'Supplier', other: 'Other',
 };
@@ -38,23 +52,37 @@ export type MoneyEvent =
   /**
    * note: what it was (Other), or the supplier's name when paid, for history.
    * month: the month a bill belongs to; missing: the month it was paid.
+   * choiceId: which cylinder or rent, with its name then in note, so renaming it later leaves history alone.
+   * qty: how many cylinders; missing: one. grnIds: the deliveries a supplier payment is for.
    */
-  | (MoneyBase & { type: 'money.out'; what: MoneyWhat; from: MoneyFrom; cents: Cents; note?: string; supplierId?: string; month?: MonthKey })
+  | (MoneyBase & {
+    type: 'money.out'; what: MoneyWhat; from: MoneyFrom; cents: Cents; note?: string; supplierId?: string; month?: MonthKey;
+    choiceId?: string; qty?: number; grnIds?: string[];
+  })
   /** Taken back: the quick Undo, or a manager removing a mistake. A cashier reaches only their own. */
   | (MoneyBase & { type: 'money.out_undone'; outId: string })
   /** Undo of that removal. */
-  | (MoneyBase & { type: 'money.out_restored'; outId: string });
+  | (MoneyBase & { type: 'money.out_restored'; outId: string })
+  /** The whole list of cylinder sizes or rents, as a manager or the owner left it. */
+  | (MoneyBase & { type: 'money.choices_set'; what: ChoiceWhat; choices: MoneyChoice[] });
 
-export const MONEY_EVENT_TYPES = ['money.out', 'money.out_undone', 'money.out_restored'] as const satisfies readonly MoneyEvent['type'][];
+export const MONEY_EVENT_TYPES = ['money.out', 'money.out_undone', 'money.out_restored', 'money.choices_set'] as const satisfies readonly MoneyEvent['type'][];
 
 export const MAX_MONEY_OUT: Cents = 10_000_000_00;
 const MAX_NOTE = 120;
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-export interface MoneyOutInput { what?: unknown; from?: unknown; cents?: unknown; note?: unknown; supplierId?: unknown; month?: unknown }
+const MAX_QTY = 99;
+const MAX_GRNS = 50;
+const shortId = (v: unknown) => typeof v === 'string' && v.length > 0 && v.length <= 64;
+
+export interface MoneyOutInput {
+  what?: unknown; from?: unknown; cents?: unknown; note?: unknown; supplierId?: unknown; month?: unknown;
+  choiceId?: unknown; qty?: unknown; grnIds?: unknown;
+}
 
 /** Null when it can be recorded, else what is missing (the screen says it; the server checks the same). */
-export const checkMoneyOut = ({ what, from, cents, note, supplierId, month }: MoneyOutInput): string | null => {
+export const checkMoneyOut = ({ what, from, cents, note, supplierId, month, choiceId, qty, grnIds }: MoneyOutInput): string | null => {
   if (!MONEY_WHATS.includes(what as MoneyWhat)) return 'Choose what it was for';
   if (!Number.isSafeInteger(cents) || (cents as number) <= 0) return 'Type the amount';
   if ((cents as number) > MAX_MONEY_OUT) return 'That amount is too big';
@@ -64,7 +92,43 @@ export const checkMoneyOut = ({ what, from, cents, note, supplierId, month }: Mo
   if (what === 'supplier' && (typeof supplierId !== 'string' || !supplierId || supplierId.length > 64)) return 'Choose the supplier';
   if (what !== 'supplier' && supplierId !== undefined) return 'Only a supplier payment names a supplier';
   if (month !== undefined && (!isMonthly(what as MoneyWhat) || typeof month !== 'string' || !MONTH.test(month))) return 'Choose the month';
+  if (choiceId !== undefined && (!isChoiceWhat(what) || !shortId(choiceId))) return 'Only gas and rent have a choice';
+  if (qty !== undefined && (what !== 'gas' || !Number.isSafeInteger(qty) || (qty as number) < 1 || (qty as number) > MAX_QTY)) return 'Type how many';
+  if (grnIds !== undefined && (what !== 'supplier' || !Array.isArray(grnIds) || grnIds.length > MAX_GRNS || !grnIds.every(shortId))) return 'Choose the deliveries';
   return null;
+};
+
+/** The screen asks for the size or the rent; the server cannot, since entries from before it have none. */
+export const checkChoiceChosen = (what: unknown, choiceId: unknown): string | null =>
+  isChoiceWhat(what) && !choiceId ? CHOICE_ASK[what].none : null;
+
+const MAX_CHOICES = 12;
+const MAX_LABEL = 40;
+/** Null when the list can be kept, else what is wrong with it. */
+export const checkChoices = (what: unknown, choices: unknown): string | null => {
+  if (!isChoiceWhat(what)) return 'Choose gas or rent';
+  if (!Array.isArray(choices) || choices.length < 1) return 'Keep at least one';
+  if (choices.length > MAX_CHOICES) return `At most ${MAX_CHOICES}`;
+  const ok = (c: unknown) => {
+    const { id, label } = (c ?? {}) as { id?: unknown; label?: unknown };
+    return shortId(id) && typeof label === 'string' && label.trim() !== '' && label.length <= MAX_LABEL;
+  };
+  if (!choices.every(ok)) return 'Give each one a name';
+  const names = (choices as MoneyChoice[]).map((c) => c.label.trim().toLowerCase());
+  if (new Set(names).size !== names.length) return 'Two have the same name';
+  if (new Set((choices as MoneyChoice[]).map((c) => c.id)).size !== choices.length) return 'Two are the same';
+  return null;
+};
+
+/** The lists as they stand: the latest of each, else the owner's defaults. */
+export const moneyChoices = (events: readonly { type: string }[]): MoneyChoices => {
+  const out: MoneyChoices = { ...DEFAULT_CHOICES };
+  for (const raw of events) {
+    if (raw.type !== 'money.choices_set') continue;
+    const e = raw as Extract<MoneyEvent, { type: 'money.choices_set' }>;
+    out[e.what] = e.choices;
+  }
+  return out;
 };
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -85,6 +149,7 @@ export const defaultMonth = (what: MoneyWhat, now: number): MonthKey =>
 
 export interface MoneyOut {
   id: string; at: number; actor: Actor; what: MoneyWhat; from: MoneyFrom; cents: Cents; note?: string; supplierId?: string;
+  choiceId?: string; qty?: number; grnIds?: string[];
   /** The month it counts in. */
   month: MonthKey;
 }
@@ -97,12 +162,13 @@ export const moneyOutFromEvents = (events: readonly { type: string }[]): MoneyOu
   const all = new Map<string, MoneyOut>();
   const removed = new Set<string>();
   for (const raw of events) {
-    if (!raw.type.startsWith('money.')) continue;
-    const e = raw as MoneyEvent;
+    if (!raw.type.startsWith('money.') || raw.type === 'money.choices_set') continue;
+    const e = raw as Exclude<MoneyEvent, { type: 'money.choices_set' }>;
     if (e.type === 'money.out') {
       all.set(e.id, {
         id: e.id, at: e.at, actor: e.actor, what: e.what, from: e.from, cents: e.cents, month: e.month ?? monthOf(e.at),
         ...(e.note ? { note: e.note } : {}), ...(e.supplierId ? { supplierId: e.supplierId } : {}),
+        ...(e.choiceId ? { choiceId: e.choiceId } : {}), ...(e.qty ? { qty: e.qty } : {}), ...(e.grnIds?.length ? { grnIds: e.grnIds } : {}),
       });
       continue;
     }
@@ -118,6 +184,8 @@ export interface MoneyMonth {
   costs: Cents;
   /** Each kind of running cost, biggest first; none for a kind with nothing in it. */
   byWhat: { what: MoneyWhat; cents: Cents }[];
+  /** Gas by size and rent by place, biggest first: what was named when paid. */
+  parts: Record<ChoiceWhat, { label: string; cents: Cents; qty: number }[]>;
   /** Paid to suppliers; already in food cost, so outside `costs`. */
   suppliers: Cents;
   /** Everything of the month, newest first. */
@@ -133,8 +201,30 @@ export const moneyMonth = (all: readonly MoneyOut[], month: MonthKey): MoneyMont
     else sums.set(o.what, (sums.get(o.what) ?? 0) + o.cents);
   }
   const byWhat = [...sums].map(([what, cents]) => ({ what, cents })).sort((a, b) => b.cents - a.cents);
-  return { costs: byWhat.reduce((n, w) => n + w.cents, 0), byWhat, suppliers, entries };
+  const partsOf = (what: ChoiceWhat) => {
+    const groups = new Map<string, { label: string; cents: Cents; qty: number }>();
+    for (const o of entries) {
+      if (o.what !== what) continue;
+      const key = o.choiceId ?? '';
+      const g = groups.get(key) ?? { label: o.note ?? 'Not said', cents: 0, qty: 0 };
+      groups.set(key, { ...g, cents: g.cents + o.cents, qty: g.qty + (o.qty ?? 1) });
+    }
+    return [...groups.values()].sort((a, b) => b.cents - a.cents);
+  };
+  return { costs: byWhat.reduce((n, w) => n + w.cents, 0), byWhat, parts: { gas: partsOf('gas'), rent: partsOf('rent') }, suppliers, entries };
 };
+
+/** What one of them last cost, each: fills in the amount, which stays editable. Null: never paid. */
+export const lastPaidEach = (all: readonly MoneyOut[], choiceId: string): Cents | null => {
+  for (let i = all.length - 1; i >= 0; i--) {
+    if (all[i].choiceId === choiceId) return Math.round(all[i].cents / (all[i].qty ?? 1));
+  }
+  return null;
+};
+
+/** The rents paid for a month, so nobody pays one twice or misses one. */
+export const rentsPaid = (all: readonly MoneyOut[], month: MonthKey): ReadonlySet<string> =>
+  new Set(all.filter((o) => o.what === 'rent' && o.month === month && o.choiceId).map((o) => o.choiceId as string));
 
 /** Cash that left the drawer today, supplier payments included: what the day close must allow for (SCRUM-104). */
 export const drawerOutToday = (all: readonly MoneyOut[], now: number): Cents => {

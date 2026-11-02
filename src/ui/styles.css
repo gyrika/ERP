@@ -1904,3 +1904,12 @@ button.glance__card:disabled { cursor: default; }
 .money-out__what b { font-weight: 500; overflow-wrap: anywhere; }
 .money-out__what small { color: var(--ink-2); font-size: 13px; }
 .money-out__row .linkbtn { min-height: 48px; }
+.money-out__parts { grid-column: 2 / -1; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); font-size: 14px; }
+.money-out__parts li { display: flex; justify-content: space-between; gap: 12px; }
+.money-out__left, .money-out__hint { margin: 0; color: var(--ink-2); font-size: 14px; }
+.money-out__owed { display: flex; flex-direction: column; gap: 8px; }
+.money-out__paid { color: var(--ink-3); font-size: 13px; }
+.money-out__edit { display: flex; flex-direction: column; gap: 8px; }
+.money-out__edit-row { display: flex; align-items: center; gap: 8px; }
+.money-out__edit-row .note { flex: 1; min-width: 0; }
+.money-out__edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
