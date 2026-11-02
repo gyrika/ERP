@@ -1867,7 +1867,8 @@ button.glance__card:disabled { cursor: default; }
 /* Money out (SCRUM-105). */
 .money-out__amount { max-width: 280px; }
 .money-out__amount .note { font-size: 20px; }
-.money-out { gap: 20px; max-width: 760px; }
+.money-out { gap: 20px; }
+.money-out > * { width: 100%; max-width: 680px; flex-shrink: 0; }
 .money-out__month { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; }
 .money-out__step { width: 48px; height: 48px; border-radius: 12px; background: var(--chip); color: var(--ink); font-size: 20px; }
 .money-out__step:disabled { opacity: 0.28; }
