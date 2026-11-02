@@ -10,7 +10,7 @@ import type { Cents } from './types.ts';
  * - Paying a supplier takes cash from the drawer but is not a running cost: the food is already
  *   counted when it is used (food cost). It is shown on its own, outside `costs`.
  * - Visual Flow's electricity and gas per recipe are estimates of the same money. This is the
- *   real bill; it is never added on top of them.
+ *   real bill: it replaces them there (billShare.ts), never adds on top of them.
  */
 export type MoneyWhat = 'electricity' | 'gas' | 'water' | 'rent' | 'wages' | 'supplier' | 'other';
 export type MoneyFrom = 'drawer' | 'bank';

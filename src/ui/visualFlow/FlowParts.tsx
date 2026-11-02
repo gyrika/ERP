@@ -142,7 +142,7 @@ export function FlowCard({ id, data, selected }: NodeProps<VfNode>) {
       style={{ '--share': view === 'material' || view === 'warehouse' ? 0 : view === 'stock' ? (focus ? 0 : worth?.share ?? 0) : n.share } as CSSProperties}
     >
       {/* A raw card always has its left handle (React Flow measures handles once): it takes a warehouse's line in the Warehouse view. */}
-      {(takes || n.kind === 'raw' || n.kind === 'profit') && (
+      {(takes || n.kind === 'raw' || n.kind === 'resource' || n.kind === 'profit') && (
         <Handle type="target" position={Position.Left} className={`vf-handle${takes || stored ? '' : ' vf-handle--off'}`} isConnectable={takes || !!stored} />
       )}
       <div className="vf-node__top">
@@ -209,7 +209,12 @@ export type WarehouseData = {
 export type WhNode = Node<WarehouseData, 'wh'>;
 /** "+ Warehouse", under the last one. */
 export type WhAddNode = Node<{ onAdd: () => void }, 'whAdd'>;
-export type CanvasNode = VfNode | WhNode | WhAddNode;
+/** A value-adding place: what goes in there, and the running total. */
+export type VaNode = Node<{ name: string; adds: number; soFar: number; share: number; dim: boolean }, 'va'>;
+/** The column's title and "+ Place". */
+export type VaHeadNode = Node<{ head: true }, 'vaHead'>;
+export type VaAddNode = Node<{ onAdd: () => void }, 'vaAdd'>;
+export type CanvasNode = VfNode | WhNode | WhAddNode | VaNode | VaHeadNode | VaAddNode;
 
 export function WarehouseCard({ data, selected }: NodeProps<WhNode>) {
   const { name, index, kitchenSide, archived, items, cents, dim } = data;
@@ -253,5 +258,25 @@ export function WarehouseLine({ id, sourceX, sourceY, targetX, targetY, sourcePo
   );
 }
 
-export const NODE_TYPES = { vf: FlowCard, wh: WarehouseCard, whAdd: AddWarehouseCard };
+// ----- the Financial view's Value addition column -----
+
+export function ValuePlaceCard({ data, selected }: NodeProps<VaNode>) {
+  const { name, adds, soFar, share, dim } = data;
+  return (
+    <div className={`vf-node vf-whcard${selected ? ' vf-node--on' : ''}${dim ? ' vf-node--dim' : ''}`}>
+      <div className="vf-node__name">{name}</div>
+      <div className="vf-node__value num">Adds {rs(adds)} · {pct(share)}</div>
+      <div className="vf-node__stock num">So far {rs(soFar)}</div>
+      <Handle type="source" position={Position.Right} className="vf-handle" />
+    </div>
+  );
+}
+
+export const ValueHead = () => <h3 className="vf-vahead">Value addition</h3>;
+
+export function AddPlaceCard({ data }: NodeProps<VaAddNode>) {
+  return <button type="button" className="vf-whadd nodrag" onClick={data.onAdd}>+ Place</button>;
+}
+
+export const NODE_TYPES = { vf: FlowCard, wh: WarehouseCard, whAdd: AddWarehouseCard, va: ValuePlaceCard, vaHead: ValueHead, vaAdd: AddPlaceCard };
 export const EDGE_TYPES = { vf: FlowLine, wh: WarehouseLine };
