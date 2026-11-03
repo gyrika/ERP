@@ -11,6 +11,7 @@ import type { CountEntry, GapReason, Tier } from './counting.ts';
 import type { StockSettings } from './stockSettings.ts';
 import type { WasteReason, WasteWhat } from './waste.ts';
 import type { WarehouseInfo } from './warehouses.ts';
+import type { ShopEvent } from './freshStart.ts';
 
 /**
  * The sync contract between devices and the server (SCRUM-59, 60, 29, 30).
@@ -80,6 +81,11 @@ export type StockEvent =
     photo?: string | null;
     /** Counted in one warehouse only (SCRUM-184): counted and expected are that warehouse's. */
     warehouseId?: string;
+    /**
+     * Never sent: set by withoutTestData (freshStart.ts) on a count taken while test data was still
+     * in the stock, so the shelf becomes exactly `counted` instead of moving by counted - expected.
+     */
+    absolute?: true;
   })
   /** Takes back a count (Undo on the count screen). */
   | (StockBase & { type: 'stock.count_undone'; countId: string })
@@ -180,8 +186,8 @@ export interface GrnLine { itemId: string; ordered: number; received: number; ac
   /** The warehouse it went into (SCRUM-184); missing: the item's home. */
   warehouseId?: string }
 
-/** Everything that syncs. Menu changes: src/domain/menuEdits.ts; shorthand misses: shorthandMisses.ts; tables and cameras: tables.ts. */
-export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent | ShorthandEvent | TableEvent | VisionEvent | MoneyEvent | ValueEvent;
+/** Everything that syncs. Menu changes: src/domain/menuEdits.ts; shorthand misses: shorthandMisses.ts; tables and cameras: tables.ts; starting fresh: freshStart.ts. */
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent | ShorthandEvent | TableEvent | VisionEvent | MoneyEvent | ValueEvent | ShopEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;

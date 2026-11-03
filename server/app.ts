@@ -149,6 +149,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     if (e.type === 'stock.numbered') return 'only the shop server numbers documents';
     // Held batches go to the kitchen when the shop server sees their inputs on hand, never on a device's word.
     if (e.type === 'prep.released') return 'only the shop server sends held batches to the kitchen';
+    // Clearing test data: the owner's PIN in Settings on the shop PC, never a device's push.
+    if (e.type === 'shop.started_fresh') return "test data is cleared in Settings on the shop PC";
     // What the cameras saw comes from the camera worker on this PC (SCRUM-170), stamped by the server, never from a device.
     if ('actor' in e && e.actor?.role === 'vision') return 'only the shop server records what the cameras see';
     if (e.type.startsWith('kitchen.')) return device.kind === 'owner' || device.kind === 'manager' ? 'not from this device' : null;
@@ -231,6 +233,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/cv/settings': setup.cvSettings, '/cv/ask': setup.cvAsk,
           '/cv/views/open': setup.cvViewsOpen, '/cv/views/frame': setup.cvViewsFrame, '/cv/views/close': setup.cvViewsClose, '/cv/views/perf': setup.cvViewsPerf,
           '/cv/test-video/stop': setup.cvTestVideoStop, '/cv/test-video': setup.cvTestVideos,
+          '/fresh-start': setup.startFresh,
         };
         const route = routes[step];
         if (!route) throw new HttpError(404, 'server', 'no such setup step');

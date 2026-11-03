@@ -169,6 +169,17 @@ async function staffed() {
   return { ...s, store, cashier, manager, login };
 }
 
+test('clearing test data is never a device push, not even the owner signed in at the counter', async () => {
+  const s = await staffed();
+  const owner = await s.store.addStaff(SHOP, 'Nisal', 'owner', '1234');
+  await s.login('1234');
+  const fresh = { id: 'fresh', shopId: SHOP, at: 5000, orderNumber: 0, actor: { id: owner.id, name: 'Nisal', role: 'owner' }, type: 'shop.started_fresh', before: 4000 };
+  const r = await (await s.push(s.tokens.counter, [fresh])).json();
+  assert.deepEqual(r.rejected, [{ id: 'fresh', reason: 'test data is cleared in Settings on the shop PC' }]);
+  assert.equal((await s.push(s.tokens.counter, [{ ...fresh, id: 'later', before: 6000 }])).status, 400, 'a cut-off after its own time is not valid');
+  await s.stop();
+});
+
 test('login: the PIN finds the person; wrong PINs are slowed down', async () => {
   const s = await staffed();
   const ok = await s.login('1111');

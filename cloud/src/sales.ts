@@ -8,6 +8,9 @@ import type { D1Like, D1Statement } from './cloud.ts';
  * cursor, in the order they were copied, and files each one with the cursor in one transaction,
  * so a crash halfway never files a payment twice or skips one. A new cloud fills the ledger
  * from all the shop's past events on its first pass.
+ *
+ * Test data cleared (`shop.started_fresh`, src/domain/freshStart.ts): payments before the cut-off are
+ * not filed. When a new clear arrives the ledger is emptied and filed again from the start, once.
  */
 const PAGE = 200;
 const MAX_PAGES = 10; // the rest waits for the next copy (about every 30 s)
@@ -24,10 +27,28 @@ export async function projectSales(db: D1Like, tenantId: string): Promise<number
     const top = (await db.prepare('SELECT MAX(seq) AS top FROM events WHERE tenant_id = ?').bind(tenantId).first<{ top: number | null }>())?.top ?? 0;
     if (top <= cursor) return filed;
     const { results } = await db.prepare(`SELECT seq, type, order_number, body FROM events
-      WHERE tenant_id = ? AND seq > ? AND seq <= ? AND type IN ('order.paid', 'order.payment_undone')
+      WHERE tenant_id = ? AND seq > ? AND seq <= ? AND type IN ('order.paid', 'order.payment_undone', 'shop.started_fresh')
       ORDER BY seq LIMIT ?`).bind(tenantId, cursor, top, PAGE).all<Row>();
+    // The clear in force (the latest, so a test payment copied late is still left out).
+    const fresh = await db.prepare(`SELECT seq, body FROM events WHERE tenant_id = ? AND seq <= ? AND type = 'shop.started_fresh'
+      ORDER BY seq DESC LIMIT 1`).bind(tenantId, top).first<{ seq: number; body: string }>();
+    const cutOff = fresh ? (JSON.parse(fresh.body) as { before: number }).before : 0;
+    let restart = false;
 
     for (const row of results) {
+      if (row.type === 'shop.started_fresh') {
+        const done = (await db.prepare('SELECT marker_seq FROM sales_fresh WHERE tenant_id = ?').bind(tenantId).first<{ marker_seq: number }>())?.marker_seq ?? 0;
+        if (done >= row.seq) { await cursorTo(row.seq).run(); continue; }
+        await db.batch([
+          db.prepare('DELETE FROM sale_items WHERE tenant_id = ?').bind(tenantId),
+          db.prepare('DELETE FROM sales WHERE tenant_id = ?').bind(tenantId),
+          db.prepare(`INSERT INTO sales_fresh (tenant_id, marker_seq) VALUES (?, ?)
+            ON CONFLICT (tenant_id) DO UPDATE SET marker_seq = excluded.marker_seq`).bind(tenantId, row.seq),
+          db.prepare('UPDATE sales_cursor SET last_seq = 0 WHERE tenant_id = ?').bind(tenantId),
+        ]);
+        restart = true;
+        break;
+      }
       const writes: D1Statement[] = [];
       // The payment still standing before this one, for the same number, ends the order before it.
       const standing = (seqBefore: number) => db.prepare(`SELECT id, event_seq FROM sales
@@ -36,6 +57,7 @@ export async function projectSales(db: D1Like, tenantId: string): Promise<number
 
       if (row.type === 'order.paid') {
         const paid = JSON.parse(row.body) as Extract<OrderEvent, { type: 'order.paid' }>;
+        if (paid.at < cutOff) { await cursorTo(row.seq).run(); continue; } // test data, cleared
         const from = (await standing(row.seq))?.event_seq ?? 0;
         const { results: order } = await db.prepare(`SELECT body FROM events
           WHERE tenant_id = ? AND order_number = ? AND seq > ? AND seq < ? AND type LIKE 'order.%'
@@ -72,6 +94,7 @@ export async function projectSales(db: D1Like, tenantId: string): Promise<number
       writes.push(cursorTo(row.seq));
       await db.batch(writes);
     }
+    if (restart) continue;
     if (results.length < PAGE) {
       await cursorTo(top).run(); // nothing else up to `top` concerns the ledger
       return filed;

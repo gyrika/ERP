@@ -1,5 +1,6 @@
 import type { Actor } from '../src/domain/auth.ts';
 import { gapOf } from '../src/domain/counting.ts';
+import { withoutTestData } from '../src/domain/freshStart.ts';
 import { SEED_INVENTORY } from '../src/domain/inventoryData.ts';
 import { grnProblem, purchasesFromEvents, settleGrn, undoCheck, type PurchaseState } from '../src/domain/purchaseOrders.ts';
 import { stockSettingsFromEvents, type StockSettings } from '../src/domain/stockSettings.ts';
@@ -14,6 +15,8 @@ import type { Device, EventStore, StaffMember } from './store.ts';
  * Checked one batch at a time per shop, so two pushes never both pass the same rule.
  */
 const RELEVANT = new Set<string>([
+  // Test data cleared (freshStart.ts): the rules then check against the real history only.
+  'shop.started_fresh',
   'stock.ordered', 'stock.order_edited', 'stock.order_cancelled', 'stock.order_reopened',
   'stock.grn', 'stock.grn_undone', 'stock.counted', 'stock.settings_set',
   // What a count is checked against: has the item been counted before, and what is it worth.
@@ -170,16 +173,19 @@ export function createStockRules(store: EventStore, now: () => number) {
       if (!logs.has(tenant)) logs.set(tenant, load(tenant));
       try {
         const log = [...await logs.get(tenant)!];
+        let real = withoutTestData(log);
         const staff = events.some((e) => e.type === 'stock.grn' || e.type === 'stock.grn_undone') ? await store.listStaff(tenant) : [];
         const allowed: SyncEvent[] = [];
         const rejected: { id: string; reason: string }[] = [];
         const known = new Set(log.map((e) => e.id));
         for (const e of events) {
           if (!RELEVANT.has(e.type) || known.has(e.id)) { allowed.push(e); continue; } // not ours to check, or sent before
-          const why = stockRuleProblem(e, { state: purchasesFromEvents(log, stockSettingsFromEvents(log)), settings: stockSettingsFromEvents(log), staff, now: now(), items: stockFacts(log), warehouses: warehousesFromEvents(log) });
+          const why = stockRuleProblem(e, { state: purchasesFromEvents(real, stockSettingsFromEvents(real)), settings: stockSettingsFromEvents(real), staff, now: now(), items: stockFacts(real), warehouses: warehousesFromEvents(real) });
           if (why) { rejected.push({ id: e.id, reason: why }); continue; }
           allowed.push(e);
           log.push(e);
+          if (e.type === 'shop.started_fresh') real = withoutTestData(log);
+          else if (real !== log) real.push(e);
           known.add(e.id);
         }
         const result = await push(allowed);

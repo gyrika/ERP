@@ -1,6 +1,6 @@
 import type { Actor, AuthService } from '../domain/auth.ts';
 import type { PushResponse } from '../domain/sync.ts';
-import { markRejected, markSynced, readAll, readOutbox, subscribeEvents } from '../ui/eventLog.ts';
+import { markRejected, markSynced, readOutbox, readStored, subscribeEvents } from '../ui/eventLog.ts';
 import { phoneToken } from './pairing.ts';
 
 /**
@@ -46,7 +46,7 @@ export const flushOutbox = async (): Promise<void> => {
   clearTimeout(timer);
   try {
     const waiting = new Set(readOutbox());
-    const events = readAll().filter((e) => waiting.has(e.id));
+    const events = readStored().filter((e) => waiting.has(e.id));
     if (!events.length) return;
     const r = await fetch('/api/v1/inbox', {
       method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

@@ -1,3 +1,4 @@
+import { withoutTestData } from '../src/domain/freshStart.ts';
 import { SEED_INVENTORY } from '../src/domain/inventoryData.ts';
 import { holdsBatches, releasesDue } from '../src/domain/scheduler.ts';
 import { PULL_LIMIT, type SyncEvent, type SyncedEvent } from '../src/domain/sync.ts';
@@ -35,8 +36,10 @@ export function createScheduler(store: EventStore, now: () => number) {
           const known = new Set(log.map((e) => e.id));
           log.push(...stored.filter((e) => !known.has(e.id)));
         }
-        if (!stored.length || !holdsBatches(log)) return [];
-        const made = releasesDue(SEED_INVENTORY, log, tenant, now());
+        if (!stored.length) return [];
+        const real = withoutTestData(log); // test data cleared (freshStart.ts): its batches are not held
+        if (!holdsBatches(real)) return [];
+        const made = releasesDue(SEED_INVENTORY, real, tenant, now());
         if (!made.length) return [];
         const out = (await store.push(device, made, now())).stored;
         log.push(...out.map((s) => s.event));

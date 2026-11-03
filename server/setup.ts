@@ -162,7 +162,7 @@ export function setupApi(ctx: SetupContext) {
     const event = { id: randomUUID(), shopId: s.id, at: now(), actor, orderNumber: 0, ...fields } as unknown as SyncEvent;
     const checked = validatePush({ events: [event] }, s.id);
     if ('reason' in checked) throw new SetupError(400, 'invalid', checked.reason);
-    if (!mayRecord(actor.role, event.type)) throw new SetupError(403, 'forbidden', 'only the owner sets up the cameras');
+    if (!mayRecord(actor.role, event.type)) throw new SetupError(403, 'forbidden', 'only the owner may do this');
     await ctx.ingest(await setupDevice(s.id), [event]);
     return [event];
   };
@@ -590,6 +590,18 @@ export function setupApi(ctx: SetupContext) {
     async cvSettings(body: { ownerPin?: unknown; mode?: unknown }) {
       const actor = await owner(body.ownerPin);
       return { events: await record(actor, { type: 'vision.settings_set', mode: body.mode }) };
+    },
+
+    /**
+     * Test data (freshStart.ts): what happened before `before` (ms) was testing and no longer counts;
+     * 0 puts it all back (the Undo). Setup (menu, recipes, suppliers, warehouses, cameras) always stays.
+     */
+    async startFresh(body: { ownerPin?: unknown; before?: unknown }) {
+      const actor = await owner(body.ownerPin);
+      const before = body.before;
+      if (typeof before !== 'number' || !Number.isSafeInteger(before) || before < 0) throw new SetupError(400, 'invalid', 'pick a time');
+      if (before > now()) throw new SetupError(400, 'invalid', 'that time has not come yet');
+      return { events: await record(actor, { type: 'shop.started_fresh', before }) };
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */

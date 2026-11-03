@@ -408,3 +408,43 @@ test('TEMPORARY test video: the owner uploads one for a saved camera; views and 
   await new Promise((done) => server!.close(done));
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('Test data: the owner clears what happened before a time; numbering starts again; Undo puts it back', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cb-setup-fresh-'));
+  const store = memoryStore();
+  let server: ReturnType<typeof createApp> | null = null;
+  let clock = Date.UTC(2026, 10, 3, 3, 0);
+  const setup = setupApi({
+    store, settings: settingsFile(join(dir, 'settings.json')), usePrinter: () => {}, printsDir: join(dir, 'prints'), port: 8080,
+    cloud: () => null, cloudUrl: 'https://cloud.test', ingest: (device, events) => server!.ingest(device, events), now: () => clock,
+  });
+  server = createApp({ store, setup, now: () => clock });
+  const named = await setup.nameShop({ name: 'CheesyBeez', place: 'Thalwila' });
+  await setup.addStaff({ name: 'Nisal Vimukthi', role: 'owner', pin: '1234' });
+  await setup.addStaff({ name: 'Mala', role: 'manager', pin: '2222' });
+  await setup.finish();
+  const { device } = await store.addDevice(named.shopId, 'CheesyBeez', 'counter');
+  const mala = { id: 'm', name: 'Mala', role: 'manager' as const };
+  const po = (id: string, at: number) => ({ id, shopId: named.shopId, at, orderNumber: 0 as const, actor: mala, type: 'stock.ordered' as const, supplierId: 'sup_prima', lines: [] });
+  const numbers = async () => (await store.pull(named.shopId, 0, 100)).flatMap((s) => (s.event.type === 'stock.numbered' ? [s.event.number] : []));
+
+  await server.ingest(device, [po('test-po', clock - 60_000)]);
+  assert.deepEqual(await numbers(), ['PO-0001']);
+
+  await assert.rejects(setup.startFresh({ ownerPin: '2222', before: clock }), /owner's PIN/, "a manager's PIN will not do");
+  await assert.rejects(setup.startFresh({ ownerPin: '1234', before: clock + 60_000 }), /not come yet/);
+  await assert.rejects(setup.startFresh({ ownerPin: '1234', before: 'today' }), /pick a time/);
+  const { events } = await setup.startFresh({ ownerPin: '1234', before: clock - 1000 });
+  assert.equal(events[0].type, 'shop.started_fresh');
+  assert.equal('actor' in events[0] && events[0].actor.name, 'Nisal Vimukthi');
+
+  clock += 60_000;
+  await server.ingest(device, [po('real-po', clock)]);
+  assert.deepEqual(await numbers(), ['PO-0001', 'PO-0001'], 'the first real order is PO-0001 again');
+
+  await setup.startFresh({ ownerPin: '1234', before: 0 }); // Undo
+  clock += 60_000;
+  await server.ingest(device, [po('next-po', clock)]);
+  assert.deepEqual(await numbers(), ['PO-0001', 'PO-0001', 'PO-0002'], 'after Undo the test order counts again');
+  rmSync(dir, { recursive: true, force: true });
+});

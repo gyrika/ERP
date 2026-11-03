@@ -3,6 +3,7 @@ import { menuStateFromEvents } from '../domain/menuEdits.ts';
 import { useSyncExternalStore } from 'react';
 import type { PullResponse, SyncEvent } from '../domain/sync.ts';
 import { demoHistory } from '../fake/history.ts';
+import { withoutTestData } from '../domain/freshStart.ts';
 import { readAll, subscribeEvents } from '../ui/eventLog.ts';
 import { isDemo } from '../ui/storage.ts';
 import { adminShop, fleetShop, managerToken, ownerToken, syncToken } from './pairing.ts';
@@ -78,6 +79,8 @@ const sourceKey = (): string => {
  */
 const shared = {
   data: { state: 'loading' } as ShopEvents,
+  /** Everything fetched so far, test data included: a later clear (or its Undo) is applied to all of it. */
+  raw: [] as SyncEvent[],
   key: '',
   cursor: 0,
   listeners: new Set<() => void>(),
@@ -95,6 +98,7 @@ const start = () => {
   if (key !== shared.key || !source.incremental) {
     shared.key = key;
     shared.cursor = 0;
+    shared.raw = [];
     shared.data = { state: 'loading' };
   }
   let alive = true;
@@ -106,8 +110,8 @@ const start = () => {
     try {
       const got = await source.next(source.incremental ? shared.cursor : 0);
       if (!alive) return;
-      const before = shared.data.state === 'loading' ? undefined : shared.data.events;
-      const events = source.incremental ? [...(before ?? []), ...got.events] : got.events;
+      shared.raw = source.incremental ? [...shared.raw, ...got.events] : got.events;
+      const events = withoutTestData(shared.raw); // test data the owner cleared (freshStart.ts)
       shared.cursor = got.cursor;
       // The owner's own names and prices, wherever this view runs (the phone has no event log).
       setMenuState(menuStateFromEvents(events.filter((e) => e.type.startsWith('menu.'))));
