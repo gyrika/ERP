@@ -36,6 +36,7 @@ import { nextWarehouseName, warehouseColumn } from '../../domain/warehouseColumn
 import { addWarehouse, editWarehouse, setHome, setKitchenSide, stockEntries } from '../../services/inventoryStore.ts';
 import { PlaceSheet } from '../WarehousesView.tsx';
 import { valuationOf } from '../../domain/valuation.ts';
+import { cardPlaces, saveCardPlaces, type Places } from './cardPlaces.ts';
 import './visualFlow.css';
 
 /**
@@ -141,7 +142,9 @@ function Studio({ owner, onMenu }: { owner: Actor; onMenu: () => void }) {
   const drawn: FlowView = view === 'stock' || view === 'warehouse' ? 'material' : view;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [sel, setSel] = useState<Selection>(null);
-  const [moved, setMoved] = useState<Record<string, { x: number; y: number }>>({});
+  /** Where he dragged this item's cards, saved as he drags (back after a restart). */
+  const [moved, setMoved] = useState<Places>(() => cardPlaces(focus));
+  useEffect(() => saveCardPlaces(focus, moved), [focus, moved]);
   /** Each card's measured size: the cards are drawn from the graph, so React Flow's own measure is kept here. */
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
   const [toast, setToast] = useState<Toast | null>(null);
@@ -157,7 +160,7 @@ function Studio({ owner, onMenu }: { owner: Actor; onMenu: () => void }) {
   const setFocus = useCallback((id: string) => {
     setFocusState(id);
     setSel(null);
-    setMoved({});
+    setMoved(cardPlaces(id));
     setCollapsed(new Set());
     // The same place drawn for another item: its history entry (and its depth for Back) stays.
     history.replaceState(history.state, '', `#flow/${encodeURIComponent(id)}`);
