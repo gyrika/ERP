@@ -8,12 +8,13 @@ import { samplePaid } from './ReceiptPreview.tsx';
 import { restartApp } from './restart.ts';
 import { OwnerNav } from './OwnerNav.tsx';
 import { StockRulesEntry } from './StockRulesSheet.tsx';
+import { TestDataTab } from './TestDataTab.tsx';
 
 /**
  * Setting up the shop, on the shop PC itself. Serves whoever sets it up,
  * possibly the owner alone: one question per screen, big targets, Enter to go on.
  * - first:   a new shop. Shop → Printer → Staff → Devices → the PIN screen.
- * - manage:  later (#setup, the owner's PIN first): staff, printer, devices.
+ * - manage:  later (#setup, the owner's PIN first): staff, printer, devices, updates, test data.
  * - connect: a screen on this PC that is not the counter yet (the owner's PIN).
  */
 type Mode = 'first' | 'manage' | 'connect';
@@ -22,8 +23,8 @@ const FIRST: Step[] = ['shop', 'printer', 'staff', 'cloud', 'devices'];
 const TITLES: Record<Step, string> = {
   shop: 'Name your shop', printer: 'Your receipt printer', staff: 'Your staff', cloud: 'Connect to the cloud', devices: 'Connect your devices',
 };
-type Tab = Exclude<Step, 'shop'> | 'updates';
-const TAB_LABEL: Record<Tab, string> = { staff: 'Staff', printer: 'Printer', cloud: 'Cloud', devices: 'Devices', updates: 'Updates' };
+type Tab = Exclude<Step, 'shop'> | 'updates' | 'testData';
+const TAB_LABEL: Record<Tab, string> = { staff: 'Staff', printer: 'Printer', cloud: 'Cloud', devices: 'Devices', updates: 'Updates', testData: 'Test data' };
 const ROLES: { id: Role; label: string }[] = [
   { id: 'cashier', label: 'Cashier' }, { id: 'manager', label: 'Manager' }, { id: 'owner', label: 'Owner' }, { id: 'kitchen', label: 'Kitchen' },
 ];
@@ -463,7 +464,7 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
     body = (
       <>
         <nav className="cats setup__tabs" aria-label="Shop setup">
-          {(['staff', 'printer', 'cloud', 'devices', 'updates'] as const).map((t) => (
+          {(['staff', 'printer', 'cloud', 'devices', 'updates', 'testData'] as const).map((t) => (
             <button key={t} type="button" className="pill" aria-pressed={tab === t} onClick={() => setTab(t)}>{TAB_LABEL[t]}</button>
           ))}
         </nav>
@@ -472,6 +473,7 @@ export function SetupWizard({ mode, onClose }: { mode: Mode; onClose?: () => voi
         {tab === 'cloud' && <CloudStep connected={state.cloud} ownerPin={ownerPin} onConnected={connected} />}
         {tab === 'devices' && <DevicesStep state={state} ownerPin={ownerPin} />}
         {tab === 'updates' && <UpdatesTab ownerPin={ownerPin} />}
+        {tab === 'testData' && <TestDataTab ownerPin={ownerPin} />}
       </>
     );
   } else {

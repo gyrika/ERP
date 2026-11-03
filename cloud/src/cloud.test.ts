@@ -257,3 +257,34 @@ test('the sales ledger: each payment a row with its items, an Undo marks it, eac
   await call('/api/v1/replica', 'server-a');
   assert.deepEqual(sales().filter((s) => s.tenant_id === SHOP).map((s) => [s.id, s.status]), [['p1', 'undone'], ['p2', 'paid'], ['p3', 'paid']]);
 });
+
+test('the sales ledger after test data is cleared: test payments leave it, once; real ones stay; Undo brings them back', async () => {
+  const { call, db } = await setup();
+  const cashier = { id: 'n', name: 'Nimal', role: 'cashier' };
+  const owner = { id: 'o', name: 'Nisal', role: 'owner' };
+  const burger = { id: 'l2', itemId: 'chicken-burger', qty: 1, adds: [], outs: [], sent: true, unit: 45000 };
+  const day = Date.UTC(2026, 10, 3, 3, 0);
+  let seq = 0;
+  const row = (e: object, at: number, actor: object = cashier, orderNumber = 1): SyncedEvent => {
+    seq++;
+    return { seq, deviceId: 'dev-counter', receivedAt: seq, event: { shopId: SHOP, at, actor, orderNumber, ...e } as SyncEvent };
+  };
+  const sale = (n: number, at: number) => [
+    row({ id: `s${n}`, type: 'order.sent', ticketId: `t${n}`, lines: [burger], addOn: false }, at, cashier, n),
+    row({ id: `p${n}`, type: 'order.paid', total: 45000, tender: 'cash', tendered: 50000 }, at + 1, cashier, n),
+  ];
+  const cleared = (id: string, before: number, at: number) => row({ id, type: 'shop.started_fresh', before }, at, owner, 0);
+  const paidIds = () => db.prepare("SELECT id FROM sales WHERE status = 'paid' ORDER BY event_seq").all().map((r) => r.id);
+
+  await call('/api/v1/replica', 'server-a', { events: [...sale(1, day), ...sale(2, day + 60_000)] });
+  assert.deepEqual(paidIds(), ['p1', 'p2']);
+
+  // Cleared before 3:05; a real sale after; a test payment copied late is still left out.
+  await call('/api/v1/replica', 'server-a', { events: [cleared('f1', day + 300_000, day + 400_000), ...sale(3, day + 500_000), ...sale(4, day + 120_000)] });
+  assert.deepEqual(paidIds(), ['p3']);
+  await call('/api/v1/replica', 'server-a');
+  assert.deepEqual(paidIds(), ['p3'], 'rebuilt once, not on every pass');
+
+  await call('/api/v1/replica', 'server-a', { events: [cleared('f2', 0, day + 600_000)] });
+  assert.deepEqual(paidIds(), ['p1', 'p2', 'p3', 'p4'], 'Undo: everything counts again');
+});

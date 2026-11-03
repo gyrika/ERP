@@ -54,6 +54,8 @@ export const setupClient = {
     call<{ status: { phase: string; percent: number; version: string; at: number } | null }>('/update/status', { ownerPin }),
   cvStatus: (ownerPin: string) => call<CvStatus>('/cv/status', { ownerPin }),
   cvActivate: (ownerPin: string) => call<CvStatus>('/cv/activate', { ownerPin }),
+  /** Test data before `before` (ms) stops counting; 0 puts it back (freshStart.ts). */
+  startFresh: (before: number, ownerPin?: string) => call<{ events: SyncEvent[] }>('/fresh-start', { before, ownerPin }),
 };
 
 /** #cameras (SCRUM-171): what the shop server keeps of each camera's login — never the password. */

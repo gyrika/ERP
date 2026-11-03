@@ -1,4 +1,5 @@
 import { numberingOf, numbersFor, unnumbered, type NumberingState } from '../src/domain/docNumbers.ts';
+import { withoutTestData } from '../src/domain/freshStart.ts';
 import { PULL_LIMIT, type SyncEvent, type SyncedEvent } from '../src/domain/sync.ts';
 import type { Device, EventStore } from './store.ts';
 
@@ -24,13 +25,15 @@ export function createNumberer(store: EventStore, now: () => number) {
       if (rows.length < PULL_LIMIT) break;
       after = rows[rows.length - 1].seq;
     }
-    return numberingOf(events);
+    return numberingOf(withoutTestData(events)); // test documents cleared (freshStart.ts) take no number
   };
 
   /** Numbers the documents among `events`; returns the numbering records newly stored. */
   return async (device: Device, events: readonly SyncEvent[]): Promise<SyncedEvent[]> => {
-    if (!events.some((e) => e.type === 'stock.ordered' || e.type === 'stock.grn')) return [];
     const tenant = device.tenantId;
+    // Test data cleared: numbering starts again from what is left (PO-0001 for the first real order).
+    if (events.some((e) => e.type === 'shop.started_fresh')) states.delete(tenant);
+    if (!events.some((e) => e.type === 'stock.ordered' || e.type === 'stock.grn')) return [];
     const run = (queues.get(tenant) ?? Promise.resolve()).then(async () => {
       if (!states.has(tenant)) states.set(tenant, load(tenant));
       try {

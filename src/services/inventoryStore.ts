@@ -10,6 +10,7 @@ import { planProduction, type Plan } from '../domain/production.ts';
 import { holdsBatches, releasesDue } from '../domain/scheduler.ts';
 import type { InventoryItem, Supplier } from '../domain/inventoryData.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from '../domain/inventoryData.ts';
+import { withoutTestData } from '../domain/freshStart.ts';
 import type { Cents } from '../domain/types.ts';
 import { currentCashier, numbersLocally, shopId } from './auth.ts';
 import { newLineId } from '../domain/order.ts';
@@ -335,7 +336,8 @@ function useShopHistory(): SyncEvent[] {
   const [local, setLocal] = useState(readLive);
   useEffect(() => subscribeEvents(() => setLocal(readLive())), []);
   const history = shop.state === 'loading' ? null : shop.events;
-  return useMemo(() => withLocal(history ?? [], local), [history, local]);
+  // Both sides leave cleared test data out; together too, whichever heard of the clear first.
+  return useMemo(() => withoutTestData(withLocal(history ?? [], local)), [history, local]);
 }
 
 /** Stock as it stands, from the whole history; untrackedSold: items sold this week with no recipe yet. */

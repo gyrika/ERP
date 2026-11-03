@@ -10,7 +10,7 @@ import { onOrder, purchasesFromEvents } from './purchaseOrders.ts';
 import { stockSettingsFromEvents, type StockSettings } from './stockSettings.ts';
 import { ledgerOf, type Ledger } from './production.ts';
 import type { PrepOrder } from './prep.ts';
-import { placement, type Split, type Warehouses } from './warehouses.ts';
+import { placedIn, placement, type Split, type Warehouses } from './warehouses.ts';
 
 const BASE_UNITS: BaseUnit[] = ['g', 'ml', 'pcs', 'sheets'];
 
@@ -425,7 +425,11 @@ export const stockFromEvents = (
       case 'stock.counted': {
         const shelf = shelves.get(e.itemId);
         if (!shelf) break;
-        const delta = e.counted - e.expected;
+        // A count from before test data was cleared (freshStart.ts): the shelf holds exactly what was counted.
+        const expected = !e.absolute ? e.expected
+          : e.warehouseId ? placedIn(place.warehouses, place.places, `stock:${e.itemId}`, shelf.onHandBaseUnits, e.warehouseId)
+          : shelf.onHandBaseUnits;
+        const delta = e.counted - expected;
         counts.set(e.id, { itemId: e.itemId, delta, previous: countedAt.get(e.itemId) });
         shelf.counted = true;
         shelf.onHandBaseUnits += delta;

@@ -1,4 +1,5 @@
 import type { OrderEvent } from '../domain/events.ts';
+import { withoutTestData } from '../domain/freshStart.ts';
 import { newLineId } from '../domain/order.ts';
 import type { NewSyncEvent, SyncEvent } from '../domain/sync.ts';
 import { shopId } from '../services/auth.ts';
@@ -32,10 +33,14 @@ const write = (key: string, value: unknown): void => {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full/blocked: the sale must not fail */ }
 };
 
-export const readAll = (): SyncEvent[] => {
+/** Everything stored on this device, test data included: the sync outbox reads this. */
+export const readStored = (): SyncEvent[] => {
   const parsed = read<unknown>(KEY(), []);
   return Array.isArray(parsed) ? (parsed as SyncEvent[]) : [];
 };
+
+/** The shop's events as the screens see them: test data the owner cleared is left out (freshStart.ts). */
+export const readAll = (): SyncEvent[] => withoutTestData(readStored());
 
 /** The order events (the audit trail). */
 export const readEvents = (): OrderEvent[] => readAll().filter((e): e is OrderEvent => e.type.startsWith('order.'));
@@ -75,7 +80,7 @@ export const subscribeEvents = (onChange: () => void): (() => void) => {
 /** A new action on this device: stored, queued for the server, then everyone is told. */
 export const appendEvent = <E extends NewSyncEvent>(event: E): E & { id: string; shopId: string } => {
   const full = { ...event, id: newLineId(), shopId: shopId() };
-  write(KEY(), [...readAll(), full]);
+  write(KEY(), [...readStored(), full]);
   write(OUTBOX(), [...readOutbox(), full.id]);
   changed();
   return full;
@@ -87,7 +92,7 @@ export const appendEvent = <E extends NewSyncEvent>(event: E): E & { id: string;
  * `local` = written here and still to be pushed (demo data never is).
  */
 export const addEvents = (events: readonly SyncEvent[], { local = false } = {}): number => {
-  const all = readAll();
+  const all = readStored();
   const known = new Set(all.map((e) => e.id));
   const fresh = events.filter((e) => (known.has(e.id) ? false : (known.add(e.id), true)));
   if (!fresh.length) return 0;
@@ -103,13 +108,14 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
   const outbox = readOutbox().filter((id) => !done.has(id));
   write(OUTBOX(), outbox);
   const pending = new Set(outbox);
-  const all = readAll();
+  const all = readStored();
   // The ingredient and supplier lists and menu changes are the shop's data itself: kept for good.
   // Stock amounts need the whole history: the Inventory screen reads it from the server.
   const kept = all.filter((e) =>
     pending.has(e.id) ||
     now - e.at < KEEP_SYNCED_MS ||
     e.type.startsWith('menu.') ||
+    e.type === 'shop.started_fresh' ||
     e.type === 'recipe.answer_set' ||
     e.type === 'recipe.draft_set' ||
     e.type === 'stock.item_added' ||
@@ -130,7 +136,7 @@ export const markRejected = (refused: readonly ({ id: string; reason?: string } 
   const items = refused.map((r) => (typeof r === 'string' ? { id: r } : r));
   const gone = new Set(items.map((r) => r.id));
   write(OUTBOX(), readOutbox().filter((id) => !gone.has(id)));
-  const types = new Map(readAll().map((e) => [e.id, e.type]));
+  const types = new Map(readStored().map((e) => [e.id, e.type]));
   const have = new Set(readRejections().map((r) => r.id));
   write(REJECTED(), [...read<unknown[]>(REJECTED(), []), ...items.filter((r) => !have.has(r.id)).map((r) => (
     { id: r.id, reason: r.reason ?? '', type: types.get(r.id) ?? '', at: Date.now(), dismissed: false } satisfies Rejection))]);

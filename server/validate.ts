@@ -14,6 +14,7 @@ import { checkValueEvent, VALUE_EVENT_TYPES } from '../src/domain/valuePlaces.ts
 import { checkPrepLimit, checkPrepOrder } from '../src/domain/prep.ts';
 import { checkWarehouseName, isStockKey, isWarehouseId } from '../src/domain/warehouses.ts';
 import { checkTableEvent, TABLE_EVENT_TYPES, VISION_EVENT_TYPES } from '../src/domain/tables.ts';
+import { SHOP_EVENT_TYPES } from '../src/domain/freshStart.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import type { MenuItem } from '../src/domain/types.ts';
 import {
@@ -22,7 +23,7 @@ import {
 
 const TYPES = new Set<string>([
   ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...PREP_EVENT_TYPES, ...MENU_EVENT_TYPES, ...RECIPE_EVENT_TYPES, ...SHORTHAND_EVENT_TYPES,
-  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES,
+  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES,
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -77,11 +78,14 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (!Number.isSafeInteger(e.at)) return { reason: `event ${e.id} has no time` };
     if (e.shopId !== tenantId) return { reason: `event ${e.id} belongs to another shop`, wrongShop: true };
     if (e.type.startsWith('order.') || e.type.startsWith('stock.') || e.type.startsWith('prep.') || e.type.startsWith('menu.') || e.type.startsWith('recipe.') || e.type.startsWith('shorthand.')
-      || e.type.startsWith('table.') || e.type.startsWith('vision.') || e.type.startsWith('money.') || e.type.startsWith('value.')) {
+      || e.type.startsWith('table.') || e.type.startsWith('vision.') || e.type.startsWith('money.') || e.type.startsWith('value.') || e.type.startsWith('shop.')) {
       const a = e.actor;
       if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
         return { reason: `event ${e.id} does not say who did it` };
       }
+    }
+    if (e.type === 'shop.started_fresh' && (!Number.isSafeInteger(e.before) || (e.before as number) < 0 || (e.before as number) > (e.at as number))) {
+      return { reason: `event ${e.id} has an invalid cut-off` };
     }
     if (e.type === 'order.sent' && e.platform !== undefined && !isPlatformMark(e.platform)) {
       return { reason: `event ${e.id} has an unknown delivery app or code` };

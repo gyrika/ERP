@@ -1,5 +1,6 @@
 import { setMenuState } from '../src/domain/menu.ts';
 import { menuStateFromEvents } from '../src/domain/menuEdits.ts';
+import { withoutTestData } from '../src/domain/freshStart.ts';
 import { buildOwnerDigest } from '../src/domain/ownerDigest.ts';
 import type { SyncEvent } from '../src/domain/sync.ts';
 
@@ -23,7 +24,7 @@ process.on('message', (m: ToDigestWorker) => {
   try {
     // Insights name dishes through the shared menu; in this process it is only ever this shop's.
     setMenuState(menuStateFromEvents(log.filter((e) => e.type.startsWith('menu.'))), m.now);
-    answer({ type: 'digest', body: JSON.stringify(buildOwnerDigest(log, m.now)) });
+    answer({ type: 'digest', body: JSON.stringify(buildOwnerDigest(withoutTestData(log), m.now)) });
   } catch (e) {
     answer({ type: 'failed', message: e instanceof Error ? e.message : 'build failed' });
   }
