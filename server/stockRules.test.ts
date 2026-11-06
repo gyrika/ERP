@@ -41,10 +41,13 @@ test('an edit or cancel needs an order that is there and has had no goods', () =
   assert.match(ask([po('p1')], { ...base, id: 'r', at: 2, type: 'stock.order_reopened', orderId: 'p1' }) ?? '', /not cancelled/);
 });
 
-test('a GRN: as owed passes; a difference needs a real manager and the decisions; stock cannot be made up', () => {
+test('a GRN: as owed passes; without a manager short waits and extra is refused; stock cannot be made up', () => {
   const orders = [po('p1', 2)];
   assert.equal(ask(orders, grn('g1', 'p1', [line(2, 2)])), null);
-  assert.match(ask(orders, grn('g1', 'p1', [line(2, 1)])) ?? '', /needs a manager/);
+  // SCRUM-226: the counter may receive a short delivery that waits for the rest, but not close it or take extra.
+  assert.equal(ask(orders, grn('g1', 'p1', [line(2, 1)], { shortDecision: 'wait' })), null);
+  assert.match(ask(orders, grn('g1', 'p1', [line(2, 1)], { shortDecision: 'close' })) ?? '', /Only a manager can close an order short/);
+  assert.match(ask(orders, grn('g1', 'p1', [line(2, 3, 3)], { overDecision: 'accept' })) ?? '', /a manager approves the extra/);
   assert.match(ask(orders, grn('g1', 'p1', [line(2, 1)], { approvedBy: ravi })) ?? '', /wait for the rest, or close the order/);
   assert.equal(ask(orders, grn('g1', 'p1', [line(2, 1)], { approvedBy: ravi, shortDecision: 'close' })), null);
   assert.equal(ask(orders, grn('g1', 'p1', [line(2, 3, 2)], { approvedBy: ravi, overDecision: 'return' })), null);
@@ -58,17 +61,22 @@ test('a GRN: as owed passes; a difference needs a real manager and the decisions
   assert.match(ask(orders, short({ ...nimal, role: 'manager' })) ?? '', /not from a manager or the owner/, 'a cashier claiming to be a manager');
 });
 
-test('the server requires a real manager for a delivered price that differs from the PO', () => {
+test('a delivered price that differs from the PO: saved without a manager, waiting for one to decide it', () => {
   const order: SyncEvent = {
     ...base, id: 'p1', at: 0, type: 'stock.ordered', supplierId: 'sup',
     lines: [{ itemId: 'flour', packs: 2, unitPriceCents: 640000 }],
   };
   const deliveredLines = [{ ...line(2, 2), unitPriceCents: 650000 }];
   const delivered = grn('g1', 'p1', deliveredLines);
-  assert.match(ask([order], delivered) ?? '', /needs a manager/);
+  assert.equal(ask([order], delivered), null, 'SCRUM-226: saved, the price waits for a manager');
+  const decide = (id: string, grnId: string, use = true): SyncEvent => ({ ...base, id, at: 2, type: 'stock.grn_price_reviewed', grnId, use });
+  assert.equal(ask([order, delivered], decide('d1', 'g1')), null);
+  assert.match(ask([order, delivered, decide('d1', 'g1')], decide('d2', 'g1', false)) ?? '', /no price waiting/, 'decided once');
+  assert.match(ask([order], decide('d1', 'nope')) ?? '', /not here/);
   assert.match(ask([order], grn('g1', 'p1', [line(2, 2)])) ?? '', /Enter the delivered price/);
   assert.equal(ask([order], grn('g1', 'p1', deliveredLines, { approvedBy: ravi })), null);
-  assert.match(ask([order], grn('g1', 'p1', deliveredLines, { approvedBy: nimal })) ?? '', /needs a manager|not from a manager or the owner/);
+  assert.match(ask([order], grn('g1', 'p1', deliveredLines, { approvedBy: nimal })) ?? '', /not from a manager or the owner/);
+  assert.match(ask([order], decide('d1', 'g1')) ?? '', /not here/);
   assert.match(ask([order], grn('g1', 'p1', [{ ...line(2, 2), unitPriceCents: 640000.5 }])) ?? '', /whole number of cents/);
   assert.match(ask([], { ...order, lines: [{ itemId: 'flour', packs: 2, unitPriceCents: -1 }] }) ?? '', /purchase-order price must be a whole number of cents/);
 });

@@ -8,8 +8,9 @@ import {
   compareDelivery, expectedBy, grnValueCents, settleGrn, undoCheck, UNDO_REASONS, type GrnDecisions, type PurchaseGrn, type PurchaseOrder, type PurchaseState,
 } from '../domain/purchaseOrders.ts';
 import type { StockSettings } from '../domain/stockSettings.ts';
-import { receiveGoods, undoGrn, useWarehouses, type InventoryRow } from '../services/inventoryStore.ts';
-import { useMoneyOut, useRemovedGrns } from '../services/moneyOutStore.ts';
+import { receiveGoods, reviewGrnPrice, undoGrn, useWarehouses, type InventoryRow } from '../services/inventoryStore.ts';
+import { recordMoneyOut, useMoneyOut, useRemovedGrns } from '../services/moneyOutStore.ts';
+import { currentCashier } from '../services/auth.ts';
 import { grnsOwed } from '../domain/supplierOwed.ts';
 import { activeWarehouses, homeOf } from '../domain/warehouses.ts';
 import { ChoiceCard } from './flow/ChoiceCard.tsx';
@@ -32,8 +33,11 @@ import { NumberInput } from './NumberInput.tsx';
  *                      an optional final note (kept on the GRN and its document), then Approve
  *                      or Don't approve. The approver goes on the record, never on the screen.
  *   GRN history        every GRN, newest first; one opens as its document, with Export PDF and Undo.
- *   Done               a tick and what to do next. Undo (here or in history): only the latest GRN of an order,
+ *   Done               a tick, then Pay Rs X from the drawer (a Supplier payment linked to this GRN) or Pay later.
+ *                      Undo (here or in history): only the latest GRN of an order,
  *                      within the allowed hours, a manager's PIN and a reason; the GRN stays, marked Undone.
+ * A cashier (SCRUM-226, `manages` false) receives too: short lines wait for the rest, a changed price is
+ * saved for a manager to decide (Use new price / Keep old price on the GRN), extra still needs a manager's PIN.
  * The rules are in purchaseOrders.ts and on the server; this file only walks through them.
  */
 /** Packs are kept to 6 decimals, so 48.53 kg of a 25 kg pack stays 48.53 kg. */
@@ -96,13 +100,17 @@ function GrnBill({ lines, totalCents, priceEntry }: {
   );
 }
 
-export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inline = false, onClose, onDone }: {
+export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inline = false, manages = true, openGrn, onClose, onDone }: {
   items: InventoryRow[];
   suppliers: Supplier[];
   purchases: PurchaseState;
   settings: Pick<StockSettings, 'defaultLeadDays' | 'grnUndoHours'>;
   /** In the Receive page itself, not a sheet over it. */
   inline?: boolean;
+  /** A manager or the owner; false: a cashier at the counter (SCRUM-226). */
+  manages?: boolean;
+  /** Opens straight on this GRN's document (the owner's To do: a price to decide). */
+  openGrn?: string;
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
@@ -111,7 +119,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   const due = (o: PurchaseOrder) => expectedBy(o, purchases.leadDays, settings.defaultLeadDays);
   const open = [...purchases.open].reverse().sort((a, b) => due(a) - due(b));
   const [orderId, setOrderId] = useState<string | null>(open.length === 1 ? open[0].id : null);
-  const [step, setStep] = useState<Step>(open.length === 1 ? 'check' : 'pick');
+  const [step, setStep] = useState<Step>(openGrn ? 'grn' : open.length === 1 ? 'check' : 'pick');
   /** The items ticked off the list (as the person checks them on the bill and in the boxes). */
   const [ticked, setTicked] = useState<Set<string>>(() => new Set());
   const [amounts, setAmounts] = useState<Record<string, string>>({});
@@ -127,11 +135,13 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   /** The manager's final note: optional, kept on the GRN. */
   const [note, setNote] = useState('');
   /** The GRN just saved here. */
-  const [saved, setSaved] = useState<{ grnId: string; no: string; line: string } | null>(null);
+  const [saved, setSaved] = useState<{ grnId: string; no: string; line: string; supplierId: string } | null>(null);
+  /** Paid from the drawer on Done: how much, and its Undo. */
+  const [paid, setPaid] = useState<{ cents: number; undo: () => void } | null>(null);
   /** Undoing a GRN: first the manager's PIN, then why. */
   const [undoing, setUndoing] = useState<{ grn: PurchaseGrn; manager: Actor | null } | null>(null);
   /** The GRN open as a document in history. */
-  const [viewing, setViewing] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<string | null>(openGrn ?? null);
   /** Where each line goes (SCRUM-184), by item; missing: the item's home. */
   const [into, setInto] = useState<Record<string, string>>({});
   const warehouses = useWarehouses();
@@ -241,11 +251,20 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   const finish = (approvedBy: Actor | null) => {
     const got = received();
     if (!got || !order) return;
-    const result = receiveGoods(order, got, decisions, approvedBy, note);
+    // Without a manager, a short delivery waits for the rest (SCRUM-226).
+    const chosen = approvedBy ? decisions : { short: check.hasShort ? 'wait' as const : null, over: null };
+    const result = receiveGoods(order, got, chosen, approvedBy, note);
     if (typeof result === 'string') { setDeciding(null); setStep('check'); setError(result); return; }
     const prices = result.prices > 0 ? ` ${result.prices} ${result.prices === 1 ? 'price' : 'prices'} updated to what it came at.` : '';
+    const priceWaits = !approvedBy && check.lines.some((c) => c.priceMismatch);
+    const said = [
+      `From ${supplierName(order.supplierId)}${approvedBy ? ' · approved by a manager' : ''}`,
+      !approvedBy && check.hasShort ? 'the rest stays on order' : '',
+      priceWaits ? 'the new price goes to a manager to decide' : '',
+    ].filter(Boolean).join(' · ');
     onDone(`${result.grnNo} from ${supplierName(order.supplierId)} saved${approvedBy ? ', approved by a manager' : ''}.${prices}`);
-    setSaved({ grnId: result.id, no: result.grnNo, line: `From ${supplierName(order.supplierId)}${approvedBy ? ' · approved by a manager' : ''}` });
+    setSaved({ grnId: result.id, no: result.grnNo, line: said, supplierId: order.supplierId });
+    setPaid(null);
     setOrderId(null); setAmounts({}); setPriceAmounts({}); setError(''); setDeciding(null); setDecisions({ short: null, over: null }); setNote('');
     setStep('done');
   };
@@ -257,11 +276,24 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
     setError('Not approved: nothing was saved. Fix the amounts, or check the delivery with the supplier.');
   };
 
-  /** Save, or ask a manager first when something differs. */
+  /** Save, or ask a manager first when something differs (a cashier: only when extra came). */
+  const needsManager = manages ? check.needsApproval : check.hasOver;
   const toApproval = () => {
     if (!received()) return;
-    if (check.needsApproval) setAsking(true);
+    if (needsManager) setAsking(true);
     else finish(null);
+  };
+  /** Pays what this GRN still owes from the drawer: the Supplier payment, linked to it. */
+  const payNow = (grnId: string, supplierId: string, cents: number) => {
+    const undo = recordMoneyOut({ what: 'supplier', from: 'drawer', cents, note: supplierName(supplierId), supplierId, grnIds: [grnId] }, currentCashier());
+    setPaid({ cents, undo });
+    onDone(`Rs ${fmt(cents)} paid to ${supplierName(supplierId)} from the drawer.`);
+  };
+  const decidePrice = (grn: PurchaseGrn, use: boolean) => {
+    const why = reviewGrnPrice(purchases, grn.id, use);
+    if (why) { setError(why); return; }
+    setError('');
+    onDone(use ? `${grn.grnNo}: the delivered prices are the items' prices now.` : `${grn.grnNo}: the items keep their prices.`);
   };
 
   /** Starts an undo, saying at once why it cannot be done when it cannot. */
@@ -299,7 +331,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
       <p className="flow-hint">GRN history</p>
       {purchases.grns.map((g) => (
         <ChoiceCard key={g.id} name={`${g.grnNo} · ${supplierName(g.supplierId)}`} tone={g.undone ? undefined : 'ok'}
-          corner={g.undone ? `Undone by ${g.undone.by ?? 'a manager'}` : g.approvedBy ? `Approved by ${g.approvedBy.name}` : undefined}
+          corner={g.undone ? `Undone by ${g.undone.by ?? 'a manager'}` : g.priceCheck === 'pending' ? 'Price to decide' : g.approvedBy ? `Approved by ${g.approvedBy.name}` : undefined}
           line={`${g.poNo} · ${day(g.at)} · Rs ${fmt(grnValueCents(g.lines))} · Received by ${g.receivedBy}${payment(g.id)}${g.undone ? ` · Undone: ${g.undone.reason}` : ''}`}
           label={`Open ${g.grnNo}`} onClick={() => view(g.id)} />
       ))}
@@ -355,6 +387,17 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           extra={!shown.undone && undoCheck(purchases, shown.id, Date.now(), settings.grnUndoHours) === null
             ? <button type="button" className="linkbtn flow__back" aria-label={`Undo ${shown.grnNo}`} onClick={() => startUndo(shown)}>Undo</button> : undefined}>
           <RejectionNotices />
+          {shown.priceCheck === 'pending' && !shown.undone && (
+            <section className="grn-price" aria-label="Price to decide">
+              <p className="flow-hint">Came at a different price than {shown.poNo}. Saved at the counter by {shown.receivedBy}; the items still have their old price.</p>
+              {manages ? (
+                <div className="chips">
+                  <button type="button" className="chip" onClick={() => decidePrice(shown, true)}>Use new price</button>
+                  <button type="button" className="chip" onClick={() => decidePrice(shown, false)}>Keep old price</button>
+                </div>
+              ) : <p className="flow-hint">A manager decides it.</p>}
+            </section>
+          )}
           <GrnDocument paidCents={owedRows.find((r) => r.id === shown.id)?.paid} owedCents={owedRows.find((r) => r.id === shown.id)?.owed} grn={shown} supplier={supplier} itemName={itemName} unitOf={unitOf} warehouseName={warehouseName} />
         </FlowSheet>
         {pins}
@@ -366,18 +409,28 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   if (step === 'done' && saved) {
     const next = open.length > 0;
     const grn = purchases.grns.find((g) => g.id === saved.grnId);
+    const finished = { label: next ? 'Next delivery' : 'Done', onClick: next ? toList : onClose };
+    /** Still owed on this GRN: one tap pays it from the drawer. */
+    const owes = paid ? 0 : owedRows.find((r) => r.id === saved.grnId)?.owed ?? 0;
+    const pay = { label: `Pay Rs ${fmt(owes)} from drawer`, onClick: () => payNow(saved.grnId, saved.supplierId, owes) };
+    // At the counter paying is the next thing; a manager often pays by bank (F6), so it is a link for them.
+    const payFirst = owes > 0 && !manages;
     return (
       <>
-        <FlowSheet title="GRN" {...shared} primary={{ label: next ? 'Next delivery' : 'Done', onClick: next ? toList : onClose }}
+        <FlowSheet title="GRN" {...shared}
+          primary={payFirst ? pay : finished}
           extra={grn && (
             <>
-              {undoCheck(purchases, grn.id, Date.now(), settings.grnUndoHours) === null
+              {payFirst && <button type="button" className="linkbtn flow__back" onClick={finished.onClick}>Pay later</button>}
+              {owes > 0 && manages && <button type="button" className="linkbtn flow__back" onClick={pay.onClick}>{pay.label}</button>}
+              {paid && <button type="button" className="linkbtn flow__back" aria-label="Undo payment" onClick={() => { paid.undo(); setPaid(null); onDone('Payment undone.'); }}>Undo payment</button>}
+              {!paid && undoCheck(purchases, grn.id, Date.now(), settings.grnUndoHours) === null
                 && <button type="button" className="linkbtn flow__back" aria-label={`Undo ${saved.no}`} onClick={() => startUndo(grn)}>Undo</button>}
               <button type="button" className="linkbtn flow__back" onClick={() => view(grn.id)}>View GRN</button>
             </>
           )}>
           <RejectionNotices />
-          <DoneStep title={`${saved.no} saved`} line={saved.line} />
+          <DoneStep title={`${saved.no} saved`} line={paid ? `${saved.line} · Rs ${fmt(paid.cents)} paid from the drawer` : saved.line} />
         </FlowSheet>
         {pins}
       </>
@@ -393,7 +446,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           <RejectionNotices />
           {open.length === 0 ? (
             <>
-              <p className="flow-hint">Nothing on order. Place a purchase order first; goods are received against it.</p>
+              <p className="flow-hint">{manages ? 'Nothing on order. Place a purchase order first; goods are received against it.' : 'Nothing on order. A manager places the purchase order first; goods are received against it.'}</p>
               {history}
             </>
           ) : (
@@ -417,7 +470,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
   }
 
   const title = `Goods from ${supplierName(order.supplierId)} · ${order.poNo}`;
-  const of = check.needsApproval ? 3 : 2;
+  const of = needsManager ? 3 : 2;
 
   // ----- 2 Check and save: a list, ticked one by one, the bill below -----
   if (step !== 'decide' || !deciding) {
@@ -430,7 +483,7 @@ export function GoodsReceivingSheet({ items, suppliers, purchases, settings, inl
           // The big button ticks the next item, so Enter works down the list; when all are ticked it saves.
           primary={next
             ? { label: `✓ ${next.row.name} came`, onClick: () => { tick(next.row.id); setError(''); } }
-            : { label: check.needsApproval ? 'Manager approves' : 'Save GRN', onClick: toApproval, disabled: lines.length === 0 }}>
+            : { label: needsManager ? 'Manager approves' : 'Save GRN', onClick: toApproval, disabled: lines.length === 0 }}>
           <RejectionNotices />
           <p className="flow-hint num">{done} of {lines.length} checked</p>
           {openWarehouses.length > 1 && (

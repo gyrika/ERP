@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Actor } from './auth.ts';
 import type { SyncEvent } from './sync.ts';
-import { compareDelivery, grnLineCents, grnNumber, grnProblem, grnTotals, grnValueCents, mergeLines, orderTotals, onOrder, planOrder, poNumber, purchasesFromEvents, settleGrn, undoCheck, type PurchaseOrder } from './purchaseOrders.ts';
+import { compareDelivery, grnLineCents, grnNumber, grnProblem, grnTotals, grnValueCents, mergeLines, orderTotals, onOrder, planOrder, poNumber, priceReviewProblem, pricesToCheck, purchasesFromEvents, settleGrn, undoCheck, type PurchaseOrder } from './purchaseOrders.ts';
 
 const actor: Actor = { id: 'm1', name: 'Ravi', role: 'manager' };
 const DAY = 86_400_000;
@@ -152,10 +152,13 @@ const manager = { role: 'manager' as const };
 const noDecision = { short: null, over: null };
 const came = (ordered: number, received: number) => [{ itemId: 'flour', ordered, received }];
 
-test('a full GRN needs no one; a short or over one needs a manager and a decision', () => {
+test('a full GRN needs no one; short waits without a manager; closing short or extra needs one and a decision', () => {
   assert.equal(grnProblem(owed(2), came(2, 2), noDecision, null), null, 'as ordered: no approval');
-  assert.match(grnProblem(owed(2), came(2, 1), { short: 'wait', over: null }, null) ?? '', /needs a manager/);
-  assert.match(grnProblem(owed(2), came(2, 1), { short: 'wait', over: null }, { role: 'cashier' }) ?? '', /needs a manager/, 'a cashier cannot approve');
+  // SCRUM-226: the counter receives a short delivery; the order waits for the rest.
+  assert.equal(grnProblem(owed(2), came(2, 1), { short: 'wait', over: null }, null), null);
+  assert.match(grnProblem(owed(2), came(2, 1), { short: 'close', over: null }, null) ?? '', /Only a manager can close an order short/);
+  assert.match(grnProblem(owed(2), came(2, 1), { short: 'close', over: null }, { role: 'cashier' }) ?? '', /Only a manager/, 'a cashier cannot approve');
+  assert.match(grnProblem(owed(2), came(2, 3), { short: null, over: 'accept' }, null) ?? '', /a manager approves the extra/);
   assert.match(grnProblem(owed(2), came(2, 1), noDecision, manager) ?? '', /wait for the rest, or close the order/);
   assert.match(grnProblem(owed(2), came(2, 3), noDecision, manager) ?? '', /accept the extra, or return it/);
   assert.equal(grnProblem(owed(2), came(2, 1), { short: 'wait', over: null }, manager), null);
@@ -163,14 +166,14 @@ test('a full GRN needs no one; a short or over one needs a manager and a decisio
   assert.equal(grnProblem(owed(2), came(2, 3), { short: null, over: 'return' }, manager), null);
 });
 
-test('the PO price is captured and a different delivered price needs manager approval', () => {
+test('the PO price is captured; a different delivered price is offered for approval, and without it waits for a manager', () => {
   const order = {
     ...owed(2),
     lines: [{ itemId: 'flour', packs: 2, stockQty: null, received: 0, remaining: 2, unitPriceCents: 640000 }],
   };
   const delivery = [{ itemId: 'flour', ordered: 2, received: 2, unitPriceCents: 650000 }];
   assert.equal(compareDelivery(delivery, order.lines).needsApproval, true);
-  assert.match(grnProblem(order, delivery, noDecision, null) ?? '', /needs a manager/);
+  assert.equal(grnProblem(order, delivery, noDecision, null), null, 'SCRUM-226: saved at the counter');
   assert.match(grnProblem(order, came(2, 2), noDecision, manager) ?? '', /Enter the delivered price/);
   assert.equal(grnProblem(order, delivery, noDecision, manager), null);
   assert.deepEqual(settleGrn(delivery, null), [{ ...delivery[0], accepted: 2, returned: 0 }]);
@@ -299,4 +302,26 @@ test('a GRN says who received it, which manager approved it and what, and who un
 
   [g] = purchasesFromEvents([priced, approved, { ...base, id: 'u', at: 2 * DAY, type: 'stock.grn_undone', grnId: 'g1', reason: 'Entered by mistake', approvedBy: actor }]).grns;
   assert.deepEqual(g.undone, { at: 2 * DAY, reason: 'Entered by mistake', by: 'Ravi' });
+});
+
+test('a price saved without a manager waits on the GRN until a manager uses or keeps it (SCRUM-226)', () => {
+  const nimal = { id: 'staff-nimal', name: 'Nimal', role: 'cashier' as const };
+  const ordered: SyncEvent = { ...base, id: 'p1', at: 0, type: 'stock.ordered', supplierId: 'sup', lines: [{ itemId: 'flour', packs: 2, unitPriceCents: 640000 }] };
+  const counter: SyncEvent = { ...base, actor: nimal, id: 'g1', at: 1, type: 'stock.grn', orderId: 'p1', supplierId: 'sup', approvedBy: null,
+    lines: [{ itemId: 'flour', ordered: 2, received: 2, accepted: 2, returned: 0, unitPriceCents: 650000 }] };
+  const s1 = purchasesFromEvents([ordered, counter]);
+  assert.equal(s1.grns[0].priceCheck, 'pending');
+  assert.deepEqual(pricesToCheck(s1).map((g) => g.id), ['g1']);
+  assert.equal(priceReviewProblem(s1, 'g1'), null);
+  const kept = purchasesFromEvents([ordered, counter, { ...base, id: 'r1', at: 2, type: 'stock.grn_price_reviewed', grnId: 'g1', use: false }]);
+  assert.equal(kept.grns[0].priceCheck, 'kept');
+  assert.deepEqual(pricesToCheck(kept), []);
+  assert.match(priceReviewProblem(kept, 'g1') ?? '', /no price waiting/);
+  // As ordered, or approved by a manager: nothing to decide.
+  const asOrdered = { ...counter, lines: [{ ...(counter as { lines: object[] }).lines[0], unitPriceCents: 640000 }] } as SyncEvent;
+  assert.equal(purchasesFromEvents([ordered, asOrdered]).grns[0].priceCheck, null);
+  const approved = { ...counter, approvedBy: { id: 'staff-ravi', name: 'Ravi', role: 'manager' } } as SyncEvent;
+  assert.equal(purchasesFromEvents([ordered, approved]).grns[0].priceCheck, null);
+  // Undone: off the list.
+  assert.deepEqual(pricesToCheck(purchasesFromEvents([ordered, counter, { ...base, id: 'u', at: 3, type: 'stock.grn_undone', grnId: 'g1', reason: 'Entered by mistake' }])), []);
 });

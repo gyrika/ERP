@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { answersFromEvents, type Answer, type CostContext } from '../domain/costing.ts';
-import type { Actor } from '../domain/auth.ts';
+import { managesRole, type Actor } from '../domain/auth.ts';
 import { countHistory, gapOf, type CountEntry, type CountRecord, type GapReason, type Tier } from '../domain/counting.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { addEvents, appendEvent, dismissRejection, readAll, readRejections, subscribeEvents, type Rejection } from '../ui/eventLog.ts';
@@ -18,7 +18,7 @@ import { useShopEvents } from './ownerData.ts';
 import { itemHistory, itemStory, usedIn, type HistoryEntry, type ItemStory } from '../domain/itemStory.ts';
 import { gapCases, type GapCase } from '../domain/gapReview.ts';
 import { menuItems } from '../domain/menu.ts';
-import { grnProblem, mergeLines, purchasesFromEvents, settleGrn, undoCheck, type GrnDecisions, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
+import { grnProblem, mergeLines, priceReviewProblem, purchasesFromEvents, settleGrn, undoCheck, type GrnDecisions, type PurchaseOrder, type PurchaseState } from '../domain/purchaseOrders.ts';
 import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 import type { WasteChoice, WasteReason } from '../domain/waste.ts';
@@ -768,16 +768,35 @@ export const receiveGoods = (
     // The approving manager's final note, if they wrote one.
     ...(approvedBy && note.trim() ? { note: note.trim().slice(0, 500) } : {}),
   });
+  // Prices are a manager's (SCRUM-226): a cashier's GRN leaves them; a changed one waits on the owner's To do.
+  const prices = approvedBy || managesRole(currentCashier().role) ? setGrnPrices(e.id, settled) : 0;
+  return { grnNo: numberLocally(e.id, 'GRN') ?? pendingNumber('GRN'), id: e.id, prices };
+};
+
+/** Makes each delivered price the item's price; returns how many changed. */
+const setGrnPrices = (grnId: string, lines: readonly GrnLine[]): number => {
   const items = readItems();
   let prices = 0;
-  for (const l of settled) {
+  for (const l of lines) {
     const row = items.find((i) => i.id === l.itemId);
     const cents = l.unitPriceCents;
     if (!row || cents === undefined || !(cents > 0) || !((l.accepted ?? l.received) > 0) || cents === row.workingPriceCents) continue;
-    appendEvent({ type: 'stock.price_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: l.itemId, before: row.workingPriceCents, after: cents, grnId: e.id });
+    appendEvent({ type: 'stock.price_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: l.itemId, before: row.workingPriceCents, after: cents, grnId });
     prices++;
   }
-  return { grnNo: numberLocally(e.id, 'GRN') ?? pendingNumber('GRN'), id: e.id, prices };
+  return prices;
+};
+
+/**
+ * A manager decides a price a cashier's GRN saved (SCRUM-226): `use` makes the delivered prices the
+ * items' prices; otherwise they keep theirs. Returns why not, or null.
+ */
+export const reviewGrnPrice = (purchases: PurchaseState, grnId: string, use: boolean): string | null => {
+  const why = priceReviewProblem(purchases, grnId);
+  if (why) return why;
+  appendEvent({ type: 'stock.grn_price_reviewed', at: Date.now(), orderNumber: 0, actor: currentCashier(), grnId, use });
+  if (use) setGrnPrices(grnId, purchases.grns.find((g) => g.id === grnId)!.lines);
+  return null;
 };
 
 /**

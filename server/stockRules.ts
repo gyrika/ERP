@@ -2,7 +2,7 @@ import type { Actor } from '../src/domain/auth.ts';
 import { gapOf } from '../src/domain/counting.ts';
 import { withoutTestData } from '../src/domain/freshStart.ts';
 import { SEED_INVENTORY } from '../src/domain/inventoryData.ts';
-import { grnProblem, purchasesFromEvents, settleGrn, undoCheck, type PurchaseState } from '../src/domain/purchaseOrders.ts';
+import { grnProblem, priceReviewProblem, purchasesFromEvents, settleGrn, undoCheck, type PurchaseState } from '../src/domain/purchaseOrders.ts';
 import { stockSettingsFromEvents, type StockSettings } from '../src/domain/stockSettings.ts';
 import { warehousesFromEvents, type Warehouses } from '../src/domain/warehouses.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
@@ -18,7 +18,7 @@ const RELEVANT = new Set<string>([
   // Test data cleared (freshStart.ts): the rules then check against the real history only.
   'shop.started_fresh',
   'stock.ordered', 'stock.order_edited', 'stock.order_cancelled', 'stock.order_reopened',
-  'stock.grn', 'stock.grn_undone', 'stock.counted', 'stock.settings_set',
+  'stock.grn', 'stock.grn_undone', 'stock.grn_price_reviewed', 'stock.counted', 'stock.settings_set',
   // What a count is checked against: has the item been counted before, and what is it worth.
   'stock.adjusted', 'stock.movement', 'stock.item_added', 'stock.price_set',
   // Warehouses (SCRUM-184): stock only goes to one that exists, and a new one has a new id.
@@ -114,6 +114,8 @@ export const stockRuleProblem = (e: SyncEvent, { state, settings, staff, now, it
       const same = e.lines.every((l, i) => l.accepted !== undefined && Math.abs(l.accepted - settled[i].accepted!) < 1e-6 && Math.abs((l.returned ?? 0) - settled[i].returned!) < 1e-6);
       return same ? null : 'The amounts that go into stock do not match what was received. Open the GRN again.';
     }
+    case 'stock.grn_price_reviewed':
+      return priceReviewProblem(state, e.grnId);
     case 'stock.grn_undone': {
       const why = undoCheck(state, e.grnId, now, settings.grnUndoHours);
       if (why) return why;

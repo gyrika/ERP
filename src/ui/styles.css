@@ -1691,6 +1691,8 @@ button.chain-line__remove:hover { background: var(--chip); color: var(--ink); }
 .grn-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 520px) { .grn-choices { grid-template-columns: 1fr; } }
 .grn-note { display: grid; gap: 8px; margin-top: 8px; }
+/* A delivered price saved at the counter, waiting for a manager (SCRUM-226). */
+.grn-price { display: grid; gap: 8px; margin: 0 0 12px; padding: 12px 16px; border-left: 4px solid var(--warn); border-radius: 8px; background: var(--chip); }
 .grn-note__box { min-height: 96px; resize: vertical; font: inherit; }
 .grn-doc__note { margin: 12px 0 0; }
 

@@ -4,7 +4,7 @@ import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
 import type { InventoryItem, Supplier } from './inventoryData.ts';
 import { MENU, itemById } from './menu.ts';
 import { fmt } from './money.ts';
-import { grnValueCents, purchasesFromEvents } from './purchaseOrders.ts';
+import { grnValueCents, pricesToCheck, purchasesFromEvents } from './purchaseOrders.ts';
 import { formatQuantity } from './quantity.ts';
 import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
@@ -439,6 +439,41 @@ const grnApprovals = (events: readonly SyncEvent[], stock: ShopData['stock'], no
   };
 };
 
+/**
+ * A delivered price the counter saved without a manager (SCRUM-226): the owner decides it,
+ * one tap to that GRN, where Use new price or Keep the item's price settles it.
+ */
+const grnPricesToCheck = (events: readonly SyncEvent[], stock: ShopData['stock']): Insight | null => {
+  const state = purchasesFromEvents(events);
+  const list = pricesToCheck(state);
+  if (!list.length) return null;
+  const supplier = (id: string) => stock?.suppliers.find((s) => s.id === id)?.name ?? 'a supplier';
+  const item = (id: string) => stock?.items.find((i) => i.id === id)?.name ?? 'An item';
+  const [first] = list;
+  const changed = (g: (typeof list)[number]) => {
+    const ordered = state.orders.find((o) => o.id === g.orderId)?.lines ?? [];
+    return g.lines.flatMap((l) => {
+      const was = ordered.find((o) => o.itemId === l.itemId)?.unitPriceCents;
+      return was === undefined || l.unitPriceCents === undefined || was === l.unitPriceCents ? [] : [{ l, was, now: l.unitPriceCents }];
+    });
+  };
+  return {
+    id: 'grn-prices',
+    tone: 'attention',
+    title: list.length === 1
+      ? `${first.grnNo} · ${supplier(first.supplierId)} came at a different price`
+      : `${plural(list.length, 'delivery', 'deliveries')} came at a different price`,
+    detail: `Saved at the counter by ${first.receivedBy}. Use the new price, or keep the old one.`,
+    action: {
+      label: 'Decide',
+      go: `#receive/${encodeURIComponent(first.id)}`,
+      items: list.flatMap((g) => changed(g).map(({ l, was, now }) => ({
+        primary: `${item(l.itemId)} · ${g.grnNo}`, secondary: `${rs(was)} → ${rs(now)} a pack · ${supplier(g.supplierId)}`, amount: now - was, at: g.at,
+      }))),
+    },
+  };
+};
+
 const ORDER: Record<Tone, number> = { attention: 0, info: 1, good: 2 };
 
 /** The rules engine. Cards needing a decision come first, good news last. */
@@ -467,6 +502,7 @@ export const rulesSuggestions: SuggestionsService = {
       soldWithoutRecipe(events, now),
       marginsFell(events, stock, now),
       costsToAnswer(events, stock, now),
+      grnPricesToCheck(events, stock),
       grnApprovals(events, stock, now),
       stockValueCard(events, stock, now),
       visitLength(events, now),

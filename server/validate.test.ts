@@ -173,7 +173,7 @@ test("the owner's own recipe and opening his recipes pass; a malformed recipe do
   assert.ok('reason' in validatePush({ events: [{ ...edit, after: inside }] }, 'shop-1'));
 });
 
-test('purchase orders and GRNs: a GRN that differs from its order needs a manager and the decisions', () => {
+test('purchase orders and GRNs: closing short or extra needs a manager and the decisions', () => {
   const ordered = { ...base, type: 'stock.ordered', poNo: 'PO-0001', supplierId: 'sup', lines: [{ itemId: 'inv-1', packs: 2 }] };
   const line = (received: number, accepted = received) => [{ itemId: 'inv-1', ordered: 2, received, accepted, returned: received - accepted }];
   const grn = { ...base, id: 'event-2', type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'event-1', supplierId: 'sup', lines: line(2), approvedBy: null };
@@ -181,7 +181,15 @@ test('purchase orders and GRNs: a GRN that differs from its order needs a manage
   assert.ok('events' in validatePush({ events: [ordered, grn] }, 'shop-1'));
 
   const short = { ...grn, lines: line(1) };
-  assert.match(reason(short), /without a manager's approval/);
+  // SCRUM-226: without a manager, a short delivery may only wait for the rest; extra needs one.
+  assert.match(reason(short), /closes an order short without a manager's approval/);
+  assert.match(reason({ ...short, shortDecision: 'close' }), /closes an order short without a manager's approval/);
+  assert.ok('events' in validatePush({ events: [{ ...short, shortDecision: 'wait' }] }, 'shop-1'));
+  assert.match(reason({ ...grn, lines: line(3), overDecision: 'accept' }), /extra without a manager's approval/);
+  const decided = { ...base, type: 'stock.grn_price_reviewed', grnId: 'event-2', use: true };
+  assert.ok('events' in validatePush({ events: [decided] }, 'shop-1'));
+  assert.match(reason({ ...decided, use: 'yes' }), /decides no GRN price/);
+  assert.match(reason({ ...decided, grnId: '' }), /decides no GRN price/);
   assert.match(reason({ ...short, approvedBy: base.actor }), /short but does not say wait or close/);
   assert.ok('events' in validatePush({ events: [{ ...short, approvedBy: base.actor, shortDecision: 'wait' }] }, 'shop-1'));
   // The approving manager's final note: optional, plain text, at most 500 characters.

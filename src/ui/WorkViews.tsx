@@ -12,7 +12,8 @@ import { OwnerNav } from './OwnerNav.tsx';
  * where it is and the work is where the person looks. Finishing (or Esc on the first step), or
  * tapping its part in the menu again, starts the flow over, with what is waiting now.
  */
-export function ReceiveView({ onRegister }: { onRegister?: () => void }) {
+/** `openGrn`: opens on that GRN's document (#receive/<GRN id>, from the owner's To do). */
+export function ReceiveView({ onRegister, openGrn }: { onRegister?: () => void; openGrn?: string }) {
   const { allItems, suppliers } = useInventory();
   const purchases = usePurchases();
   const settings = useStockSettings();
@@ -25,7 +26,7 @@ export function ReceiveView({ onRegister }: { onRegister?: () => void }) {
       <OwnerNav current="receive" onRegister={onRegister} />
       <main className="owner__main work__main" aria-label="Receive">
         {said && <p className="work__said" role="status">{said}</p>}
-        <GoodsReceivingSheet key={round} inline items={allItems} suppliers={suppliers} purchases={purchases} settings={settings}
+        <GoodsReceivingSheet key={round} inline openGrn={round === 0 ? openGrn : undefined} items={allItems} suppliers={suppliers} purchases={purchases} settings={settings}
           onClose={() => setRound((r) => r + 1)} onDone={(message) => setSaid(message)} />
       </main>
     </div>
@@ -54,4 +55,12 @@ export function OrderView({ supplierId, bySupplier = false, onRegister }: { supp
       </main>
     </div>
   );
+}
+
+/** Receive over the Register (F7, SCRUM-226): a delivery at the counter, by whoever works it. */
+export function ReceiveSheet({ manages, onClose, onDone }: { manages: boolean; onClose: () => void; onDone: (message: string) => void }) {
+  const { allItems, suppliers } = useInventory();
+  const purchases = usePurchases();
+  const settings = useStockSettings();
+  return <GoodsReceivingSheet items={allItems} suppliers={suppliers} purchases={purchases} settings={settings} manages={manages} onClose={onClose} onDone={onDone} />;
 }
