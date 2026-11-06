@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CheesyBeez ERP Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+/* Layout: arc42 document. A contents rail on wide screens, one reading column, figures full width with sideways scroll on phones. C4 colours: people darkest, containers mid blue, components light, external grey. */
+:root {
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --ink: #131a24;
+  --muted: #5a6575;
+  --rule: #d9dee6;
+  --line: #3d4757;
+  --accent: #1565c0;
+  --c-person: #0d3b66;
+  --c-sys: #1565c0;
+  --c-cont: #2f7fd1;
+  --c-comp: #b9d6f6;
+  --on-comp: #0b2540;
+  --c-ext: #7a838f;
+  --on-dark: #ffffff;
+  --badge: #e5484d;
+  --ok: #30a46c;
+  --warn: #c98a1b;
+  --bad: #e5484d;
+  --font: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1117; --card: #161b23; --ink: #e8edf4; --muted: #9aa5b4; --rule: #2a313c; --line: #aab4c2;
+    --accent: #6aa9f0; --c-person: #1d4f85; --c-sys: #1e6ac0; --c-cont: #2a6db5; --c-comp: #23466e; --on-comp: #e3eefb;
+    --c-ext: #4d5562; --warn: #e8a94b; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1117; --card: #161b23; --ink: #e8edf4; --muted: #9aa5b4; --rule: #2a313c; --line: #aab4c2;
+  --accent: #6aa9f0; --c-person: #1d4f85; --c-sys: #1e6ac0; --c-cont: #2a6db5; --c-comp: #23466e; --on-comp: #e3eefb;
+  --c-ext: #4d5562; --warn: #e8a94b; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.55; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 40px 20px 72px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
+nav.toc { position: sticky; top: 24px; align-self: start; font-size: 14px; }
+nav.toc p { margin: 0 0 8px; font-weight: 600; color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; }
+nav.toc ol { margin: 0; padding-left: 22px; display: grid; gap: 5px; }
+nav.toc a { color: var(--ink); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); text-decoration: underline; }
+main { display: grid; gap: 44px; min-width: 0; }
+header { display: grid; gap: 12px; }
+.eyebrow { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); margin: 0; }
+h1 { font-size: 36px; line-height: 1.15; margin: 0; text-wrap: balance; }
+h2 { font-size: 25px; line-height: 1.25; margin: 0; text-wrap: balance; }
+h3 { font-size: 18px; margin: 8px 0 0; }
+p { margin: 0; max-width: 72ch; }
+.lead { font-size: 18px; color: var(--muted); }
+a { color: var(--accent); }
+code { font-size: .9em; background: color-mix(in srgb, var(--rule) 55%, transparent); padding: 1px 5px; border-radius: 4px; }
+section { display: grid; gap: 14px; scroll-margin-top: 20px; }
+.num { color: var(--accent); margin-right: 8px; font-variant-numeric: tabular-nums; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.stat { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; }
+.stat b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.stat span { font-size: 13px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); padding: 10px 18px; border-top: 1px solid var(--rule); }
+.legend i { display: inline-block; width: 13px; height: 13px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
+.legend i.dash { background: none; border: 1.5px dashed var(--muted); }
+figure { margin: 0; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+.ftitle { padding: 12px 18px; border-bottom: 1px solid var(--rule); font-size: 14px; font-weight: 600; }
+.ftitle span { color: var(--muted); font-weight: 500; }
+.scroll { overflow-x: auto; padding: 18px; }
+svg { display: block; width: 100%; height: auto; font-family: var(--font); }
+figcaption { border-top: 1px solid var(--rule); padding: 12px 18px; font-size: 14px; color: var(--muted); }
+.n rect, .n path, .n circle { stroke: none; }
+.person rect, .person circle { fill: var(--c-person); }
+.sys rect { fill: var(--c-sys); }
+.cont rect, .cont path, .cont circle { fill: var(--c-cont); }
+.ext rect, .ext path { fill: var(--c-ext); }
+.comp rect { fill: var(--c-comp); }
+.n path.rim { fill: none; stroke: var(--on-dark); stroke-opacity: .45; stroke-width: 1.5; }
+.n text { text-anchor: middle; fill: var(--on-dark); }
+.comp text { fill: var(--on-comp); }
+.t { font-size: 15px; font-weight: 700; }
+.k { font-size: 11px; opacity: .88; }
+.d { font-size: 12px; }
+.a { fill: none; stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.mk { fill: var(--line); }
+.lbl { font-size: 12px; fill: var(--ink); paint-order: stroke; stroke: var(--card); stroke-width: 5px; stroke-linejoin: round; }
+.bd { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 8 6; }
+.bdl { font-size: 13px; font-weight: 600; fill: var(--muted); }
+.dn { fill: none; stroke: var(--muted); stroke-width: 1.3; }
+.dnl { font-size: 13px; font-weight: 700; fill: var(--ink); }
+.dnk { font-size: 11px; fill: var(--muted); }
+.bg circle { fill: var(--badge); }
+.bg text { fill: #fff; font-size: 12px; font-weight: 700; text-anchor: middle; }
+ol.steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; counter-reset: s; max-width: 80ch; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; }
+ol.steps li::before { content: counter(s); width: 22px; height: 22px; border-radius: 50%; background: var(--badge); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center; margin-top: 1px; }
+.note { border-left: 4px solid var(--accent); background: var(--card); padding: 12px 16px; border-radius: 0 8px 8px 0; max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; min-width: 620px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+td.k1 { font-weight: 600; white-space: nowrap; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.ok { color: var(--ok); } .pill.warn { color: var(--warn); } .pill.bad { color: var(--bad); }
+.adrs { display: grid; gap: 14px; }
+.adr { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 16px 18px; display: grid; gap: 8px; }
+.adr h3 { margin: 0; font-size: 16.5px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.adr h3 code { background: none; padding: 0; color: var(--accent); font-size: 14px; }
+.adr dl { margin: 0; display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; font-size: 14.5px; }
+.adr dt { color: var(--muted); font-weight: 600; }
+.adr dd { margin: 0; }
+footer { font-size: 13px; color: var(--muted); }
+@media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } nav.toc { position: static; } }
+@media (max-width: 600px) { h1 { font-size: 28px; } .wrap { padding: 28px 16px 56px; } .adr dl { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <p>Contents</p>
+  <ol>
+    <li><a href="#goals">Introduction and goals</a></li>
+    <li><a href="#constraints">Constraints</a></li>
+    <li><a href="#context">Context and scope</a></li>
+    <li><a href="#strategy">Solution strategy</a></li>
+    <li><a href="#building-blocks">Building block view</a></li>
+    <li><a href="#runtime">Runtime view</a></li>
+    <li><a href="#deployment">Deployment view</a></li>
+    <li><a href="#concepts">Crosscutting concepts</a></li>
+    <li><a href="#decisions">Architecture decisions</a></li>
+    <li><a href="#quality">Quality requirements</a></li>
+    <li><a href="#risks">Risks and technical debt</a></li>
+    <li><a href="#glossary">Glossary</a></li>
+  </ol>
+</nav>
+<main>
+<header>
+  <p class="eyebrow">Software Architecture Document · arc42 · C4 model</p>
+  <h1>CheesyBeez ERP, POS module</h1>
+  <p class="lead">How the system that runs the CheesyBeez counter in Thalwila is built, and why. Drawn from the code on <code>main</code>, release v1.1.31. Requirements are in the companion SRS (ISO/IEC/IEEE 29148).</p>
+  <div class="tbl"><table>
+    <tbody>
+      <tr><td class="k1">Document ID</td><td>CB-ERP-SAD-001 · version 1.0 · baselined for Sprint 2 evaluation · 5 November 2026</td></tr>
+      <tr><td class="k1">Template</td><td>arc42 (12 sections); diagrams in C4 notation (Simon Brown): context, container, component, dynamic, deployment</td></tr>
+      <tr><td class="k1">Decisions</td><td>Architecture Decision Records in Michael Nygard's format (section 9)</td></tr>
+      <tr><td class="k1">Quality model</td><td>ISO/IEC 25010:2023; quality scenarios in section 10</td></tr>
+      <tr><td class="k1">Companion</td><td><a href="https://claude.ai/artifact/5UHkCWJKZ2Cigyhbmww1LR">CheesyBeez ERP Software Requirements Specification</a> (CB-ERP-SRS-001)</td></tr>
+    </tbody>
+  </table></div>
+  <div class="stats" aria-label="Project figures, 5 November 2026">
+    <div class="stat"><b>1,089</b><span>automated test cases</span></div>
+    <div class="stat"><b>150</b><span>pull requests</span></div>
+    <div class="stat"><b>75</b><span>releases shipped to the shop</span></div>
+    <div class="stat"><b>206</b><span>Jira issues, 126 done</span></div>
+  </div>
+</header>
+
+<section id="goals">
+  <h2><span class="num">1</span>Introduction and goals</h2>
+  <p>CheesyBeez ERP lets a cashier take an order in seconds, the kitchen cook from a screen, and the owner see what needs attention from anywhere. Its POS module is in daily use at the shop. Full requirements: SRS sections 3.1 to 3.7.</p>
+  <h3>1.1 Quality goals</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Priority</th><th>Quality goal (ISO/IEC 25010)</th><th>What it means here</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">1</td><td>Reliability: availability</td><td>The shop sells, cooks and prints with no internet and through power cuts.</td></tr>
+      <tr><td class="k1">2</td><td>Security: integrity and accountability</td><td>No recorded sale, payment or stock change can be altered; every manager change says who, when and how much.</td></tr>
+      <tr><td class="k1">3</td><td>Performance efficiency</td><td>Every tap answers in under 100 ms; cameras and reports never slow the counter.</td></tr>
+      <tr><td class="k1">4</td><td>Interaction capability</td><td>Staff with minutes of training never hunt and never err: one primary action, Undo instead of dialogs.</td></tr>
+      <tr><td class="k1">5</td><td>Maintainability and flexibility</td><td>A team of four supports the shop remotely: one installer, automatic updates, rules written and tested once.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>1.2 Stakeholders</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Stakeholder</th><th>Expectation of the architecture</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">Shop owner (product owner)</td><td>Works every day without fees; tells him what to decide; his phone works from anywhere</td></tr>
+      <tr><td class="k1">Cashier, kitchen staff, managers</td><td>Fast, simple, never blocked by the network</td></tr>
+      <tr><td class="k1">Online customers</td><td>Order pickup or delivery and see status</td></tr>
+      <tr><td class="k1">Development team (4)</td><td>Easy to change, test, release and support over AnyDesk</td></tr>
+      <tr><td class="k1">Evaluators and mentors</td><td>Evidence of sound engineering: documented decisions, tests, CI/CD</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="constraints">
+  <h2><span class="num">2</span>Architecture constraints</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Type</th><th>Constraint</th><th>Consequence</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">Technical</td><td>One Windows 10 Pro counter PC, one screen; Xprinter XP-80T on USB</td><td>Server, store, printer driver and kitchen view share one machine</td></tr>
+      <tr><td class="k1">Technical</td><td>Unreliable power and internet</td><td>Offline-first; the cloud is never on the selling path</td></tr>
+      <tr><td class="k1">Technical</td><td>Money in LKR, integer cents only</td><td>No floating point anywhere money is stored or calculated</td></tr>
+      <tr><td class="k1">Organisational</td><td>Four students, remote support, no budget for hosting</td><td>Monolith, free Cloudflare plan, self-updating installer</td></tr>
+      <tr><td class="k1">Organisational</td><td>Scrum with Jira project SCRUM; branch and pull request per story</td><td>Every change is reviewed and tested in CI before release</td></tr>
+      <tr><td class="k1">Convention</td><td>React 19 + TypeScript; pure domain code in <code>src/domain</code>; English, Sinhala, Tamil labels</td><td>Shared rules across screens, server and cloud</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="context">
+  <h2><span class="num">3</span>Context and scope</h2>
+  <p>Four kinds of people use one system. It drives two pieces of shop hardware and uses four outside services, none of which the counter needs in order to sell.</p>
+  <figure>
+    <div class="ftitle">[System Context] CheesyBeez ERP <span>· C4 level 1</span></div>
+    <div class="scroll"><svg viewBox="0 0 1100 610" role="img" aria-label="System context: cashier, kitchen staff, owner and online customers use the CheesyBeez ERP, which drives the receipt printer and cameras and talks to GitHub, Workers AI, openrouteservice and ChatGPT." style="min-width:682px"><defs><marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker><marker id="m1s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker></defs><g class="n person"><rect x="60" y="44" width="200" height="86" rx="16"/><circle cx="160.0" cy="34" r="13"/><text class="t" x="160.0" y="70">Cashier</text><text class="k" x="160.0" y="87">[Person]</text><text class="d" x="160.0" y="106">Takes orders at the counter</text></g><g class="n person"><rect x="320" y="44" width="200" height="86" rx="16"/><circle cx="420.0" cy="34" r="13"/><text class="t" x="420.0" y="70">Kitchen staff</text><text class="k" x="420.0" y="87">[Person]</text><text class="d" x="420.0" y="106">Cooks from the screen</text></g><g class="n person"><rect x="580" y="44" width="200" height="86" rx="16"/><circle cx="680.0" cy="34" r="13"/><text class="t" x="680.0" y="70">Owner &amp; managers</text><text class="k" x="680.0" y="87">[Person]</text><text class="d" x="680.0" y="106">Told what needs attention</text></g><g class="n person"><rect x="840" y="44" width="200" height="86" rx="16"/><circle cx="940.0" cy="34" r="13"/><text class="t" x="940.0" y="70">Online customer</text><text class="k" x="940.0" y="87">[Person]</text><text class="d" x="940.0" y="106">Orders pickup or delivery</text></g><g class="n sys"><rect x="380" y="260" width="340" height="120" rx="8"/><text class="t" x="550.0" y="286">CheesyBeez ERP</text><text class="k" x="550.0" y="303">[Software System]</text><text class="d" x="550.0" y="322">POS, kitchen, stock, recipes, cameras,</text><text class="d" x="550.0" y="338">owner view. Runs in the shop,</text><text class="d" x="550.0" y="354">copied to the cloud.</text></g><g class="n person"><rect x="30" y="275" width="210" height="90" rx="16"/><circle cx="135.0" cy="265" r="13"/><text class="t" x="135.0" y="301">Team of 4</text><text class="k" x="135.0" y="318">[Person]</text><text class="d" x="135.0" y="337">Build, test and release</text></g><g class="n ext"><rect x="860" y="275" width="210" height="90" rx="8"/><text class="t" x="965.0" y="301">ChatGPT</text><text class="k" x="965.0" y="318">[External System]</text><text class="d" x="965.0" y="337">Owner&#x27;s sales plugin</text></g><g class="n ext"><rect x="20" y="500" width="190" height="90" rx="8"/><text class="t" x="115.0" y="526">Receipt printer</text><text class="k" x="115.0" y="543">[External: hardware]</text><text class="d" x="115.0" y="562">XP-80T receipt + drawer</text></g><g class="n ext"><rect x="237" y="500" width="190" height="90" rx="8"/><text class="t" x="332.0" y="526">IP cameras</text><text class="k" x="332.0" y="543">[External: hardware]</text><text class="d" x="332.0" y="562">Watch the tables</text></g><g class="n ext"><rect x="455" y="500" width="190" height="90" rx="8"/><text class="t" x="550.0" y="526">GitHub</text><text class="k" x="550.0" y="543">[External System]</text><text class="d" x="550.0" y="562">Code, CI, releases</text></g><g class="n ext"><rect x="672" y="500" width="190" height="90" rx="8"/><text class="t" x="767.0" y="526">Workers AI</text><text class="k" x="767.0" y="543">[External System]</text><text class="d" x="767.0" y="562">Speech + command model</text></g><g class="n ext"><rect x="890" y="500" width="190" height="90" rx="8"/><text class="t" x="985.0" y="526">openrouteservice</text><text class="k" x="985.0" y="543">[External System]</text><text class="d" x="985.0" y="562">Road distance</text></g><polyline class="a" points="160,130 440,260" marker-end="url(#m1)"/><text class="lbl" x="290" y="190" text-anchor="middle">takes orders and payment</text><polyline class="a" points="420,130 510,260" marker-end="url(#m1)"/><text class="lbl" x="466" y="214" text-anchor="middle">sees tickets, taps Done</text><polyline class="a" points="680,130 590,260" marker-end="url(#m1)"/><text class="lbl" x="636" y="190" text-anchor="middle">reads Today, To do</text><polyline class="a" points="940,130 660,260" marker-end="url(#m1)"/><text class="lbl" x="806" y="214" text-anchor="middle">orders on cheesybeez.com</text><polyline class="a" points="240,320 380,320" marker-end="url(#m1)"/><text class="lbl" x="310" y="312" text-anchor="middle">releases</text><polyline class="a" points="860,320 720,320" marker-end="url(#m1)"/><text class="lbl" x="790" y="312" text-anchor="middle">reads sales [MCP]</text><polyline class="a" points="430,380 115,500" marker-end="url(#m1)"/><text class="lbl" x="272.5" y="440" text-anchor="middle">prints [ESC/POS]</text><polyline class="a" points="490,380 332,500" marker-end="url(#m1)"/><text class="lbl" x="411.0" y="455" text-anchor="middle">reads video [RTSP]</text><polyline class="a" points="550,380 550,500" marker-end="url(#m1)"/><text class="lbl" x="550.0" y="440" text-anchor="middle">gets updates [HTTPS]</text><polyline class="a" points="610,380 767,500" marker-end="url(#m1)"/><text class="lbl" x="688.5" y="455" text-anchor="middle">asks [HTTPS]</text><polyline class="a" points="670,380 985,500" marker-end="url(#m1)"/><text class="lbl" x="827.5" y="440" text-anchor="middle">road km [HTTPS]</text></svg></div>
+    <div class="legend"><span><i style="background:var(--c-person)"></i>Person</span><span><i style="background:var(--c-sys)"></i>Software System (in scope)</span><span><i style="background:var(--c-ext)"></i>External System or hardware</span><span>Dashed arrow: relationship [technology]</span></div>
+  </figure>
+  <h3>3.1 Technical context</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Neighbour</th><th>Channel</th><th>In</th><th>Out</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">Receipt printer + drawer</td><td>USB, ESC/POS through the Windows print queue</td><td>None</td><td>Receipt bytes, drawer kick</td></tr>
+      <tr><td class="k1">IP cameras</td><td>RTSP video, ONVIF discovery</td><td>1 frame a second per camera</td><td>None</td></tr>
+      <tr><td class="k1">GitHub</td><td>HTTPS</td><td>Releases (Setup.exe, camera pack)</td><td>None from the shop</td></tr>
+      <tr><td class="k1">Workers AI</td><td>Cloudflare binding</td><td>Text of speech, one chosen command</td><td>Audio, page list</td></tr>
+      <tr><td class="k1">openrouteservice</td><td>HTTPS REST</td><td>Road distance</td><td>Shop and customer location</td></tr>
+      <tr><td class="k1">ChatGPT</td><td>MCP over HTTPS, owner's token</td><td>Sales questions</td><td>Read-only sales figures</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="strategy">
+  <h2><span class="num">4</span>Solution strategy</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Quality goal</th><th>Approach</th><th>Details</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">Availability</td><td>Offline-first modular monolith on the counter PC; cloud as a copy</td><td>Sections 5, 7; ADR-002</td></tr>
+      <tr><td class="k1">Integrity, accountability</td><td>Event sourcing: an append-only log, Undo as a new event</td><td>Section 8.1; ADR-001</td></tr>
+      <tr><td class="k1">Performance</td><td>Optimistic UI; heavy work in low-priority child processes with a CPU cap</td><td>Section 5.2; ADR-005</td></tr>
+      <tr><td class="k1">Interaction capability</td><td>One primary action per screen, keyboard first, no dialogs</td><td>SRS 3.3</td></tr>
+      <tr><td class="k1">Maintainability</td><td>One pure domain library shared by screens, server and cloud; interfaces at the edges</td><td>Section 8.4; ADR-004</td></tr>
+      <tr><td class="k1">Flexibility</td><td>One Setup.exe, SQLite, self-update from GitHub Releases</td><td>Section 7; ADR-003</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="building-blocks">
+  <h2><span class="num">5</span>Building block view</h2>
+  <h3>5.1 Level 2: containers</h3>
+  <p>Everything needed to take an order, cook it and print the receipt runs on the counter PC. The cloud holds a full copy of every event and serves the owner's phone, the ordering site and the ChatGPT plugin.</p>
+  <figure>
+    <div class="ftitle">[Container] CheesyBeez ERP <span>· C4 level 2</span></div>
+    <div class="scroll"><svg viewBox="0 0 1300 890" role="img" aria-label="Containers: in the shop, the counter web app, shop server, event store, camera worker, digest worker and station updater; in Cloudflare, the cloud worker, D1 database, owner phone app and ordering site." style="min-width:806px"><defs><marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker><marker id="m2s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker></defs><rect class="bd" x="20" y="140" width="760" height="620" rx="10"/><text class="bdl" x="180" y="160">Counter PC · Windows 10 · in the shop · works with no internet</text><rect class="bd" x="800" y="140" width="480" height="620" rx="10"/><text class="bdl" x="960" y="160">Cloudflare · free plan</text><g class="n person"><rect x="45" y="40" width="220" height="70" rx="16"/><circle cx="155.0" cy="30" r="13"/><text class="t" x="155.0" y="66">Cashier &amp; kitchen</text><text class="k" x="155.0" y="83">[Person]</text></g><g class="n ext"><rect x="525" y="40" width="220" height="70" rx="8"/><text class="t" x="635.0" y="66">GitHub Releases</text><text class="k" x="635.0" y="83">[External System]</text></g><g class="n person"><rect x="825" y="40" width="200" height="70" rx="16"/><circle cx="925.0" cy="30" r="13"/><text class="t" x="925.0" y="66">Owner &amp; managers</text><text class="k" x="925.0" y="83">[Person · phone]</text></g><g class="n person"><rect x="1075" y="40" width="185" height="70" rx="16"/><circle cx="1167.5" cy="30" r="13"/><text class="t" x="1167.5" y="66">Online customer</text><text class="k" x="1167.5" y="83">[Person]</text></g><g class="n cont"><rect x="45" y="170" width="220" height="100" rx="8"/><text class="t" x="155.0" y="196">Counter web app</text><text class="k" x="155.0" y="213">[Container: React 19, TS, PWA]</text><text class="d" x="155.0" y="232">Register, Kitchen (F2), Items,</text><text class="d" x="155.0" y="248">Visual Flow, Vision; outbox</text></g><g class="n cont"><rect x="285" y="170" width="220" height="100" rx="8"/><text class="t" x="395.0" y="196">Digest worker</text><text class="k" x="395.0" y="213">[Container: Node child process]</text><text class="d" x="395.0" y="232">Builds the owner&#x27;s digest</text><text class="d" x="395.0" y="248">at low priority</text></g><g class="n cont"><rect x="525" y="170" width="220" height="100" rx="8"/><text class="t" x="635.0" y="196">Station updater</text><text class="k" x="635.0" y="213">[Container: PowerShell task]</text><text class="d" x="635.0" y="232">Checks every 5 min,</text><text class="d" x="635.0" y="248">installs at night</text></g><g class="n cont"><rect x="45" y="380" width="220" height="100" rx="8"/><text class="t" x="155.0" y="406">Shop server</text><text class="k" x="155.0" y="423">[Container: Node, http + ws]</text><text class="d" x="155.0" y="442">Checks and stores every event,</text><text class="d" x="155.0" y="458">streams it live, prints</text></g><g class="n cont"><path d="M285,570 a110.0,10 0 0,1 220,0 v80 a110.0,10 0 0,1 -220,0 z"/><path class="rim" d="M285,570 a110.0,10 0 0,0 220,0"/><text class="t" x="395.0" y="600">Event store</text><text class="k" x="395.0" y="617">[Container: SQLite / MySQL]</text><text class="d" x="395.0" y="636">Append-only: triggers</text><text class="d" x="395.0" y="652">refuse edits</text></g><g class="n cont"><rect x="525" y="450" width="220" height="100" rx="8"/><text class="t" x="635.0" y="476">Camera worker</text><text class="k" x="635.0" y="493">[Container: ffmpeg + YOLOX]</text><text class="d" x="635.0" y="512">Who sits at which table;</text><text class="d" x="635.0" y="528">CPU guard for the Register</text></g><g class="n cont"><rect x="825" y="170" width="200" height="100" rx="8"/><text class="t" x="925.0" y="196">Owner phone app</text><text class="k" x="925.0" y="213">[Container: React SPA]</text><text class="d" x="925.0" y="232">Today, To do, money</text></g><g class="n cont"><rect x="1075" y="170" width="185" height="100" rx="8"/><text class="t" x="1167.5" y="196">Ordering site</text><text class="k" x="1167.5" y="213">[Container: order.html]</text><text class="d" x="1167.5" y="232">cheesybeez.com pickup,</text><text class="d" x="1167.5" y="248">delivery</text></g><g class="n cont"><rect x="825" y="350" width="200" height="100" rx="8"/><text class="t" x="925.0" y="376">Cloud Worker</text><text class="k" x="925.0" y="393">[Container: CF Worker, TS]</text><text class="d" x="925.0" y="412">Event copy, phones, online</text><text class="d" x="925.0" y="428">orders, /mcp, AI</text></g><g class="n ext"><rect x="1075" y="350" width="185" height="100" rx="8"/><text class="t" x="1167.5" y="376">Workers AI</text><text class="k" x="1167.5" y="393">[External System]</text><text class="d" x="1167.5" y="412">Mistral Small, Whisper</text></g><g class="n cont"><path d="M825,570 a100.0,10 0 0,1 200,0 v80 a100.0,10 0 0,1 -200,0 z"/><path class="rim" d="M825,570 a100.0,10 0 0,0 200,0"/><text class="t" x="925.0" y="600">D1 database</text><text class="k" x="925.0" y="617">[Container: Cloudflare D1]</text><text class="d" x="925.0" y="636">Full copy of every event</text></g><g class="n ext"><rect x="45" y="800" width="220" height="70" rx="8"/><text class="t" x="155.0" y="826">Receipt printer + drawer</text><text class="k" x="155.0" y="843">[Hardware: XP-80T, USB]</text></g><g class="n ext"><rect x="525" y="800" width="220" height="70" rx="8"/><text class="t" x="635.0" y="826">IP cameras</text><text class="k" x="635.0" y="843">[Hardware: RTSP, ONVIF]</text></g><g class="n ext"><rect x="825" y="800" width="200" height="70" rx="8"/><text class="t" x="925.0" y="826">ChatGPT</text><text class="k" x="925.0" y="843">[External System]</text></g><g class="n ext"><rect x="1075" y="800" width="185" height="70" rx="8"/><text class="t" x="1167.5" y="826">openrouteservice</text><text class="k" x="1167.5" y="843">[External System]</text></g><polyline class="a" points="155,110 155,170" marker-end="url(#m2)"/><text class="lbl" x="147" y="145" text-anchor="end">uses</text><polyline class="a" points="155,270 155,380" marker-end="url(#m2)" marker-start="url(#m2s)"/><text class="lbl" x="147" y="320" text-anchor="end">push [HTTP]</text><text class="lbl" x="147" y="336" text-anchor="end">live [WebSocket]</text><polyline class="a" points="250,380 330,270" marker-end="url(#m2)"/><text class="lbl" x="300" y="330" text-anchor="start">new events [IPC]</text><polyline class="a" points="240,480 320,562" marker-end="url(#m2)"/><text class="lbl" x="262" y="530" text-anchor="end">appends</text><polyline class="a" points="265,460 525,495" marker-end="url(#m2)"/><text class="lbl" x="395" y="503" text-anchor="middle">config, table events [IPC]</text><polyline class="a" points="265,410 825,410" marker-end="url(#m2)"/><text class="lbl" x="545" y="400" text-anchor="middle">copies new events, gets online orders [HTTPS]</text><polyline class="a" points="155,480 155,800" marker-end="url(#m2)"/><text class="lbl" x="165" y="735" text-anchor="start">prints [ESC/POS, Windows queue]</text><polyline class="a" points="635,550 635,800" marker-end="url(#m2)"/><text class="lbl" x="645" y="700" text-anchor="start">1 frame a second [RTSP]</text><polyline class="a" points="635,170 635,110" marker-end="url(#m2)"/><text class="lbl" x="645" y="145" text-anchor="start">looks for a release [HTTPS]</text><polyline class="a" points="925,110 925,170" marker-end="url(#m2)"/><text class="lbl" x="917" y="145" text-anchor="end">opens</text><polyline class="a" points="1167,110 1167,170" marker-end="url(#m2)"/><polyline class="a" points="925,270 925,350" marker-end="url(#m2)"/><text class="lbl" x="935" y="315" text-anchor="start">reads</text><polyline class="a" points="1130,270 1010,350" marker-end="url(#m2)"/><text class="lbl" x="1085" y="322" text-anchor="start">places orders</text><polyline class="a" points="1025,400 1075,400" marker-end="url(#m2)"/><text class="lbl" x="1050" y="392" text-anchor="middle">asks</text><polyline class="a" points="925,450 925,560" marker-end="url(#m2)"/><text class="lbl" x="935" y="510" text-anchor="start">stores</text><polyline class="a" points="825,835 790,835 790,430 825,430" marker-end="url(#m2)"/><text class="lbl" x="782" y="640" text-anchor="middle" transform="rotate(-90 782 640)">reads sales [MCP]</text><polyline class="a" points="990,450 990,500 1167,500 1167,800" marker-end="url(#m2)"/><text class="lbl" x="1080" y="492" text-anchor="middle">road km</text></svg></div>
+    <div class="legend"><span><i style="background:var(--c-person)"></i>Person</span><span><i style="background:var(--c-cont)"></i>Container</span><span><i style="background:var(--c-ext)"></i>External System or hardware</span><span><i class="dash"></i>Boundary: where it runs</span></div>
+    <figcaption>The only link between the two places is the shop server's outgoing HTTPS. Camera frames never leave the shop PC.</figcaption>
+  </figure>
+  <div class="tbl"><table>
+    <thead><tr><th>Container</th><th>Responsibility</th><th>Code</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">Counter web app</td><td>Register, Kitchen, Items, Visual Flow, Vision; saves first to an IndexedDB outbox</td><td><code>src/ui</code>, <code>src/services</code></td></tr>
+      <tr><td class="k1">Shop server</td><td>Checks and stores events, streams them live, prints, schedules prep, replicates</td><td><code>server/</code></td></tr>
+      <tr><td class="k1">Event store</td><td>Append-only event log; triggers refuse update and delete</td><td><code>server/sqlite/*.sql</code></td></tr>
+      <tr><td class="k1">Camera worker</td><td>Reads cameras, detects people per table zone, reports table changes</td><td><code>server/cv/</code></td></tr>
+      <tr><td class="k1">Digest worker</td><td>Builds the owner's digest from the history, at low priority</td><td><code>server/digestWorker.ts</code></td></tr>
+      <tr><td class="k1">Station updater</td><td>Checks GitHub Releases every 5 minutes; installs at night</td><td><code>deploy/station/</code></td></tr>
+      <tr><td class="k1">Cloud Worker, D1</td><td>Event copy, phones, online orders, MCP, AI endpoints</td><td><code>cloud/src</code></td></tr>
+    </tbody>
+  </table></div>
+  <h3>5.2 Level 3: components of the shop server</h3>
+  <p>The HTTP API hands every pushed event to the validator, which checks its shape, its shop, and that the person had a session with a role allowed to record it. Only then is it appended.</p>
+  <figure>
+    <div class="ftitle">[Component] Shop server <span>· C4 level 3</span></div>
+    <div class="scroll"><svg viewBox="0 0 1400 730" role="img" aria-label="Components of the shop server: HTTP API, validator and event store adapter in a chain, live stream, printer, scheduler, setup, CV control, online orders, manager inbox, replicator and updates." style="min-width:868px"><defs><marker id="m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker><marker id="m3s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker></defs><rect class="bd" x="20" y="140" width="1140" height="450" rx="10"/><text class="bdl" x="760" y="578">Shop server · Node · node:http + ws · port 8080</text><g class="n ext"><rect x="45" y="30" width="190" height="70" rx="8"/><text class="t" x="140.0" y="56">GitHub Releases</text><text class="k" x="140.0" y="73">[External System]</text></g><g class="n cont"><rect x="470" y="30" width="240" height="70" rx="8"/><text class="t" x="590.0" y="56">Counter web app</text><text class="k" x="590.0" y="73">[Container]</text></g><g class="n ext"><rect x="725" y="30" width="180" height="70" rx="8"/><text class="t" x="815.0" y="56">Receipt printer</text><text class="k" x="815.0" y="73">[Hardware]</text></g><g class="n cont"><rect x="1200" y="180" width="180" height="380" rx="8"/><text class="t" x="1290.0" y="206">Cloud Worker</text><text class="k" x="1290.0" y="223">[Container]</text><text class="d" x="1290.0" y="242"></text><text class="d" x="1290.0" y="258"></text><text class="d" x="1290.0" y="274"></text><text class="d" x="1290.0" y="290"></text><text class="d" x="1290.0" y="306">Copy of events,</text><text class="d" x="1290.0" y="322">online orders,</text><text class="d" x="1290.0" y="338">managers&#x27; phones</text></g><g class="n cont"><rect x="45" y="640" width="190" height="70" rx="8"/><text class="t" x="140.0" y="666">Camera worker</text><text class="k" x="140.0" y="683">[Container]</text></g><g class="n cont"><path d="M495,640 a95.0,10 0 0,1 190,0 v60 a95.0,10 0 0,1 -190,0 z"/><path class="rim" d="M495,640 a95.0,10 0 0,0 190,0"/><text class="t" x="590.0" y="670">Event store</text><text class="k" x="590.0" y="687">[SQLite / MySQL]</text></g><g class="n comp"><rect x="45" y="180" width="190" height="80" rx="8"/><text class="t" x="140.0" y="206">Updates</text><text class="k" x="140.0" y="223">[Component: updates.ts]</text><text class="d" x="140.0" y="242">Asks GitHub for a release</text></g><g class="n comp"><rect x="270" y="180" width="190" height="80" rx="8"/><text class="t" x="365.0" y="206">Live stream</text><text class="k" x="365.0" y="223">[Component: ws]</text><text class="d" x="365.0" y="242">Pushes events to screens</text></g><g class="n comp"><rect x="495" y="180" width="190" height="80" rx="8"/><text class="t" x="590.0" y="206">HTTP API</text><text class="k" x="590.0" y="223">[Component: app.ts]</text><text class="d" x="590.0" y="242">Push, pull, login, print</text></g><g class="n comp"><rect x="720" y="180" width="190" height="80" rx="8"/><text class="t" x="815.0" y="206">Printer</text><text class="k" x="815.0" y="223">[Component: printer.ts]</text><text class="d" x="815.0" y="242">Receipt bytes, drawer kick</text></g><g class="n comp"><rect x="945" y="180" width="190" height="80" rx="8"/><text class="t" x="1040.0" y="206">Online orders</text><text class="k" x="1040.0" y="223">[Component: online.ts]</text><text class="d" x="1040.0" y="242">Polls the cloud&#x27;s orders</text></g><g class="n comp"><rect x="45" y="330" width="190" height="80" rx="8"/><text class="t" x="140.0" y="356">Setup &amp; staff</text><text class="k" x="140.0" y="373">[Component: setup.ts]</text><text class="d" x="140.0" y="392">Owner&#x27;s PIN on each change</text></g><g class="n comp"><rect x="495" y="330" width="190" height="80" rx="8"/><text class="t" x="590.0" y="356">Validator</text><text class="k" x="590.0" y="373">[Component: validate.ts]</text><text class="d" x="590.0" y="392">Shape, shop, role, session</text></g><g class="n comp"><rect x="720" y="330" width="190" height="80" rx="8"/><text class="t" x="815.0" y="356">Scheduler</text><text class="k" x="815.0" y="373">[Component: scheduler.ts]</text><text class="d" x="815.0" y="392">Releases held prep tickets</text></g><g class="n comp"><rect x="945" y="330" width="190" height="80" rx="8"/><text class="t" x="1040.0" y="356">Manager inbox</text><text class="k" x="1040.0" y="373">[Component: managerInbox]</text><text class="d" x="1040.0" y="392">Phones&#x27; counts, re-checked</text></g><g class="n comp"><rect x="45" y="480" width="190" height="80" rx="8"/><text class="t" x="140.0" y="506">CV control</text><text class="k" x="140.0" y="523">[Component: cvWorker.ts]</text><text class="d" x="140.0" y="542">Starts, watches, restarts</text></g><g class="n comp"><rect x="495" y="480" width="190" height="80" rx="8"/><text class="t" x="590.0" y="506">Event store adapter</text><text class="k" x="590.0" y="523">[Component: sqliteStore.ts]</text><text class="d" x="590.0" y="542">One EventStore interface</text></g><g class="n comp"><rect x="945" y="480" width="190" height="80" rx="8"/><text class="t" x="1040.0" y="506">Replicator</text><text class="k" x="1040.0" y="523">[Component: replicator.ts]</text><text class="d" x="1040.0" y="542">Copies events to the cloud</text></g><polyline class="a" points="140,180 140,100" marker-end="url(#m3)"/><text class="lbl" x="150" y="140" text-anchor="start">latest release [HTTPS]</text><polyline class="a" points="590,100 590,180" marker-end="url(#m3)" marker-start="url(#m3s)"/><text class="lbl" x="600" y="140" text-anchor="start">JSON [HTTPS]</text><polyline class="a" points="400,180 480,100" marker-end="url(#m3)"/><text class="lbl" x="425" y="140" text-anchor="end">events [WSS]</text><polyline class="a" points="685,220 720,220" marker-end="url(#m3)"/><polyline class="a" points="815,180 815,100" marker-end="url(#m3)"/><text class="lbl" x="825" y="140" text-anchor="start">[ESC/POS]</text><polyline class="a" points="590,260 590,330" marker-end="url(#m3)"/><text class="lbl" x="600" y="300" text-anchor="start">every push</text><polyline class="a" points="590,410 590,480" marker-end="url(#m3)"/><text class="lbl" x="600" y="450" text-anchor="start">accepted only</text><polyline class="a" points="520,480 420,260" marker-end="url(#m3)"/><text class="lbl" x="462" y="385" text-anchor="end">new events</text><polyline class="a" points="495,258 235,345" marker-end="url(#m3)"/><text class="lbl" x="340" y="300" text-anchor="middle">setup endpoints</text><polyline class="a" points="140,410 140,480" marker-end="url(#m3)"/><text class="lbl" x="150" y="450" text-anchor="start">owner turns CV on</text><polyline class="a" points="140,560 140,640" marker-end="url(#m3)"/><text class="lbl" x="150" y="605" text-anchor="start">[IPC]</text><polyline class="a" points="590,560 590,630" marker-end="url(#m3)"/><text class="lbl" x="600" y="600" text-anchor="start">[SQL]</text><polyline class="a" points="685,490 780,410" marker-end="url(#m3)" marker-start="url(#m3s)"/><text class="lbl" x="745" y="468" text-anchor="start">writes prep.released</text><polyline class="a" points="685,525 945,525" marker-end="url(#m3)"/><text class="lbl" x="815" y="515" text-anchor="middle">what the cloud lacks</text><polyline class="a" points="1135,520 1200,520" marker-end="url(#m3)"/><polyline class="a" points="1135,220 1200,220" marker-end="url(#m3)" marker-start="url(#m3s)"/><polyline class="a" points="1200,370 1135,370" marker-end="url(#m3)"/></svg></div>
+    <div class="legend"><span><i style="background:var(--c-comp)"></i>Component</span><span><i style="background:var(--c-cont)"></i>Container</span><span><i style="background:var(--c-ext)"></i>External System or hardware</span></div>
+    <figcaption>One path in (API, validator, store); several readers out (live stream, scheduler, replicator).</figcaption>
+  </figure>
+</section>
+
+<section id="runtime">
+  <h2><span class="num">6</span>Runtime view</h2>
+  <h3>6.1 Scenario: the cashier sends an order</h3>
+  <figure>
+    <div class="ftitle">[Dynamic] Send to kitchen <span>· C4 dynamic diagram</span></div>
+    <div class="scroll"><svg viewBox="0 0 1200 300" role="img" aria-label="One order: cashier presses Enter, the counter app saves it locally, the shop server checks and appends it, the kitchen view chimes, the event is copied to the cloud and the owner phone reads it." style="min-width:744px"><defs><marker id="m4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker><marker id="m4s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker></defs><g class="n person"><rect x="20" y="50" width="170" height="70" rx="16"/><circle cx="105.0" cy="40" r="13"/><text class="t" x="105.0" y="76">Cashier</text><text class="k" x="105.0" y="93">[Person]</text></g><g class="n cont"><rect x="250" y="40" width="200" height="80" rx="8"/><text class="t" x="350.0" y="66">Counter web app</text><text class="k" x="350.0" y="83">[Container]</text></g><g class="n cont"><rect x="520" y="40" width="200" height="80" rx="8"/><text class="t" x="620.0" y="66">Shop server</text><text class="k" x="620.0" y="83">[Container]</text></g><g class="n cont"><rect x="790" y="40" width="200" height="80" rx="8"/><text class="t" x="890.0" y="66">Kitchen view</text><text class="k" x="890.0" y="83">[Container: same PC, F2]</text></g><g class="n cont"><path d="M520,210 a100.0,10 0 0,1 200,0 v60 a100.0,10 0 0,1 -200,0 z"/><path class="rim" d="M520,210 a100.0,10 0 0,0 200,0"/><text class="t" x="620.0" y="240">Event store</text><text class="k" x="620.0" y="257">[Container: SQLite]</text></g><g class="n cont"><rect x="790" y="200" width="200" height="80" rx="8"/><text class="t" x="890.0" y="226">Cloud Worker + D1</text><text class="k" x="890.0" y="243">[Cloudflare]</text></g><g class="n cont"><rect x="1030" y="200" width="160" height="80" rx="8"/><text class="t" x="1110.0" y="226">Owner phone</text><text class="k" x="1110.0" y="243">[Container]</text></g><polyline class="a" points="190,85 250,85" marker-end="url(#m4)"/><polyline class="a" points="450,80 520,80" marker-end="url(#m4)"/><polyline class="a" points="620,120 620,200" marker-end="url(#m4)"/><polyline class="a" points="720,80 790,80" marker-end="url(#m4)"/><polyline class="a" points="700,120 830,200" marker-end="url(#m4)"/><polyline class="a" points="990,240 1030,240" marker-end="url(#m4)"/><g class="bg"><circle cx="220" cy="66" r="11"/><text x="220" y="70">1</text></g><g class="bg"><circle cx="485" cy="62" r="11"/><text x="485" y="66">2</text></g><g class="bg"><circle cx="604" cy="160" r="11"/><text x="604" y="164">3</text></g><g class="bg"><circle cx="755" cy="62" r="11"/><text x="755" y="66">4</text></g><g class="bg"><circle cx="782" cy="150" r="11"/><text x="782" y="154">5</text></g><g class="bg"><circle cx="1010" cy="220" r="11"/><text x="1010" y="224">6</text></g></svg></div>
+    <figcaption>
+      <ol class="steps">
+        <li>The cashier presses Enter. The counter app writes <code>order.sent</code> to its own IndexedDB and shows Undo at once.</li>
+        <li>The outbox pushes the event to the shop server [HTTP].</li>
+        <li>The server checks shape, shop, role and session, then appends it.</li>
+        <li>The live stream tells every screen [WebSocket]; the kitchen view chimes and flashes.</li>
+        <li>The replicator copies it to the cloud within seconds [HTTPS].</li>
+        <li>The owner's phone reads Today from the cloud.</li>
+      </ol>
+    </figcaption>
+  </figure>
+  <h3>6.2 Scenario: the internet goes down</h3>
+  <p>Steps 1 to 4 continue unchanged. The replicator retries quietly, backing off to every 5 minutes. When the line returns it asks the cloud for its last sequence number and sends everything newer, 100 at a time, so nothing is skipped or doubled. Online orders pause and the counter shows it.</p>
+  <h3>6.3 Scenario: a manager cancels a sent item</h3>
+  <p>Ctrl+M and the manager's PIN open manager mode. Delete on a sent line asks for a reason (keys 1 to 3). <code>applyManagerChange()</code> returns the new order, one audited event with totals before and after in cents, and the inverse for Undo. The kitchen shows the line struck through as Cancelled. Esc or 10 seconds idle leaves manager mode.</p>
+</section>
+
+<section id="deployment">
+  <h2><span class="num">7</span>Deployment view</h2>
+  <figure>
+    <div class="ftitle">[Deployment] Production <span>· C4 deployment diagram</span></div>
+    <div class="scroll"><svg viewBox="0 0 1200 550" role="img" aria-label="Deployment: GitHub Actions publishes releases and deploys the Cloudflare worker; the counter PC runs the browser app, the shop server with its child processes and SQLite file, and a scheduled updater; phones read from Cloudflare." style="min-width:744px"><defs><marker id="m5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker><marker id="m5s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker></defs><rect class="dn" x="20" y="60" width="300" height="240" rx="10"/><text class="dnl" x="34" y="80">GitHub</text><text class="dnk" x="34" y="95">[Deployment node: github.com]</text><rect class="dn" x="360" y="60" width="440" height="470" rx="10"/><text class="dnl" x="374" y="80">Counter PC</text><text class="dnk" x="374" y="95">[Deployment node: Windows 10 Pro, in the shop]</text><rect class="dn" x="375" y="100" width="410" height="100" rx="10"/><text class="dnl" x="389" y="120">Edge or Chrome</text><text class="dnk" x="389" y="135">[Browser]</text><rect class="dn" x="375" y="210" width="410" height="200" rx="10"/><text class="dnl" x="389" y="230">CheesyBeez Station</text><text class="dnk" x="389" y="245">[node.exe service, data in C:\ProgramData\CheesyBeez]</text><rect class="dn" x="375" y="420" width="200" height="100" rx="10"/><text class="dnl" x="389" y="440">Task Scheduler</text><text class="dnk" x="389" y="455">[Windows]</text><rect class="dn" x="840" y="60" width="340" height="280" rx="10"/><text class="dnl" x="854" y="80">Cloudflare</text><text class="dnk" x="854" y="95">[Deployment node: Workers + D1, free plan]</text><rect class="dn" x="840" y="380" width="340" height="150" rx="10"/><text class="dnl" x="854" y="400">Phone</text><text class="dnk" x="854" y="415">[Deployment node: mobile browser]</text><g class="n cont"><rect x="40" y="110" width="260" height="70" rx="8"/><text class="t" x="170.0" y="136">GitHub Actions</text><text class="k" x="170.0" y="153">[CI: station.yml]</text></g><g class="n cont"><rect x="40" y="210" width="260" height="70" rx="8"/><text class="t" x="170.0" y="236">GitHub Releases</text><text class="k" x="170.0" y="253">[Setup.exe, cv-pack.zip]</text></g><g class="n cont"><rect x="395" y="140" width="370" height="52" rx="8"/><text class="t" x="580.0" y="166">Counter web app</text><text class="k" x="580.0" y="183">[Container: React 19, TS, PWA]</text></g><g class="n cont"><rect x="395" y="252" width="170" height="66" rx="8"/><text class="t" x="480.0" y="278">Shop server</text><text class="k" x="480.0" y="295">[Container: Node]</text></g><g class="n cont"><path d="M395,342 a85.0,10 0 0,1 170,0 v50 a85.0,10 0 0,1 -170,0 z"/><path class="rim" d="M395,342 a85.0,10 0 0,0 170,0"/><text class="t" x="480.0" y="372">Event store</text><text class="k" x="480.0" y="389">[SQLite file]</text></g><g class="n cont"><rect x="595" y="252" width="170" height="66" rx="8"/><text class="t" x="680.0" y="278">Camera worker</text><text class="k" x="680.0" y="295">[Container: child]</text></g><g class="n cont"><rect x="595" y="332" width="170" height="66" rx="8"/><text class="t" x="680.0" y="358">Digest worker</text><text class="k" x="680.0" y="375">[Container: child]</text></g><g class="n cont"><rect x="390" y="460" width="170" height="56" rx="8"/><text class="t" x="475.0" y="486">Station updater</text><text class="k" x="475.0" y="503">[Container: PowerShell]</text></g><g class="n ext"><rect x="600" y="440" width="180" height="70" rx="8"/><text class="t" x="690.0" y="466">Receipt printer</text><text class="k" x="690.0" y="483">[Hardware: USB]</text></g><g class="n cont"><rect x="860" y="110" width="300" height="66" rx="8"/><text class="t" x="1010.0" y="136">Cloud Worker</text><text class="k" x="1010.0" y="153">[Container: staging + live]</text></g><g class="n cont"><path d="M860,250 a100.0,10 0 0,1 200,0 v60 a100.0,10 0 0,1 -200,0 z"/><path class="rim" d="M860,250 a100.0,10 0 0,0 200,0"/><text class="t" x="960.0" y="280">D1 database</text><text class="k" x="960.0" y="297">[Container: Cloudflare D1]</text></g><g class="n cont"><rect x="860" y="440" width="300" height="70" rx="8"/><text class="t" x="1010.0" y="466">Owner phone app</text><text class="k" x="1010.0" y="483">[Container: React SPA]</text></g><polyline class="a" points="170,180 170,210" marker-end="url(#m5)"/><text class="lbl" x="180" y="199" text-anchor="start">publishes</text><polyline class="a" points="170,110 170,40 1010,40 1010,110" marker-end="url(#m5)"/><text class="lbl" x="590" y="33" text-anchor="middle">deploys staging, checks, then live [wrangler]</text><polyline class="a" points="390,488 340,488 340,245 300,245" marker-end="url(#m5)"/><text class="lbl" x="332" y="370" text-anchor="middle" transform="rotate(-90 332 370)">polls every 5 min [HTTPS]</text><polyline class="a" points="430,192 430,252" marker-end="url(#m5)" marker-start="url(#m5s)"/><polyline class="a" points="565,285 595,285" marker-end="url(#m5)" marker-start="url(#m5s)"/><polyline class="a" points="480,318 480,334" marker-end="url(#m5)"/><polyline class="a" points="565,300 580,300 580,475 600,475" marker-end="url(#m5)"/><text class="lbl" x="588" y="428" text-anchor="start">[ESC/POS]</text><polyline class="a" points="500,252 500,206 820,206 820,143 860,143" marker-end="url(#m5)"/><text class="lbl" x="690" y="222" text-anchor="middle">replicates [HTTPS]</text><polyline class="a" points="1010,176 1010,240" marker-end="url(#m5)"/><text class="lbl" x="1020" y="212" text-anchor="start">[SQL]</text><polyline class="a" points="1120,440 1120,176" marker-end="url(#m5)"/><text class="lbl" x="1112" y="364" text-anchor="end">reads [HTTPS]</text></svg></div>
+    <div class="legend"><span><i class="dash" style="border-style:solid"></i>Deployment node</span><span><i style="background:var(--c-cont)"></i>Container instance</span><span><i style="background:var(--c-ext)"></i>Hardware</span></div>
+    <figcaption>CI publishes once; the shop pulls updates itself, so no one has to visit the PC.</figcaption>
+  </figure>
+  <div class="tbl"><table>
+    <thead><tr><th>Environment</th><th>Where</th><th>How it gets there</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">Development</td><td>Each developer's laptop: <code>npm run dev</code> + <code>npm run dev:server</code> (API on 8090); <code>/?demo</code> for demo data</td><td>Git branch per Jira story</td></tr>
+      <tr><td class="k1">CI</td><td>GitHub Actions, Linux and Windows runners</td><td>Every pull request: tests, typecheck, build, Setup.exe artifact</td></tr>
+      <tr><td class="k1">Staging</td><td>Cloudflare Worker (staging) + D1</td><td>Every merge to <code>main</code>, checked before live</td></tr>
+      <tr><td class="k1">Production</td><td>Counter PC at the shop; Cloudflare Worker (live) + D1</td><td>GitHub Release; the shop PC installs it at night or on next start</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="concepts">
+  <h2><span class="num">8</span>Crosscutting concepts</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Concept</th><th>How it is done</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">8.1 Event sourcing</td><td>Every change is an event (<code>id</code> made on the device, <code>shopId</code>, <code>type</code>, <code>actor</code>, time, <code>seq</code>). Screens fold events into state. Undo is a new event. Nothing is ever rewritten.</td></tr>
+      <tr><td class="k1">8.2 Offline sync</td><td>Device outbox, idempotent push of up to 100 events, pull by <code>seq</code>, WebSocket stream. The cloud is asked for its last <code>seq</code>, so no bookmark can drift.</td></tr>
+      <tr><td class="k1">8.3 Security</td><td>PIN login with roles; one shared rule <code>mayRecord</code> on screens and server; per-device sessions; owner PIN on setup with lockout; per-shop cloud token stored hashed; camera logins AES-256-GCM; frames in memory only.</td></tr>
+      <tr><td class="k1">8.4 Shared domain</td><td><code>src/domain</code> is pure TypeScript with no browser, disk or network access. Imported by the counter app, the shop server and the Cloud Worker; tested once.</td></tr>
+      <tr><td class="k1">8.5 Replaceable edges</td><td><code>OrderInterpreter</code> (shorthand today, voice or LLM later), <code>SuggestionsService</code>, <code>AuthService</code>, <code>EventStore</code> (SQLite or MySQL).</td></tr>
+      <tr><td class="k1">8.6 Money</td><td>Integer LKR cents. Discounts round once, half up, at order level. Sent lines keep their price when the menu changes.</td></tr>
+      <tr><td class="k1">8.7 Multi-tenancy</td><td><code>shopId</code> on every synced row, mapped to <code>tenant_id</code>; shop ids end in 4 random characters so shops never collide.</td></tr>
+      <tr><td class="k1">8.8 Internationalisation</td><td>Every label has English, Sinhala and Tamil slots; si and ta stay empty until the owner supplies them.</td></tr>
+      <tr><td class="k1">8.9 Logging and support</td><td>Health endpoint, camera log with daily rotation (14 days, logins masked), remote support over AnyDesk.</td></tr>
+      <tr><td class="k1">8.10 Testing</td><td>Vitest unit and component tests, fakes for D1, cameras and the detector; 1,089 test cases run in CI on every pull request.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="decisions">
+  <h2><span class="num">9</span>Architecture decisions</h2>
+  <p>Each decision is recorded as an ADR: context, decision, status and consequences.</p>
+  <div class="adrs">
+    <article class="adr"><h3><code>ADR-001</code>Store events, not editable rows <span class="pill ok">Accepted</span></h3><dl>
+      <dt>Context</dt><dd>Managers change sent orders; the owner needs to trust every number; devices go offline.</dd>
+      <dt>Decision</dt><dd>An append-only event log; current state is folded from events; Undo is a new event.</dd>
+      <dt>Consequences</dt><dd>Full audit trail and conflict-free offline merging. Screens must fold events; history grows without end, so a snapshot will be needed for large shops.</dd></dl></article>
+    <article class="adr"><h3><code>ADR-002</code>Modular monolith on the counter PC, cloud as a copy <span class="pill ok">Accepted</span></h3><dl>
+      <dt>Context</dt><dd>Unreliable internet; four developers; remote support; no hosting budget.</dd>
+      <dt>Decision</dt><dd>One shop server process on the counter PC is the source of truth. A Cloudflare Worker keeps a copy for phones and backup. Microservices were rejected.</dd>
+      <dt>Consequences</dt><dd>Selling never depends on the internet; one program to install. The counter PC is a single point of failure, covered by the cloud copy.</dd></dl></article>
+    <article class="adr"><h3><code>ADR-003</code>SQLite by default, MySQL optional <span class="pill ok">Accepted</span></h3><dl>
+      <dt>Context</dt><dd>MySQL was the hardest part to install automatically on the shop PC.</dd>
+      <dt>Decision</dt><dd>Built-in SQLite behind the same <code>EventStore</code> interface; MySQL when <code>DATABASE_URL</code> is set. Same append-only triggers on both.</dd>
+      <dt>Consequences</dt><dd>Zero-setup install. One writer per shop.</dd></dl></article>
+    <article class="adr"><h3><code>ADR-004</code>One pure domain library everywhere <span class="pill ok">Accepted</span></h3><dl>
+      <dt>Context</dt><dd>The same rules (prices, permissions, kitchen tickets) must agree on screen, server and cloud.</dd>
+      <dt>Decision</dt><dd>All business rules in <code>src/domain</code> as pure TypeScript, imported by all three.</dd>
+      <dt>Consequences</dt><dd>Rules are written and tested once. Domain code may not use the browser, disk or network.</dd></dl></article>
+    <article class="adr"><h3><code>ADR-005</code>Heavy work in low-priority child processes <span class="pill ok">Accepted</span></h3><dl>
+      <dt>Context</dt><dd>Camera detection and the owner's digest take seconds of CPU; receipts must never wait.</dd>
+      <dt>Decision</dt><dd>Run them as child processes at below-normal priority over IPC; cap camera work at 50% CPU and slow it when over.</dd>
+      <dt>Consequences</dt><dd>The counter stays fast. Restart and health handling are needed for each child.</dd></dl></article>
+    <article class="adr"><h3><code>ADR-006</code>Print through the Windows queue, not WebUSB <span class="pill ok">Accepted</span></h3><dl>
+      <dt>Context</dt><dd>WebUSB needs the printer's Windows driver replaced, which breaks normal printing.</dd>
+      <dt>Decision</dt><dd>The shop server sends raw ESC/POS to the Windows print queue; the drawer opens through the printer.</dd>
+      <dt>Consequences</dt><dd>The driver stays intact. The printer must be on the server's PC.</dd></dl></article>
+    <article class="adr"><h3><code>ADR-007</code>Kitchen works from the screen only <span class="pill ok">Accepted</span></h3><dl>
+      <dt>Context</dt><dd>Owner's decision on 10 October 2026; changes and cancellations must reach the kitchen at once.</dd>
+      <dt>Decision</dt><dd>No printed kitchen tickets. The counter PC flips to the kitchen view with F2 until a kitchen device is added.</dd>
+      <dt>Consequences</dt><dd>Live changes with chime and flash. The kitchen depends on the screen being visible.</dd></dl></article>
+    <article class="adr"><h3><code>ADR-008</code>AI only suggests <span class="pill ok">Accepted</span></h3><dl>
+      <dt>Context</dt><dd>A wrong action at the counter is worse than none.</dd>
+      <dt>Decision</dt><dd>Voice and LLM pick one command from a fixed list; the model is chosen by measurement (24 requests, Mistral Small 3.1: 23 right, no wrong page).</dd>
+      <dt>Consequences</dt><dd>Safe and replaceable. Less capable than an agent that acts on its own.</dd></dl></article>
+    <article class="adr"><h3><code>ADR-009</code>Camera Shadow mode removed <span class="pill warn">Superseded</span></h3><dl>
+      <dt>Context</dt><dd>Shadow mode recorded camera guesses without moving tables, to compare with staff for a week.</dd>
+      <dt>Decision</dt><dd>Owner, 27 October 2026: computer vision is Off or On; old Shadow events read as Off.</dd>
+      <dt>Consequences</dt><dd>Simpler page. Camera accuracy is no longer measured automatically before going live.</dd></dl></article>
+  </div>
+</section>
+
+<section id="quality">
+  <h2><span class="num">10</span>Quality requirements</h2>
+  <p>Quality scenarios in the form source, stimulus, environment, response and measure.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>ID</th><th>Quality</th><th>Scenario</th><th>Response measure</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">QS-1</td><td>Availability</td><td>The internet drops during the dinner rush; the cashier keeps sending orders.</td><td>Every order reaches the kitchen and prints; zero lost events after reconnecting.</td></tr>
+      <tr><td class="k1">QS-2</td><td>Recoverability</td><td>The counter PC's disk dies.</td><td>Every event up to the last copy is in the cloud (normally seconds old).</td></tr>
+      <tr><td class="k1">QS-3</td><td>Integrity</td><td>Someone runs an UPDATE on the events table.</td><td>The database refuses it.</td></tr>
+      <tr><td class="k1">QS-4</td><td>Authenticity</td><td>A cashier's device pushes a stock adjustment.</td><td>The server refuses the event.</td></tr>
+      <tr><td class="k1">QS-5</td><td>Performance</td><td>Four cameras run while the cashier works.</td><td>Taps answer in under 100 ms; camera work stays under 50% CPU.</td></tr>
+      <tr><td class="k1">QS-6</td><td>Interaction capability</td><td>A new cashier starts a shift.</td><td>Takes orders unaided after under 15 minutes.</td></tr>
+      <tr><td class="k1">QS-7</td><td>Modifiability</td><td>Voice input replaces typed shorthand.</td><td>No screen changes; a new <code>OrderInterpreter</code> only.</td></tr>
+      <tr><td class="k1">QS-8</td><td>Installability</td><td>A fix is merged at 3 pm.</td><td>The shop runs it the next morning with no visit.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="risks">
+  <h2><span class="num">11</span>Risks and technical debt</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Risk or debt</th><th>Level</th><th>Mitigation</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">Counter PC is a single point of failure</td><td><span class="pill bad">High</span></td><td>Cloud copy of every event; reinstall from Setup.exe and restore</td></tr>
+      <tr><td class="k1">Windows 10 out of Microsoft support since October 2025</td><td><span class="pill warn">Medium</span></td><td>Recommend Windows 11 or an extended-security plan to the owner</td></tr>
+      <tr><td class="k1">Camera detection untried with real cameras; YOLOX-Nano weak from straight above</td><td><span class="pill warn">Medium</span></td><td>Mount cameras in a high corner at an angle; test at the shop before turning on</td></tr>
+      <tr><td class="k1">Production holds untried on the shop PC</td><td><span class="pill warn">Medium</span></td><td>Trial at a quiet time with the owner</td></tr>
+      <tr><td class="k1">Event history held in memory for scheduling grows without end</td><td><span class="pill warn">Medium</span></td><td>Fine for one shop; add snapshots before multi-shop</td></tr>
+      <tr><td class="k1">Cloudflare free-plan limits</td><td><span class="pill ok">Low</span></td><td>Batching of 100 events; the counter never depends on the cloud</td></tr>
+      <tr><td class="k1">Temporary test-video feature still in the code</td><td><span class="pill ok">Low</span></td><td>Removal list recorded in <code>ARCHITECTURE.md</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="glossary">
+  <h2><span class="num">12</span>Glossary</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td class="k1">Event</td><td>One recorded change; never edited or deleted</td></tr>
+      <tr><td class="k1">Fold</td><td>Computing current state by replaying events in order</td></tr>
+      <tr><td class="k1">Outbox</td><td>Events saved on the device, waiting to be pushed</td></tr>
+      <tr><td class="k1">seq</td><td>The server's arrival number for an event, used to sync</td></tr>
+      <tr><td class="k1">Replicator</td><td>Shop server component that copies events to the cloud</td></tr>
+      <tr><td class="k1">Station</td><td>The installed shop software: server, updater, camera pack</td></tr>
+      <tr><td class="k1">ESC/POS</td><td>Command language of thermal receipt printers</td></tr>
+      <tr><td class="k1">MCP</td><td>Model Context Protocol, used by the ChatGPT plugin</td></tr>
+      <tr><td class="k1">ADR</td><td>Architecture Decision Record</td></tr>
+      <tr><td class="k1">C4</td><td>Context, Containers, Components, Code: a way to draw architecture at four zoom levels</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>CheesyBeez ERP · Software Architecture Document CB-ERP-SAD-001 v1.0 · arc42 template · repository gyrika/ERP · 5 November 2026, release v1.1.31.</footer>
+</main>
+</div>
+</body>
+</html>
