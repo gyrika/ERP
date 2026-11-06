@@ -402,7 +402,14 @@ function DevicesStep({ state, ownerPin, onFinish }: { state: SetupState; ownerPi
     <section className="setup__device" aria-label={title}>
       <h2>{title}</h2>
       {links[kind]
-        ? <><QrCode text={links[kind]!} label={`QR code for the ${title.toLowerCase()}`} /><p className="setup__hint">{how}</p></>
+        ? <><QrCode text={links[kind]!} label={`QR code for the ${title.toLowerCase()}`} /><p className="setup__hint">{how}</p>
+          {/* SCRUM-229: the address the tablet must reach, so a wrong one is seen at once (also over AnyDesk). */}
+          {kind === 'kitchen' && (
+            <p className="setup__hint">
+              It opens <b className="num">{new URL(links[kind]!).host}</b>. If the tablet says it cannot reach it, open that address in the
+              tablet&apos;s browser: when it fails there too, the Wi-Fi keeps devices apart (guest Wi-Fi or &quot;client isolation&quot; on the router).
+            </p>
+          )}</>
         : available
           ? <button type="button" className="chip chip--solid" onClick={() => void show(kind)}>Show QR code</button>
           : <p className="setup__hint">{why}</p>}
