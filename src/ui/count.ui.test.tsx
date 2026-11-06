@@ -50,7 +50,7 @@ test('blind count: no expected amount before counting; a big gap asks why and sa
   const form = await openCount(user, MOZZ);
   expect(screen.queryByText(/6 kg/)).toBeNull();
   await user.type(form.getByRole('textbox', { name: 'Full packs' }), '2');
-  await user.type(form.getByRole('textbox', { name: 'Opened pack, weighed' }), '1.3');
+  await user.type(form.getByRole('textbox', { name: 'Weighed' }), '1.3');
   await user.click(form.getByRole('button', { name: 'kg' }));
   expect(form.getByText('= 5.3 kg')).toBeTruthy();
   await user.click(form.getByRole('button', { name: 'Next' }));
@@ -89,7 +89,7 @@ test('a gap under both allowances (10% and Rs 2,000) is not asked about', async 
   render(<InventoryView />);
   const form = await openCount(user, MOZZ);
   await user.type(form.getByRole('textbox', { name: 'Full packs' }), '2');
-  await user.type(form.getByRole('textbox', { name: 'Opened pack, weighed' }), '1.9');
+  await user.type(form.getByRole('textbox', { name: 'Weighed' }), '1.9');
   await user.click(form.getByRole('button', { name: 'kg' }));
   await user.click(form.getByRole('button', { name: 'Next' })); // 5.9 kg of 6 kg: under 2%
   expect(screen.queryByRole('group', { name: 'Why' })).toBeNull();
@@ -101,7 +101,7 @@ test('a small gap matches with no question; Undo takes the count back', async ()
   const user = userEvent.setup();
   render(<InventoryView />);
   const form = await openCount(user, MOZZ);
-  await user.type(form.getByRole('textbox', { name: 'Opened pack, weighed' }), '5990');
+  await user.type(form.getByRole('textbox', { name: 'Weighed' }), '5990');
   await user.click(form.getByRole('button', { name: 'Next' }));
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', counted: 5990, reason: null });
   await user.click(screen.getByRole('button', { name: 'Undo' }));
@@ -122,4 +122,28 @@ test('another unit is learned once for the item and counted in', async () => {
   expect(again.getByRole('button', { name: 'Slab · 500 g' }).getAttribute('aria-pressed')).toBe('true');
   await user.type(again.getByRole('textbox', { name: 'Full packs' }), '3');
   expect(again.getByText(/= 1.5 kg/)).toBeTruthy();
+});
+
+test('the measured amount comes first: the cursor is in it, and the unit last used for the item comes back (SCRUM-227)', async () => {
+  const user = userEvent.setup();
+  render(<ManagerView />);
+  await user.click(screen.getByRole('button', { name: /^Count all \d+ due$/ }));
+  let form = within(screen.getByRole('form', { name: /^Count / }));
+  const name = screen.getByRole('form', { name: /^Count / }).getAttribute('aria-label')!;
+  // Typed straight away: the scale's number lands in the measured box, the packs box comes after it.
+  const box = form.getAllByRole('textbox')[0];
+  expect(document.activeElement).toBe(box);
+  expect(box).toBe(form.queryByRole('textbox', { name: /^(Weighed|Measured|Counted loose)$/ }));
+  const units = within(form.getByRole('group', { name: /^(Weighed|Measured|Counted loose) in$/ })).getAllByRole('button');
+  const first = units[0];
+  await user.keyboard('5');
+  await user.click(first);
+  await user.click(form.getByRole('button', { name: 'Next' }));
+  expect(readAll().at(-1)).toMatchObject({ type: 'stock.counted', entries: [{ unit: first.textContent, qty: 5 }] });
+
+  // Counting the same item again on this device (from its own sheet): that unit is already picked.
+  cleanup();
+  render(<InventoryView />);
+  form = await openCount(user, name.replace(/^Count /, ''));
+  expect(form.getByRole('button', { name: first.textContent! }).getAttribute('aria-pressed')).toBe('true');
 });
