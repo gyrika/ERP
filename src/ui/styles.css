@@ -1922,3 +1922,24 @@ button.glance__card:disabled { cursor: default; }
 .money-out__edit-row { display: flex; align-items: center; gap: 8px; }
 .money-out__edit-row .note { flex: 1; min-width: 0; }
 .money-out__edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* ----- Phone views, minimal (SCRUM-230): one hand, nothing before the work ----- */
+@media (max-width: 600px) {
+  /* The top bar already names the page: the big title under it goes (kept for screen readers). */
+  .inv-page__head .supplier-heading, .money-out .supplier-heading, .mgr__title {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .mgr__title-row:not(:has(button, a)) { display: none; }
+  .mgr__title-row { justify-content: flex-end; }
+  .inv-page__head { min-height: 0; flex-direction: row; align-items: center; justify-content: flex-end; padding: 4px 16px 0; }
+  .inv-page__actions { gap: 4px; }
+  .inv-page__actions a.inv-page__secondary { display: inline-flex; align-items: center; text-decoration: none; }
+  /* Tabs and filters: one row each, swiped sideways, never three rows of buttons. */
+  .items-tabs, .inv-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .items-tabs::-webkit-scrollbar, .inv-filters::-webkit-scrollbar { display: none; }
+  .items-tabs .pill, .inv-filters .chip { flex: none; }
+  .items-tabs__value, .stock-value__spark { display: none; }
+  .stock-value__total { font-size: 24px; }
+  /* No sideways wiggle on any work page. */
+  .owner.work, .inv-page { overflow-x: clip; }
+}
