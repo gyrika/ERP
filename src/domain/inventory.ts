@@ -264,7 +264,7 @@ export const stockFromEvents = (
     item: { ...i, supplierIds: [...i.supplierIds] }, onHandBaseUnits: 0, archived: false, counted: false, units: [], tier: null, receiveUnit: null, orderBelowPacks: null,
   }]));
   /** Semi-processed items by key: what is on hand, and the batches standing (prep.ts). */
-  const preps = new Map<string, { unit: string; onHand: number; batches: number; makeBelow: number | null; lastMadeAt: number | null }>();
+  const preps = new Map<string, { unit: string; onHand: number; batches: number; makeBelow: number | null; lastMadeAt: number | null; lastCountedAt: number | null }>();
   /** Prep tickets as batches; its tracked items, with their unit: a sale reaching one takes it instead of its raw items. */
   const batches = prepTracker();
   const tracked = batches.tracked;
@@ -326,7 +326,7 @@ export const stockFromEvents = (
     const batch = batches.step(e);
     if (batch) {
       const { order: o } = batch;
-      const prep = preps.get(o.prepId) ?? { unit: o.unit, onHand: 0, batches: 0, makeBelow: null, lastMadeAt: null };
+      const prep = preps.get(o.prepId) ?? { unit: o.unit, onHand: 0, batches: 0, makeBelow: null, lastMadeAt: null, lastCountedAt: null };
       preps.set(o.prepId, prep);
       if (batch.kind === 'made') {
         // His answers as they are now; tracked items inside it (dough in a dough ball) come off themselves.
@@ -423,6 +423,18 @@ export const stockFromEvents = (
         break;
       }
       case 'stock.counted': {
+        // A semi-processed item's count (SCRUM-228, itemId prep:<key>): in its own unit, once it is made.
+        if (e.itemId.startsWith(PREP_STOCK)) {
+          const key = e.itemId.slice(PREP_STOCK.length);
+          const prep = preps.get(key);
+          if (!prep || !tracked.has(key)) break;
+          const delta = e.counted - e.expected;
+          counts.set(e.id, { itemId: e.itemId, delta, previous: prep.lastCountedAt ?? undefined });
+          prep.onHand += delta;
+          place.put(`semi:${key}`, delta, e.warehouseId, e.id);
+          prep.lastCountedAt = e.at;
+          break;
+        }
         const shelf = shelves.get(e.itemId);
         if (!shelf) break;
         // A count from before test data was cleared (freshStart.ts): the shelf holds exactly what was counted.
@@ -440,6 +452,15 @@ export const stockFromEvents = (
       }
       case 'stock.count_undone': {
         const c = counts.get(e.countId);
+        if (c?.itemId.startsWith(PREP_STOCK)) {
+          const prep = preps.get(c.itemId.slice(PREP_STOCK.length));
+          counts.delete(e.countId);
+          if (!prep) break;
+          prep.onHand -= c.delta;
+          place.undo(e.countId);
+          prep.lastCountedAt = c.previous ?? null;
+          break;
+        }
         const shelf = c && shelves.get(c.itemId);
         if (!c || !shelf) break;
         counts.delete(e.countId);
@@ -524,7 +545,7 @@ export const stockFromEvents = (
         break;
       }
       case 'prep.limit_set': {
-        const prep = preps.get(e.prepId) ?? { unit: '', onHand: 0, batches: 0, makeBelow: null, lastMadeAt: null };
+        const prep = preps.get(e.prepId) ?? { unit: '', onHand: 0, batches: 0, makeBelow: null, lastMadeAt: null, lastCountedAt: null };
         prep.makeBelow = e.after;
         preps.set(e.prepId, prep);
         break;
@@ -618,7 +639,7 @@ export const stockFromEvents = (
     const p = preps.get(key);
     return {
       key, unit: p?.unit ?? '', tracked: tracked.has(key), onHand: p?.onHand ?? 0, usedPerDay: (prepUsed.get(key) ?? 0) / days,
-      makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, inKitchen: inKitchen.get(key) ?? 0,
+      makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, lastCountedAt: p?.lastCountedAt ?? null, inKitchen: inKitchen.get(key) ?? 0,
       reserved: ledger.reserved.get(`semi:${key}`) ?? 0, waiting: held.get(key)?.qty ?? 0, waitingFor: [...(held.get(key)?.names ?? [])],
     };
   });

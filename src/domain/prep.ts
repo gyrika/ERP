@@ -117,6 +117,8 @@ export interface PrepStock {
   makeBelow: number | null;
   /** When its last batch was made. */
   lastMadeAt: number | null;
+  /** When it was last counted (SCRUM-228); null: never. */
+  lastCountedAt: number | null;
   /** Sent to the kitchen and not Done yet, in its unit. */
   inKitchen: number;
   /** Held by batches in the kitchen that are made from it (production.ts): on hand, but spoken for. */

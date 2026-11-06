@@ -1,15 +1,16 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  checkUnitName, countedBase, gapOf, reasonText, reasonsFor, unitsOf, type CountEntry, type DueCount, type GapReason, type Tier,
+  checkUnitName, countedBase, gapOf, isBigGap, reasonText, reasonsFor, unitsOf, type CountEntry, type DueCount, type GapReason, type Tier,
 } from '../domain/counting.ts';
 import { formatQuantity } from '../domain/quantity.ts';
 import { fmt } from '../domain/money.ts';
 import { MAX_NOTE } from '../domain/gapReview.ts';
-import { learnUnit, recordCount, useStockSettings, useWarehouseStock, type InventoryRow } from '../services/inventoryStore.ts';
+import { learnUnit, recordCount, recordSemiCount, useStockSettings, useWarehouseStock, type InventoryRow } from '../services/inventoryStore.ts';
+import { PREP_STOCK } from '../domain/prep.ts';
 import { isManagerPhone } from '../services/pairing.ts';
 import { keepPhoto, newPhotoId, shrinkPhoto } from '../services/photos.ts';
 import { NumberInput } from './NumberInput.tsx';
-import { activeWarehouses, homeOf, placedIn, roundsByWarehouse } from '../domain/warehouses.ts';
+import { activeWarehouses, homeOf, placedIn, roundsByWarehouse, type StockEntry } from '../domain/warehouses.ts';
 
 /**
  * Count day (SCRUM-89). Serves the manager in front of the shelf: one item per
@@ -39,9 +40,13 @@ export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone()
   /** A big gap needs a shelf photo (the manager's phone). */
   photoRequired?: boolean;
 }) {
-  const { warehouses, places } = useWarehouseStock();
+  const { warehouses, places, entries } = useWarehouseStock();
+  /** A semi-processed item's stock entry (SCRUM-228: its due id is prep:<key>). */
+  const semiOf = (id: string) => (id.startsWith(PREP_STOCK) ? entries.find((x) => x.key === `semi:${id.slice(PREP_STOCK.length)}`) ?? null : null);
   // Fixed when counting starts, so the list never shifts while it is being counted.
   const [rounds] = useState<Round[]>(() => roundsByWarehouse(warehouses, places, due.map((d) => {
+    const semi = semiOf(d.id);
+    if (semi) return { ...d, key: semi.key, total: semi.total };
     const row = rows.find((r) => r.id === d.id);
     return { ...d, key: `stock:${d.id}`, total: row?.counted ? row.onHandBaseUnits : null };
   })));
@@ -62,6 +67,13 @@ export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone()
   const list = round ? round.items : due;
   const current = list[index];
   const row = current && rows.find((r) => r.id === current.id);
+  const semi = current ? semiOf(current.id) : null;
+  const saved = (name: string, id: string) => (gapCents: number, big: boolean, undo: () => void) => {
+    setResults([...results, { big, cents: gapCents }]);
+    setLast({ name, gapCents, big, undo, index });
+    if (where) setCounted((c) => new Set(c).add(`${where}:${id}`));
+    setIndex(index + 1);
+  };
   const short = results.filter((r) => r.cents < 0).reduce((s, r) => s + r.cents, 0);
   const left = (r: Round) => r.items.filter((i) => !counted.has(`${r.id}:${i.id}`)).length;
   const others = rounds.filter((r) => r.id !== where && left(r) > 0);
@@ -93,16 +105,16 @@ export function CountFlow({ due, rows, onClose, photoRequired = isManagerPhone()
               ))}
             </div>
           </div>
+        ) : semi ? (
+          <CountSemi
+            key={`${where}-${semi.key}-${index}`} entry={semi} due={current} position={`${index + 1} of ${list.length}`} photoRequired={photoRequired}
+            warehouseId={where ?? undefined} onSaved={saved(semi.name, current.id)}
+            onSkip={() => { setLast(null); setIndex(index + 1); }}
+          />
         ) : row ? (
           <CountItem
             key={`${where}-${row.id}-${index}`} row={row} due={current} position={`${index + 1} of ${list.length}`} photoRequired={photoRequired}
-            warehouseId={where ?? undefined}
-            onSaved={(gapCents, big, undo) => {
-              setResults([...results, { big, cents: gapCents }]);
-              setLast({ name: row.name, gapCents, big, undo, index });
-              if (where) setCounted((c) => new Set(c).add(`${where}:${row.id}`));
-              setIndex(index + 1);
-            }}
+            warehouseId={where ?? undefined} onSaved={saved(row.name, row.id)}
             onSkip={() => { setLast(null); setIndex(index + 1); }}
           />
         ) : (
@@ -151,10 +163,6 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   const [looseUnit, setLooseUnit] = useState(loose[loose.length - 1].id); // g, ml, pcs
   const [newUnit, setNewUnit] = useState<{ name: string; base: string } | null>(null);
   const [why, setWhy] = useState<{ counted: number; entries: CountEntry[] } | null>(null);
-  /** The reason is chosen; on the phone the shelf photo comes next. */
-  const [proof, setProof] = useState<{ reason: GapReason; note: string | null; photo: string | null; busy: boolean } | null>(null);
-  /** "Other" needs a note saying what happened: the note, while it is being written. */
-  const [other, setOther] = useState<string | null>(null);
   const settings = useStockSettings();
   const [error, setError] = useState('');
   // Every count is of one warehouse (SCRUM-186): what is on that shelf, compared with what is placed there.
@@ -191,24 +199,11 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
     onSaved(gap.valueCents, false, recordCount(row, typed, counted, null, due.tier, null, null, counting));
   };
 
-  const saveWith = (reason: GapReason, photo: string | null = null, note: string | null = null) => {
+  const saveWith = (reason: GapReason, photo: string | null, note: string | null) => {
     const gap = gapOf(expected, why!.counted, row, settings);
     let photoId: string | null = null;
     if (photo) { photoId = newPhotoId(); keepPhoto(photoId, photo); }
     onSaved(gap.valueCents, true, recordCount(row, why!.entries, why!.counted, reason, due.tier, photoId, note, counting));
-  };
-  const choose = (reason: GapReason, note: string | null = null) => (photoRequired ? setProof({ reason, note, photo: null, busy: false }) : saveWith(reason, null, note));
-
-  const took = async (file: File | undefined) => {
-    if (!file || !proof) return;
-    setProof({ ...proof, busy: true });
-    setError('');
-    try {
-      setProof({ ...proof, photo: await shrinkPhoto(file), busy: false });
-    } catch {
-      setProof({ ...proof, busy: false });
-      setError('That photo could not be read. Take it again.');
-    }
   };
 
   const addUnit = () => {
@@ -230,60 +225,12 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
     </header>
   );
 
-  if (why && proof) {
-    const gap = gapOf(expected, why.counted, row, settings);
-    return (
-      <div className="count__why">
-        {head}
-        <p className={`count__gap count__gap--${gap.delta < 0 ? 'short' : 'over'} num`}>
-          {formatQuantity(Math.abs(gap.delta), row.baseUnit)} {gap.delta < 0 ? 'short' : 'more than expected'} · {reasonText(proof.reason, proof.note)}
-        </p>
-        <p className="count__hint">A photo of the shelf, so the owner sees what you saw.</p>
-        {proof.photo && <img className="count__photo" src={`data:image/jpeg;base64,${proof.photo}`} alt={`Shelf photo of ${row.name}`} />}
-        <label className={proof.photo ? 'chip count__camera' : 'cta count__camera'} aria-busy={proof.busy}>
-          {proof.busy ? 'Getting the photo…' : proof.photo ? 'Take again' : 'Take a photo'}
-          <input className="sr-only" type="file" accept="image/*" capture="environment" aria-label="Shelf photo"
-            onChange={(e) => { void took(e.target.files?.[0]); e.target.value = ''; }} />
-        </label>
-        {error && <p className="inv-modal__error" role="alert">{error}</p>}
-        <div className="inv-modal__actions">
-          <button type="button" className="inv-modal__cancel" onClick={() => setProof(null)}>Back</button>
-          <button type="button" className="insight__action" disabled={!proof.photo}
-            onClick={() => saveWith(proof.reason, proof.photo, proof.note)}>Save</button>
-        </div>
-      </div>
-    );
-  }
-
   if (why) {
     const gap = gapOf(expected, why.counted, row, settings);
     return (
-      <div className="count__why">
-        {head}
-        <p className={`count__gap count__gap--${gap.delta < 0 ? 'short' : 'over'} num`}>
-          {formatQuantity(Math.abs(gap.delta), row.baseUnit)} {gap.delta < 0 ? 'short' : 'more than expected'} · Rs {fmt(Math.abs(gap.valueCents))}
-        </p>
-        <p className="count__hint">You counted {formatQuantity(why.counted, row.baseUnit)}; sales and deliveries say {formatQuantity(Math.max(0, expected), row.baseUnit)} in {whereName}. Why?</p>
-        {other === null ? (
-          <div className="chips" role="group" aria-label="Why">
-            {reasonsFor(gap.delta).map((r) => (
-              <button key={r.id} type="button" className="chip" onClick={() => (r.id === 'other' ? setOther('') : choose(r.id))}>{r.label}</button>
-            ))}
-          </div>
-        ) : (
-          <div className="count__other">
-            <label className="inv-modal__field"><span>What happened?</span>
-              <textarea className="inv-modal__input" rows={2} maxLength={MAX_NOTE} autoFocus value={other} aria-label="What happened"
-                onChange={(e) => setOther(e.target.value)} />
-            </label>
-            <div className="inv-modal__actions">
-              <button type="button" className="inv-modal__cancel" onClick={() => setOther(null)}>Back</button>
-              <button type="button" className="insight__action" disabled={!other.trim()} onClick={() => choose('other', other.trim())}>Save</button>
-            </div>
-          </div>
-        )}
-        <button type="button" className="linkbtn" onClick={() => { setWhy(null); setOther(null); }}>Count again</button>
-      </div>
+      <GapWhy head={head} name={row.name} delta={gap.delta} valueCents={gap.valueCents} unit={row.baseUnit} photoRequired={photoRequired}
+        hint={`You counted ${formatQuantity(why.counted, row.baseUnit)}; sales and deliveries say ${formatQuantity(Math.max(0, expected), row.baseUnit)} in ${whereName}. Why?`}
+        onSave={saveWith} onAgain={() => setWhy(null)} />
     );
   }
 
@@ -353,6 +300,177 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
         {total !== null && touched ? `= ${formatQuantity(total, row.baseUnit)}` : ' '}
         {packs.trim() && packUnitInfo.id !== 'pack' ? ` (${packUnitInfo.label})` : ''}
       </p>
+      {error && <p className="inv-modal__error" role="alert">{error}</p>}
+      <div className="inv-modal__actions">
+        {onSkip && <button type="button" className="inv-modal__cancel" onClick={onSkip}>Skip</button>}
+        <button type="submit" className="insight__action">Next</button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Why a count differs (a big gap): Spoiled, Spilled, Wrong entry or Other (with a note); on the
+ * manager's phone a shelf photo next. Shared by raw items and semi-processed ones.
+ */
+function GapWhy({ head, name, delta, valueCents, unit, hint, photoRequired, onSave, onAgain }: {
+  head: ReactNode; name: string; delta: number; valueCents: number; unit: string; hint: string; photoRequired: boolean;
+  onSave: (reason: GapReason, photo: string | null, note: string | null) => void; onAgain: () => void;
+}) {
+  /** The reason is chosen; on the phone the shelf photo comes next. */
+  const [proof, setProof] = useState<{ reason: GapReason; note: string | null; photo: string | null; busy: boolean } | null>(null);
+  /** "Other" needs a note saying what happened: the note, while it is being written. */
+  const [other, setOther] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const amount = formatAmount(Math.abs(delta), unit);
+  const choose = (reason: GapReason, note: string | null = null) => (photoRequired ? setProof({ reason, note, photo: null, busy: false }) : onSave(reason, null, note));
+  const took = async (file: File | undefined) => {
+    if (!file || !proof) return;
+    setProof({ ...proof, busy: true });
+    setError('');
+    try {
+      setProof({ ...proof, photo: await shrinkPhoto(file), busy: false });
+    } catch {
+      setProof({ ...proof, busy: false });
+      setError('That photo could not be read. Take it again.');
+    }
+  };
+
+  if (proof) {
+    return (
+      <div className="count__why">
+        {head}
+        <p className={`count__gap count__gap--${delta < 0 ? 'short' : 'over'} num`}>
+          {amount} {delta < 0 ? 'short' : 'more than expected'} · {reasonText(proof.reason, proof.note)}
+        </p>
+        <p className="count__hint">A photo of the shelf, so the owner sees what you saw.</p>
+        {proof.photo && <img className="count__photo" src={`data:image/jpeg;base64,${proof.photo}`} alt={`Shelf photo of ${name}`} />}
+        <label className={proof.photo ? 'chip count__camera' : 'cta count__camera'} aria-busy={proof.busy}>
+          {proof.busy ? 'Getting the photo…' : proof.photo ? 'Take again' : 'Take a photo'}
+          <input className="sr-only" type="file" accept="image/*" capture="environment" aria-label="Shelf photo"
+            onChange={(e) => { void took(e.target.files?.[0]); e.target.value = ''; }} />
+        </label>
+        {error && <p className="inv-modal__error" role="alert">{error}</p>}
+        <div className="inv-modal__actions">
+          <button type="button" className="inv-modal__cancel" onClick={() => setProof(null)}>Back</button>
+          <button type="button" className="insight__action" disabled={!proof.photo}
+            onClick={() => onSave(proof.reason, proof.photo, proof.note)}>Save</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="count__why">
+      {head}
+      <p className={`count__gap count__gap--${delta < 0 ? 'short' : 'over'} num`}>
+        {amount} {delta < 0 ? 'short' : 'more than expected'} · Rs {fmt(Math.abs(valueCents))}
+      </p>
+      <p className="count__hint">{hint}</p>
+      {other === null ? (
+        <div className="chips" role="group" aria-label="Why">
+          {reasonsFor(delta).map((r) => (
+            <button key={r.id} type="button" className="chip" onClick={() => (r.id === 'other' ? setOther('') : choose(r.id))}>{r.label}</button>
+          ))}
+        </div>
+      ) : (
+        <div className="count__other">
+          <label className="inv-modal__field"><span>What happened?</span>
+            <textarea className="inv-modal__input" rows={2} maxLength={MAX_NOTE} autoFocus value={other} aria-label="What happened"
+              onChange={(e) => setOther(e.target.value)} />
+          </label>
+          <div className="inv-modal__actions">
+            <button type="button" className="inv-modal__cancel" onClick={() => setOther(null)}>Back</button>
+            <button type="button" className="insight__action" disabled={!other.trim()} onClick={() => choose('other', other.trim())}>Save</button>
+          </div>
+        </div>
+      )}
+      <button type="button" className="linkbtn" onClick={onAgain}>Count again</button>
+    </div>
+  );
+}
+
+/** A raw item's amount in its base unit ("1.2 kg"); a semi-processed item's in its own unit ("12 pcs"). */
+const formatAmount = (qty: number, unit: string): string =>
+  unit === 'g' || unit === 'ml' || unit === 'pcs' || unit === 'sheets' ? formatQuantity(qty, unit) : `${Math.round(qty * 1000) / 1000} ${unit}`;
+
+/** The units a semi-processed item can be typed in, as a share of its own unit: kg and g, L and ml. */
+const SEMI_UNITS: Record<string, { id: string; per: number }[]> = {
+  kg: [{ id: 'kg', per: 1 }, { id: 'g', per: 0.001 }],
+  g: [{ id: 'kg', per: 1000 }, { id: 'g', per: 1 }],
+  L: [{ id: 'L', per: 1 }, { id: 'ml', per: 0.001 }],
+  ml: [{ id: 'L', per: 1000 }, { id: 'ml', per: 1 }],
+};
+
+/**
+ * One semi-processed item's count (SCRUM-228): the dough, the sauce. One box in its own unit, the
+ * cursor in it; a big gap asks why, valued at its cost per unit. Only items made at least once
+ * come here (their stock is tracked); it is counted where it is kept, like a raw item.
+ */
+function CountSemi({ entry, due, position, photoRequired, warehouseId, onSaved, onSkip }: {
+  entry: StockEntry; due: DueCount; position: string; photoRequired: boolean; warehouseId?: string;
+  onSaved: (gapCents: number, big: boolean, undo: () => void) => void; onSkip?: () => void;
+}) {
+  const settings = useStockSettings();
+  const { warehouses, places } = useWarehouseStock();
+  const where = warehouseId ?? homeOf(warehouses, entry.key);
+  const whereName = warehouses.list.find((x) => x.id === where)?.name ?? '';
+  const expected = placedIn(warehouses, places, entry.key, entry.total ?? 0, where);
+  const units = SEMI_UNITS[entry.unit] ?? [{ id: entry.unit, per: 1 }];
+  const [unit, setUnit] = useState(units[0].id);
+  const [amount, setAmount] = useState('');
+  const [error, setError] = useState('');
+  const [why, setWhy] = useState<number | null>(null);
+  const typed = number(amount);
+  const counted = typed === null ? null : Math.round(typed * units.find((u) => u.id === unit)!.per * 1e6) / 1e6;
+  const gapAt = (n: number) => {
+    const delta = n - Math.max(0, expected);
+    const valueCents = Math.round(delta * (entry.unitCents ?? 0));
+    return { delta, valueCents, big: isBigGap(delta, expected, valueCents, settings) };
+  };
+  const record = (n: number, reason: GapReason | null, photo: string | null = null, note: string | null = null) => {
+    let photoId: string | null = null;
+    if (photo) { photoId = newPhotoId(); keepPhoto(photoId, photo); }
+    const gap = gapAt(n);
+    onSaved(gap.valueCents, reason !== null, recordSemiCount(entry.key.slice('semi:'.length), n, expected, gap.valueCents, entry.unit, reason, photoId, note, where));
+  };
+  const next = (event: FormEvent) => {
+    event.preventDefault();
+    if (amount.trim() === '' || counted === null) return setError(`Type how much ${entry.name} there is, in ${unit}. None? Type 0.`);
+    if (gapAt(counted).big) { setWhy(counted); return; }
+    record(counted, null);
+  };
+
+  const head = (
+    <header className="count__head">
+      <span className="count__pos num">{position} · Semi-processed{due.state === 'never' ? ' · first count' : ''}{warehouseId ? ` · in ${whereName}` : ''}</span>
+      <h2 className="count__name">{entry.name}</h2>
+    </header>
+  );
+
+  if (why !== null) {
+    const gap = gapAt(why);
+    return (
+      <GapWhy head={head} name={entry.name} delta={gap.delta} valueCents={gap.valueCents} unit={entry.unit} photoRequired={photoRequired}
+        hint={`You counted ${formatAmount(why, entry.unit)}; batches and sales say ${formatAmount(Math.max(0, expected), entry.unit)} in ${whereName}. Why?`}
+        onSave={(reason, photo, note) => record(why, reason, photo, note)} onAgain={() => setWhy(null)} />
+    );
+  }
+
+  return (
+    <form className="count__item" onSubmit={next} aria-label={`Count ${entry.name}`}>
+      {head}
+      <div className="count__row">
+        <label className="count__field count__field--main">
+          <span>How much is there</span>
+          <NumberInput autoFocus value={amount} placeholder="0" onText={(text) => { setAmount(text); setError(''); }} />
+        </label>
+        <div className="chips" role="group" aria-label="Counted in">
+          {units.map((u) => (
+            <button key={u.id} type="button" className="chip" aria-pressed={unit === u.id} onClick={() => setUnit(u.id)}>{u.id}</button>
+          ))}
+        </div>
+      </div>
       {error && <p className="inv-modal__error" role="alert">{error}</p>}
       <div className="inv-modal__actions">
         {onSkip && <button type="button" className="inv-modal__cancel" onClick={onSkip}>Skip</button>}

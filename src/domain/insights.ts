@@ -10,6 +10,8 @@ import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Cents, OrderLine, Tender } from './types.ts';
 import { lineItemName } from './halves.ts';
+import { PREP_STOCK, prepItems, prepStockId } from './prep.ts';
+import { answersFromEvents } from './costing.ts';
 import { stockValueCard } from './valuation.ts';
 import { camerasOffline, tablesVsUsual, tableUse, visitLength } from './tableInsights.ts';
 import { wasteAboveUsual, wasteReasonRepeats } from './wasteInsights.ts';
@@ -333,10 +335,13 @@ const gapsToCheck = (events: readonly SyncEvent[], stock: ShopData['stock']): In
   const open = toCheck(gapCases(events));
   if (!open.length) return null;
   const items = stock ? inventoryFromEvents(stock.items, events) : [];
+  // A semi-processed item's count (SCRUM-228, prep:<key>): its name and its own unit.
+  const semis = open.some((g) => g.itemId.startsWith(PREP_STOCK)) ? prepItems(answersFromEvents(events)) : [];
   const cases = open.map((gap) => {
     const item = items.find((i) => i.id === gap.itemId);
-    const qty = item ? formatQuantity(Math.abs(gap.delta), item.baseUnit) : `${Math.abs(gap.delta)}`;
-    return { gap, name: item?.name ?? gap.itemId, gapText: `${qty} ${gap.delta < 0 ? 'short' : 'over'} · ${reasonText(gap.reason, gap.note)}` };
+    const semi = semis.find((p) => prepStockId(p.key) === gap.itemId);
+    const qty = item ? formatQuantity(Math.abs(gap.delta), item.baseUnit) : `${Math.round(Math.abs(gap.delta) * 1000) / 1000}${semi ? ` ${semi.unit}` : ''}`;
+    return { gap, name: item?.name ?? semi?.name ?? gap.itemId, gapText: `${qty} ${gap.delta < 0 ? 'short' : 'over'} · ${reasonText(gap.reason, gap.note)}` };
   });
   const answered = open.filter((g) => g.review.kind === 'asked' && g.review.answer).length;
   const [first] = cases;
