@@ -53,8 +53,9 @@ const startFeed = (f: Feed) => {
     if (f.child !== child) return; // stopped on purpose
     f.child = null;
     if (feeds.get(f.cam.id) !== f) return;
-    // testFailure masks any login in ffmpeg's words; the server masks again before cv.log.
-    log(`${f.cam.id}: ffmpeg stopped (exit ${code ?? '?'}): ${testFailure(err).cause}; again in ${RECONNECT_MS / 1000} s`);
+    // testFailure masks any login in ffmpeg's words; the server masks again before cv.log. Its message, not
+    // just the cause: "other" alone left the shop's log with nothing to go on (2026-11-06).
+    log(`${f.cam.id}: ffmpeg stopped (exit ${code ?? '?'}): ${testFailure(err).message}; again in ${RECONNECT_MS / 1000} s`);
     f.retry = setTimeout(() => startFeed(f), RECONNECT_MS);
   });
 };

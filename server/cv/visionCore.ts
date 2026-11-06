@@ -19,6 +19,10 @@ export const MOTION_W = 64;
 export const MOTION_H = 36;
 /** Mean absolute difference (0-1) under which nothing moved since the last detection. */
 export const MOTION_THRESHOLD = 6 / 255;
+/** A cell that changed by more than this (0-255) moved: a person, not noise or a lighting drift. */
+export const MOTION_CELL_DIFF = 16;
+/** This share of the cells moved (12 of 2304): something moved, however small or dark the rest is. */
+export const MOTION_CELLS = 0.005;
 /** A detection reused for at most this long, moved or not. */
 export const REUSE_MS = 30_000;
 
@@ -127,9 +131,21 @@ export const meanAbsDiff = (a: Uint8Array, b: Uint8Array): number => {
   return sum / a.length / 255;
 };
 
-/** The motion gate: nothing moved since the last detection, and it is under REUSE_MS old. */
+/** The share of thumbnail cells (0-1) that changed by more than MOTION_CELL_DIFF. */
+export const changedShare = (a: Uint8Array, b: Uint8Array): number => {
+  let changed = 0;
+  for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > MOTION_CELL_DIFF) changed++;
+  return a.length ? changed / a.length : 0;
+};
+
+/**
+ * The motion gate: nothing moved since the last detection, and it is under REUSE_MS old. The mean
+ * alone missed one person walking through a dark room (2026-11-06: the mean stayed under 6/255 while
+ * dozens of cells changed by 40+), so the old empty result was reused and the table never filled.
+ */
 export const shouldReuse = (last: { thumb: Uint8Array; at: number } | null, thumb: Uint8Array, now: number): boolean =>
-  last !== null && now - last.at < REUSE_MS && meanAbsDiff(last.thumb, thumb) < MOTION_THRESHOLD;
+  last !== null && now - last.at < REUSE_MS && meanAbsDiff(last.thumb, thumb) < MOTION_THRESHOLD
+    && changedShare(last.thumb, thumb) < MOTION_CELLS;
 
 /** One table's word from one check: someone's foot point in its zone, and the best score of those people (0 when none). */
 export interface Presence { present: boolean; confidence: number }
