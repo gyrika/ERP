@@ -24,6 +24,12 @@ import { activeWarehouses, homeOf, placedIn, roundsByWarehouse } from '../domain
  */
 const FRACTIONS = [{ v: 0.25, label: '¼' }, { v: 0.5, label: '½' }, { v: 0.75, label: '¾' }];
 const TIER_LABEL: Record<Tier, string> = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
+/** What the measured amount is called: weighed (g), measured (ml), or counted loose (pcs, sheets). */
+const MEASURED: Record<string, string> = { g: 'Weighed', ml: 'Measured' };
+/** The unit last used to measure an item, on this device only (a convenience: nothing breaks without it). */
+const lastUnitKey = (itemId: string) => `cb.count.unit.${itemId}`;
+const readLastUnit = (itemId: string): string | null => { try { return localStorage.getItem(lastUnitKey(itemId)); } catch { return null; } };
+const keepLastUnit = (itemId: string, unit: string) => { try { localStorage.setItem(lastUnitKey(itemId), unit); } catch { /* private window */ } };
 const number = (raw: string): number | null => (/^\d+(\.\d{1,3})?$/.test(raw.trim()) ? Number(raw.trim()) : null);
 
 interface Done { name: string; gapCents: number; big: boolean; undo: () => void; index: number }
@@ -148,7 +154,12 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
   const [packUnit, setPackUnit] = useState('pack');
   const [fraction, setFraction] = useState<number | null>(null);
   const [amount, setAmount] = useState('');
-  const [looseUnit, setLooseUnit] = useState(loose[loose.length - 1].id); // g, ml, pcs
+  // g, ml, pcs; the one this device last measured this item in, if it still applies.
+  const [looseUnit, setLooseUnit] = useState(() => {
+    const last = readLastUnit(row.id);
+    return loose.some((u) => u.id === last) ? last! : loose[loose.length - 1].id;
+  });
+  const measured = MEASURED[row.baseUnit] ?? 'Counted loose';
   const [newUnit, setNewUnit] = useState<{ name: string; base: string } | null>(null);
   const [why, setWhy] = useState<{ counted: number; entries: CountEntry[] } | null>(null);
   /** The reason is chosen; on the phone the shelf photo comes next. */
@@ -184,7 +195,8 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
 
   const next = (event: FormEvent) => {
     event.preventDefault();
-    if (!typed || !touched) return setError('Type what is on the shelf. Nothing there? Type 0 packs.');
+    if (!typed || !touched) return setError('Type what is on the shelf. Nothing there? Type 0.');
+    if (amount.trim() !== '') keepLastUnit(row.id, looseUnit);
     const counted = total!;
     const gap = gapOf(expected, counted, row, settings);
     if (row.counted && gap.big) { setWhy({ counted, entries: typed }); return; }
@@ -302,50 +314,56 @@ export function CountItem({ row, due, position, photoRequired, onSaved, onSkip, 
         </div>
       )}
 
-      <div className="count__row">
-        <label className="count__field">
-          <span>Full packs</span>
-          <NumberInput autoFocus value={packs} placeholder="0"
-            onText={(text) => { setPacks(text); setError(''); }} />
-        </label>
-        <div className="chips" role="group" aria-label="Counted in">
-          {units.filter((u) => u.id === 'pack' || u.id.startsWith('unit:')).map((u) => (
-            <button key={u.id} type="button" className="chip" aria-pressed={packUnit === u.id} onClick={() => setPackUnit(u.id)}>{u.label}</button>
-          ))}
-          <button type="button" className="chip" aria-expanded={newUnit !== null} onClick={() => setNewUnit(newUnit ? null : { name: '', base: '' })}>Other unit…</button>
-        </div>
-      </div>
-
-      {newUnit && (
-        <div className="count__newunit">
-          <label className="count__field"><span>Unit name</span>
-            <input value={newUnit.name} placeholder="Tray" autoFocus onChange={(e) => { setNewUnit({ ...newUnit, name: e.target.value }); setError(''); }} />
-          </label>
-          <label className="count__field"><span>One {newUnit.name.trim() || 'of it'} holds ({row.baseUnit})</span>
-            <NumberInput value={newUnit.base} onText={(text) => { setNewUnit({ ...newUnit, base: text }); setError(''); }} />
-          </label>
-          <button type="button" className="chip" onClick={addUnit}>Save unit</button>
-        </div>
-      )}
-
-      <div className="count__row">
-        <span className="count__label">Opened pack</span>
-        <div className="chips" role="group" aria-label="Opened pack, by eye">
-          {FRACTIONS.map((f) => (
-            <button key={f.v} type="button" className="chip" aria-pressed={fraction === f.v}
-              onClick={() => { setFraction(fraction === f.v ? null : f.v); setAmount(''); setError(''); }}>{f.label}</button>
-          ))}
-        </div>
-        <span className="count__or">or</span>
-        <label className="count__field count__field--inline">
-          <span className="sr-only">Opened pack, weighed</span>
-          <NumberInput value={amount} placeholder="0"
+      {/* Most counts are measured (SCRUM-227): the scale's number first, big, and focused. */}
+      <div className="count__row count__measure">
+        <label className="count__field count__field--main">
+          <span>{measured}</span>
+          <NumberInput autoFocus value={amount} placeholder="0"
             onText={(text) => { setAmount(text); setFraction(null); setError(''); }} />
         </label>
-        <div className="chips" role="group" aria-label="Weighed in">
+        <div className="chips" role="group" aria-label={`${measured} in`}>
           {loose.map((u) => (
             <button key={u.id} type="button" className="chip" aria-pressed={looseUnit === u.id} onClick={() => setLooseUnit(u.id)}>{u.label}</button>
           ))}
+        </div>
+      </div>
+
+      <div className="count__packs">
+        <span className="count__label">Or count packs</span>
+        <div className="count__row">
+          <label className="count__field">
+            <span>Full packs</span>
+            <NumberInput value={packs} placeholder="0"
+              onText={(text) => { setPacks(text); setError(''); }} />
+          </label>
+          <div className="chips" role="group" aria-label="Counted in">
+            {units.filter((u) => u.id === 'pack' || u.id.startsWith('unit:')).map((u) => (
+              <button key={u.id} type="button" className="chip" aria-pressed={packUnit === u.id} onClick={() => setPackUnit(u.id)}>{u.label}</button>
+            ))}
+            <button type="button" className="chip" aria-expanded={newUnit !== null} onClick={() => setNewUnit(newUnit ? null : { name: '', base: '' })}>Other unit…</button>
+          </div>
+        </div>
+
+        {newUnit && (
+          <div className="count__newunit">
+            <label className="count__field"><span>Unit name</span>
+              <input value={newUnit.name} placeholder="Tray" autoFocus onChange={(e) => { setNewUnit({ ...newUnit, name: e.target.value }); setError(''); }} />
+            </label>
+            <label className="count__field"><span>One {newUnit.name.trim() || 'of it'} holds ({row.baseUnit})</span>
+              <NumberInput value={newUnit.base} onText={(text) => { setNewUnit({ ...newUnit, base: text }); setError(''); }} />
+            </label>
+            <button type="button" className="chip" onClick={addUnit}>Save unit</button>
+          </div>
+        )}
+
+        <div className="count__row">
+          <span className="count__label">Opened pack, by eye</span>
+          <div className="chips" role="group" aria-label="Opened pack, by eye">
+            {FRACTIONS.map((f) => (
+              <button key={f.v} type="button" className="chip" aria-pressed={fraction === f.v}
+                onClick={() => { setFraction(fraction === f.v ? null : f.v); setAmount(''); setError(''); }}>{f.label}</button>
+            ))}
+          </div>
         </div>
       </div>
 

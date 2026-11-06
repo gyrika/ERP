@@ -1063,6 +1063,9 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .count__field { display: flex; flex-direction: column; gap: 6px; }
 .count__field input { min-height: 48px; width: 120px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--ground); color: var(--ink); font: inherit; font-size: 20px; text-align: right; }
 .count__field--inline input { width: 110px; }
+/* The measured amount (SCRUM-227): first and big, readable at arm's length on a phone in the store room. */
+.count__field--main input { width: min(240px, 100%); min-height: 64px; font-size: 32px; font-weight: 500; }
+.count__packs { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
 .count__newunit .count__field input { width: 160px; text-align: left; font-size: 17px; }
 .count__newunit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 14px; border-radius: 12px; background: var(--chip); }
 .count__or { color: var(--ink-2); font-size: 14px; align-self: center; }
