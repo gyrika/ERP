@@ -88,6 +88,9 @@ export const mayRecord = (role: Role, type: string, remake = false): boolean => 
   if (OWNER_STOCK.has(type)) return role === 'owner';
   // Value addition: Visual Flow is the owner's.
   if (type.startsWith('value.')) return role === 'owner';
+  // A delivery against the owner's purchase order: whoever works the counter (SCRUM-226). What a
+  // GRN without a manager may hold is grnProblem's (purchaseOrders.ts); prices stay a manager's.
+  if (type === 'stock.grn') return role !== 'kitchen';
   // Stock counts and supplier prices are a manager's job (SCRUM-41).
   if (type.startsWith('stock.')) return managesRole(role);
   // The menu is the owner's; marking something sold out is a manager's job during service.

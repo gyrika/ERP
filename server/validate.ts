@@ -200,8 +200,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         !(e.note === undefined || shortString(e.note, 500))
       ) return { reason: `event ${e.id} has an invalid goods received note` };
       const rows = lines as { ordered: number; received: number; accepted?: number; returned?: number }[];
-      // A delivery that differs from its order needs a manager's approval and the decisions.
-      if (by === null && rows.some((l) => l.received !== l.ordered)) return { reason: `event ${e.id} differs from its order without a manager's approval` };
+      // Without a manager (SCRUM-226): no extra, and a short delivery waits for the rest.
+      if (by === null && rows.some((l) => l.received > l.ordered)) return { reason: `event ${e.id} has extra without a manager's approval` };
+      if (by === null && rows.some((l) => l.received < l.ordered) && e.shortDecision !== 'wait') return { reason: `event ${e.id} closes an order short without a manager's approval` };
       if (rows.some((l) => l.received < l.ordered) && e.shortDecision === undefined) return { reason: `event ${e.id} is short but does not say wait or close` };
       if (rows.some((l) => l.received > l.ordered) && e.overDecision === undefined) return { reason: `event ${e.id} has extra but does not say accept or return` };
       // The stock a GRN puts in is worked out from accepted: it must be exactly what the decisions allow.
@@ -210,6 +211,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         const accepted = l.received > l.ordered && e.overDecision === 'return' ? l.ordered : l.received;
         if (Math.abs(l.accepted - accepted) > 1e-6 || Math.abs((l.returned ?? 0) - (l.received - accepted)) > 1e-6) return { reason: `event ${e.id} puts the wrong amount into stock` };
       }
+    }
+    if (e.type === 'stock.grn_price_reviewed' && (e.orderNumber !== 0 || !shortString(e.grnId) || typeof e.use !== 'boolean')) {
+      return { reason: `event ${e.id} decides no GRN price` };
     }
     if (e.type === 'stock.numbered' && (!shortString(e.docId, 80) || (e.kind !== 'PO' && e.kind !== 'GRN') || !shortString(e.number, 20))) {
       return { reason: `event ${e.id} has an invalid document number` };

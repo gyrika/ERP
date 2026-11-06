@@ -10,6 +10,7 @@ import { deliveryBill } from '../domain/receipt.ts';
 import { lineGross } from '../domain/totals.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
 import { MoneyOutSheet } from './MoneyOutSheet.tsx';
+import { ReceiveSheet } from './WorkViews.tsx';
 import { ExtrasSheet } from './ExtrasSheet.tsx';
 import { KitchenChip } from './KitchenChip.tsx';
 import { OnlineChip, OnlineSheet, useOnline } from './Online.tsx';
@@ -43,6 +44,7 @@ type Sheet =
   | { kind: 'waste' }
   | { kind: 'platform'; platform: Platform }
   | { kind: 'money' }
+  | { kind: 'receive' }
   | null;
 
 /** The Tables chip carries the floor's fold (SCRUM-168): loaded beside the Register, so the Register does not grow. */
@@ -192,6 +194,8 @@ export function App({
       const key = e.key.toLowerCase();
 
       if (e.key === 'F6' && !sheet && !palette) { e.preventDefault(); setTyped(null); setSheet({ kind: 'money' }); return; }
+      // A delivery came (SCRUM-226): whoever works the counter receives it and can pay it from the drawer.
+      if (e.key === 'F7' && !sheet && !palette) { e.preventDefault(); setTyped(null); setSheet({ kind: 'receive' }); return; }
 
       if (manager) {
         // Esc leaves manager mode from ANY state: palette, sheet, half-done void or adjustment.
@@ -305,7 +309,7 @@ export function App({
     list.push({ id: 'money', label: 'Money out: a bill paid, or cash from the drawer', hint: 'F6', run: () => setSheet({ kind: 'money' }) });
     list.push({ id: 'money-page', label: 'Money out this month', run: () => { location.hash = '#money'; } });
     if (canManageStock) {
-      list.push({ id: 'receive', label: 'Receive: a delivery came', run: () => { location.hash = '#receive'; } });
+      list.push({ id: 'receive', label: 'Receive: a delivery came', hint: 'F7', run: () => setSheet({ kind: 'receive' }) });
       list.push({ id: 'order', label: 'Order: what to buy', run: () => { location.hash = '#order'; } });
       list.push({ id: 'count', label: 'Count the shelves', run: () => { location.hash = '#count'; } });
       list.push({ id: 'inventory', label: 'Items: raw materials and stock', run: () => { location.hash = '#items'; } });
@@ -345,6 +349,7 @@ export function App({
                 <MicIcon /> Voice <kbd>F9</kbd>
               </button>
             )}
+            <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'receive' })}>Receive <kbd>F7</kbd></button>
             <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out <kbd>F6</kbd></button>
             {/* The owner and managers see their own screen without any shortcut. */}
             {onOwner && <button type="button" className="corner__key" onClick={onOwner}>Owner view <kbd>F3</kbd></button>}
@@ -451,6 +456,14 @@ export function App({
           full={Boolean(manager) || canManage(currentCashier())}
           onClose={closeSheet}
           onDone={(message, undo) => { closeSheet(); setNoted({ id: Date.now(), message, undo }); }}
+        />
+      )}
+      {sheet?.kind === 'receive' && (
+        <ReceiveSheet
+          manages={Boolean(manager) || canManage(currentCashier())}
+          onClose={closeSheet}
+          // The sheet says what happened on its own Done step (with Undo there); no toast under it.
+          onDone={() => {}}
         />
       )}
       {palette && manager && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}

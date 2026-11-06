@@ -118,6 +118,11 @@ export type StockEvent =
   | (StockBase & { type: 'stock.grn'; grnNo?: string; orderId: string; supplierId: string; lines: GrnLine[]; approvedBy: Actor | null; shortDecision?: 'wait' | 'close'; overDecision?: 'accept' | 'return'; /** The approving manager's final note, if any. */ note?: string })
   /** A GRN taken back by a manager, with why: its stock comes off and its order goes back. The GRN stays, marked undone. */
   | (StockBase & { type: 'stock.grn_undone'; grnId: string; reason?: string; approvedBy?: Actor })
+  /**
+   * A manager decides a delivered price a cashier saved without approval (SCRUM-226): `use` makes it the
+   * item's price (stock.price_set follows, with this grnId); otherwise the item keeps its price.
+   */
+  | (StockBase & { type: 'stock.grn_price_reviewed'; grnId: string; use: boolean })
   /** One stock movement, in base units (g, ml, pcs, sheets); docId: the GRN or count it belongs to. */
   | (StockItemBase & { type: 'stock.movement'; kind: MovementKind; qtyBase: number; docId: string })
   /** The shop server gives a PO or GRN its display number (docNumbers.ts). Only the server writes these. */
@@ -199,7 +204,7 @@ export const STOCK_EVENT_TYPES = [
   'stock.adjusted', 'stock.price_set', 'stock.item_added', 'stock.supplier_added',
   'stock.item_archived', 'stock.item_restored', 'stock.supplier_archived', 'stock.supplier_restored', 'stock.supplier_edited',
   'stock.counted', 'stock.count_undone', 'stock.unit_set', 'stock.tier_set', 'stock.gap_reviewed', 'stock.gap_answered', 'stock.receive_unit_set', 'stock.limit_set',
-  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.draft_set', 'stock.grn', 'stock.grn_undone', 'stock.movement', 'stock.numbered', 'stock.settings_set',
+  'stock.ordered', 'stock.order_cancelled', 'stock.order_reopened', 'stock.order_edited', 'stock.draft_set', 'stock.grn', 'stock.grn_undone', 'stock.grn_price_reviewed', 'stock.movement', 'stock.numbered', 'stock.settings_set',
   'stock.wasted', 'stock.waste_undone',
   'stock.warehouse_set', 'stock.kitchen_side_set', 'stock.home_set', 'stock.moved', 'stock.move_undone',
 ] as const satisfies readonly StockEvent['type'][];

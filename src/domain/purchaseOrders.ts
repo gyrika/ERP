@@ -58,6 +58,11 @@ export interface PurchaseGrn {
   differs: string[];
   /** The manager's final note when approving, if they wrote one. */
   note: string | null;
+  /**
+   * A delivered price saved without a manager (a cashier, SCRUM-226): 'pending' until a manager
+   * uses it or keeps the item's price; null when no such price was saved.
+   */
+  priceCheck: 'pending' | 'used' | 'kept' | null;
   /** Taken back: when, why, and by which manager. */
   undone: { at: number; reason: string; by: string | null } | null;
 }
@@ -127,6 +132,7 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
     shortDecision: 'wait' | 'close' | null; overDecision: 'accept' | 'return' | null; receivedBy: string; approvedBy: { name: string; role: string } | null; note: string | null;
   }>();
   const undone = new Map<string, { at: number; reason: string; by: string | null }>();
+  const reviewed = new Map<string, 'used' | 'kept'>();
   /** Live GRNs per order, as the events arrive: an edit or cancel after one is ignored. */
   const live = new Map<string, Set<string>>();
   /** The number the shop server gave each document; until it arrives the document is "pending". */
@@ -160,6 +166,8 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
       grns.set(e.id, { id: e.id, grnNo: e.grnNo, orderId: e.orderId, supplierId: e.supplierId, at: e.at, lines: e.lines, closes: e.shortDecision !== 'wait', shortDecision: e.shortDecision ?? null, overDecision: e.overDecision ?? null,
         receivedBy: e.actor.name, approvedBy: e.approvedBy ? { name: e.approvedBy.name, role: e.approvedBy.role } : null, note: e.note ?? null });
       live.set(e.orderId, (live.get(e.orderId) ?? new Set()).add(e.id));
+    } else if (e.type === 'stock.grn_price_reviewed') {
+      if (!reviewed.has(e.grnId)) reviewed.set(e.grnId, e.use ? 'used' : 'kept');
     } else if (e.type === 'stock.grn_undone') {
       undone.set(e.grnId, { at: e.at, reason: e.reason ?? '', by: e.approvedBy?.name ?? null });
       const g = grns.get(e.grnId);
@@ -208,11 +216,16 @@ export const purchasesFromEvents = (events: readonly SyncEvent[], settings: Pick
   });
 
   const poNoOf = new Map(orders.map((o) => [o.id, o.poNo]));
-  const grnList = [...grns.values()].sort((a, b) => b.at - a.at).map((g): PurchaseGrn => ({
-    id: g.id, grnNo: numbers.get(g.id) ?? g.grnNo ?? pendingNumber('GRN'), orderId: g.orderId, poNo: poNoOf.get(g.orderId) ?? pendingNumber('PO'), supplierId: g.supplierId, at: g.at, lines: g.lines,
-    shortDecision: g.shortDecision, overDecision: g.overDecision, receivedBy: g.receivedBy, approvedBy: g.approvedBy,
-    differs: differsFrom(g, docs.get(g.orderId)?.lines ?? []), note: g.note, undone: undone.get(g.id) ?? null,
-  }));
+  const grnList = [...grns.values()].sort((a, b) => b.at - a.at).map((g): PurchaseGrn => {
+    const differs = differsFrom(g, docs.get(g.orderId)?.lines ?? []);
+    const unapprovedPrice = g.approvedBy === null && differs.includes('price changed');
+    return {
+      id: g.id, grnNo: numbers.get(g.id) ?? g.grnNo ?? pendingNumber('GRN'), orderId: g.orderId, poNo: poNoOf.get(g.orderId) ?? pendingNumber('PO'), supplierId: g.supplierId, at: g.at, lines: g.lines,
+      shortDecision: g.shortDecision, overDecision: g.overDecision, receivedBy: g.receivedBy, approvedBy: g.approvedBy,
+      differs, note: g.note, undone: undone.get(g.id) ?? null,
+      priceCheck: unapprovedPrice ? reviewed.get(g.id) ?? 'pending' : null,
+    };
+  });
 
   return { open: orders.filter((o) => o.status === 'open' || o.status === 'partly'), orders, grns: grnList, leadDays, lastSupplier, drafts, draftPrices };
 };
@@ -260,7 +273,10 @@ export interface CheckedLine extends GrnLine {
   expectedUnitPriceCents?: number;
 }
 
-/** What came against what was still owed, line by line; quantity or price differences need a manager. */
+/**
+ * What came against what was still owed, line by line. `needsApproval`: something differs, so the
+ * manager's approval step is offered; without a manager only a short "wait" or a price may be saved (grnProblem).
+ */
 export const compareDelivery = (
   lines: readonly GrnLine[],
   orderLines: readonly Pick<PoLineState, 'itemId' | 'unitPriceCents'>[] = [],
@@ -340,9 +356,27 @@ export const grnProblem = (
   }
   if (order.lines.some((o) => o.remaining > 0 && !lines.some((l) => l.itemId === o.itemId))) return `This GRN leaves out something still owed on ${order.poNo}. Open it again.`;
   const checked = compareDelivery(lines, order.lines);
-  if (checked.needsApproval && !(approver && (approver.role === 'manager' || approver.role === 'owner'))) return 'A delivery that differs from the order needs a manager to approve it.';
+  // Without a manager (SCRUM-226): extra needs one; a short line waits for the rest; a changed
+  // price is saved and goes on the owner's To do (GRNs to check), the item's price unchanged.
+  if (!(approver && (approver.role === 'manager' || approver.role === 'owner'))) {
+    if (checked.hasOver) return 'More came than was ordered: a manager approves the extra.';
+    if (checked.hasShort && decisions.short !== 'wait') return 'Only a manager can close an order short. The rest stays on order.';
+  }
   if (checked.hasShort && !decisions.short) return 'Choose: wait for the rest, or close the order.';
   if (checked.hasOver && !decisions.over) return 'Choose: accept the extra, or return it.';
+  return null;
+};
+
+/** GRNs whose delivered price no manager has decided yet, newest first (SCRUM-226). */
+export const pricesToCheck = (state: Pick<PurchaseState, 'grns'>): PurchaseGrn[] =>
+  state.grns.filter((g) => g.priceCheck === 'pending' && !g.undone);
+
+/** Can this GRN's price still be decided? null: yes. */
+export const priceReviewProblem = (state: Pick<PurchaseState, 'grns'>, grnId: string): string | null => {
+  const g = state.grns.find((x) => x.id === grnId);
+  if (!g) return 'That GRN is not here.';
+  if (g.undone) return `${g.grnNo} was undone.`;
+  if (g.priceCheck !== 'pending') return `${g.grnNo} has no price waiting for a decision.`;
   return null;
 };
 

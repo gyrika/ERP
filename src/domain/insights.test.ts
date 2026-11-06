@@ -164,3 +164,22 @@ test('a delivery a manager approved today is told to the owner, with who and wha
   assert.equal(undone.title, 'Ravi undid a delivery: GRN-0001 · Prima / David Stores (Wholesale)');
   assert.deepEqual(undone.action.items.map((i) => i.secondary), ['Undone by Ravi: Entered by mistake']);
 });
+
+test('a delivered price saved at the counter goes on To do until a manager decides it (SCRUM-226)', () => {
+  const nimal = { id: 'c', name: 'Nimal', role: 'cashier' as const };
+  const base = { shopId: 's', orderNumber: 0 as const, actor };
+  const order: SyncEvent = { ...base, id: 'p', at: friday - 2 * DAY_MS, type: 'stock.ordered', poNo: 'PO-0001', supplierId: 'sup_prima', lines: [{ itemId: 'inv-0001', packs: 2, unitPriceCents: 640000 }] };
+  const grn: SyncEvent = {
+    ...base, actor: nimal, id: 'g1', at: friday - 60_000, type: 'stock.grn', grnNo: 'GRN-0001', orderId: 'p', supplierId: 'sup_prima', approvedBy: null,
+    lines: [{ itemId: 'inv-0001', ordered: 2, received: 2, accepted: 2, unitPriceCents: 660000 }],
+  };
+  const feed = (events: SyncEvent[]) => rulesSuggestions.insights({ events, now: friday, stock }).find((i) => i.id === 'grn-prices');
+  const card = feed([order, grn])!;
+  assert.equal(card.tone, 'attention');
+  assert.equal(card.title, 'GRN-0001 · Prima / David Stores (Wholesale) came at a different price');
+  assert.equal(card.detail, 'Saved at the counter by Nimal. Use the new price, or keep the old one.');
+  assert.equal(card.action.go, '#receive/g1');
+  assert.deepEqual(card.action.items.map((i) => i.secondary), ['Rs 6,400 → Rs 6,600 a pack · Prima / David Stores (Wholesale)']);
+  assert.equal(feed([order, grn, { ...base, id: 'r', at: friday, type: 'stock.grn_price_reviewed', grnId: 'g1', use: true }]), undefined, 'decided: off To do');
+  assert.equal(rulesSuggestions.insights({ events: [order, grn], now: friday, stock }).some((i) => i.id === 'grn-approvals'), false, 'not an approval');
+});

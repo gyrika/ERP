@@ -215,7 +215,9 @@ export function Root() {
   // The shop's day (Shop Day Navigation): Receive, Order and Count are places of their own;
   // Items holds raw materials, semi-processed and finished items. The older addresses
   // (#inventory, #manager, #menu, #recipes) still open the same places.
-  if (hash === '#receive' && mayManageStock) return <ReceiveView onRegister={() => go('')} />;
+  if ((hash === '#receive' || hash.startsWith('#receive/')) && mayManageStock) {
+    return <ReceiveView key={hash} openGrn={hash.startsWith('#receive/') ? decodeURIComponent(hash.slice('#receive/'.length)) : undefined} onRegister={() => go('')} />;
+  }
   // #order/suppliers: ordering by supplier, a place of its own. #order/<supplier id> opens that supplier's cart.
   if (hash === '#order/suppliers' && mayManageStock) return <OrderView key={hash} bySupplier onRegister={() => go('')} />;
   if ((hash === '#order' || hash.startsWith('#order/')) && mayManageStock) {
@@ -276,6 +278,8 @@ function ManagerPhone({ hash }: { hash: string }) {
   if (me === 'loading') return <div className="setup" aria-busy="true" />;
   if (me !== 'ready') return <main className="setup"><p className="setup__error" role="alert">{me}</p></main>;
   // Count, Receive and the stock (Items): what a manager does away from the counter.
-  if (hash === '#receive') return <ReceiveView />;
+  if (hash === '#receive' || hash.startsWith('#receive/')) {
+    return <ReceiveView key={hash} openGrn={hash.startsWith('#receive/') ? decodeURIComponent(hash.slice('#receive/'.length)) : undefined} />;
+  }
   return hash === '#items' || hash === '#inventory' ? <InventoryView /> : <ManagerView />;
 }
