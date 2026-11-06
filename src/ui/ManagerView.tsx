@@ -4,7 +4,8 @@ import { OwnerPin } from './OwnerPin.tsx';
 import {
   countedSince, countsDue, dailyStreak, dayGrid, monthStart, startOfDay, tiersOf, weekStart, type DayCell, type DueCount, type Tier,
 } from '../domain/counting.ts';
-import { answerGap, setCountTier, useCountHistory, useGapCases, useInventory } from '../services/inventoryStore.ts';
+import { answerGap, setCountTier, useCountHistory, useGapCases, useInventory, usePreps } from '../services/inventoryStore.ts';
+import { prepStockId } from '../domain/prep.ts';
 import { asked, MAX_NOTE, type GapCase } from '../domain/gapReview.ts';
 import { reasonLabel, reasonText } from '../domain/counting.ts';
 import { formatQuantity } from '../domain/quantity.ts';
@@ -60,9 +61,13 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
   }, [editor]);
   const now = Date.now();
 
-  const tiers = useMemo(() => tiersOf(items), [items]);
-  const due = useMemo(() => countsDue(items, tiers, now), [items, tiers, now]);
-  const byTier = (t: Tier) => items.filter((i) => (tiers.get(i.id) ?? 'monthly') === t);
+  // Semi-processed items made at least once are counted too, daily (SCRUM-228): they keep a day or two.
+  const preps = usePreps();
+  const semis = useMemo(() => preps.filter((p) => p.tracked)
+    .map((p) => ({ id: prepStockId(p.key), name: p.name, lastCountedAt: p.lastCountedAt, tier: null, semi: true as const })), [preps]);
+  const tiers = useMemo(() => new Map([...tiersOf(items), ...semis.map((x) => [x.id, 'daily'] as const)]), [items, semis]);
+  const due = useMemo(() => countsDue([...items, ...semis], tiers, now), [items, semis, tiers, now]);
+  const byTier = (t: Tier) => [...items, ...semis].filter((i) => (tiers.get(i.id) ?? 'monthly') === t);
   const since: Record<Tier, number> = { daily: startOfDay(now), weekly: weekStart(now), monthly: monthStart(now) };
 
   // Today: what was due at the start of the day (still due, or counted today).
@@ -143,7 +148,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
                     return (
                       <li key={i.id}>
                         <span>{i.name}</span>
-                        {editor ? (
+                        {editor && !('semi' in i) ? (
                           <select className="mgr__pick" aria-label={`How often to count ${i.name}`} value={i.tier ?? 'auto'}
                             onChange={(e) => setCountTier(i.id, e.target.value === 'auto' ? null : e.target.value as Tier, editor)}>
                             <option value="auto">Automatic</option>
@@ -180,7 +185,7 @@ export function ManagerView({ onRegister }: { onRegister?: () => void }) {
               <ul>
                 {history.filter((c) => startOfDay(c.at) === picked).slice().reverse().map((c) => (
                   <li key={c.id}>
-                    <span>{items.find((i) => i.id === c.itemId)?.name ?? c.itemId}</span>
+                    <span>{[...items, ...semis].find((i) => i.id === c.itemId)?.name ?? c.itemId}</span>
                     <span className={c.big && c.valueCents < 0 ? 'mgr__day-gap' : 'mgr__day-ok'}>
                       {c.big ? `${c.valueCents < 0 ? 'short' : 'over'} Rs ${fmt(Math.abs(c.valueCents))} · ${reasonLabel(c.reason!)}` : 'matched'}
                     </span>

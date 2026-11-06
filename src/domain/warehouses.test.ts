@@ -177,3 +177,36 @@ test('count rounds: each warehouse lists the items whose home it is or that have
     ['Warehouse 1', [`stock:${FLOUR}`]], ['Warehouse 2', [`stock:${FLOUR}`]], ['Warehouse 3', [`stock:${YEAST}`]],
   ]);
 });
+
+test('a semi-processed item is counted in its warehouse, once it is made; Undo puts it back (SCRUM-228)', () => {
+  const answer = (question: string, after: Answer): RecipeEvent =>
+    ({ id: id(), shopId: 's', at: ++n, orderNumber: 0, actor: owner, type: 'recipe.answer_set', question, before: null, after });
+  const dough = answer(prepQuestion('kdough1'), {
+    kind: 'prep', name: 'Dough', makes: { qty: 20, unit: 'pcs' },
+    lines: [{ name: `stock:${FLOUR}`, qty: 2000, unit: 'g' }, { name: `stock:${YEAST}`, qty: 40, unit: 'g' }],
+  });
+  const semi = `prep:${DOUGH}`;
+  // Never made: a count of it changes nothing (its stock is not tracked yet).
+  const early = stockFromEvents(SEED_INVENTORY, [dough, counted(semi, 5, 0, 'wh-1')]).preps.find((p) => p.key === DOUGH);
+  assert.equal(early?.tracked ?? false, false);
+  assert.equal(early?.lastCountedAt ?? null, null);
+
+  const ticketId = id();
+  const made: SyncEvent[] = [
+    dough, home(`semi:${DOUGH}`, 'wh-2'),
+    { ...base(), actor: kasun, type: 'prep.ordered', ticketId, prepId: DOUGH, name: 'Dough', qty: 20, unit: 'pcs' },
+    { id: id(), shopId: 's', at: ++n, orderNumber: 0, ticketId, type: 'kitchen.started' },
+    { id: id(), shopId: 's', at: ++n, orderNumber: 0, ticketId, type: 'kitchen.bumped' },
+  ];
+  // 20 made into Warehouse 2; 17 counted there.
+  const count = counted(semi, 17, 20, 'wh-2');
+  const after = [...made, count];
+  assert.deepEqual(split(after, `semi:${DOUGH}`), { 'wh-2': 17 });
+  const p = stockFromEvents(SEED_INVENTORY, after).preps.find((x) => x.key === DOUGH)!;
+  assert.equal(p.onHand, 17);
+  assert.equal(p.lastCountedAt, count.at);
+  // Undo: back to 20, never counted.
+  const undone = [...after, { ...base(), type: 'stock.count_undone', countId: count.id } as SyncEvent];
+  assert.deepEqual(split(undone, `semi:${DOUGH}`), { 'wh-2': 20 });
+  assert.equal(stockFromEvents(SEED_INVENTORY, undone).preps.find((x) => x.key === DOUGH)!.lastCountedAt, null);
+});

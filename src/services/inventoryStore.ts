@@ -22,7 +22,7 @@ import { grnProblem, mergeLines, priceReviewProblem, purchasesFromEvents, settle
 import type { GrnLine, MovementKind, PoLine } from '../domain/sync.ts';
 import { checkStockSetting, stockSettingsFromEvents, type StockSettings } from '../domain/stockSettings.ts';
 import type { WasteChoice, WasteReason } from '../domain/waste.ts';
-import { prepItems, type PrepItem, type PrepStock } from '../domain/prep.ts';
+import { prepItems, prepStockId, type PrepItem, type PrepStock } from '../domain/prep.ts';
 import { draftEvent, draftsFromEvents, type Draft, type PublishStep } from '../domain/recipeDrafts.ts';
 import { trendDays, valuationOf, valueAt, type Valuation } from '../domain/valuation.ts';
 import { byWarehouse, checkMove, checkWarehouseName, shownSplit, warehousesFromEvents, type Split, type StockEntry, type WarehouseStock, type Warehouses } from '../domain/warehouses.ts';
@@ -264,6 +264,22 @@ export const recordCount = (
   return () => { appendEvent({ type: 'stock.count_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), countId: e.id }); };
 };
 
+/**
+ * A semi-processed item's count (SCRUM-228): in its own unit, of one warehouse. `valueCents` is the gap
+ * at its cost per unit. Recorded as stock.counted with itemId prep:<key>; returns its Undo.
+ */
+export const recordSemiCount = (
+  key: string, counted: number, expected: number, valueCents: Cents, unit: string, reason: GapReason | null,
+  photo: string | null = null, note: string | null = null, warehouseId: string | null = null,
+): (() => void) => {
+  const e = appendEvent({
+    type: 'stock.counted', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId: prepStockId(key),
+    counted, expected, entries: [{ unit, qty: counted }], reason, valueCents, tier: 'daily',
+    ...(photo ? { photo } : {}), ...(note?.trim() ? { note: note.trim() } : {}), ...(warehouseId ? { warehouseId } : {}),
+  });
+  return () => { appendEvent({ type: 'stock.count_undone', at: Date.now(), orderNumber: 0, actor: currentCashier(), countId: e.id }); };
+};
+
 /** A unit learned for an item ("Tray" = 30 pcs), audited like any stock change. */
 export const learnUnit = (itemId: string, name: string, base: number): void => {
   appendEvent({ type: 'stock.unit_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, name: name.trim(), base });
@@ -404,7 +420,7 @@ export function usePreps(): PrepRow[] {
       const p = stock.get(item.key);
       // Once made, the stock is counted in the unit its batches were recorded in.
       const unit = p?.tracked ? p.unit : item.unit;
-      return { ...item, unit, tracked: p?.tracked ?? false, onHand: p?.onHand ?? 0, usedPerDay: p?.usedPerDay ?? 0, makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, inKitchen: p?.inKitchen ?? 0,
+      return { ...item, unit, tracked: p?.tracked ?? false, onHand: p?.onHand ?? 0, usedPerDay: p?.usedPerDay ?? 0, makeBelow: p?.makeBelow ?? null, lastMadeAt: p?.lastMadeAt ?? null, lastCountedAt: p?.lastCountedAt ?? null, inKitchen: p?.inKitchen ?? 0,
         reserved: p?.reserved ?? 0, waiting: p?.waiting ?? 0, waitingFor: p?.waitingFor ?? [] };
     });
   }, [events]);
