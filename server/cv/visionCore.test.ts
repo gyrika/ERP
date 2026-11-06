@@ -5,7 +5,7 @@ import { followFloor, startTracker } from './tracker.ts';
 import {
   BACKOFF_MAX_MS, cameraArgs, devSources, CPU_GUARD_MS, cpuGuard, cpuPercent, checkEvery, CROP_MARGIN, FRAME_BYTES, FRAME_H, FRAME_W, frameReader,
   greyThumb, linkStep, meanAbsDiff, MOTION_H, MOTION_THRESHOLD, MOTION_W, NO_FRAMES_MS, OFFLINE_REPORT_MS, presence, restartDelay, REUSE_MS,
-  shouldReuse, SLOW_CHECK_MS, CHECK_MS, zoneBox, type Guard, type Link,
+  shouldReuse, SLOW_CHECK_MS, changedShare, MOTION_CELLS, CHECK_MS, zoneBox, type Guard, type Link,
 } from './visionCore.ts';
 
 const zone = (id: string, tableId: string, x1: number, y1: number, x2: number, y2: number): ZoneSpec =>
@@ -71,6 +71,22 @@ test('the motion gate: a 64x36 grey thumbnail, mean absolute difference under 6/
   const c = greyThumb(moved, FRAME_W, FRAME_H, rect);
   assert.ok(meanAbsDiff(a, c) > MOTION_THRESHOLD);
   assert.equal(shouldReuse({ thumb: a, at: 0 }, c, 1000), false);
+});
+
+test('the motion gate sees one person walking through a dark room, though the mean hardly moves', () => {
+  const rect = { x: 0, y: 0, w: 640, h: 360 };
+  const dark = Buffer.alloc(FRAME_BYTES, 30);
+  const a = greyThumb(dark, FRAME_W, FRAME_H, rect);
+  // A person: 40x80 px, 50 levels brighter, about 1.4% of the frame.
+  const person = Buffer.from(dark);
+  for (let y = 100; y < 180; y++) person.fill(80, (y * 640 + 300) * 3, (y * 640 + 340) * 3);
+  const b = greyThumb(person, FRAME_W, FRAME_H, rect);
+  assert.ok(meanAbsDiff(a, b) < MOTION_THRESHOLD, 'the mean alone would reuse the empty result');
+  assert.ok(changedShare(a, b) >= MOTION_CELLS);
+  assert.equal(shouldReuse({ thumb: a, at: 0 }, b, 1000), false);
+  // Sensor noise of a few levels in every cell still reuses.
+  const noisy = Buffer.from(dark).map((v, i) => v + (i % 7) - 3);
+  assert.equal(shouldReuse({ thumb: a, at: 0 }, greyThumb(noisy, FRAME_W, FRAME_H, rect), 1000), true);
 });
 
 test('the thumbnail looks only inside the crop', () => {
