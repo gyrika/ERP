@@ -27,9 +27,14 @@ import { OrderView, ReceiveView } from './WorkViews.tsx';
 import { useVoice, VoiceNote } from './VoiceKey.tsx';
 import { navData, navigate, onNavigate, startNav, useBackKeys } from './nav.ts';
 
-/** Visual Flow carries its own drawing library: loaded when it is opened, so the Register stays light. */
 import { MoneyOutView } from './MoneyOutView.tsx';
+
+/** Visual Flow carries its own drawing library: loaded when it is opened, so the Register stays light. */
 const VisualFlowView = lazy(() => import('./visualFlow/VisualFlowView.tsx'));
+/** The developers' module codes (#unlock): opened once in a shop's life. */
+const UnlockView = lazy(() => import('./UnlockView.tsx'));
+/** Customers (CRM): a module, on only where the developers turned it on. */
+const CustomersView = lazy(() => import('./customers/CustomersView.tsx'));
 /** The floor (SCRUM-168): loaded when it is opened, so the Register does not grow. */
 const FloorView = lazy(() => import('./floor/FloorView.tsx'));
 /** Computer vision (SCRUM-174): the owner's page, on the counter and the owner's phone. */
@@ -195,6 +200,11 @@ export function Root() {
     return <OwnerView phone />;
   }
   if (setup === 'checking') return <div className="setup" aria-busy="true" />;
+  // The developers' module codes (modules.ts): the shop PC itself (the setup API answers nothing else),
+  // no pairing or login needed; the signed code is the authority.
+  if (hash === '#unlock' && setup !== 'new' && setup !== 'remote') {
+    return <Suspense fallback={<div className="setup" aria-busy="true" />}><UnlockView onClose={() => go('')} /></Suspense>;
+  }
   if (setup === 'new') return <SetupWizard mode="first" />;
   if (setup === 'remote' && !syncToken()) return <NotConnected />;
   if (setup === 'done' && !syncToken()) return <SetupWizard mode="connect" />;
@@ -252,6 +262,9 @@ export function Root() {
   }
   // What the shop paid (SCRUM-105): owners and managers; a cashier records cash out from the Register.
   if (hash === '#money' && seesOwner) return <MoneyOutView onRegister={() => go('')} />;
+  if (hash === '#customers' && seesOwner) {
+    return <Suspense fallback={<div className="inv-page" aria-busy="true" />}><CustomersView onRegister={() => go('')} /></Suspense>;
+  }
   if (hash === TABLES && seesFloor) {
     return <Suspense fallback={<div className="floor" aria-busy="true" />}><FloorView onBack={() => go('')} /></Suspense>;
   }

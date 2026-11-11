@@ -17,6 +17,11 @@ import { startReplicator } from './replicator.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
 import { sqliteStore } from './sqliteStore.ts';
+import { crmCrypto } from './crm/crypto.ts';
+import { mysqlCustomers } from './crm/mysql.ts';
+import { crmApi } from './crm/routes.ts';
+import { sqliteCustomers } from './crm/sqlite.ts';
+import { memoryCustomers, type CustomerStore } from './crm/store.ts';
 import { memoryStore, mysqlStore, type EventStore } from './store.ts';
 import { activeUpdate } from '../src/domain/updating.ts';
 import { updatesApi } from './updates.ts';
@@ -40,14 +45,21 @@ const printsDir = process.env.DATA_DIR ? `${dataDir}/prints` : fileURLToPath(new
 
 let store: EventStore;
 let storeName: string;
+/** The customer list (CRM) lives in the same database as the events, sealed with <data>\crm.key. */
+let customers: CustomerStore;
 if (process.env.DATABASE_URL) {
-  store = mysqlStore(createPool({ uri: process.env.DATABASE_URL, connectionLimit: 10, supportBigNumbers: true }));
+  const pool = createPool({ uri: process.env.DATABASE_URL, connectionLimit: 10, supportBigNumbers: true });
+  store = mysqlStore(pool);
+  customers = mysqlCustomers(pool, crmCrypto(dataDir));
   storeName = 'MySQL';
 } else if (process.env.MEMORY === '1') {
   store = memoryStore();
+  customers = memoryCustomers();
   storeName = 'memory only (nothing is kept)';
 } else {
-  store = sqliteStore(`${dataDir}/pos.sqlite`);
+  const sqlite = sqliteStore(`${dataDir}/pos.sqlite`);
+  store = sqlite;
+  customers = sqliteCustomers(sqlite.db, crmCrypto(dataDir));
   storeName = `built-in (${dataDir}/pos.sqlite)`;
 }
 
@@ -141,6 +153,7 @@ const setup = setupApi({
   detections: { watch: (id) => vision.watch(id), seen: (id) => vision.seen(id), perf: () => vision.perf() },
 });
 const server = createApp({
+  crm: crmApi({ events: store, customers }),
   photos: photoFolder(`${dataDir}/photos`),
   cloudPhoto: async (tenantId, id) => {
     const link = cloudLink();

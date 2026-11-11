@@ -5,11 +5,11 @@ import type { SyncEvent } from './sync.ts';
 import type { Cents } from './types.ts';
 
 /**
- * Customers (CRM): who they are lives in the shop server's customer list (number, name, birthday,
- * opt-out), which can be corrected and erased. What they bought lives in the event log, as it
- * always has: a payment names its customer by an opaque id (`order.paid.customerId`), and
- * everything here is folded from that. So stats, segments and history can always be worked out
- * again and never disagree with the sales; the server's stats table is only a copy of this.
+ * Customers (CRM): who they are lives in the shop server's customer list (number, name, opt-out),
+ * which can be corrected and erased. What they bought lives in the event log, as it always has: a
+ * payment names its customer by an opaque id (`order.paid.customerId`), and everything here is
+ * folded from that. So stats, segments and history are worked out when asked and never disagree
+ * with the sales: nothing keeps a copy that could go stale.
  *
  * Test data cleared by the owner (freshStart.ts) is left out, like every other reader.
  */
@@ -26,8 +26,6 @@ export interface Customer {
   /** +947XXXXXXXX (phone.ts). */
   phone: string;
   name: string | null;
-  /** MM-DD, when the customer gave it. */
-  birthday: string | null;
   source: CustomerSource;
   /** Asked for no messages: respected by every campaign and automatic message. */
   optedOut: boolean;

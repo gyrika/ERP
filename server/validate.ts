@@ -15,6 +15,7 @@ import { checkPrepLimit, checkPrepOrder } from '../src/domain/prep.ts';
 import { checkWarehouseName, isStockKey, isWarehouseId } from '../src/domain/warehouses.ts';
 import { checkTableEvent, TABLE_EVENT_TYPES, VISION_EVENT_TYPES } from '../src/domain/tables.ts';
 import { SHOP_EVENT_TYPES } from '../src/domain/freshStart.ts';
+import { checkModuleEvent, MODULE_EVENT_TYPES } from '../src/domain/modules.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import type { MenuItem } from '../src/domain/types.ts';
 import {
@@ -23,7 +24,7 @@ import {
 
 const TYPES = new Set<string>([
   ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...PREP_EVENT_TYPES, ...MENU_EVENT_TYPES, ...RECIPE_EVENT_TYPES, ...SHORTHAND_EVENT_TYPES,
-  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES,
+  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES, ...MODULE_EVENT_TYPES,
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -86,6 +87,10 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     }
     if (e.type === 'shop.started_fresh' && (!Number.isSafeInteger(e.before) || (e.before as number) < 0 || (e.before as number) > (e.at as number))) {
       return { reason: `event ${e.id} has an invalid cut-off` };
+    }
+    if (e.type === 'shop.module_set') {
+      const why = checkModuleEvent(e);
+      if (why) return { reason: `event ${e.id}: ${why}` };
     }
     if (e.type === 'order.sent' && e.platform !== undefined && !isPlatformMark(e.platform)) {
       return { reason: `event ${e.id} has an unknown delivery app or code` };

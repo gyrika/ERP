@@ -16,6 +16,9 @@ import { liveViews, type LiveViews, type ViewMode } from './cvLive.ts';
 import { askCamera as askOnvif } from './onvif.ts';
 import type { CvSecrets } from './cvSecrets.ts';
 import { validatePush } from './validate.ts';
+import { DEVELOPERS, lastChange, MODULES, modulesFromEvents, usedCodes } from '../src/domain/modules.ts';
+import { MODULE_PUBLIC_KEY } from './moduleKey.ts';
+import { readModuleCode } from './modules.ts';
 import { isPin } from './pins.ts';
 import { dryRunPrinter, listPrinters, systemPrinter, type RawPrinter } from './printer.ts';
 import type { Settings } from './settings.ts';
@@ -49,6 +52,8 @@ export interface SetupContext {
   cv?: CvPackApi;
   /** The cameras' logins (server/cvSecrets.ts), in the data folder. */
   secrets?: CvSecrets;
+  /** The developers' public key for module codes (server/moduleKey.ts); tests give their own. */
+  modulePublicKey?: string | null;
   /** Stores events and streams them to the shop's devices, as a push would (app.ts `ingest`). */
   ingest?: (device: Device, events: SyncEvent[]) => Promise<number>;
   /** Scan and Test (server/cvCameras.ts); tests give fakes. */
@@ -165,6 +170,17 @@ export function setupApi(ctx: SetupContext) {
     if (!mayRecord(actor.role, event.type)) throw new SetupError(403, 'forbidden', 'only the owner may do this');
     await ctx.ingest(await setupDevice(s.id), [event]);
     return [event];
+  };
+
+  /** The shop's whole history, in pages (module codes: which are on, which codes were used). */
+  const everything = async (shopId: string): Promise<SyncEvent[]> => {
+    const out: SyncEvent[] = [];
+    for (let after = 0;;) {
+      const rows = await ctx.store.pull(shopId, after, PULL_LIMIT);
+      out.push(...rows.map((r) => r.event));
+      if (rows.length < PULL_LIMIT) return out;
+      after = rows[rows.length - 1].seq;
+    }
   };
 
   // ----- #vision's Camera views (SCRUM-180) -----
@@ -602,6 +618,43 @@ export function setupApi(ctx: SetupContext) {
       if (typeof before !== 'number' || !Number.isSafeInteger(before) || before < 0) throw new SetupError(400, 'invalid', 'pick a time');
       if (before > now()) throw new SetupError(400, 'invalid', 'that time has not come yet');
       return { events: await record(actor, { type: 'shop.started_fresh', before }) };
+    },
+
+    /**
+     * #unlock (modules.ts): which modules are on, and the shop's id the developers make a code for.
+     * The shop PC only (the setup router), and no PIN: it changes nothing.
+     */
+    async modules() {
+      const s = requireShop();
+      const events = await everything(s.id);
+      const state = modulesFromEvents(events);
+      return {
+        shopId: s.id,
+        keyed: (ctx.modulePublicKey === undefined ? MODULE_PUBLIC_KEY : ctx.modulePublicKey) !== null,
+        modules: MODULES.map((id) => ({ id, on: state[id], since: lastChange(events, id)?.at ?? null })),
+      };
+    },
+
+    /**
+     * A developer's one-time code (server/modules.ts): no PIN, the signature is the authority. Checked,
+     * then recorded as the developers, past mayRecord (no person may record a module change).
+     */
+    async unlockModule(body: { code?: unknown }) {
+      const s = requireShop();
+      if (!ctx.ingest) throw new SetupError(409, 'not_ready', 'no event store here');
+      const events = await everything(s.id);
+      const key = ctx.modulePublicKey === undefined ? MODULE_PUBLIC_KEY : ctx.modulePublicKey;
+      const read = readModuleCode(body.code, key, s.id, usedCodes(events), now());
+      if ('reason' in read) throw new SetupError(400, 'invalid', read.reason);
+      const { grant } = read;
+      const event = {
+        id: randomUUID(), shopId: s.id, at: now(), actor: DEVELOPERS, orderNumber: 0,
+        type: 'shop.module_set', module: grant.module, on: grant.on, codeId: grant.id,
+      } as unknown as SyncEvent;
+      const checked = validatePush({ events: [event] }, s.id);
+      if ('reason' in checked) throw new SetupError(400, 'invalid', checked.reason);
+      await ctx.ingest(await setupDevice(s.id), [event]);
+      return { events: [event], module: grant.module, on: grant.on };
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */

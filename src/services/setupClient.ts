@@ -1,4 +1,5 @@
 import type { Role } from '../domain/auth.ts';
+import type { ModuleId } from '../domain/modules.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import type { TableSpec, VisionMode, ZoneSpec } from '../domain/tables.ts';
 
@@ -56,7 +57,18 @@ export const setupClient = {
   cvActivate: (ownerPin: string) => call<CvStatus>('/cv/activate', { ownerPin }),
   /** Test data before `before` (ms) stops counting; 0 puts it back (freshStart.ts). */
   startFresh: (before: number, ownerPin?: string) => call<{ events: SyncEvent[] }>('/fresh-start', { before, ownerPin }),
+  /** #unlock (modules.ts): the shop's id and which modules are on. */
+  modules: () => call<ModulesState>('/modules', {}),
+  /** A developer's one-time code: the module goes on or off. */
+  unlockModule: (code: string) => call<{ events: SyncEvent[]; module: ModuleId; on: boolean }>('/modules/unlock', { code }),
 };
+
+export interface ModulesState {
+  shopId: string;
+  /** This version carries the developers' key: without it, no code can work. */
+  keyed: boolean;
+  modules: { id: ModuleId; on: boolean; since: number | null }[];
+}
 
 /** #cameras (SCRUM-171): what the shop server keeps of each camera's login — never the password. */
 export type CameraLogins = Record<string, { user: string; passwordSet: boolean }>;

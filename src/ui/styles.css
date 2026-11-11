@@ -878,6 +878,15 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 @media (max-width: 520px) { .setup__head, .setup__main { padding-left: 16px; padding-right: 16px; } .setup__foot .cta { min-width: 0; flex: 1; } }
 .setup__lead { margin: 0; font-size: 17px; color: var(--ink-2); line-height: 1.5; }
 .setup__done { margin: 0; padding: 16px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 17px; font-weight: 500; border-left: 5px solid var(--ok); }
+/* #unlock: the developers' module codes (UnlockView.tsx) */
+.unlock__shop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0; font-size: 15px; color: var(--ink-2); }
+.unlock__shop code { font-size: 18px; font-weight: 600; color: var(--ink); user-select: all; overflow-wrap: anywhere; }
+.unlock__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.unlock__list li { display: flex; justify-content: space-between; gap: 12px; min-height: 48px; align-items: center; padding: 0 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 17px; font-weight: 500; }
+.unlock__on { color: var(--ok); }
+.unlock__off { color: var(--ink-2); }
+.unlock__form textarea { padding: 14px 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--ground); font: inherit; font-size: 15px; color: var(--ink); resize: vertical; word-break: break-all; }
+.unlock__form textarea:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
 .owner__install { margin: -8px 0 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 12px 12px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 15px; color: var(--ink-2); }
 .owner__install .insight__action { background: var(--ink); color: var(--surface); }
 
@@ -1943,3 +1952,25 @@ button.glance__card:disabled { cursor: default; }
   /* No sideways wiggle on any work page. */
   .owner.work, .inv-page { overflow-x: clip; }
 }
+
+/* Customers (CRM, src/ui/customers/) */
+.crm__lead { margin: 0 0 20px; font-size: 17px; color: var(--ink-2); }
+.crm__line { display: inline-block; width: 220px; height: 20px; border-radius: 6px; }
+.crm__hint { font-size: 15px; color: var(--ink-2); }
+.crm-import { display: flex; flex-direction: column; gap: 16px; max-width: 880px; padding: 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-import h2 { margin: 0; font-size: 20px; }
+.crm-import__pick, .crm-import__actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.crm-import__skeleton { height: 120px; border-radius: 14px; }
+.crm-import__file { margin: 0; font-size: 15px; color: var(--ink-2); overflow-wrap: anywhere; }
+.crm-import__counts { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.crm-import__counts li { min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-radius: 14px; background: var(--ground); font-size: 16px; }
+.crm-import__counts b { font-size: 22px; }
+.crm-import__bad, .crm-import__counts .crm-import__bad b { color: var(--bad); }
+.crm-import__rename { display: flex; align-items: center; gap: 12px; min-height: 48px; font-size: 16px; cursor: pointer; }
+.crm-import__rename input { width: 22px; height: 22px; }
+.crm-import__rows { width: 100%; border-collapse: collapse; font-size: 15px; }
+.crm-import__rows caption { text-align: left; font-weight: 600; font-size: 16px; padding-bottom: 8px; }
+.crm-import__rows th { text-align: left; font-weight: 500; color: var(--ink-2); padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.crm-import__rows td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.crm-import__rows td:first-child { width: 56px; }
+@media (max-width: 600px) { .crm-import { padding: 16px; } .crm-import__rows { font-size: 14px; } }
