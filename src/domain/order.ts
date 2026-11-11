@@ -9,7 +9,9 @@ export const newLineId = (): string =>
 
 export const emptyOrder = (number: number): Order => ({ number, lines: [] });
 
+/** A dish in a combo box is its own line (its share of the box price is its own): it never merges. */
 const sameConfig = (a: LineSpec, b: LineSpec): boolean =>
+  !a.box && !b.box &&
   a.itemId === b.itemId &&
   (a.half ?? '') === (b.half ?? '') &&
   a.size === b.size &&

@@ -1,9 +1,12 @@
 import { basePrice } from './halves.ts';
 import type { Cents, MenuItem, OrderLine } from './types.ts';
 
-/** Size price (for a half-and-half pizza, half of each half's) plus extras. */
-export const unitPrice = (item: MenuItem, line: Pick<OrderLine, 'size' | 'adds' | 'half'>): Cents => {
-  const base = basePrice(item, line);
+/**
+ * Size price (for a half-and-half pizza, half of each half's) plus extras. A dish in a combo box
+ * costs its share of the box price, plus what its pick costs extra, plus extras.
+ */
+export const unitPrice = (item: MenuItem, line: Pick<OrderLine, 'size' | 'adds' | 'half' | 'box'>): Cents => {
+  const base = line.box ? line.box.share + line.box.extra : basePrice(item, line);
   const adds = line.adds.reduce((sum, id) => sum + (item.adds.find((o) => o.id === id)?.price ?? 0), 0);
   return base + adds;
 };

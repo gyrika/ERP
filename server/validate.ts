@@ -16,7 +16,8 @@ import { checkWarehouseName, isStockKey, isWarehouseId } from '../src/domain/war
 import { checkTableEvent, TABLE_EVENT_TYPES, VISION_EVENT_TYPES } from '../src/domain/tables.ts';
 import { SHOP_EVENT_TYPES } from '../src/domain/freshStart.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
-import type { MenuItem } from '../src/domain/types.ts';
+import { checkCombo, COMBO_ID } from '../src/domain/combos.ts';
+import type { Combo, MenuItem } from '../src/domain/types.ts';
 import {
   KITCHEN_EVENT_TYPES, MOVEMENT_KINDS, ORDER_EVENT_TYPES, PREP_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
 } from '../src/domain/sync.ts';
@@ -46,6 +47,11 @@ const validNewItem = (value: unknown): boolean =>
     Object.values(value.prices).every((price) => typeof price === 'number') &&
     Object.keys(value).every((key) => ['category', 'name', 'description', 'prices'].includes(key)) &&
     checkNewItem(value as unknown as NewItem, MENU) === null);
+/** A combo pack (SCRUM-231): the owner's own dishes are only known by their id here. */
+const validCombo = (value: unknown): boolean =>
+  value === null || (isObj(value) && checkCombo(value as unknown as Combo, MENU, isAddedId) === null &&
+    Object.keys(value).every((key) => ['name', 'price', 'slots', 'hidden'].includes(key)) &&
+    (value.slots as unknown[]).every((s) => isObj(s) && Object.keys(s).every((key) => ['qty', 'size', 'options', 'usual'].includes(key))));
 const validOverride = (itemId: unknown, value: unknown): boolean => {
   if (!isObj(value)) return false;
   const item = MENU.find((entry) => entry.id === itemId) ?? (isAddedId(itemId) ? ANY_ADDED : undefined);
@@ -286,6 +292,10 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     }
     if (e.type === 'menu.item_added' && (!isAddedId(e.itemId) || !validNewItem(e.item))) {
       return { reason: `event ${e.id} has an invalid new menu item` };
+    }
+    if (e.type === 'menu.combo_set' &&
+        (typeof e.itemId !== 'string' || !COMBO_ID.test(e.itemId) || !validCombo(e.before) || !validCombo(e.after))) {
+      return { reason: `event ${e.id} has an invalid combo` };
     }
   }
   return { events: body.events as SyncEvent[] };

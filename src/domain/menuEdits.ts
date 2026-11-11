@@ -1,5 +1,5 @@
 import type { Actor } from './auth.ts';
-import type { Category, Cents, MenuItem, SizeId } from './types.ts';
+import type { Category, Cents, Combo, MenuItem, SizeId } from './types.ts';
 
 /**
  * The owner's own menu changes, on top of the printed menu (menu.ts stays the starting point,
@@ -42,9 +42,14 @@ export type MenuEvent =
   /** Owners and managers: sold out until `until` (the next morning), or back (`null`). */
   | (MenuBase & { type: 'menu.sold_out'; until: number | null })
   /** Owner only: a new item, or `null` to take back an item just added (Undo). */
-  | (MenuBase & { type: 'menu.item_added'; item: NewItem | null });
+  | (MenuBase & { type: 'menu.item_added'; item: NewItem | null })
+  /**
+   * Managers and the owner (SCRUM-231): a combo pack, made or changed (`after`), or taken off for
+   * good (`after: null`). `itemId` is the combo's id (combos.ts COMBO_ID).
+   */
+  | (MenuBase & { type: 'menu.combo_set'; before: Combo | null; after: Combo | null });
 
-export const MENU_EVENT_TYPES = ['menu.item_set', 'menu.sold_out', 'menu.item_added'] as const satisfies readonly MenuEvent['type'][];
+export const MENU_EVENT_TYPES = ['menu.item_set', 'menu.sold_out', 'menu.item_added', 'menu.combo_set'] as const satisfies readonly MenuEvent['type'][];
 
 export interface MenuState {
   overrides: Record<string, ItemOverride>;
@@ -55,6 +60,8 @@ export interface MenuState {
    * so an order that already has it still prices and prints.
    */
   added: Record<string, NewItem & { removed?: true }>;
+  /** Combo packs on offer or hidden, by id (combos.ts). Deleted ones are gone. */
+  combos?: Record<string, Combo>;
 }
 export const EMPTY_MENU_STATE: MenuState = { overrides: {}, soldOut: {}, added: {} };
 
@@ -63,6 +70,7 @@ export const menuStateFromEvents = (events: readonly { type: string }[]): MenuSt
   const overrides: Record<string, ItemOverride> = {};
   const soldOut: Record<string, number> = {};
   const added: MenuState['added'] = {};
+  const combos: Record<string, Combo> = {};
   for (const e of events) {
     if (e.type === 'menu.item_set') {
       const m = e as Extract<MenuEvent, { type: 'menu.item_set' }>;
@@ -76,9 +84,14 @@ export const menuStateFromEvents = (events: readonly { type: string }[]): MenuSt
       const m = e as Extract<MenuEvent, { type: 'menu.item_added' }>;
       if (m.item) added[m.itemId] = m.item;
       else if (added[m.itemId]) added[m.itemId] = { ...added[m.itemId], removed: true };
+    } else if (e.type === 'menu.combo_set') {
+      const m = e as Extract<MenuEvent, { type: 'menu.combo_set' }>;
+      if (m.after) combos[m.itemId] = m.after;
+      else delete combos[m.itemId];
     }
   }
-  return { overrides, soldOut, added };
+  // Only a shop with combos carries them (cheesybeez.com's menu has none yet).
+  return { overrides, soldOut, added, ...(Object.keys(combos).length ? { combos } : {}) };
 };
 
 const clean = (s: string | undefined) => s?.trim() || undefined;

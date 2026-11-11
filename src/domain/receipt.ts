@@ -1,3 +1,4 @@
+import { boxesIn, opensBox } from './combos.ts';
 import { itemById } from './menu.ts';
 import { fmt } from './money.ts';
 import { discountLabel, lineAdjustment, lineGross, totals } from './totals.ts';
@@ -88,8 +89,16 @@ export function receipt(
     rule(width),
   ];
 
-  for (const l of paid.lines) {
-    out.push(...itemLines(l, lineGross(l), width));
+  const boxes = boxesIn(paid.lines);
+  for (const [i, l] of paid.lines.entries()) {
+    if (l.box) {
+      // A combo box (SCRUM-231): its price once, its dishes under it, a price only where one was added.
+      const box = boxes.get(l.box.id)!;
+      if (opensBox(paid.lines, i)) out.push({ text: twoCols(box.name, fmt(box.price), width) });
+      out.push(...itemLines(l, lineGross(l) - l.box.share, width, '  '));
+    } else {
+      out.push(...itemLines(l, lineGross(l), width));
+    }
     const adj = lineAdjustment(paid, l);
     if (adj > 0) out.push({ text: twoCols('    Price adjusted', minus(adj), width) });
   }
@@ -106,17 +115,26 @@ export function receipt(
   } else if (paid.tender !== 'comp') { // Free already has its own line above
     out.push({ text: twoCols('Paid by', TENDER_LABEL[paid.tender], width) });
   }
+  for (const box of boxes.values()) {
+    if (box.saved > 0) out.push({ text: `You saved Rs ${fmt(box.saved)} with the ${box.name}` });
+  }
   out.push(rule(width), { text: shop.footer, center: true });
   return out;
 }
 
 /** One item on paper: "2 x Devilled Chicken Large" and its price, then its paid extras. */
-const itemLines = (l: Pick<LineSpec, 'itemId' | 'qty' | 'size' | 'adds' | 'half'>, price: Cents, width: number): ReceiptLine[] => {
+const itemLines = (
+  l: Pick<LineSpec, 'itemId' | 'qty' | 'size' | 'adds' | 'half'>, price: Cents, width: number, indent = '',
+): ReceiptLine[] => {
   const item = itemById(l.itemId);
   const size = item.variants?.find((v) => v.id === l.size)?.label;
-  const name = `${l.qty} x ${lineItemName(l).replace(/½/g, '1/2')}${size ? ` ${size}` : ''}`; // the printer has no ½
-  const [first, ...rest] = wrap(name, width - 12);
-  const out: ReceiptLine[] = [{ text: twoCols(first, fmt(price), width) }, ...rest.map((text) => ({ text: `    ${text}` }))];
+  // In a box (indented) a dish is always one, and has no price of its own unless something was added.
+  const name = `${indent ? '' : `${l.qty} x `}${lineItemName(l).replace(/½/g, '1/2')}${size ? ` ${size}` : ''}`; // the printer has no ½
+  const [head, ...rest] = wrap(name, width - 12 - indent.length);
+  const first = `${indent}${head}`;
+  const out: ReceiptLine[] = [
+    { text: indent && price === 0 ? first : twoCols(first, fmt(price), width) }, ...rest.map((text) => ({ text: `    ${text}` })),
+  ];
   // Paid extras explain the price; leave-outs and notes are for the kitchen, not the receipt.
   for (const id of l.adds) {
     const label = item.adds.find((o) => o.id === id)?.label;

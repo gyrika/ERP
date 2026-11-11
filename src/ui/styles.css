@@ -222,6 +222,18 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .card__no { color: var(--ink-3); margin-right: 8px; }
 .card__desc { font-size: 12px; color: var(--ink-2); line-height: 1.4; letter-spacing: -0.1px; }
 .card__prices { display: flex; gap: 8px; }
+/* Combo packs (SCRUM-231): a box's slots. Filled = always that dish; dashed = a choice. */
+.card__slots { display: flex; gap: 10px; }
+.slotg { position: relative; width: 40px; height: 40px; border-radius: 11px; background: var(--chip); display: inline-flex; align-items: center; justify-content: center; color: var(--ink); }
+.slotg--choice { background: none; border: 1.5px dashed var(--ink-2); color: var(--ink-2); }
+.slotg__mark { position: absolute; right: -7px; bottom: -7px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--primary); color: var(--on-primary); font-size: 10px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.box { margin: 0 -14px; padding: 14px; border-radius: 16px; background: var(--chip); display: flex; flex-direction: column; gap: 8px; }
+.box__head { display: flex; flex-direction: column; gap: 3px; padding: 0 4px 4px; }
+.box__row { display: flex; align-items: baseline; gap: 18px; font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+.box__row span:first-child { flex: 1; }
+.box__saved { font-size: 13px; font-weight: 500; color: var(--ok-ink); }
+.box .line { padding: 6px 14px; border-radius: 12px; background: var(--surface); }
+.box .line__name { font-size: 15px; }
 .price { flex: 1; height: 48px; border-radius: 11px; background: var(--chip); font-size: 15px; font-weight: 500; letter-spacing: -0.2px; }
 .price:hover { filter: brightness(0.97); }
 
@@ -358,6 +370,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .ticket__time { font-size: 22px; font-weight: 500; color: var(--tone); letter-spacing: -0.3px; }
 .ticket__items { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 16px; align-self: center; }
 .ticket__items li { display: flex; flex-direction: column; gap: 4px; }
+/* A combo box (SCRUM-231): a grey bracket says which dishes go out in one bag. Grey, never a colour:
+   colour on this screen means urgency only. */
+.ticket__items .ticket__box { margin-bottom: -8px; padding-left: 16px; border-left: 2px solid #48484A; font-size: 14px; font-weight: 600; color: #98989D; letter-spacing: 0.4px; text-transform: uppercase; }
+.ticket__items .ticket__inbox { padding-left: 16px; border-left: 2px solid #48484A; }
 .ticket__name { font-size: 26px; font-weight: 500; letter-spacing: -0.5px; line-height: 1.2; }
 .ticket__name b { font-weight: 600; }
 .ticket__detail { font-size: 19px; color: var(--ink-2); letter-spacing: -0.2px; }
@@ -1943,3 +1959,25 @@ button.glance__card:disabled { cursor: default; }
   /* No sideways wiggle on any work page. */
   .owner.work, .inv-page { overflow-x: clip; }
 }
+
+/* ---------- combo builder (SCRUM-231) ---------- */
+.comboed__slot { padding: 18px 20px; border-radius: 16px; background: var(--ground); }
+.comboed__slothead { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.comboed__slothead h2 { flex: 1; font-size: 16px; font-weight: 600; color: var(--ink); }
+.comboed__hint { margin: 0; font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+.comboed__pick--off { color: var(--ink-2); border-style: dashed; }
+.comboed__pick--in { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.comboed__pick--more { border: 1.5px solid var(--ink); color: var(--ink); }
+.comboed__usual { margin-left: 8px; padding: 2px 8px; border-radius: 980px; background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 600; }
+.comboed__row { display: flex; flex-wrap: wrap; gap: 16px; }
+.comboed__usualpick { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 500; color: var(--ink-2); }
+.comboed__usualpick select { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; }
+.comboed__bars { display: grid; gap: 6px; max-width: 560px; }
+.comboed__barlabel { font-size: 14px; color: var(--ink-2); }
+.comboed__barlabel b { color: var(--ink); font-weight: 600; }
+.comboed__bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--chip); }
+.comboed__bar--alone { background: var(--line); }
+.comboed__bar--price, .comboed__bar--cost { background: var(--ink); }
+.comboed__bar--keep { background: var(--ok); }
+.comboed__keep { margin: 4px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -0.5px; color: var(--ok-ink); }
+.comboed__keep--loss { color: var(--bad); }
