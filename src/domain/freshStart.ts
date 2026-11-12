@@ -1,4 +1,5 @@
 import type { Actor } from './auth.ts';
+import { MODULE_EVENT_TYPES } from './modules.ts';
 import type { SyncEvent } from './sync.ts';
 
 /**
@@ -39,6 +40,8 @@ const SETUP = new Set<string>([
   // Gas sizes and rents to pay (Money out), and his places along the Visual Flow value column.
   'money.choices_set', 'value.place_set', 'value.card_set',
   ...SHOP_EVENT_TYPES,
+  // Which modules the developers turned on (modules.ts).
+  ...MODULE_EVENT_TYPES,
 ]);
 
 export const isSetup = (e: SyncEvent): boolean =>

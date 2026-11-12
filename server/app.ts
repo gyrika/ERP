@@ -18,6 +18,7 @@ import type { Fleet } from './fleet.ts';
 import { SetupError, isLocal, type SetupApi } from './setup.ts';
 import type { Device, EventStore } from './store.ts';
 import { createNumberer } from './numbering.ts';
+import { CrmError, type CrmApi } from './crm/routes.ts';
 import { createScheduler } from './scheduler.ts';
 import { createStockRules } from './stockRules.ts';
 import { validatePush } from './validate.ts';
@@ -57,6 +58,8 @@ export interface AppOptions {
    * cloud key and returns the cloud's answer as it is; null when there is no cloud or no answer.
    */
   cloudAi?: (tenantId: string, task: 'command' | 'transcribe', body: Buffer, contentType: string) => Promise<{ status: number; body: Buffer } | null>;
+  /** The customer list (CRM, server/crm/routes.ts); answers only while the developers have it on. */
+  crm?: CrmApi;
   now?: () => number;
 }
 
@@ -133,7 +136,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, cloudPhoto, cloudAi, now = Date.now }: AppOptions): Server & { ingest: Ingest } {
+export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, cloudPhoto, cloudAi, crm, now = Date.now }: AppOptions): Server & { ingest: Ingest } {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -151,6 +154,10 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     if (e.type === 'prep.released') return 'only the shop server sends held batches to the kitchen';
     // Clearing test data: the owner's PIN in Settings on the shop PC, never a device's push.
     if (e.type === 'shop.started_fresh') return "test data is cleared in Settings on the shop PC";
+    // Modules are turned on and off with the developers' password on the shop PC (modules.ts), never by a device.
+    if (e.type === 'shop.module_set') return "modules are changed with the developers' password on the shop PC";
+    // Campaigns are sent by the shop server itself (server/crm/), which records them; never a device.
+    if (e.type.startsWith('crm.')) return 'campaigns are sent from Customers on the shop PC';
     // What the cameras saw comes from the camera worker on this PC (SCRUM-170), stamped by the server, never from a device.
     if ('actor' in e && e.actor?.role === 'vision') return 'only the shop server records what the cameras see';
     if (e.type.startsWith('kitchen.')) return device.kind === 'owner' || device.kind === 'manager' ? 'not from this device' : null;
@@ -234,6 +241,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/cv/views/open': setup.cvViewsOpen, '/cv/views/frame': setup.cvViewsFrame, '/cv/views/close': setup.cvViewsClose, '/cv/views/perf': setup.cvViewsPerf,
           '/cv/test-video/stop': setup.cvTestVideoStop, '/cv/test-video': setup.cvTestVideos,
           '/fresh-start': setup.startFresh,
+          '/modules': () => setup.modules(), '/modules/unlock': setup.unlockModule,
         };
         const route = routes[step];
         if (!route) throw new HttpError(404, 'server', 'no such setup step');
@@ -300,6 +308,43 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000, immutable' });
       res.end(jpeg);
       return;
+    }
+    // Customers (CRM): the counter PC, a manager or the owner signed in on it, while the module is on.
+    if (url.pathname.startsWith('/api/v1/crm/')) {
+      const device = await authenticate(req, url);
+      if (!crm) throw new HttpError(404, 'server', 'no such page');
+      const staffId = req.headers['x-staff-id'];
+      const step = url.pathname.slice('/api/v1/crm'.length);
+      try {
+        if (step === '/count' && req.method === 'GET') { json(res, 200, await crm.count(device, staffId)); return; }
+        if (step === '/customers' && req.method === 'GET') { json(res, 200, await crm.list(device, staffId)); return; }
+        const posts: Record<string, (b: Record<string, unknown>) => Promise<unknown>> = {
+          '/customers/opt-out': (b) => crm.optOut(device, staffId, b),
+          '/customers/add': (b) => crm.add(device, staffId, b),
+          '/customers/remove': (b) => crm.remove(device, staffId, b),
+          '/customers/restore': (b) => crm.restore(device, staffId, b),
+          '/lookup': (b) => crm.lookup(device, staffId, b),
+          '/ensure': (b) => crm.ensure(device, staffId, b),
+          '/campaigns/reach': (b) => crm.reach(device, staffId, b),
+          '/campaigns/send': (b) => crm.send(device, staffId, b),
+          '/campaigns/auto': (b) => crm.setAuto(device, staffId, b),
+        };
+        if (posts[step] && req.method === 'POST') { json(res, 200, await posts[step](((await readBody(req)) ?? {}) as Record<string, unknown>)); return; }
+        if ((step === '/import/preview' || step === '/import/save') && req.method === 'POST') {
+          // The file itself is the body (under the 1 MB every body has: 5,000 customers are ~150 KB).
+          const name = url.searchParams.get('name') ?? '';
+          const rename = url.searchParams.get('rename') === '1';
+          const bytes = await readRaw(req);
+          json(res, 200, step === '/import/save'
+            ? await crm.save(device, staffId, name, bytes, rename)
+            : await crm.preview(device, staffId, name, bytes, rename));
+          return;
+        }
+      } catch (e) {
+        if (e instanceof CrmError) throw new HttpError(e.status, e.code, e.message);
+        throw e;
+      }
+      throw new HttpError(404, 'server', 'no such page');
     }
     // Opening a page by voice (SCRUM-145): the words and the page pick come from the cloud's model.
     if (url.pathname === '/api/v1/ai/command' || url.pathname === '/api/v1/ai/transcribe') {

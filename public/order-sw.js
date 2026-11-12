@@ -61,3 +61,26 @@ self.addEventListener('fetch', (event) => {
     })));
   }
 });
+
+// Offers (CRM): the shop PC sends a short message encrypted to this phone; show it, and open the
+// app on a tap. Nothing personal is in it.
+self.addEventListener('push', (event) => {
+  let message = { title: 'CheesyBeez', body: '' };
+  try { message = { ...message, ...event.data.json() }; } catch { /* an empty push: the default */ }
+  event.waitUntil(self.registration.showNotification(String(message.title).slice(0, 60), {
+    body: String(message.body).slice(0, 180),
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: 'cheesybeez-offer',
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const here = open.find((c) => new URL(c.url).pathname.startsWith(APP_PATH));
+    if (here) return here.focus();
+    return self.clients.openWindow(APP_PATH);
+  })());
+});

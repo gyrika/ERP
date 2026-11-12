@@ -26,7 +26,12 @@ interface Audited {
 export type OrderEvent =
   | (Base & { type: 'order.sent'; ticketId: string; lines: OrderLine[]; addOn: boolean; online?: OnlineMark; platform?: PlatformMark })
   | (Base & { type: 'order.send_undone'; ticketId: string })
-  | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents })
+  /**
+   * `customerId` (CRM, customers.ts): the customer whose mobile number was given at Charge, an opaque
+   * `cus-…` id. Never the number or the name: those stay in the shop server's customer list, where
+   * they can be erased; events never change.
+   */
+  | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents; customerId?: string })
   | (Base & { type: 'order.payment_undone' })
   // Manager changes (audited). Sent-item changes carry the reason the manager gave.
   | (Base & Audited & { type: 'order.item_changed'; lineId: string; before: OrderLine; after: OrderLine; reason: string })

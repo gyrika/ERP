@@ -8,6 +8,7 @@
  * the list folds into a drawer. A manager's phone shows Count, Receive and Items.
  */
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { modulesFromEvents, type ModuleId } from '../domain/modules.ts';
 import { ownerParts, type PartId, type PartLine } from '../domain/ownerParts.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { usesLogin } from '../services/auth.ts';
@@ -28,7 +29,11 @@ const WORK: { id: Section; label: string }[] = [
   { id: 'owner', label: 'Today' },
   { id: 'money', label: 'Money out' },
 ];
-const THINGS: { id: Section; label: string }[] = [{ id: 'items', label: 'Items' }, { id: 'flow', label: 'Visual Flow' }, { id: 'vision', label: 'Computer vision' }];
+const THINGS: { id: Section; label: string }[] = [
+  { id: 'items', label: 'Items' }, { id: 'flow', label: 'Visual Flow' }, { id: 'vision', label: 'Computer vision' }, { id: 'customers', label: 'Customers' },
+];
+/** Parts that are modules (modules.ts): in the list only while the developers have them on. */
+const MODULE_PARTS: Partial<Record<Section, ModuleId>> = { customers: 'crm' };
 const SETTINGS: { id: Section; label: string } = { id: 'setup', label: 'Settings' };
 /** The manager's phone: what they do away from the counter. */
 const PHONE = new Set<Section>(['count', 'receive', 'items']);
@@ -54,6 +59,7 @@ const ICONS: Record<Section, ReactNode> = {
   items: icon(<><path d="M3 8l9-5 9 5v8l-9 5-9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></>),
   flow: icon(<><rect x="2" y="4" width="6" height="5" rx="1.5" /><rect x="2" y="15" width="6" height="5" rx="1.5" /><rect x="16" y="9.5" width="6" height="5" rx="1.5" /><path d="M8 6.5c4 0 4 5.5 8 5.5M8 17.5c4 0 4-5.5 8-5.5" /></>),
   vision: icon(<><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>),
+  customers: icon(<><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18.5 14.8c1.6.8 2.6 2.6 3 5.2" /></>),
   setup: icon(<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
 };
 
@@ -82,7 +88,9 @@ export function OwnerNav({ current, onRegister, drawer: held, onDrawer }: {
   const setDrawer = (open: boolean) => (drawerOnly ? onDrawer?.(open) : setOwn(open));
   const [asking, setAsking] = useState(false);
 
-  const shown = (list: { id: Section; label: string }[]) => list.filter((p) => !phone || PHONE.has(p.id));
+  const modules = useMemo(() => modulesFromEvents(events ?? []), [events]);
+  const shown = (list: { id: Section; label: string }[]) =>
+    list.filter((p) => (!phone || PHONE.has(p.id)) && (MODULE_PARTS[p.id] === undefined || modules[MODULE_PARTS[p.id]!]));
   const work = shown(WORK);
   const things = shown(THINGS);
   const parts = [...work, ...things, ...(phone ? [] : [SETTINGS])];

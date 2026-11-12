@@ -8,6 +8,7 @@ import {
 import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
 import { useInstall } from '../services/ownerApp.ts';
+import { Offers } from './Offers.tsx';
 import { api, remembered, type MyOrder, type Placed, type ShopInfo } from './api.ts';
 import { HERO, PHOTOS, STRIPS, type StripId } from './photos.ts';
 import { isOrderAppHost, setUpOrderApp } from './pwa.ts';
@@ -777,6 +778,7 @@ export function OrderSite() {
               {' · '}<a href={pickupPlace(shop).maps} target="_blank" rel="noopener noreferrer">Open in Maps</a>
             </p>
           </MoodStrip>
+          <Offers />
           <footer className="o-foot">CheesyBeez · Pizza, burgers and pasta</footer>
         </div>
         <aside className="o-side" aria-label="Your order and pickup">

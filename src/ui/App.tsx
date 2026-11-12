@@ -20,6 +20,8 @@ import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, type ManagePanel } from './OrderPanel.tsx';
 import { PaySheet } from './PaySheet.tsx';
+import { crmReachable } from '../services/crmClient.ts';
+import { modulesHere } from './eventLog.ts';
 import { PinSheet } from './PinSheet.tsx';
 import { ShorthandBar, describe } from './ShorthandBar.tsx';
 import { SyncSign } from './SyncSign.tsx';
@@ -113,8 +115,8 @@ export function App({
     void printReceipt(paid, currentCashier().name, { reprint }).then((r) =>
       setPrinting((p) => (p?.number === paid.number ? { number: paid.number, state: r === 'printed' ? 'printed' : 'failed' } : p)));
   }, []);
-  const pay = useCallback((tender: Tender, tendered: number) => {
-    const paid = reg.pay(tender, tendered);
+  const pay = useCallback((tender: Tender, tendered: number, customerId?: string) => {
+    const paid = reg.pay(tender, tendered, customerId);
     // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
     if (paid && !isPlatformId(tender)) print(paid);
   }, [reg, print]);
@@ -452,7 +454,7 @@ export function App({
         />
       )}
       {sheet?.kind === 'pay' && (
-        <PaySheet total={total} onClose={closeSheet} onPay={(tender, tendered) => { pay(tender, tendered); closeSheet(); }} />
+        <PaySheet total={total} onClose={closeSheet} customers={modulesHere().crm && crmReachable()} onPay={(tender, tendered, customerId) => { pay(tender, tendered, customerId); closeSheet(); }} />
       )}
       {sheet?.kind === 'online' && <OnlineSheet state={online} onAccept={acceptOnline} onOut={outOnline} onClose={closeSheet} />}
       {sheet?.kind === 'pin' && (

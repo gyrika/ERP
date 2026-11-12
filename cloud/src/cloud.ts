@@ -6,6 +6,7 @@ import { HttpError, json, sha256Hex } from './http.ts';
 import { managerRoutes, parseActor } from './manager.ts';
 import { mcpRoutes } from './mcp.ts';
 import { onlineRoutes } from './online.ts';
+import { pushRoutes } from './push.ts';
 import { projectSales } from './sales.ts';
 import type { RoadKm } from './road.ts';
 
@@ -137,6 +138,8 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
     if (mcp) return mcp;
     const online = await onlineRoutes(req, url, { db, now, ...order, authenticate });
     if (online) return online;
+    const push = await pushRoutes(req, url, { db, now, orderShop: order.orderShop, authenticate });
+    if (push) return push;
     const manager = await managerRoutes(req, url, { db, now, authenticate });
     if (manager) return manager;
     const answered = await aiRoutes(req, url, { db, now, ai, dailyCalls: aiDailyCalls, authenticate });

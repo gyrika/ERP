@@ -85,3 +85,58 @@ export const FAKE_DETECTIONS: Record<string, SeenBox[]> = {
 
 /** /?demo#vision (SCRUM-174): the CV pack is there already, so Shadow and Live switch at once. */
 export const FAKE_CV_STATUS = { active: true, phase: 'ready', version: 'demo' } as const;
+
+/**
+ * A messy customer list, as an owner's spreadsheet really looks (CRM import tests; the .xlsx and
+ * .csv test files are written from it). Every number is in the 07X 000 00XX block: obviously fake.
+ * Row 1 is the header; the comment on each row says what the import must make of it.
+ */
+export const FAKE_CUSTOMER_SHEET: (string | number | null)[][] = [
+  ['Name', 'Mobile'],
+  ['Kasun Perera', '0770000001'], //            2 add
+  ['Nimali Fernando', '770000002'], //          3 add (the 0 dropped)
+  ['Chamara Silva', '+94 77 000 0003'], //      4 already on the list, same name: unchanged
+  ['Dilani Jayasinghe', '94-77-000-0004'], //   5 on the list with no name: name filled in
+  ['Ruwan Wickramasinghe', '0094770000005'], // 6 on the list as "Ruwan W": kept unless renaming
+  ['Tharindu Bandara', 770000006], //           7 add (an Excel number cell)
+  ['Sanduni Rathnayake', '077-000-0007'], //    8 add
+  ['Ishara Gunawardena', '(077) 000 0008'], //  9 add
+  ['නිමල් පෙරේරා', '0710000009'], //             10 add (Sinhala)
+  ['කසුන් ප්‍රනාන්දු', '0720000010'], //          11 add (Sinhala, with a joiner inside the word)
+  ['சுரேஷ் குமார்', '0750000011'], //            12 add (Tamil)
+  ['பிரியா செல்வம்', '0760000012'], //            13 add (Tamil)
+  ['Mohamed Rizwan', '0780000013'], //          14 add
+  ['Fathima Nusra', '0740000014'], //           15 add
+  ['', '0770000015'], //                        16 add, no name
+  ['-', '0770000016'], //                       17 add, no name
+  ['Kasun Perera', '+94770000001'], //          18 duplicate of row 2
+  ['Nimali F.', '0770000002'], //               19 duplicate of row 3 (row 3's name stays)
+  [null, null], //                              20 blank
+  ['Amal Dias', '0112345678'], //               21 invalid: landline
+  ['Saman Kumara', '0790000021'], //            22 invalid: no 079 mobiles
+  ['Gayan Herath', '07700002'], //              23 invalid: too short
+  ['Lahiru Mendis', '9.47712E+10'], //          24 invalid: Excel lost the digits
+  ['Hiruni Peiris', 'call later'], //           25 invalid: not a number
+  ['Pradeep Kumara', ''], //                    26 invalid: no number
+  ['', ''], //                                  27 blank
+  ['Dinesh Rajapaksha', '0770000027 / 0710000027'], // 28 add the first; the second noted
+  ['  Malsha   de  Silva ', '0770000028'], //   29 add as "Malsha de Silva"
+  ['Shehan Abeywardena', '0770000029'],
+  ['Nadeesha Karunaratne', '0770000030'],
+  ['Asanka Weerasinghe', '0770000031'],
+  ['Chathurika Samarasinghe', '0770000032'],
+  ['Roshan Ekanayake', '0770000033'],
+  ['Thilini Dissanayake', '0770000034'],
+  ['Janaka Senanayake', '0770000035'],
+  ['Upeksha Wijesinghe', '0770000036'],
+  ['Kavinda Liyanage', '0770000037'],
+  ['Sachini Hettiarachchi', '0770000038'],
+  ['Buddhika Amarasinghe', '0770000039'],
+  ['Madushani Gamage', '0770000040'],
+  ['Ranjith Pathirana', '0770000041'],
+  ['Anusha Wijeratne', '0770000042'],
+  ['Kumari Jayawardena', '0770000043'],
+  ['කමල් සිල්වා', '0770000044'], //             45 add (Sinhala)
+  ['லக்ஷ்மி ராஜா', '0770000045'], //            46 add (Tamil)
+  ['Nuwan Pradeep', '0710000046'], //           47 add
+];

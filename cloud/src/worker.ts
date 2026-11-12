@@ -32,6 +32,12 @@ interface Env {
   MCP_ENABLED?: string;
   /** The developer's /admin password (npm run admin-key in cloud/). */
   ADMIN_KEY?: string;
+  /**
+   * The CheesyBeez Android app (a TWA of cheesybeez.com, twa/README.md): its package name and the SHA-256
+   * fingerprint(s) of its signing key, comma-separated (wrangler.toml [vars]). Unset: no app is vouched for.
+   */
+  TWA_PACKAGE?: string;
+  TWA_SHA256?: string;
   /** The owner's page: the cloud build of the app (npm run build:cloud), served as static files. */
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
@@ -84,6 +90,16 @@ export const orderManifest = (customerDomain: boolean) => ({
   ],
 });
 
+/** Digital Asset Links for the TWA: the app's package and signing-key fingerprints, or nothing when not set. */
+export const assetLinks = (pkg?: string, sha256?: string) => {
+  const prints = (sha256 ?? '').split(',').map((s) => s.trim().toUpperCase()).filter((s) => /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(s));
+  if (!pkg || !/^[a-z][\w]*(\.[a-z][\w]*)+$/i.test(pkg) || !prints.length) return [];
+  return [{
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: { namespace: 'android_app', package_name: pkg, sha256_cert_fingerprints: prints },
+  }];
+};
+
 /** Customers' address: its home page is the ordering page (order.html); /order shows it on any address. */
 const CUSTOMER_HOST = 'cheesybeez.com';
 
@@ -95,6 +111,12 @@ export default {
       return Promise.resolve(Response.redirect(`https://${CUSTOMER_HOST}${url.pathname}${url.search}`, 301));
     }
     if (url.hostname === CUSTOMER_HOST && url.pathname === '/') return env.ASSETS.fetch(new Request(new URL('/order', url), request));
+    // The Android app's proof that it is this site's (Digital Asset Links): without it the app shows a browser bar.
+    if (url.pathname === '/.well-known/assetlinks.json') {
+      return Promise.resolve(new Response(JSON.stringify(assetLinks(env.TWA_PACKAGE, env.TWA_SHA256)), {
+        headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=3600' },
+      }));
+    }
     if (url.pathname === '/order.webmanifest') {
       return Promise.resolve(new Response(JSON.stringify(orderManifest(url.hostname === CUSTOMER_HOST)), {
         headers: { 'content-type': 'application/manifest+json', 'cache-control': 'public, max-age=3600' },

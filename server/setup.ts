@@ -16,6 +16,8 @@ import { liveViews, type LiveViews, type ViewMode } from './cvLive.ts';
 import { askCamera as askOnvif } from './onvif.ts';
 import type { CvSecrets } from './cvSecrets.ts';
 import { validatePush } from './validate.ts';
+import { DEVELOPERS, isModuleId, lastChange, MODULES, modulesFromEvents } from '../src/domain/modules.ts';
+import { modulePasswordMatches, type PasswordHash } from './modules.ts';
 import { isPin } from './pins.ts';
 import { dryRunPrinter, listPrinters, systemPrinter, type RawPrinter } from './printer.ts';
 import type { Settings } from './settings.ts';
@@ -49,6 +51,8 @@ export interface SetupContext {
   cv?: CvPackApi;
   /** The cameras' logins (server/cvSecrets.ts), in the data folder. */
   secrets?: CvSecrets;
+  /** The developers' module password hash (server/modules.ts); tests give their own. */
+  modulePassword?: PasswordHash;
   /** Stores events and streams them to the shop's devices, as a push would (app.ts `ingest`). */
   ingest?: (device: Device, events: SyncEvent[]) => Promise<number>;
   /** Scan and Test (server/cvCameras.ts); tests give fakes. */
@@ -162,6 +166,20 @@ export function setupApi(ctx: SetupContext) {
     await ctx.ingest(await setupDevice(s.id), [event]);
     return [event];
   };
+
+  /** The shop's whole history, in pages (module codes: which are on, which codes were used). */
+  const everything = async (shopId: string): Promise<SyncEvent[]> => {
+    const out: SyncEvent[] = [];
+    for (let after = 0;;) {
+      const rows = await ctx.store.pull(shopId, after, PULL_LIMIT);
+      out.push(...rows.map((r) => r.event));
+      if (rows.length < PULL_LIMIT) return out;
+      after = rows[rows.length - 1].seq;
+    }
+  };
+
+  /** Wrong developer passwords on #unlock: 5 wrong → 30 s, like PINs. */
+  const moduleWrong = { count: 0, until: 0 };
 
   // ----- #vision's Camera views (SCRUM-180) -----
 
@@ -598,6 +616,39 @@ export function setupApi(ctx: SetupContext) {
       if (typeof before !== 'number' || !Number.isSafeInteger(before) || before < 0) throw new SetupError(400, 'invalid', 'pick a time');
       if (before > now()) throw new SetupError(400, 'invalid', 'that time has not come yet');
       return { events: await record(actor, { type: 'shop.started_fresh', before }) };
+    },
+
+    /** #unlock (modules.ts): which modules are on. The shop PC only (the setup router); it changes nothing. */
+    async modules() {
+      const s = requireShop();
+      const events = await everything(s.id);
+      const state = modulesFromEvents(events);
+      return { shopId: s.id, modules: MODULES.map((id) => ({ id, on: state[id], since: lastChange(events, id)?.at ?? null })) };
+    },
+
+    /**
+     * The developers' password turns a module on or off (no owner's PIN: the password is the authority).
+     * Wrong tries are slowed down like PINs. Recorded as the developers, past mayRecord (no person may).
+     */
+    async unlockModule(body: { password?: unknown; module?: unknown; on?: unknown }) {
+      const s = requireShop();
+      if (!ctx.ingest) throw new SetupError(409, 'not_ready', 'no event store here');
+      if (!isModuleId(body.module) || typeof body.on !== 'boolean') throw new SetupError(400, 'invalid', 'which module, on or off?');
+      if (moduleWrong.until > now()) throw new SetupError(429, 'too_many', 'too many wrong passwords: wait a moment');
+      if (!(await modulePasswordMatches(body.password, ctx.modulePassword))) {
+        moduleWrong.count += 1;
+        if (moduleWrong.count >= 5) { moduleWrong.count = 0; moduleWrong.until = now() + 30_000; }
+        throw new SetupError(401, 'wrong_pin', "that is not the developers' password");
+      }
+      moduleWrong.count = 0;
+      const event = {
+        id: randomUUID(), shopId: s.id, at: now(), actor: DEVELOPERS, orderNumber: 0,
+        type: 'shop.module_set', module: body.module, on: body.on, codeId: randomBytes(8).toString('hex'),
+      } as unknown as SyncEvent;
+      const checked = validatePush({ events: [event] }, s.id);
+      if ('reason' in checked) throw new SetupError(400, 'invalid', checked.reason);
+      await ctx.ingest(await setupDevice(s.id), [event]);
+      return { events: [event], module: body.module, on: body.on };
     },
 
     /** Last step: there must be an owner, or nobody could ever change the shop again. */

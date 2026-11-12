@@ -21,7 +21,8 @@ const MIGRATIONS = fileURLToPath(new URL('./sqlite/', import.meta.url));
 interface StaffRow { id: string; name: string; role: Role; active: number; pin_salt: string; pin_hash: string }
 const toStaff = (r: StaffRow): StaffMember => ({ id: r.id, name: r.name, role: r.role, active: Boolean(r.active) });
 
-export function sqliteStore(file: string): EventStore {
+/** `db`: the same connection, for the customer list (server/crm/sqlite.ts) in the same file. */
+export function sqliteStore(file: string): EventStore & { db: DatabaseSync } {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
@@ -53,6 +54,7 @@ export function sqliteStore(file: string): EventStore {
     db.prepare('INSERT OR IGNORE INTO shops (id, name, created_at) VALUES (?, ?, ?)').run(id, name, Date.now());
 
   return {
+    db,
     async deviceByToken(token) {
       const r = db.prepare('SELECT id, tenant_id, kind FROM devices WHERE token_hash = ?').get(hashToken(token)) as
         { id: string; tenant_id: string; kind: DeviceKind } | undefined;

@@ -263,8 +263,11 @@ export function useRegister() {
     return number;
   }, [seal]);
 
-  /** Returns the paid order (for its receipt), or undefined when there was nothing to pay. */
-  const pay = useCallback((tender: Tender, tendered: number): PaidOrder | undefined => {
+  /**
+   * Returns the paid order (for its receipt), or undefined when there was nothing to pay.
+   * `customerId`: the customer whose mobile was given at Charge (CRM), named on the payment by id only.
+   */
+  const pay = useCallback((tender: Tender, tendered: number, customerId?: string): PaidOrder | undefined => {
     const total = orderTotal(ref.current.order);
     // A comped order (Free) closes at 0 with tender 'comp'; anything else needs something to pay.
     const comped = ref.current.order.adjust?.discount?.kind === 'comp';
@@ -288,7 +291,7 @@ export function useRegister() {
       open: s.open.filter((o) => o.number !== order.number),
       sales: [...s.sales, paid],
     }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}`);
-    appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered });
+    appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered, ...(customerId ? { customerId } : {}) });
     return paid;
   }, [commit]);
 

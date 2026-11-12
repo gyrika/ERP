@@ -19,7 +19,7 @@ import { visionPart } from './visionPage.ts';
  * and a badge only when something there needs a decision. Pure, like insights.ts: events in,
  * lines out. Nothing is a count for its own sake ("Onion out", not "60 items").
  */
-export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'money' | 'items' | 'flow' | 'vision' | 'setup';
+export type PartId = 'sell' | 'receive' | 'order' | 'count' | 'owner' | 'money' | 'items' | 'flow' | 'vision' | 'customers' | 'setup';
 
 export interface PartLine {
   preview: string;
@@ -93,6 +93,8 @@ export const ownerParts = (events: readonly SyncEvent[], now: number): Record<Pa
     })(),
     // Computer vision (SCRUM-174): a camera offline, else the mode and the floor.
     vision: visionPart(events, now),
+    // Customers (CRM): shown only while the developers have it on (modules.ts); the list itself is on the shop PC.
+    customers: { preview: 'Who buys, and the list', badge: 0 },
     setup: { preview: 'Shop, staff, printer, stock rules', badge: 0 },
   };
 };

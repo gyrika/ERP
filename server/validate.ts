@@ -15,6 +15,9 @@ import { checkPrepLimit, checkPrepOrder } from '../src/domain/prep.ts';
 import { checkWarehouseName, isStockKey, isWarehouseId } from '../src/domain/warehouses.ts';
 import { checkTableEvent, TABLE_EVENT_TYPES, VISION_EVENT_TYPES } from '../src/domain/tables.ts';
 import { SHOP_EVENT_TYPES } from '../src/domain/freshStart.ts';
+import { checkModuleEvent, MODULE_EVENT_TYPES } from '../src/domain/modules.ts';
+import { CAMPAIGN_EVENT_TYPES, checkCampaignEvent } from '../src/domain/campaigns.ts';
+import { isCustomerId } from '../src/domain/customers.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import { checkCombo, COMBO_ID } from '../src/domain/combos.ts';
 import type { Combo, MenuItem } from '../src/domain/types.ts';
@@ -24,7 +27,7 @@ import {
 
 const TYPES = new Set<string>([
   ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...PREP_EVENT_TYPES, ...MENU_EVENT_TYPES, ...RECIPE_EVENT_TYPES, ...SHORTHAND_EVENT_TYPES,
-  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES,
+  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES, ...MODULE_EVENT_TYPES, ...CAMPAIGN_EVENT_TYPES,
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -84,7 +87,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (!Number.isSafeInteger(e.at)) return { reason: `event ${e.id} has no time` };
     if (e.shopId !== tenantId) return { reason: `event ${e.id} belongs to another shop`, wrongShop: true };
     if (e.type.startsWith('order.') || e.type.startsWith('stock.') || e.type.startsWith('prep.') || e.type.startsWith('menu.') || e.type.startsWith('recipe.') || e.type.startsWith('shorthand.')
-      || e.type.startsWith('table.') || e.type.startsWith('vision.') || e.type.startsWith('money.') || e.type.startsWith('value.') || e.type.startsWith('shop.')) {
+      || e.type.startsWith('table.') || e.type.startsWith('vision.') || e.type.startsWith('money.') || e.type.startsWith('value.') || e.type.startsWith('shop.') || e.type.startsWith('crm.')) {
       const a = e.actor;
       if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
         return { reason: `event ${e.id} does not say who did it` };
@@ -92,6 +95,18 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     }
     if (e.type === 'shop.started_fresh' && (!Number.isSafeInteger(e.before) || (e.before as number) < 0 || (e.before as number) > (e.at as number))) {
       return { reason: `event ${e.id} has an invalid cut-off` };
+    }
+    if (e.type.startsWith('crm.')) {
+      const why = checkCampaignEvent(e);
+      if (why) return { reason: `event ${e.id}: ${why}` };
+    }
+    // The customer a payment was for (CRM): an opaque id, never a number or a name.
+    if (e.type === 'order.paid' && e.customerId !== undefined && !isCustomerId(e.customerId)) {
+      return { reason: `event ${e.id} has an invalid customer` };
+    }
+    if (e.type === 'shop.module_set') {
+      const why = checkModuleEvent(e);
+      if (why) return { reason: `event ${e.id}: ${why}` };
     }
     if (e.type === 'order.sent' && e.platform !== undefined && !isPlatformMark(e.platform)) {
       return { reason: `event ${e.id} has an unknown delivery app or code` };
