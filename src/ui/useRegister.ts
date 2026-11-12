@@ -218,6 +218,12 @@ export function useRegister() {
     commit((s) => ({ ...s, order: removeLine(s.order, id) }), message);
   }, [commit]);
 
+  /** A combo box (SCRUM-231) comes off whole: its price is shared by all its dishes. Unsent boxes only. */
+  const dropBox = useCallback((boxId: string, message: string) => {
+    if (ref.current.order.lines.some((l) => l.box?.id === boxId && l.sent)) return;
+    commit((s) => ({ ...s, order: { ...s.order, lines: s.order.lines.filter((l) => l.box?.id !== boxId) } }), message);
+  }, [commit]);
+
   /** Sends the new lines to the kitchen and frees the register for the next customer. */
   const send = useCallback(() => {
     const { s, order, ticket } = sendUnsent(ref.current, Date.now());
@@ -406,6 +412,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, send, acceptOnline, setPlatform, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, send, acceptOnline, setPlatform, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

@@ -1,5 +1,5 @@
 import { EMPTY_MENU_STATE, effectiveMenu, type MenuState } from './menuEdits.ts';
-import type { MenuItem, MenuTag, Option, Variant } from './types.ts';
+import type { Combo, MenuItem, MenuTag, Option, Variant } from './types.ts';
 
 /** Rupees → cents. */
 const rs = (n: number) => n * 100;
@@ -159,6 +159,10 @@ export const menuItems = (): MenuItem[] => current;
 export const menuVersion = (): number => version;
 /** An item as printed, or as the owner added it: what "back to the start" goes back to. */
 export const startingItem = (id: string): MenuItem | undefined => starts.find((m) => m.id === id);
+/** The shop's combo packs (combos.ts), hidden ones included; screens offer `!combo.hidden`. */
+export const comboEntries = (): { id: string; combo: Combo }[] =>
+  Object.entries(state.combos ?? {}).map(([id, combo]) => ({ id, combo }));
+export const comboById = (id: string): Combo | undefined => state.combos?.[id];
 export const subscribeMenu = (l: () => void): (() => void) => { listeners.add(l); return () => listeners.delete(l); };
 
 export const itemById = (id: string): MenuItem => {

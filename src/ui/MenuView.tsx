@@ -3,11 +3,14 @@ import type { Actor } from '../domain/auth.ts';
 import {
   checkOwnLines, linesCost, marginOf, menuCost, recipeOf, recipeQuestion, sizesOf, waitingOn, type CostContext,
 } from '../domain/costing.ts';
-import { MENU, menuItems, menuState, startingItem } from '../domain/menu.ts';
+import { MENU, comboEntries, menuItems, menuState, startingItem } from '../domain/menu.ts';
+import { managesRole } from '../domain/auth.ts';
+import { comboBlocked, separatePrice } from '../domain/combos.ts';
+import { ComboEditor, saveCombo } from './ComboEditor.tsx';
 import { checkNewItem, checkOverride, newItemSizes, nextMorning, type ItemOverride, type NewItem } from '../domain/menuEdits.ts';
 import { fmt } from '../domain/money.ts';
 import type { BookLine } from '../domain/recipeBook.ts';
-import type { Category, Cents, MenuItem, SizeId } from '../domain/types.ts';
+import type { Category, Cents, Combo, MenuItem, SizeId } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
 import { answerQuestion, useCatalog, useCostContext } from '../services/inventoryStore.ts';
 import { appendEvent } from './eventLog.ts';
@@ -529,12 +532,15 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
 
 export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void }) {
   useMenu();
-  const [section, setSection] = useState<Category>('pizza');
+  const [section, setSection] = useState<Category | 'combos'>('pizza');
+  /** Combo packs (SCRUM-231): managers and the owner make them. */
+  const mayCombos = owner || managesRole(currentCashier().role);
+  const [comboEdit, setComboEdit] = useState<{ id: string | null; combo: Combo | null } | null>(null);
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<{ id: number; message: string; undo: () => void } | null>(null);
   const items = menuItems().filter((m) => m.category === section && !m.removed);
-  const here = SECTIONS.find((s) => s.id === section)!;
+  const here = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
   const costs = useCostContext();
   const [writing, setWriting] = useState<MenuItem | null>(null);
 
@@ -561,8 +567,47 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
           {SECTIONS.map((s) => (
             <button key={s.id} type="button" className="pill" aria-pressed={section === s.id} onClick={() => setSection(s.id)}>{s.label}</button>
           ))}
+          <button type="button" className="pill" aria-pressed={section === 'combos'} onClick={() => setSection('combos')}>Combos</button>
         </nav>
-        <ul className="menuv__list">
+        {section === 'combos' && (
+          <>
+            <ul className="menuv__list">
+              {comboEntries().length === 0 && <li className="menuv__row"><span className="menuv__name"><span>No combos yet. A combo is a box of dishes at one price; one tap sells it on the Register.</span></span></li>}
+              {comboEntries().map(({ id, combo }) => {
+                const blocked = comboBlocked(combo, menuItems());
+                const alone = separatePrice(combo, menuItems());
+                return (
+                  <li key={id} className={`menuv__row${combo.hidden ? ' menuv__row--hidden' : ''}`}>
+                    <div className="menuv__name">
+                      <b>{combo.name.en}</b>
+                      <span className="num">{fmt(combo.price)}{alone > combo.price ? ` · saves ${fmt(alone - combo.price)} on the usual box` : ''}</span>
+                      <span>{combo.slots.length} {combo.slots.length === 1 ? 'slot' : 'slots'}</span>
+                    </div>
+                    <div className="menuv__tags">
+                      {combo.hidden ? <span className="status status--unpaid">Off the Register</span>
+                        : blocked && <span className="menuv__out">{blocked}</span>}
+                    </div>
+                    {mayCombos && (
+                      <>
+                        <button type="button" className="chip" onClick={() => {
+                          const { hidden: _was, ...shown } = combo;
+                          const after: Combo = combo.hidden ? shown : { ...combo, hidden: true };
+                          saveCombo(id, combo, after);
+                          said(after.hidden ? `${combo.name.en} is off the Register` : `${combo.name.en} is back on the Register`, () => saveCombo(id, after, combo));
+                        }}>{combo.hidden ? 'Put back' : 'Take off'}</button>
+                        <button type="button" className="chip chip--solid" onClick={() => setComboEdit({ id, combo })} aria-label={`Change ${combo.name.en}`}>Change</button>
+                      </>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {mayCombos
+              ? <button type="button" className="chip menuv__add" onClick={() => setComboEdit({ id: null, combo: null })}>+ Add a combo</button>
+              : <p className="menuv__lead">Combos are made by a manager or the owner.</p>}
+          </>
+        )}
+        {section !== 'combos' && <ul className="menuv__list">
           {items.map((m) => (
             <li key={m.id} className={`menuv__row${m.hidden ? ' menuv__row--hidden' : ''}${m.soldOut ? ' menuv__row--out' : ''}`}>
               <div className="menuv__name">
@@ -597,15 +642,19 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
               {owner && <button type="button" className="chip chip--solid" onClick={() => setEditing(m)} aria-label={`Change ${m.name.en}`}>Change</button>}
             </li>
           ))}
-        </ul>
-        {owner && (
+        </ul>}
+        {owner && section !== 'combos' && (
           <button type="button" className="chip menuv__add" onClick={() => setAdding(true)}>+ Add a {here.one}</button>
         )}
       </main>
       {adding && <AddDish section={here} ctx={costs} onClose={() => setAdding(false)} onSaved={(msg, undo) => { setAdding(false); said(msg, undo); }} />}
       {writing && <WriteRecipe item={writing} ctx={costs} onClose={() => setWriting(null)} onSaved={(msg, undo) => { setWriting(null); said(msg, undo); }} />}
       {editing && <Editor item={editing} onClose={() => setEditing(null)} onSaved={(msg, undo) => { setEditing(null); said(msg, undo); }} />}
-      {toast && !editing && !adding && !writing && (
+      {comboEdit && (
+        <ComboEditor comboId={comboEdit.id} combo={comboEdit.combo} ctx={costs}
+          onClose={() => setComboEdit(null)} onSaved={(msg, undo) => { setComboEdit(null); said(msg, undo); }} />
+      )}
+      {toast && !editing && !adding && !writing && !comboEdit && (
         <div className="toast" role="status" key={toast.id}>
           <span>{toast.message}</span>
           <button type="button" onClick={() => { toast.undo(); setToast(null); }}>Undo</button>
