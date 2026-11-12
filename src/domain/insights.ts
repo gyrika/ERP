@@ -1,3 +1,4 @@
+import { AUDIENCE_LABEL, campaignsFromEvents } from './campaigns.ts';
 import { gapCases, shortStreaks, toCheck, weekLoss, type GapCase } from './gapReview.ts';
 import { costsToAnswer, marginsFell, soldWithoutRecipe } from './costInsights.ts';
 import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
@@ -414,6 +415,29 @@ const bestSeller = (events: readonly SyncEvent[], now: number): Insight | null =
 };
 
 /**
+ * Offers sent to customers' phones in the last week (CRM campaigns.ts): how many each reached, never
+ * who. The owner's phone sees this card too; the customer list itself stays on the shop PC.
+ */
+const campaignReach = (events: readonly SyncEvent[], now: number): Insight | null => {
+  const week = campaignsFromEvents(events).filter((c) => now - c.at < 7 * DAY_MS);
+  if (!week.length) return null;
+  const [last] = week;
+  const when = (at: number) => new Date(at).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  return {
+    id: 'campaign-reach',
+    tone: 'info',
+    title: last.reachable
+      ? `“${last.title}” reached ${last.delivered} of ${last.reachable} ${last.reachable === 1 ? 'phone' : 'phones'}`
+      : `“${last.title}” reached nobody: no customer in it has the app yet`,
+    detail: last.kind === 'auto' ? 'Sent by itself to customers who stopped coming.' : `Sent ${when(last.at)} to ${AUDIENCE_LABEL[last.audience].toLowerCase()} customers.`,
+    action: {
+      label: 'Offers this week',
+      items: week.map((c) => ({ primary: c.title, secondary: `${c.delivered} of ${c.reachable} · ${when(c.at)}` })),
+    },
+  };
+};
+
+/**
  * Deliveries a manager approved today (short, extra or at another price) and GRNs undone today:
  * the decision is made at the shop, and the owner is told who made it.
  */
@@ -514,6 +538,7 @@ export const rulesSuggestions: SuggestionsService = {
       tableUse(events, now),
       notSelling(events, sales, now),
       bestSeller(events, now),
+      campaignReach(events, now),
     ].filter((x): x is Insight => x !== null).sort((a, b) => ORDER[a.tone] - ORDER[b.tone]);
   },
 };

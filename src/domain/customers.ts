@@ -18,8 +18,8 @@ import type { Cents } from './types.ts';
 export const CUSTOMER_ID = /^cus-[0-9a-f]{16}$/;
 export const isCustomerId = (v: unknown): v is string => typeof v === 'string' && CUSTOMER_ID.test(v);
 
-/** Where a customer first came from: given at Charge, the owner's spreadsheet, or typed in on Customers. */
-export type CustomerSource = 'pos' | 'import' | 'manual';
+/** Where a customer first came from: given at Charge, the owner's spreadsheet, typed in, or signed up for offers in the app. */
+export type CustomerSource = 'pos' | 'import' | 'manual' | 'app';
 
 export interface Customer {
   id: string;

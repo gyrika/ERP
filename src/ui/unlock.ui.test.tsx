@@ -3,7 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readAll } from './eventLog.ts';
 
-// #unlock: the developers' one-time code turns a module on; the shop's id is there to make one.
+// #unlock: the developers' password turns a module on or off.
 
 const setup = vi.hoisted(() => ({ modules: vi.fn(), unlockModule: vi.fn() }));
 vi.mock('../services/setupClient.ts', () => ({ setupClient: setup }));
@@ -16,41 +16,41 @@ let on = false;
 beforeEach(() => {
   localStorage.clear();
   on = false;
-  setup.modules.mockImplementation(async () => ({ shopId: SHOP, keyed: true, modules: [{ id: 'crm', on, since: on ? AT : null }] }));
-  setup.unlockModule.mockImplementation(async (code: string) => {
-    if (code !== 'CB1.good.code') throw new Error('the code is not signed by the developers (or was copied wrong)');
-    on = true;
+  setup.modules.mockImplementation(async () => ({ shopId: SHOP, modules: [{ id: 'crm', on, since: on ? AT : null }] }));
+  setup.unlockModule.mockImplementation(async (password: string, module: string, turnOn: boolean) => {
+    if (password !== 'right') throw new Error("that is not the developers' password");
+    on = turnOn;
     return {
-      module: 'crm', on: true,
-      events: [{ id: 'm1', shopId: SHOP, at: AT, orderNumber: 0, actor: { id: 'developers', name: 'CheesyBeez developers', role: 'owner' }, type: 'shop.module_set', module: 'crm', on: true, codeId: '0123456789abcdef' }],
+      module, on: turnOn,
+      events: [{ id: `m-${turnOn}`, shopId: SHOP, at: AT, orderNumber: 0, actor: { id: 'developers', name: 'CheesyBeez developers', role: 'owner' }, type: 'shop.module_set', module, on: turnOn, codeId: '0123456789abcdef' }],
     };
   });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-test('the shop id to make the code for; a good code turns Customers on, a bad one says why', async () => {
+test('the password, then Turn on: Customers is on; a wrong password says so', async () => {
   const user = userEvent.setup();
   render(<UnlockView onClose={() => {}} />);
-  expect((await screen.findByText(SHOP)).tagName).toBe('CODE');
-  expect(screen.getByText('Customers (CRM)').nextElementSibling?.textContent).toBe('Off');
+  const turnOn = await screen.findByRole('button', { name: 'Turn on' });
+  expect(screen.getByText('Off')).toBeTruthy();
 
-  const box = screen.getByLabelText('Developer code');
-  await user.type(box, 'CB1.forged');
-  await user.click(screen.getByRole('button', { name: 'Use code' }));
-  expect((await screen.findByRole('alert')).textContent).toMatch(/not signed by the developers/);
+  await user.click(turnOn);
+  expect((await screen.findByRole('alert')).textContent).toBe('Type the developers’ password first.');
+  expect(setup.unlockModule).not.toHaveBeenCalled();
+
+  const box = screen.getByLabelText('Developers’ password');
+  expect((box as HTMLInputElement).type).toBe('password');
+  await user.type(box, 'wrong');
+  await user.click(turnOn);
+  expect((await screen.findByRole('alert')).textContent).toMatch(/not the developers' password/);
 
   await user.clear(box);
-  await user.type(box, 'CB1.good.code');
-  await user.click(screen.getByRole('button', { name: 'Use code' }));
+  await user.type(box, 'right');
+  await user.click(turnOn);
   expect((await screen.findByRole('status')).textContent).toBe('Customers (CRM) is on.');
-  expect(screen.getByText('Customers (CRM)').nextElementSibling?.textContent).toMatch(/^On · since/);
+  expect(setup.unlockModule).toHaveBeenLastCalledWith('right', 'crm', true);
+  expect(screen.getByText(/^On · since/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Turn off' })).toBeTruthy();
   expect(readAll().some((e) => e.type === 'shop.module_set'), 'this screen knows at once').toBe(true);
-  expect((box as HTMLTextAreaElement).value).toBe('');
-});
-
-test('a version with no developer key says so and offers no box', async () => {
-  setup.modules.mockResolvedValueOnce({ shopId: SHOP, keyed: false, modules: [{ id: 'crm', on: false, since: null }] });
-  render(<UnlockView onClose={() => {}} />);
-  expect(await screen.findByText(/carries no developer key/)).toBeTruthy();
-  expect(screen.queryByLabelText('Developer code')).toBeNull();
+  expect((box as HTMLInputElement).value, 'the password does not stay in the box').toBe('');
 });

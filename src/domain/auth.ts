@@ -102,6 +102,8 @@ export const mayRecord = (role: Role, type: string, remake = false): boolean => 
   if (type === 'money.out' || type === 'money.out_undone' || type === 'money.out_restored') return role !== 'kitchen';
   if (type === 'money.choices_set') return managesRole(role);
   if (type === 'money.grn_removed' || type === 'money.grn_restored') return role === 'owner';
+  // Campaigns (campaigns.ts): the owner's, recorded by the shop server as it sends them.
+  if (type.startsWith('crm.')) return role === 'owner';
   // Clearing the test data before the first real day (freshStart.ts): the owner's.
   if (type === 'shop.started_fresh') return role === 'owner';
   return false;

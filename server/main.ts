@@ -19,7 +19,9 @@ import { setupApi } from './setup.ts';
 import { sqliteStore } from './sqliteStore.ts';
 import { crmCrypto } from './crm/crypto.ts';
 import { mysqlCustomers } from './crm/mysql.ts';
+import { startCrmJobs } from './crm/jobs.ts';
 import { crmApi } from './crm/routes.ts';
+import { shopVapid } from './crm/webpush.ts';
 import { sqliteCustomers } from './crm/sqlite.ts';
 import { memoryCustomers, type CustomerStore } from './crm/store.ts';
 import { memoryStore, mysqlStore, type EventStore } from './store.ts';
@@ -152,8 +154,24 @@ const setup = setupApi({
   // The large camera view draws what detection sees (SCRUM-175).
   detections: { watch: (id) => vision.watch(id), seen: (id) => vision.seen(id), perf: () => vision.perf() },
 });
+/** The shop's push key pair (made once, <data>\crm-vapid.json); campaigns are sent from this PC. */
+let vapid: ReturnType<typeof shopVapid> | null = null;
+const crmVapid = () => (vapid ??= shopVapid(dataDir));
+const crm = crmApi({ events: store, customers, vapid: crmVapid, ingest: (device, events) => server.ingest(device, events) });
+/** The local device the CRM's own campaign records are filed under: made the first time. */
+const crmDevice = async (shop: string): Promise<Device> => {
+  const id = settings.get().crmDevice;
+  if (id) return { id, tenantId: shop, kind: 'owner' };
+  const { device } = await store.addDevice(shop, 'Customers', 'owner');
+  settings.set({ crmDevice: device.id });
+  return device;
+};
+const crmJobs = startCrmJobs({
+  crm, tenantId: () => settings.get().shopId ?? null, device: crmDevice, cloud: cloudLink,
+  publicKey: async () => (await crmVapid()).publicKey,
+});
 const server = createApp({
-  crm: crmApi({ events: store, customers }),
+  crm,
   photos: photoFolder(`${dataDir}/photos`),
   cloudPhoto: async (tenantId, id) => {
     const link = cloudLink();
@@ -210,6 +228,6 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`  cloud copy: ${replicator ? `${cloudShop()} -> ${cloudLink()!.url}` : 'not connected (the setup wizard connects it)'}`);
 });
 
-const stop = () => { setup.stopViews(); void vision.stop(); replicator?.stop(); online?.stop(); inbox?.stop(); ownerDigest?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
+const stop = () => { crmJobs.stop(); setup.stopViews(); void vision.stop(); replicator?.stop(); online?.stop(); inbox?.stop(); ownerDigest?.stop(); server.close(() => { void store.close().then(() => process.exit(0)); }); };
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

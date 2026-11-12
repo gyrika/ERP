@@ -154,8 +154,10 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     if (e.type === 'prep.released') return 'only the shop server sends held batches to the kitchen';
     // Clearing test data: the owner's PIN in Settings on the shop PC, never a device's push.
     if (e.type === 'shop.started_fresh') return "test data is cleared in Settings on the shop PC";
-    // Modules are turned on and off by the developers' signed code on the shop PC (modules.ts), never by a device.
-    if (e.type === 'shop.module_set') return 'modules are changed with a developer code on the shop PC';
+    // Modules are turned on and off with the developers' password on the shop PC (modules.ts), never by a device.
+    if (e.type === 'shop.module_set') return "modules are changed with the developers' password on the shop PC";
+    // Campaigns are sent by the shop server itself (server/crm/), which records them; never a device.
+    if (e.type.startsWith('crm.')) return 'campaigns are sent from Customers on the shop PC';
     // What the cameras saw comes from the camera worker on this PC (SCRUM-170), stamped by the server, never from a device.
     if ('actor' in e && e.actor?.role === 'vision') return 'only the shop server records what the cameras see';
     if (e.type.startsWith('kitchen.')) return device.kind === 'owner' || device.kind === 'manager' ? 'not from this device' : null;
@@ -315,6 +317,19 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       const step = url.pathname.slice('/api/v1/crm'.length);
       try {
         if (step === '/count' && req.method === 'GET') { json(res, 200, await crm.count(device, staffId)); return; }
+        if (step === '/customers' && req.method === 'GET') { json(res, 200, await crm.list(device, staffId)); return; }
+        const posts: Record<string, (b: Record<string, unknown>) => Promise<unknown>> = {
+          '/customers/opt-out': (b) => crm.optOut(device, staffId, b),
+          '/customers/add': (b) => crm.add(device, staffId, b),
+          '/customers/remove': (b) => crm.remove(device, staffId, b),
+          '/customers/restore': (b) => crm.restore(device, staffId, b),
+          '/lookup': (b) => crm.lookup(device, staffId, b),
+          '/ensure': (b) => crm.ensure(device, staffId, b),
+          '/campaigns/reach': (b) => crm.reach(device, staffId, b),
+          '/campaigns/send': (b) => crm.send(device, staffId, b),
+          '/campaigns/auto': (b) => crm.setAuto(device, staffId, b),
+        };
+        if (posts[step] && req.method === 'POST') { json(res, 200, await posts[step](((await readBody(req)) ?? {}) as Record<string, unknown>)); return; }
         if ((step === '/import/preview' || step === '/import/save') && req.method === 'POST') {
           // The file itself is the body (under the 1 MB every body has: 5,000 customers are ~150 KB).
           const name = url.searchParams.get('name') ?? '';

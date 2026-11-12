@@ -1,64 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mayRecord } from '../src/domain/auth.ts';
 import { withoutTestData } from '../src/domain/freshStart.ts';
 import { modulesFromEvents, type ModuleEvent } from '../src/domain/modules.ts';
 import { createApp } from './app.ts';
-import { CODE_PREFIX, grantFor, newModuleKeys, readModuleCode, signModuleCode } from './modules.ts';
+import { MODULE_PASSWORD, modulePasswordMatches } from './modules.ts';
+import { hashPin } from './pins.ts';
 import { settingsFile } from './settings.ts';
 import { setupApi } from './setup.ts';
 import { memoryStore } from './store.ts';
 import { validatePush } from './validate.ts';
 
 const NOW = Date.UTC(2026, 10, 11, 6, 0);
-const keys = newModuleKeys();
-const other = newModuleKeys();
 const SHOP = 'cheesybeez-thalwila-a1b2';
+const TEST_PASSWORD = 'test-only-password';
 
-test('a code says what it grants, and only for the shop and week it was made for, once', () => {
-  const grant = grantFor(SHOP, 'crm', true, NOW);
-  const code = signModuleCode(grant, keys.privateKeyPem);
-  assert.ok(code.startsWith(CODE_PREFIX));
-  assert.deepEqual(readModuleCode(code, keys.publicKeyPem, SHOP, new Set(), NOW), { grant });
-  // Pasted with line breaks and spaces (AnyDesk, chat apps): still the same code.
-  const pasted = `  ${code.slice(0, 40)}\n${code.slice(40, 90)} ${code.slice(90)}\r\n`;
-  assert.deepEqual(readModuleCode(pasted, keys.publicKeyPem, SHOP, new Set(), NOW), { grant });
-
-  const why = (c: unknown, opts: { key?: string | null; shop?: string; used?: string[]; at?: number } = {}) => {
-    const r = readModuleCode(c, opts.key === undefined ? keys.publicKeyPem : opts.key, opts.shop ?? SHOP, new Set(opts.used ?? []), opts.at ?? NOW);
-    return 'reason' in r ? r.reason : 'accepted';
-  };
-  assert.match(why(code, { shop: 'another-shop' }), /another shop/);
-  assert.match(why(code, { used: [grant.id] }), /already used/);
-  assert.match(why(code, { at: grant.until + 1 }), /run out/);
-  assert.equal(why(code, { at: grant.until }), 'accepted', 'the last moment still counts');
-  assert.match(why(code, { key: other.publicKeyPem }), /not signed by the developers/);
-  assert.match(why(code, { key: null }), /no developer key/);
-  assert.match(why(signModuleCode(grant, other.privateKeyPem)), /not signed by the developers/, 'someone else\'s key');
-  for (const junk of ['', '   ', 'hello', 'CB1.abc', 'CB1.a.b.c', 42, null]) assert.notEqual(why(junk), 'accepted', String(junk));
+test('the real password is only a salted hash in the code', () => {
+  assert.match(MODULE_PASSWORD.salt, /^[0-9a-f]{32}$/);
+  assert.match(MODULE_PASSWORD.hash, /^[0-9a-f]{64}$/);
+  // The line holds the salt and the hash, nothing else.
+  const source = readFileSync(new URL('./modules.ts', import.meta.url), 'utf8');
+  assert.match(source, /^export const MODULE_PASSWORD = \{ salt: '[0-9a-f]{32}', hash: '[0-9a-f]{64}' \} as const;$/m);
 });
 
-test('a changed code is refused: turning off into on, or this shop into another, breaks the signature', () => {
-  const code = signModuleCode(grantFor(SHOP, 'crm', false, NOW), keys.privateKeyPem);
-  const [, payload, sig] = code.split('.');
-  const json = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-  const forged = `${CODE_PREFIX}${Buffer.from(JSON.stringify({ ...json, on: true }), 'utf8').toString('base64url')}.${sig}`;
-  const r = readModuleCode(forged, keys.publicKeyPem, SHOP, new Set(), NOW);
-  assert.ok('reason' in r && /not signed/.test(r.reason));
+test('a password matches its hash, and nothing else does', async () => {
+  const hash = await hashPin(TEST_PASSWORD);
+  assert.equal(await modulePasswordMatches(TEST_PASSWORD, hash), true);
+  for (const wrong of ['', 'test-only-Password', `${TEST_PASSWORD} `, 'x'.repeat(201), null, 42]) {
+    assert.equal(await modulePasswordMatches(wrong, hash), false, String(wrong));
+  }
 });
 
-test('a signed code that grants nothing this version knows is refused with the reason', () => {
-  const sign = (g: object) => readModuleCode(signModuleCode(g as never, keys.privateKeyPem), keys.publicKeyPem, SHOP, new Set(), NOW);
-  const good = grantFor(SHOP, 'crm', true, NOW);
-  assert.match(String((sign({ ...good, module: 'payroll' }) as { reason: string }).reason), /module this version does not have/);
-  assert.match(String((sign({ ...good, v: 2 }) as { reason: string }).reason), /newer version/);
-  assert.match(String((sign({ ...good, on: 'yes' }) as { reason: string }).reason), /neither on nor off/);
-});
-
-test('no device or person may record a module change; only the shop server, from a code', () => {
+test('no device or person may record a module change; only the shop server', () => {
   for (const role of ['cashier', 'manager', 'owner', 'kitchen', 'vision'] as const) assert.equal(mayRecord(role, 'shop.module_set'), false, role);
   const e = (over: object = {}) => ({
     id: 'm1', shopId: SHOP, at: NOW, orderNumber: 0, actor: { id: 'developers', name: 'CheesyBeez developers', role: 'owner' },
@@ -83,7 +59,7 @@ test('modules: all off at first, the latest change wins, and clearing test data 
   assert.deepEqual(modulesFromEvents(withoutTestData([change(true, 1), fresh])), { crm: true }, 'a module is setup, not test activity');
 });
 
-test('#unlock on the shop PC: the shop id, then a developer code turns the CRM on once; a device cannot push it', async () => {
+test('#unlock on the shop PC: the password turns the CRM on and off; wrong ones are slowed; a device cannot push it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cb-modules-'));
   const store = memoryStore();
   let clock = NOW;
@@ -91,49 +67,46 @@ test('#unlock on the shop PC: the shop id, then a developer code turns the CRM o
   const setup = setupApi({
     store, settings: settingsFile(join(dir, 'settings.json')), usePrinter: () => {}, printsDir: join(dir, 'prints'), port: 8080,
     cloud: () => null, cloudUrl: 'https://cloud.test', ingest: (device, events) => server!.ingest(device, events), now: () => clock,
-    modulePublicKey: keys.publicKeyPem,
+    modulePassword: await hashPin(TEST_PASSWORD),
   });
   server = createApp({ store, setup, now: () => clock });
   const { shopId } = await setup.nameShop({ name: 'CheesyBeez', place: 'Thalwila' });
   await setup.addStaff({ name: 'Owner', role: 'owner', pin: '1234' });
   await setup.finish();
 
-  assert.deepEqual(await setup.modules(), { shopId, keyed: true, modules: [{ id: 'crm', on: false, since: null }] });
+  assert.deepEqual(await setup.modules(), { shopId, modules: [{ id: 'crm', on: false, since: null }] });
+  await assert.rejects(setup.unlockModule({ password: TEST_PASSWORD, module: 'payroll', on: true }), /which module/);
+  await assert.rejects(setup.unlockModule({ password: TEST_PASSWORD, module: 'crm' }), /which module/);
+  await assert.rejects(setup.unlockModule({ password: '1234', module: 'crm', on: true }), /not the developers' password/, "the owner's PIN will not do");
 
-  const on = signModuleCode(grantFor(shopId, 'crm', true, clock), keys.privateKeyPem);
-  await assert.rejects(setup.unlockModule({ code: signModuleCode(grantFor('another-shop', 'crm', true, clock), keys.privateKeyPem) }), /another shop/);
-  const done = await setup.unlockModule({ code: on });
+  const done = await setup.unlockModule({ password: TEST_PASSWORD, module: 'crm', on: true });
   assert.deepEqual({ module: done.module, on: done.on }, { module: 'crm', on: true });
   assert.equal((done.events[0] as ModuleEvent).actor.id, 'developers', 'filed under the developers, never a person at the shop');
   assert.deepEqual((await setup.modules()).modules, [{ id: 'crm', on: true, since: clock }]);
-  await assert.rejects(setup.unlockModule({ code: on }), /already used/, 'one time only');
 
   clock += 60_000;
-  await setup.unlockModule({ code: signModuleCode(grantFor(shopId, 'crm', false, clock), keys.privateKeyPem) });
+  await setup.unlockModule({ password: TEST_PASSWORD, module: 'crm', on: false });
   assert.deepEqual((await setup.modules()).modules, [{ id: 'crm', on: false, since: clock }]);
 
+  // Guessing: 5 wrong, then even the right one waits 30 s.
+  for (let i = 0; i < 5; i++) await assert.rejects(setup.unlockModule({ password: `guess${i}`, module: 'crm', on: true }), /not the developers' password/);
+  await assert.rejects(setup.unlockModule({ password: TEST_PASSWORD, module: 'crm', on: true }), /too many wrong passwords/);
+  clock += 31_000;
+  assert.equal((await setup.unlockModule({ password: TEST_PASSWORD, module: 'crm', on: true })).on, true);
+
   // The counter cannot push one, whoever is signed in.
-  const pushed = {
-    id: 'sneaky', shopId, at: clock, orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' },
-    type: 'shop.module_set', module: 'crm', on: true, codeId: 'fedcba9876543210',
-  };
   const { token } = await store.addDevice(shopId, 'CheesyBeez', 'counter');
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
   const port = (server.address() as { port: number }).port;
   const res = await fetch(`http://127.0.0.1:${port}/api/v1/events`, {
-    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ events: [pushed] }),
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ events: [{
+      id: 'sneaky', shopId, at: clock, orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' },
+      type: 'shop.module_set', module: 'crm', on: false, codeId: 'fedcba9876543210',
+    }] }),
   });
-  const body = await res.json() as { rejected?: { id: string; reason: string }[]; error?: string; message?: string };
-  assert.match(JSON.stringify(body), /developer code on the shop PC/);
-  assert.deepEqual((await setup.modules()).modules[0].on, false);
-
-  // A shop on a version with no key cannot change modules at all.
-  const unkeyed = setupApi({
-    store, settings: settingsFile(join(dir, 'settings.json')), usePrinter: () => {}, printsDir: join(dir, 'prints'), port: 8080,
-    cloud: () => null, cloudUrl: 'https://cloud.test', ingest: (d, e) => server!.ingest(d, e), now: () => clock, modulePublicKey: null,
-  });
-  assert.equal((await unkeyed.modules()).keyed, false);
-  await assert.rejects(unkeyed.unlockModule({ code: on }), /no developer key/);
+  assert.match(JSON.stringify(await res.json()), /developer/);
+  assert.equal((await setup.modules()).modules[0].on, true);
 
   await new Promise((r) => server!.close(r));
   rmSync(dir, { recursive: true, force: true });

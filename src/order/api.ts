@@ -34,6 +34,10 @@ export const api = {
   /** What delivery to this location costs (the cloud measures it), or why it cannot be delivered to. */
   quote: (pin: DeliveryPin) => call<DeliveryQuote>('/api/v1/delivery-quote', { pin }),
   order: (id: string, token: string) => call<MyOrder>(`/api/v1/orders/${id}?t=${encodeURIComponent(token)}`),
+  /** Offers on this phone (cloud/src/push.ts): the shop's push key, then sign up or stop. */
+  pushKey: () => call<{ key: string | null }>('/api/v1/push/key'),
+  subscribe: (phone: string, subscription: PushSubscriptionJSON) => call<{ ok: true }>('/api/v1/push/subscribe', { phone, subscription }),
+  unsubscribe: (endpoint: string) => call<{ ok: true }>('/api/v1/push/unsubscribe', { endpoint }),
 };
 
 // ----- What this phone remembers (never needed: everything works without it) -----
@@ -61,4 +65,7 @@ export const remembered = {
   setCurrent: (p: Placed | null) => write('cb.order.current', p),
   last: () => read<OnlineLine[]>('cb.order.last', []),
   setLast: (lines: OnlineLine[]) => write('cb.order.last', lines),
+  /** Offers are on for this number on this phone (the subscription itself lives in the browser). */
+  offers: () => read<{ phone: string } | null>('cb.order.offers', null),
+  setOffers: (o: { phone: string } | null) => write('cb.order.offers', o),
 };

@@ -115,3 +115,24 @@ test('MySQL: the import story', { skip: MYSQL ? false : 'TEST_DATABASE_URL not s
   await story(mysqlCustomers(pool, crmCryptoFromKey(randomBytes(32))), `crm-a-${tag}`, `crm-b-${tag}`);
   await pool.end();
 });
+
+test('SQLite: remove takes the customer, their phones and send log; restore brings the row back under the same id', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cb-crm-rm-'));
+  const events = sqliteStore(join(dir, 'pos.sqlite'));
+  await events.addDevice('shop-a', 'A', 'counter');
+  const store = sqliteCustomers(events.db, crmCrypto(dir));
+  const { customer } = await store.ensure('shop-a', '+94770000056', 'manual', 'o', AT);
+  await store.addSub('shop-a', customer.id, { endpoint: 'https://push.example/1', keys: { p256dh: 'B'.repeat(87), auth: 'a'.repeat(22) } }, AT);
+  await store.logOnce('shop-a', `campaign:x:${customer.id}`, customer.id, AT);
+  const removed = await store.remove('shop-a', customer.id);
+  assert.deepEqual(removed, customer);
+  assert.equal(await store.remove('shop-a', customer.id), null);
+  for (const t of ['crm_customers', 'crm_push_subs', 'crm_push_log']) {
+    assert.equal((events.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n, 0, `${t} is empty`);
+  }
+  assert.equal(await store.restore('shop-a', removed!, 'o', AT + 1), true);
+  assert.deepEqual(await store.byPhone('shop-a', '+94770000056'), customer);
+  assert.equal(await store.restore('shop-a', removed!, 'o', AT + 2), false, 'already back');
+  await events.close();
+  rmSync(dir, { recursive: true, force: true });
+});

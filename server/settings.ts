@@ -23,6 +23,8 @@ export interface ShopSettings {
   onlineOpen?: boolean;
   /** The manager phones' inbox in the cloud (SCRUM-94): how far this shop has taken it, and the local device it files under. */
   managerInboxSeq?: number;
+  /** The local device the CRM's own campaign records are filed under (server/crm/jobs.ts). */
+  crmDevice?: string;
   managerInboxDevice?: string;
   /** The owner activated CV on #cameras (SCRUM-169): the CV pack is kept installed. */
   cvActive?: boolean;

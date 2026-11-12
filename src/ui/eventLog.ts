@@ -1,5 +1,6 @@
 import type { OrderEvent } from '../domain/events.ts';
 import { withoutTestData } from '../domain/freshStart.ts';
+import { modulesFromEvents, type ModuleState } from '../domain/modules.ts';
 import { newLineId } from '../domain/order.ts';
 import type { NewSyncEvent, SyncEvent } from '../domain/sync.ts';
 import { shopId } from '../services/auth.ts';
@@ -41,6 +42,20 @@ export const readStored = (): SyncEvent[] => {
 
 /** The shop's events as the screens see them: test data the owner cleared is left out (freshStart.ts). */
 export const readAll = (): SyncEvent[] => withoutTestData(readStored());
+
+/**
+ * Which modules are on, as this device's events say (modules.ts). Read at Charge, so it must be
+ * quick: the stored text is parsed again only when it changed, and only if it mentions a module.
+ */
+let modulesSeen: { length: number; state: ModuleState } | null = null;
+export const modulesHere = (): ModuleState => {
+  let raw = '';
+  try { raw = localStorage.getItem(KEY()) ?? ''; } catch { /* blocked storage: all off */ }
+  if (modulesSeen?.length === raw.length) return modulesSeen.state;
+  const state = raw.includes('"shop.module_set"') ? modulesFromEvents(readStored()) : modulesFromEvents([]);
+  modulesSeen = { length: raw.length, state };
+  return state;
+};
 
 /** The order events (the audit trail). */
 export const readEvents = (): OrderEvent[] => readAll().filter((e): e is OrderEvent => e.type.startsWith('order.'));
@@ -116,6 +131,9 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
     now - e.at < KEEP_SYNCED_MS ||
     e.type.startsWith('menu.') ||
     e.type === 'shop.started_fresh' ||
+    // Which modules the developers turned on (modules.ts), and the automatic customer message's setting.
+    e.type === 'shop.module_set' ||
+    e.type === 'crm.auto_set' ||
     e.type === 'recipe.answer_set' ||
     e.type === 'recipe.draft_set' ||
     e.type === 'stock.item_added' ||

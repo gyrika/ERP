@@ -1,0 +1,22 @@
+{
+  "packageId": "com.cheesybeez.app",
+  "host": "cheesybeez.com",
+  "name": "CheesyBeez Ordering",
+  "launcherName": "CheesyBeez",
+  "display": "standalone",
+  "themeColor": "#FAF6EF",
+  "navigationColor": "#FAF6EF",
+  "backgroundColor": "#FAF6EF",
+  "enableNotifications": true,
+  "startUrl": "/",
+  "iconUrl": "https://cheesybeez.com/icons/icon-512.png",
+  "maskableIconUrl": "https://cheesybeez.com/icons/maskable-512.png",
+  "webManifestUrl": "https://cheesybeez.com/order.webmanifest",
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "fallbackType": "customtabs",
+  "signingKey": { "path": "../../cheesybeez-app-signing.keystore", "alias": "cheesybeez" },
+  "generatorApp": "bubblewrap-cli"
+}
