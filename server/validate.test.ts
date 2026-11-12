@@ -153,6 +153,33 @@ test("the owner's new items are accepted only with an added-item id and a full, 
   assert.ok('reason' in notAdded);
 });
 
+test('combo packs (SCRUM-231): a valid box passes, its own-dish picks too; a bad id, price or extra field does not', () => {
+  const manager = { ...base, actor: { id: 'm-1', name: 'Kasun', role: 'manager' } };
+  const combo = {
+    name: { en: 'Family Box' }, price: 360000,
+    slots: [
+      { qty: 1, size: 'L', usual: 'devilled-chicken', options: { 'devilled-chicken': 0, seafood: 50000 } },
+      { qty: 2, usual: 'chicken-burger', options: { 'chicken-burger': 0, 'new-wrap': 0 } },
+    ],
+  };
+  const valid = [
+    { ...manager, type: 'menu.combo_set', itemId: 'combo-family-box', before: null, after: combo },
+    { ...manager, id: 'event-2', type: 'menu.combo_set', itemId: 'combo-family-box', before: combo, after: null },
+  ];
+  assert.deepEqual(validatePush({ events: valid }, 'shop-1'), { events: valid });
+  for (const bad of [
+    { itemId: 'family-box', after: combo },
+    { itemId: 'combo-x', after: { ...combo, price: 360050 } },
+    { itemId: 'combo-x', after: { ...combo, extra: 1 } },
+    { itemId: 'combo-x', after: { ...combo, slots: [{ ...combo.slots[0], size: 'S' }] } },
+    { itemId: 'combo-x', after: { ...combo, slots: [{ ...combo.slots[0], secret: 'x' }] } },
+    { itemId: 'combo-x', after: { ...combo, slots: [{ qty: 1, usual: 'not-a-dish', options: { 'not-a-dish': 0 } }] } },
+  ]) {
+    const r = validatePush({ events: [{ ...manager, type: 'menu.combo_set', before: null, ...bad }] }, 'shop-1');
+    assert.ok('reason' in r, JSON.stringify(bad));
+  }
+});
+
 test("the owner's own recipe and opening his recipes pass; a malformed recipe does not", () => {
   const owner = { ...base, actor: { id: 'owner-1', name: 'Owner', role: 'owner' } };
   const recipe = { kind: 'own', lines: [{ name: 'stock:inv-0016', qty: 2, unit: 'pcs' }] };

@@ -192,6 +192,8 @@ export interface TicketLine extends LineView {
   was?: LineView;
   /** Remade this many times (SCRUM-177). */
   remade?: number;
+  /** A dish in a combo box (SCRUM-231): the box, so the screen can bracket what goes out in one bag. */
+  box?: { id: string; name: string; first: boolean };
 }
 
 const view = (l: OrderLine): LineView => {
@@ -210,8 +212,9 @@ const view = (l: OrderLine): LineView => {
 };
 
 export const ticketLines = (t: KitchenTicket): TicketLine[] =>
-  t.lines.map((l) => ({
+  t.lines.map((l, i) => ({
     key: l.id,
+    ...(l.box ? { box: { id: l.box.id, name: l.box.name, first: t.lines.findIndex((x) => x.box?.id === l.box!.id) === i } } : {}),
     ...view(l),
     status: l.cancelled ? 'cancelled' : l.was ? 'changed' : 'ok',
     ...(l.was && !l.cancelled ? { was: view(l.was) } : {}),

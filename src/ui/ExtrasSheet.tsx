@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { canHalve, leaveOutsOf, lineItemName } from '../domain/halves.ts';
 import { itemById, menuItems } from '../domain/menu.ts';
 import { fmt, unitPrice } from '../domain/money.ts';
-import type { LineSpec, MenuItem, OrderLine, SizeId } from '../domain/types.ts';
+import { alonePrice, pickable } from '../domain/combos.ts';
+import type { Combo, LineSpec, MenuItem, OrderLine, SizeId } from '../domain/types.ts';
 
 interface Props {
   item: MenuItem;
@@ -15,6 +16,8 @@ interface Props {
    * required, "Remove" becomes "Cancel item", and both go to the event log.
    */
   manager?: boolean;
+  /** A dish in a combo box (SCRUM-231): its combo, so the pick can be changed to another of its slot. */
+  combo?: Combo;
   onSubmit: (spec: LineSpec, reason: string) => void;
   onRemove?: (reason: string) => void;
   onClose: () => void;
@@ -26,7 +29,12 @@ const toggle = (list: string[], id: string): string[] =>
   list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 
 /** Modifiers appear only after the item is chosen: big chips, nothing preselected but the size. */
-export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRemove, onClose }: Props) {
+export function ExtrasSheet({ item: start, line, size, manager = false, combo, onSubmit, onRemove, onClose }: Props) {
+  /** In a box the size and quantity are the box's; only the pick, extras and leave-outs change. */
+  const box = line?.box;
+  const slot = box && combo?.slots[box.slot];
+  const [pickId, setPickId] = useState(start.id);
+  const item = pickId === start.id ? start : itemById(pickId);
   const [sz, setSz] = useState<SizeId | undefined>(
     line?.size ?? size ?? (item.variants ? (item.variants.find((v) => v.id === 'M') ?? item.variants[0]).id : undefined),
   );
@@ -45,7 +53,17 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
   const reasonRef = useRef<HTMLDivElement>(null);
 
   const other = half ? itemById(half) : null;
-  const halves = menuItems().filter((m) => canHalve(item, m) && !m.hidden && (!m.soldOut || m.id === half));
+  const halves = box ? [] : menuItems().filter((m) => canHalve(item, m) && !m.hidden && (!m.soldOut || m.id === half));
+  const picks = slot ? pickable(slot, menuItems()).filter((m) => m.id !== start.id).concat(start).sort((a, b) =>
+    Object.keys(slot.options).indexOf(a.id) - Object.keys(slot.options).indexOf(b.id)) : [];
+  const choose = (m: MenuItem) => {
+    // Extras and leave-outs the new pick does not have drop off (as swapPick in combos.ts).
+    setPickId(m.id);
+    setAdds(adds.filter((id) => m.adds.some((o) => o.id === id)));
+    const allowed = leaveOutsOf(m, null).map((o) => o.id);
+    setOuts(outs.filter((id) => allowed.includes(id)));
+  };
+  const boxMark = box && { ...box, extra: slot?.options[item.id] ?? (item.id === start.id ? box.extra : 0), alone: alonePrice(item, { size: sz }) };
   const leaveOut = leaveOutsOf(item, other);
   const title = lineItemName({ itemId: item.id, half });
   const pickHalf = (id: string | undefined) => {
@@ -54,7 +72,7 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
     const allowed = leaveOutsOf(item, id ? itemById(id) : null).map((o) => o.id);
     setOuts(outs.filter((o) => allowed.includes(o)));
   };
-  const unit = unitPrice(item, { size: sz, adds, half });
+  const unit = unitPrice(item, { size: sz, adds, half, box: boxMark });
   const total = unit * qty;
   const variant = item.variants?.find((v) => v.id === sz);
   const editing = Boolean(line);
@@ -66,10 +84,13 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const spec = (): LineSpec => ({ itemId: item.id, qty, size: sz, adds, outs, ...(half ? { half } : {}), ...(note.trim() ? { note: note.trim() } : {}) });
+  const spec = (): LineSpec => ({
+    itemId: item.id, qty: box ? 1 : qty, size: sz, adds, outs, ...(half ? { half } : {}), ...(note.trim() ? { note: note.trim() } : {}),
+    ...(boxMark ? { box: boxMark } : {}),
+  });
   const reason = reasonPick === 'Other' ? otherReason.trim() : (reasonPick ?? '');
   const sameAsLine = (s: LineSpec) =>
-    line !== undefined && s.qty === line.qty && s.size === line.size && (s.half ?? '') === (line.half ?? '') && (s.note ?? '') === (line.note ?? '') &&
+    line !== undefined && s.itemId === line.itemId && s.qty === line.qty && s.size === line.size && (s.half ?? '') === (line.half ?? '') && (s.note ?? '') === (line.note ?? '') &&
     [...s.adds].sort().join() === [...line.adds].sort().join() && [...s.outs].sort().join() === [...line.outs].sort().join();
   // Manager actions never fail silently: without a reason they say so and point at the reasons.
   const withReason = (act: () => void) => {
@@ -91,14 +112,17 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
         <div className="sheet__body">
           <div className="sheet__title">
             <h1>{title}</h1>
-            <span className="num">{variant ? `${variant.label} · ` : ''}{fmt(unitPrice(item, { size: sz, adds: [], half }))}</span>
+            <span className="num">
+              {box ? `${variant ? `${variant.label} · ` : ''}in the ${box.name}${boxMark!.extra ? ` · +${fmt(boxMark!.extra)}` : ''}`
+                : `${variant ? `${variant.label} · ` : ''}${fmt(unitPrice(item, { size: sz, adds: [], half }))}`}
+            </span>
             {editing && onRemove && (
               <button
                 type="button"
                 className={`linkbtn${manager ? ' linkbtn--danger' : ''}`}
                 onClick={() => withReason(() => onRemove(reason))}
               >
-                {manager ? 'Cancel item' : 'Remove'}
+                {manager ? 'Cancel item' : box ? 'Remove the box' : 'Remove'}
               </button>
             )}
           </div>
@@ -128,7 +152,20 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
             </section>
           )}
 
-          {item.variants && item.variants.length > 1 && (
+          {picks.length > 1 && (
+            <section className="group">
+              <h2>Pick</h2>
+              <div className="chips">
+                {picks.map((m) => (
+                  <button key={m.id} type="button" className="chip num" aria-pressed={item.id === m.id} onClick={() => choose(m)}>
+                    {m.name.en}{slot!.options[m.id] ? ` · +${fmt(slot!.options[m.id])}` : ''}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {!box && item.variants && item.variants.length > 1 && (
             <section className="group">
               <h2>Size</h2>
               <div className="chips">
@@ -199,13 +236,15 @@ export function ExtrasSheet({ item, line, size, manager = false, onSubmit, onRem
         </div>
 
         <div className="sheet__foot">
-          <div className="stepper">
+          {!box && <div className="stepper">
             <button type="button" aria-label="Decrease quantity" onClick={() => setQty(Math.max(1, qty - 1))}>−</button>
             <span className="num" aria-live="polite">{qty}</span>
             <button type="button" aria-label="Increase quantity" onClick={() => setQty(qty + 1)}>+</button>
-          </div>
+          </div>}
           <button ref={submitRef} type="button" className="cta num" disabled={unchanged} onClick={submit}>
-            {manager ? 'Save change' : editing ? 'Update' : 'Add'} · {fmt(total)}
+            {manager ? 'Save change' : editing ? 'Update' : 'Add'}
+            {/* In a box only what is added on top of the box price means anything to the customer. */}
+            {box ? (total > box.share ? ` · +${fmt(total - box.share)}` : '') : ` · ${fmt(total)}`}
           </button>
         </div>
       </div>

@@ -7,6 +7,29 @@ export type Category = 'pizza' | 'burger' | 'pasta';
 /** Small labels on cheesybeez.com's cards. Each must come from the owner: never inferred. */
 export type MenuTag = 'popular' | 'veg';
 
+/**
+ * A combo pack (combos.ts): one price for a box of dishes. Each slot is one dish, or a choice
+ * the customer can make, with the usual pick that one tap on the Register gives.
+ */
+export interface ComboSlot {
+  /** How many of this slot's dish (1-6). */
+  qty: number;
+  /** The size every pick comes in (sized dishes only). */
+  size?: SizeId;
+  /** Menu item id → what that pick costs on top of the box price (0 = in the price). One entry: always this dish. */
+  options: Record<string, Cents>;
+  /** The pick one tap gives; always in the price. */
+  usual: string;
+}
+
+export interface Combo {
+  name: { en: string; si?: string; ta?: string };
+  price: Cents;
+  slots: ComboSlot[];
+  /** Taken off the Register; kept so old orders still read. */
+  hidden?: boolean;
+}
+
 export interface Variant {
   id: SizeId;
   label: string; // "Medium", "Single"
@@ -69,6 +92,28 @@ export interface OrderLine {
    * change never alters an order already sent, its receipt, or past sales.
    */
   unit?: Cents;
+  /** A dish in a combo box (combos.ts): always qty 1; its share of the box price replaces its menu price. */
+  box?: BoxMark;
+}
+
+/**
+ * Which box a dish belongs to (combos.ts). Each dish in a box is an ordinary line, so the kitchen,
+ * stock and waste see dishes; the box's shares add up to the combo's price exactly.
+ */
+export interface BoxMark {
+  /** This box in this order (two Family Boxes are two ids). */
+  id: string;
+  comboId: string;
+  /** The combo's name when it was sold, for the kitchen and the receipt. */
+  name: string;
+  /** Which slot of the combo this dish fills. */
+  slot: number;
+  /** This dish's share of the combo price. */
+  share: Cents;
+  /** What this pick costs on top of the box price (0: in the price). */
+  extra: Cents;
+  /** Its own menu price, so the order and the receipt can say what the box saved. */
+  alone: Cents;
 }
 
 export type LineSpec = Omit<OrderLine, 'id'>;

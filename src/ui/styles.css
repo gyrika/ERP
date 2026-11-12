@@ -222,6 +222,18 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .card__no { color: var(--ink-3); margin-right: 8px; }
 .card__desc { font-size: 12px; color: var(--ink-2); line-height: 1.4; letter-spacing: -0.1px; }
 .card__prices { display: flex; gap: 8px; }
+/* Combo packs (SCRUM-231): a box's slots. Filled = always that dish; dashed = a choice. */
+.card__slots { display: flex; gap: 10px; }
+.slotg { position: relative; width: 40px; height: 40px; border-radius: 11px; background: var(--chip); display: inline-flex; align-items: center; justify-content: center; color: var(--ink); }
+.slotg--choice { background: none; border: 1.5px dashed var(--ink-2); color: var(--ink-2); }
+.slotg__mark { position: absolute; right: -7px; bottom: -7px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--primary); color: var(--on-primary); font-size: 10px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.box { margin: 0 -14px; padding: 14px; border-radius: 16px; background: var(--chip); display: flex; flex-direction: column; gap: 8px; }
+.box__head { display: flex; flex-direction: column; gap: 3px; padding: 0 4px 4px; }
+.box__row { display: flex; align-items: baseline; gap: 18px; font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+.box__row span:first-child { flex: 1; }
+.box__saved { font-size: 13px; font-weight: 500; color: var(--ok-ink); }
+.box .line { padding: 6px 14px; border-radius: 12px; background: var(--surface); }
+.box .line__name { font-size: 15px; }
 .price { flex: 1; height: 48px; border-radius: 11px; background: var(--chip); font-size: 15px; font-weight: 500; letter-spacing: -0.2px; }
 .price:hover { filter: brightness(0.97); }
 
@@ -358,6 +370,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .ticket__time { font-size: 22px; font-weight: 500; color: var(--tone); letter-spacing: -0.3px; }
 .ticket__items { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 16px; align-self: center; }
 .ticket__items li { display: flex; flex-direction: column; gap: 4px; }
+/* A combo box (SCRUM-231): a grey bracket says which dishes go out in one bag. Grey, never a colour:
+   colour on this screen means urgency only. */
+.ticket__items .ticket__box { margin-bottom: -8px; padding-left: 16px; border-left: 2px solid #48484A; font-size: 14px; font-weight: 600; color: #98989D; letter-spacing: 0.4px; text-transform: uppercase; }
+.ticket__items .ticket__inbox { padding-left: 16px; border-left: 2px solid #48484A; }
 .ticket__name { font-size: 26px; font-weight: 500; letter-spacing: -0.5px; line-height: 1.2; }
 .ticket__name b { font-weight: 600; }
 .ticket__detail { font-size: 19px; color: var(--ink-2); letter-spacing: -0.2px; }
@@ -1951,77 +1967,24 @@ button.glance__card:disabled { cursor: default; }
   .owner.work, .inv-page { overflow-x: clip; }
 }
 
-/* Customers (CRM, src/ui/customers/) */
-.crm__lead { margin: 0 0 20px; font-size: 17px; color: var(--ink-2); }
-.crm__line { display: inline-block; width: 220px; height: 20px; border-radius: 6px; }
-.crm__hint { font-size: 15px; color: var(--ink-2); }
-.crm-import { display: flex; flex-direction: column; gap: 16px; max-width: 880px; padding: 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
-.crm-import h2 { margin: 0; font-size: 20px; }
-.crm-import__pick, .crm-import__actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.crm-import__skeleton { height: 120px; border-radius: 14px; }
-.crm-import__file { margin: 0; font-size: 15px; color: var(--ink-2); overflow-wrap: anywhere; }
-.crm-import__counts { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; flex-wrap: wrap; }
-.crm-import__counts li { min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-radius: 14px; background: var(--ground); font-size: 16px; }
-.crm-import__counts b { font-size: 22px; }
-.crm-import__bad, .crm-import__counts .crm-import__bad b { color: var(--bad); }
-.crm-import__rename { display: flex; align-items: center; gap: 12px; min-height: 48px; font-size: 16px; cursor: pointer; }
-.crm-import__rename input { width: 22px; height: 22px; }
-.crm-import__rows { width: 100%; border-collapse: collapse; font-size: 15px; }
-.crm-import__rows caption { text-align: left; font-weight: 600; font-size: 16px; padding-bottom: 8px; }
-.crm-import__rows th { text-align: left; font-weight: 500; color: var(--ink-2); padding: 8px 10px; border-bottom: 1px solid var(--line); }
-.crm-import__rows td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
-.crm-import__rows td:first-child { width: 56px; }
-@media (max-width: 600px) { .crm-import { padding: 16px; } .crm-import__rows { font-size: 14px; } }
-.crm__pad { padding: 8px 40px 40px; display: flex; flex-direction: column; gap: 16px; max-width: 1100px; }
-.crm__muted { color: var(--ink-2); }
-.crm__count { margin: 0; font-size: 14px; }
-.crm__top { margin: 0; font-size: 15px; }
-.crm__top > span:first-child { color: var(--ink-2); }
-.crm-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
-.crm-tiles li { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); }
-.crm-tiles b { font-size: 22px; }
-.crm-tiles span { font-size: 14px; color: var(--ink-2); }
-.crm-filter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
-.crm-filter .cats, .crm-wrap { flex-wrap: wrap; }
-.crm-filter__n { color: var(--ink-2); margin-left: 4px; }
-.crm-filter__search { height: 48px; min-width: 240px; padding: 0 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); font: inherit; font-size: 16px; color: var(--ink); }
-.crm-filter__search:focus, .crm-text:focus, .crm-test input:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
-.crm-list { width: 100%; border-collapse: collapse; font-size: 15px; background: var(--surface); border-radius: 14px; overflow: hidden; box-shadow: var(--card-shadow); }
-.crm-list th { text-align: left; font-weight: 500; color: var(--ink-2); padding: 10px 14px; border-bottom: 1px solid var(--line); }
-.crm-list td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
-.crm-list tr:last-child td { border-bottom: 0; }
-.crm-list a { color: var(--ink); font-weight: 500; }
-.crm-list__n { text-align: right; }
-.crm-seg { display: inline-block; padding: 2px 10px; border-radius: 980px; font-size: 13px; font-weight: 500; background: var(--ground); color: var(--ink-2); white-space: nowrap; }
-.crm-seg--vip { color: var(--ink); background: var(--pill-on); }
-.crm-seg--new { color: var(--ok); }
-.crm-seg--inactive { color: var(--bad); }
-.crm-profile { display: flex; flex-direction: column; gap: 16px; }
-.crm-profile p { margin: 0; }
-.crm-profile h2, .crm-profile h3 { margin: 0; }
-.crm-profile__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.crm-profile__phone { font-size: 18px; }
-.crm-profile__messages { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 16px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); }
-.crm-reach { margin: 0; font-size: 16px; min-height: 24px; }
-.crm-text { padding: 12px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--ground); font: inherit; font-size: 17px; color: var(--ink); resize: vertical; }
-.crm-test { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 15px; color: var(--ink-2); }
-.crm-test input { height: 48px; width: 160px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--ground); font: inherit; font-size: 16px; color: var(--ink); }
-@media (max-width: 700px) {
-  .crm__pad { padding: 8px 16px 32px; }
-  .crm-list th:nth-child(3), .crm-list td:nth-child(3), .crm-list th:nth-child(6), .crm-list td:nth-child(6) { display: none; }
-  .crm-filter__search { min-width: 0; width: 100%; }
-}
-/* The optional Mobile at Charge (PaySheet.tsx, CRM) */
-.pay-customer { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 16px; }
-.pay-customer__field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 500; color: var(--ink-2); }
-.pay-customer__optional { font-weight: 400; }
-.pay-customer__field input { height: 52px; width: 220px; padding: 0 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); font: inherit; font-size: 20px; color: var(--ink); }
-.pay-customer__field input:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
-.pay-customer__who { min-height: 52px; display: flex; align-items: center; font-size: 16px; color: var(--ink-2); }
-.pay-customer__who--known { color: var(--ink); font-weight: 600; }
-.crm__pad .inv-notice { margin: 0; }
-.crm-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; padding: 16px 18px; border-radius: 14px; background: var(--surface); box-shadow: var(--card-shadow); }
-.crm-add .setup__field input { height: 48px; background: var(--ground); font-size: 17px; }
-.crm-add .setup__error { width: 100%; margin: 0; }
-.crm-profile__remove { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.crm-danger { color: var(--bad); min-height: 48px; }
+/* ---------- combo builder (SCRUM-231) ---------- */
+.comboed__slot { padding: 18px 20px; border-radius: 16px; background: var(--ground); }
+.comboed__slothead { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.comboed__slothead h2 { flex: 1; font-size: 16px; font-weight: 600; color: var(--ink); }
+.comboed__hint { margin: 0; font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+.comboed__pick--off { color: var(--ink-2); border-style: dashed; }
+.comboed__pick--in { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.comboed__pick--more { border: 1.5px solid var(--ink); color: var(--ink); }
+.comboed__usual { margin-left: 8px; padding: 2px 8px; border-radius: 980px; background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 600; }
+.comboed__row { display: flex; flex-wrap: wrap; gap: 16px; }
+.comboed__usualpick { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 500; color: var(--ink-2); }
+.comboed__usualpick select { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; }
+.comboed__bars { display: grid; gap: 6px; max-width: 560px; }
+.comboed__barlabel { font-size: 14px; color: var(--ink-2); }
+.comboed__barlabel b { color: var(--ink); font-weight: 600; }
+.comboed__bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--chip); }
+.comboed__bar--alone { background: var(--line); }
+.comboed__bar--price, .comboed__bar--cost { background: var(--ink); }
+.comboed__bar--keep { background: var(--ok); }
+.comboed__keep { margin: 4px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -0.5px; color: var(--ok-ink); }
+.comboed__keep--loss { color: var(--bad); }

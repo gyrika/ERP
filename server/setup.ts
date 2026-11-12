@@ -6,7 +6,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { extname, join } from 'node:path';
-import { networkInterfaces } from 'node:os';
+import { lanAddress } from './lan.ts';
 import type { Actor, Role } from '../src/domain/auth.ts';
 import { PULL_LIMIT, type SyncEvent } from '../src/domain/sync.ts';
 import type { CameraSpec } from '../src/domain/tables.ts';
@@ -108,10 +108,6 @@ export const isLocal = (req: IncomingMessage): boolean => LOCAL.has(req.socket.r
 /** "CheesyBeez", "Thalwila" -> "cheesybeez-thalwila". */
 export const shopIdFor = (name: string, place: string): string =>
   `${name} ${place}`.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'shop';
-
-/** The address a tablet on the shop's Wi-Fi uses to reach this PC. */
-const lanAddress = (): string | null =>
-  Object.values(networkInterfaces()).flat().find((a) => a && a.family === 'IPv4' && !a.internal)?.address ?? null;
 
 export function setupApi(ctx: SetupContext) {
   const now = ctx.now ?? Date.now;

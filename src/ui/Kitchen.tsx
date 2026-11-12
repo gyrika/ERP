@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { platformLabel } from '../domain/platforms.ts';
 import {
   cookTimeMs, elapsedLabel, needsAttention, queue, ticketLines, urgency, type KitchenTicket, type LineView,
@@ -217,7 +217,9 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
               </div>
               <ul className="ticket__items">
                 {ticketLines(t).map((l) => (
-                  <li key={l.key}>
+                  <Fragment key={l.key}>
+                  {l.box?.first && <li className="ticket__box" aria-label={`${l.box.name}: these go out in one bag`}>{l.box.name} · one bag</li>}
+                  <li className={l.box ? 'ticket__inbox' : undefined}>
                     {l.status === 'cancelled' && (
                       <>
                         <LineBody v={l} struck showQty />
@@ -254,6 +256,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                       );
                     })()}
                   </li>
+                  </Fragment>
                 ))}
               </ul>
               {t.startedAt === undefined ? (

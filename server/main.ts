@@ -1,4 +1,4 @@
-import { networkInterfaces } from 'node:os';
+import { lanAddress } from './lan.ts';
 import { fileURLToPath } from 'node:url';
 import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
@@ -215,7 +215,7 @@ startCloud();
 
 server.listen(port, '0.0.0.0', () => {
   const s = settings.get();
-  const lan = Object.values(networkInterfaces()).flat().find((a) => a && a.family === 'IPv4' && !a.internal)?.address;
+  const lan = lanAddress();
   console.log(`CheesyBeez server on http://localhost:${port}${lan ? `  (shop Wi-Fi: http://${lan}:${port})` : ''}`);
   console.log(`  shop: ${s.setupDone ? `${s.shopName} (${s.shopId})` : 'not set up yet: open the address above on this PC'}`);
   console.log(`  version: ${updates.current()}`);

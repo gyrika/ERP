@@ -10,6 +10,7 @@ import { discountLabel, lineAdjustment, lineNet, totals } from '../domain/totals
 import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
 import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
+import { boxesIn, opensBox } from '../domain/combos.ts';
 
 const sub = (l: OrderLine): string => {
   const item = itemById(l.itemId);
@@ -220,7 +221,8 @@ export function OrderPanel({
           </div>
         )}
 
-        {order.lines.map((l, i) => {
+        {(() => {
+          const renderLine = (l: OrderLine, i: number) => {
           const adj = lineAdjustment(order, l);
           const body = (
             <>
@@ -229,7 +231,9 @@ export function OrderPanel({
                 {sub(l) && <span className="line__sub">{sub(l)}</span>}
                 {adj > 0 && <span className="line__adj num">−{fmt(adj)} off this line</span>}
               </span>
-              <span className="line__price num">{fmt(lineNet(order, l))}</span>
+              <span className="line__price num">
+                {l.box ? (lineNet(order, l) !== l.box.share ? `${lineNet(order, l) > l.box.share ? '+' : '−'}${fmt(Math.abs(lineNet(order, l) - l.box.share))}` : '') : fmt(lineNet(order, l))}
+              </span>
             </>
           );
           if (manage) {
@@ -260,7 +264,24 @@ export function OrderPanel({
           return l.sent
             ? <div key={l.id} className="line line--sent">{body}</div>
             : <button key={l.id} type="button" className="line" onClick={() => onEdit(l)}>{body}</button>;
-        })}
+          };
+          // A combo box (SCRUM-231): its dishes together under its name and price; each dish still taps like any line.
+          const boxes = boxesIn(order.lines);
+          return order.lines.map((l, i) => {
+            if (!l.box) return renderLine(l, i);
+            if (!opensBox(order.lines, i)) return null;
+            const box = boxes.get(l.box.id)!;
+            return (
+              <section key={`box-${box.id}`} className="box" aria-label={box.name}>
+                <div className="box__head">
+                  <div className="box__row num"><span>{box.name}</span><span>{fmt(box.price)}</span></div>
+                  {box.saved > 0 && <span className="box__saved num">Saves Rs {fmt(box.saved)} on separate prices</span>}
+                </div>
+                {box.lines.map((x) => renderLine(x, order.lines.indexOf(x)))}
+              </section>
+            );
+          });
+        })()}
 
         {listing && open.length > 0 && (
           <section className="waiting" aria-label="Waiting to pay">

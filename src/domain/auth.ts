@@ -97,7 +97,8 @@ export const mayRecord = (role: Role, type: string, remake = false): boolean => 
   if (type === 'menu.item_set' || type === 'menu.item_added') return role === 'owner';
   // Answers about his recipes and costs, and opening his recipes: the owner's (SCRUM-77).
   if (type === 'recipe.answer_set' || type === 'recipe.viewed' || type === 'recipe.draft_set') return role === 'owner';
-  if (type === 'menu.sold_out') return managesRole(role);
+  // Marking something sold out, and combo packs (SCRUM-231): managers and the owner.
+  if (type === 'menu.sold_out' || type === 'menu.combo_set') return managesRole(role);
   // Money out (SCRUM-105): whoever works the counter; what a cashier may pay is mayPayOut (moneyOut.ts).
   if (type === 'money.out' || type === 'money.out_undone' || type === 'money.out_restored') return role !== 'kitchen';
   if (type === 'money.choices_set') return managesRole(role);

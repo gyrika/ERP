@@ -1,7 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { canManage, seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
-import { itemById } from '../domain/menu.ts';
+import { comboById, itemById, menuItems } from '../domain/menu.ts';
+import { boxLines } from '../domain/combos.ts';
 import { bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
@@ -262,6 +263,13 @@ export function App({
     reg.addSpec(bareLine(item.id, size), `Added ${item.name.en}${label ? ` · ${label}` : ''}`);
   };
 
+  /** One tap on a combo: the whole box with its usual picks, ready to send (SCRUM-231). */
+  const addCombo = (comboId: string) => {
+    const combo = comboById(comboId);
+    const specs = combo && boxLines(comboId, combo, menuItems());
+    if (combo && specs) reg.addSpecs(specs, `Added ${combo.name.en}`);
+  };
+
   const managePanel: ManagePanel | null = manager && {
     actor: manager, selected, pendingVoid, adjusting,
     onSelect: (i) => { setSelected(i); setPendingVoid(null); setAdjusting(null); },
@@ -382,6 +390,7 @@ export function App({
             onCategory={setCategory}
             onQuickAdd={quickAdd}
             onCustomise={(item) => setSheet({ kind: 'extras', item })}
+            onAddCombo={addCombo}
             hint={manager ? '' : 'Start typing to order'}
           />
         </main>
@@ -423,6 +432,7 @@ export function App({
         <ExtrasSheet
           item={itemById(sheet.line.itemId)}
           line={sheet.line}
+          combo={sheet.line.box && comboById(sheet.line.box.comboId)}
           manager={Boolean(sheet.line.sent)}
           onClose={closeSheet}
           onSubmit={(spec, reason) => { manage({ kind: 'edit', lineId: sheet.line.id, after: spec, reason }); closeSheet(); }}
@@ -433,9 +443,14 @@ export function App({
         <ExtrasSheet
           item={itemById(sheet.line.itemId)}
           line={sheet.line}
+          combo={sheet.line.box && comboById(sheet.line.box.comboId)}
           onClose={closeSheet}
           onSubmit={(spec) => { reg.editLine({ ...spec, id: sheet.line.id }, 'Updated'); closeSheet(); }}
-          onRemove={() => { reg.dropLine(sheet.line.id, 'Removed'); closeSheet(); }}
+          onRemove={() => {
+            const box = sheet.line.box;
+            if (box) reg.dropBox(box.id, `Removed ${box.name}`); else reg.dropLine(sheet.line.id, 'Removed');
+            closeSheet();
+          }}
         />
       )}
       {sheet?.kind === 'pay' && (
