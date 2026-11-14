@@ -286,7 +286,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .card__name { font-size: var(--fs-b); font-weight: 500; letter-spacing: -0.3px; }
 .card__no { color: var(--ink-3); margin-right: 8px; }
 .card__desc { font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.4; letter-spacing: -0.1px; }
-.card__prices { display: flex; gap: var(--sp-2); }
+/* Prices sit on the card's bottom edge, so a row of cards lines up whatever the description's length;
+   centred text (the later `.price` for GRN lines makes it an inline-flex, which would left-align it). */
+.card__prices { display: flex; gap: var(--sp-2); margin-top: auto; }
+.card__prices .price { display: flex; align-items: center; justify-content: center; text-align: center; }
 /* Combo packs (SCRUM-231): a box's slots. Filled = always that dish; dashed = a choice. */
 .card__slots { display: flex; gap: 10px; }
 .slotg { position: relative; width: 40px; height: 40px; border-radius: 11px; background: var(--chip); display: inline-flex; align-items: center; justify-content: center; color: var(--ink); }
