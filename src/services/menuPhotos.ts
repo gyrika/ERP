@@ -2,6 +2,7 @@ import { menuItems, menuState } from '../domain/menu.ts';
 import { MENU_PHOTO_HEIGHT, MENU_PHOTO_WIDTH, photoChoice } from '../domain/menuPhotos.ts';
 import { storageKey } from '../ui/storage.ts';
 import { syncToken } from './pairing.ts';
+import { PHOTOS } from '../order/photos.ts';
 
 /**
  * Menu photos in the browser (src/domain/menuPhotos.ts). With the shop server, a photo is sent to it
@@ -25,9 +26,14 @@ const keepLocally = (id: string, dataUrl: string, save: boolean) => {
 /** Where a kept photo is shown from. */
 export const photoSrc = (id: string): string => local.get(id) ?? `/api/v1/menu-photos/${id}.webp`;
 
-/** The picture an item shows, or null for none. */
+/**
+ * The picture an item shows, or null for none. An item the owner never gave a photo shows the
+ * cheesybeez.com photo of the same dish (src/order/photos), so the Register has pictures from the
+ * first day; his own photo replaces it, and "no photo" (null) hides it.
+ */
 export const photoUrl = (itemId: string): string | null => {
   const choice = photoChoice(menuState(), itemId);
+  if (choice === undefined) return PHOTOS[itemId] ?? null;
   return choice ? photoSrc(choice) : null;
 };
 

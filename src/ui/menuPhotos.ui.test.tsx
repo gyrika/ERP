@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setMenuState } from '../domain/menu.ts';
 import { EMPTY_MENU_STATE } from '../domain/menuEdits.ts';
@@ -20,18 +20,17 @@ const photoEvents = () => readAll().filter((e) => e.type === 'menu.photo_set');
 const strips = () => document.querySelectorAll('.card__photo');
 const pictures = () => document.querySelectorAll('.card__photo img');
 
-test('a shop with no photos keeps its tiles as they were; the owner gives an item a photo from a file: every tile gets a strip, blank where none; Remove and Undo', async () => {
+test('a dish never given a photo shows the cheesybeez.com photo; his own photo replaces it; Remove hides it; Undo', async () => {
   const user = userEvent.setup();
   render(<Root />);
-  expect(strips()).toHaveLength(0);
+  expect(pictures().length).toBeGreaterThan(1); // from the first day, before any photo is chosen
 
   location.hash = '#menu';
   await user.click(await screen.findByRole('button', { name: 'Change Margherita' }));
   const sheet = within(screen.getByRole('dialog', { name: 'Change Margherita' }));
-  expect(sheet.getByText(/No photo/)).toBeTruthy();
+  expect(sheet.getByRole('img', { name: 'Photo of Margherita' })).toBeTruthy(); // the cheesybeez.com one
   await user.upload(sheet.getByLabelText('Photo file'), picture());
-  expect(await sheet.findByRole('img', { name: 'Photo of Margherita' })).toBeTruthy();
-  expect(sheet.getByRole('status').textContent).toContain('Photo changed.');
+  await waitFor(() => expect(sheet.getByRole('status').textContent).toContain('Photo changed.'));
   const [set] = photoEvents();
   expect(set).toMatchObject({ itemId: 'margherita', photo: expect.stringMatching(/^[a-f0-9]{64}$/) });
 
@@ -47,7 +46,7 @@ test('a shop with no photos keeps its tiles as they were; the owner gives an ite
   await user.keyboard('{Escape}'); // the Menu screen, back to the Register
   await screen.findAllByRole('button', { name: 'M 1450' });
   expect(strips().length).toBeGreaterThan(1);
-  expect(pictures()).toHaveLength(1); // the others are blank strips
+  expect(pictures().length).toBeGreaterThan(1);
 
   // A tap on the photo adds the first size.
   await user.click(document.querySelector('.card__photo:has(img)') as HTMLElement);
@@ -69,8 +68,8 @@ test('a picture pasted with Ctrl+V on the sheet becomes the photo; pasted text i
   expect(paste([]).defaultPrevented).toBe(false); // text: left alone
   expect(photoEvents()).toHaveLength(0);
   expect(paste([picture([9, 9])]).defaultPrevented).toBe(true);
-  expect(await sheet.findByRole('img', { name: 'Photo of Margherita' })).toBeTruthy();
-  expect(photoEvents()).toHaveLength(1);
+  await waitFor(() => expect(photoEvents()).toHaveLength(1));
+  expect(sheet.getByRole('img', { name: 'Photo of Margherita' })).toBeTruthy();
 });
 
 test('a new dish gets its photo with it, only once it is added; Undo takes both back', async () => {
