@@ -2135,3 +2135,111 @@ button.glance__card:disabled { cursor: default; }
 .comboed__bar--keep { background: var(--ok); }
 .comboed__keep { margin: 4px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -0.5px; color: var(--ok-ink); }
 .comboed__keep--loss { color: var(--bad); }
+
+/* ---------- Customers (CRM, src/ui/customers/) ----------
+   The owner's or a manager's question: who are my customers, and who stopped coming? The numbers first
+   (tiles), then the list to narrow and open. Same cards, pills and primary button as the other Owner pages. */
+.crm__pad { display: flex; flex-direction: column; gap: 20px; max-width: 1180px; padding: 8px 40px 48px; }
+.crm__pad > .inv-page__primary { align-self: flex-start; }
+.crm__pad > .inv-notice { margin: 0; }
+.crm__lead { margin: 0; max-width: 64ch; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+.crm__lead a, .crm__top a, .crm-list a, .crm-profile a { color: var(--ink); font-weight: 500; text-decoration: none; }
+.crm__lead a:hover, .crm__top a:hover, .crm-list a:hover, .crm-profile a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.crm__muted { color: var(--ink-3); font-weight: 400; }
+.crm__hint { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+.crm__count { margin: -8px 0 0; font-size: 13px; }
+.crm__line { display: inline-block; width: 220px; height: 1em; border-radius: 6px; vertical-align: middle; }
+.inv-page__head a.pill { display: inline-flex; align-items: center; text-decoration: none; }
+
+/* The numbers at the top: one card each, the number large, what it counts small under it. */
+.crm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.crm-tiles li { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-tiles b { font-size: 28px; font-weight: 600; letter-spacing: -0.6px; line-height: 1.1; color: var(--ink); }
+.crm-tiles span { font-size: 13px; color: var(--ink-2); }
+.crm__top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 0; font-size: 15px; color: var(--ink-2); }
+.crm__top .num { color: var(--ink-3); }
+
+/* Segment pills on the left, search on the right; they wrap on a narrow screen. */
+.crm-filter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.crm-filter .cats { background: none; }
+.crm-filter__n { margin-left: 6px; color: var(--ink-3); font-weight: 400; }
+.pill[aria-pressed='true'] .crm-filter__n { color: var(--ink-2); }
+.crm-filter__search { width: min(320px, 100%); height: 48px; padding: 0 20px; border: 1px solid var(--line); border-radius: 980px; background: var(--surface); font: inherit; font-size: 15px; color: var(--ink); }
+.crm-filter__search::placeholder { color: var(--ink-3); }
+.crm-filter__search:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+/* Add customer, opened: one card, the two fields and their buttons on a line. */
+.crm-add { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1.4fr) auto auto; align-items: end; gap: 12px 16px; padding: 18px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-add .setup__field input { height: 48px; font-size: 16px; }
+.crm-add .linkbtn { align-self: end; }
+.crm-add .setup__error { grid-column: 1 / -1; }
+
+/* Lists (customers, what one bought, campaigns sent, an import's rows): a card, quiet rules, numbers on the right. */
+.crm-list, .crm-import__rows { width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 15px; }
+.crm-list th, .crm-import__rows th { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; text-align: left; color: var(--ink-3); white-space: nowrap; }
+.crm-list td, .crm-import__rows td { padding: 14px 16px; border-top: 1px solid var(--line); vertical-align: middle; color: var(--ink); }
+.crm-list tbody tr:first-child td, .crm-import__rows tbody tr:first-child td { border-top: 0; }
+.crm-list tbody tr:hover td { background: var(--chip); }
+.crm-list .crm-list__n { text-align: right; white-space: nowrap; }
+.crm-list td.num { white-space: nowrap; }
+
+/* A customer's segment: the same small pill everywhere; VIP stands out, Inactive goes quiet. */
+.crm-seg { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 980px; background: var(--chip); font-size: 12px; font-weight: 600; letter-spacing: 0.1px; color: var(--ink); white-space: nowrap; }
+.crm-seg--new { color: var(--ok-ink); }
+.crm-seg--vip { background: var(--primary); color: var(--on-primary); }
+.crm-seg--inactive { color: var(--ink-3); }
+
+/* One customer. */
+.crm-profile { display: flex; flex-direction: column; gap: 20px; }
+.crm-profile > p { margin: 0; }
+.crm-profile__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.crm-profile__head h2 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.6px; }
+.crm-profile__head p { margin: 4px 0 0; }
+.crm-profile__phone { font-size: 18px; color: var(--ink-2); }
+.crm-profile h3 { margin: 8px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+.crm-profile__messages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 16px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-profile__messages p { margin: 0; font-size: 15px; color: var(--ink-2); }
+.crm-profile__messages .setup__error { flex-basis: 100%; }
+.crm-profile__remove { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; font-size: 13px; }
+.crm-danger { color: var(--bad); font-weight: 600; }
+
+/* Import and Campaigns: each step a card. */
+.crm-import { display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-import h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+.crm-import > p { margin: 0; }
+.crm-import .crm-list, .crm-import .crm-import__rows { border: 1px solid var(--line); box-shadow: none; }
+.crm-import__pick { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.crm-import__file { font-size: 15px; color: var(--ink-2); }
+.crm-import__counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.crm-import__counts li { padding: 8px 14px; border-radius: 980px; background: var(--chip); font-size: 14px; color: var(--ink-2); }
+.crm-import__counts b { color: var(--ink); }
+.crm-import__bad, .crm-import__counts li.crm-import__bad, .crm-import__counts li.crm-import__bad b { color: var(--bad); }
+.crm-import__rename { display: flex; align-items: center; gap: 10px; min-height: 48px; font-size: 15px; color: var(--ink-2); }
+.crm-import__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.crm-import__skeleton { height: 160px; border-radius: 16px; }
+.crm-import .setup__field input { height: 48px; font-size: 16px; }
+.crm-text { width: 100%; padding: 14px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font: inherit; font-size: 16px; line-height: 1.45; color: var(--ink); resize: vertical; }
+.crm-text:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+.crm-reach { margin: 0; font-size: 15px; color: var(--ink-2); }
+.crm-wrap { flex-wrap: wrap; background: none; }
+.crm-test { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.crm-test input { width: 180px; height: 48px; padding: 0 16px; border: 1px solid var(--line); border-radius: 980px; background: var(--surface); font: inherit; font-size: 15px; color: var(--ink); }
+.crm-test .chip { min-height: 48px; padding: 0 18px; }
+/* Fields inside a card sit a step down from it (in dark mode card and field would be one colour). */
+.crm-add .setup__field input, .crm-import .setup__field input, .crm-import .crm-text, .crm-test input { background: var(--ground); }
+/* A button that cannot be pressed yet looks it (nothing to send, nothing to save). */
+.crm__pad .inv-page__primary:disabled, .crm__pad .chip:disabled { opacity: 0.35; cursor: default; }
+.crm__pad .inv-page__primary:disabled:active { transform: none; }
+/* A customer's own tiles hold dates: a size that keeps "14 Nov 2026" on one line. */
+.crm-profile .crm-tiles b { font-size: 22px; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .crm__pad { gap: 16px; padding: 8px 16px 32px; }
+  .crm-tiles { grid-template-columns: repeat(2, 1fr); }
+  .crm-tiles b { font-size: 24px; }
+  .crm-add { grid-template-columns: 1fr; }
+  .crm-filter .cats, .crm-import .cats { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; overflow: visible; }
+  .crm-filter__search { width: 100%; }
+  .crm-list, .crm-import__rows { display: block; overflow-x: auto; }
+  .crm-test { margin-left: 0; }
+}
