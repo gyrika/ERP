@@ -2182,6 +2182,9 @@ button.glance__card:disabled { cursor: default; }
 .crm-list tbody tr:hover td { background: var(--chip); }
 .crm-list .crm-list__n { text-align: right; white-space: nowrap; }
 .crm-list td.num { white-space: nowrap; }
+/* A campaign's result: what it brought, and the others in its audience under it, smaller. */
+.crm-result { min-width: 190px; font-size: 14px; line-height: 1.4; }
+.crm-result__others { display: block; font-size: 13px; }
 
 /* A customer's segment: the same small pill everywhere; VIP stands out, Inactive goes quiet. */
 .crm-seg { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 980px; background: var(--chip); font-size: 12px; font-weight: 600; letter-spacing: 0.1px; color: var(--ink); white-space: nowrap; }

@@ -150,6 +150,44 @@ test('a campaign: the owner only, to a segment, once per customer, counts record
   await s.stop();
 });
 
+test('campaign results: who it reached and came in within a week, beside those it could not reach; counts only, managers too', async () => {
+  const s = await shop();
+  const mk = async (phone: string, app: boolean) => {
+    const { customer } = await s.customers.ensure(SHOP, phone, 'pos', 'x', T0 - 100 * DAY);
+    if (app) await s.customers.addSub(SHOP, customer.id, await phoneSub(Number(phone.slice(-2))), T0);
+    await s.sale(customer.id, T0 - 60 * DAY); // all Inactive when the offer goes out
+    return customer.id;
+  };
+  const back = await mk('+94770000021', true); // reached, came back
+  await mk('+94770000022', true); // reached, did not
+  const anyway = await mk('+94770000023', false); // no app, came anyway
+  await mk('+94770000024', false); // no app, did not
+
+  const sent = await s.post('/campaigns/send', s.owner.id, { audience: 'inactive', title: 'We kept your table', body: 'A free drink with any pizza this week.' });
+  const id = (sent.body.events as CampaignEvent[])[0].id;
+  s.clock.now = T0 + 2 * DAY;
+  await s.sale(back, T0 + DAY, 350000);
+  await s.sale(back, T0 + 2 * DAY - 1, 150000);
+  await s.sale(anyway, T0 + DAY, 90000);
+  // A test to the owner's number has no result: it is not a campaign to anyone.
+  await s.post('/campaigns/send', s.owner.id, { audience: 'test', title: 'Test', body: 'Just me.', testPhone: '077 000 0021' });
+
+  assert.equal((await s.post('/campaigns/results', s.cashier.id, {})).status, 403);
+  const mid = (await s.post('/campaigns/results', s.manager.id, {})).body.results as Record<string, unknown>;
+  assert.deepEqual(Object.keys(mid), [id]);
+  assert.deepEqual(mid[id], { reached: 2, cameIn: 1, spent: 500000, compared: 2, comparedCameIn: 1, final: false });
+  s.clock.now = T0 + 10 * DAY;
+  await s.sale(back, T0 + 9 * DAY, 999999); // after the week: not the campaign
+  const end = (await s.post('/campaigns/results', s.owner.id, {})).body.results as Record<string, { spent: number; final: boolean }>;
+  assert.equal(end[id].spent, 500000);
+  assert.equal(end[id].final, true);
+  // Erased: gone from the results too (the send log goes with the customer).
+  await s.customers.remove(SHOP, back);
+  const after = (await s.post('/campaigns/results', s.owner.id, {})).body.results as Record<string, { reached: number; cameIn: number }>;
+  assert.deepEqual([after[id].reached, after[id].cameIn], [1, 0]);
+  await s.stop();
+});
+
 test('"we miss you": off until the owner turns it on; then once per quiet spell, 10:00-19:59, only to those who just went quiet', async () => {
   const s = await shop();
   const mk = async (phone: string, lastVisitDaysAgo: number) => {

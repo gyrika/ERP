@@ -124,5 +124,12 @@ export function mysqlCustomers(pool: Pool, crypto: CrmCrypto): CustomerStore {
     async unlog(tenantId, key) {
       await pool.query('DELETE FROM crm_push_log WHERE tenant_id = ? AND dedupe_key = ?', [tenantId, key]);
     },
+
+    async logged(tenantId, prefix) {
+      // A range on the key's index: keys are plain ASCII, and '~' sorts after every character in them.
+      const [rows] = await pool.query<(RowDataPacket & { customer_id: string })[]>(
+        'SELECT customer_id FROM crm_push_log WHERE tenant_id = ? AND dedupe_key >= ? AND dedupe_key < ?', [tenantId, prefix, `${prefix}~`]);
+      return rows.map((r) => r.customer_id);
+    },
   };
 }

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AUDIENCE_LABEL, campaignsFromEvents, checkMessage, MAX_BODY, MAX_TITLE, winbackFromEvents, type Audience,
 } from '../../domain/campaigns.ts';
+import { RESULT_DAYS, resultText, type CampaignResult } from '../../domain/campaignResults.ts';
+import { fmt } from '../../domain/money.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
 import { crmClient } from '../../services/crmClient.ts';
 import { addEvents } from '../eventLog.ts';
@@ -34,6 +36,13 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
     return [...events, ...mine.filter((e) => !known.has(e.id))];
   }, [events, mine]);
   const sent = useMemo(() => campaignsFromEvents(all), [all]);
+  // What each campaign brought in: worked out on the shop PC (who was reached stays there), asked again after a send.
+  const [results, setResults] = useState<Record<string, CampaignResult>>({});
+  useEffect(() => {
+    let live = true;
+    crmClient.results().then((r) => { if (live) setResults(r.results); }, () => { /* the list still shows; the column says – */ });
+    return () => { live = false; };
+  }, [sent.length]);
   const auto = useMemo(() => winbackFromEvents(all), [all]);
   const [autoText, setAutoText] = useState({ title: auto.title, body: auto.body });
   useEffect(() => { setAutoText({ title: auto.title, body: auto.body }); }, [auto.title, auto.body]);
@@ -75,16 +84,23 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
       <h2>Sent</h2>
       {sent.length === 0 ? <p className="crm__muted">Nothing sent yet.</p> : (
         <table className="crm-list">
-          <thead><tr><th scope="col">Date</th><th scope="col">To</th><th scope="col">Message</th><th scope="col" className="crm-list__n">Reached</th></tr></thead>
+          <thead><tr><th scope="col">Date</th><th scope="col">To</th><th scope="col">Message</th><th scope="col" className="crm-list__n">Reached</th><th scope="col">Came in ({RESULT_DAYS} days)</th></tr></thead>
           <tbody>
-            {sent.map((c) => (
-              <tr key={c.id}>
-                <td>{shortDate(c.at)}</td>
-                <td>{c.kind === 'auto' ? 'We miss you (automatic)' : AUDIENCE_LABEL[c.audience]}</td>
-                <td><b>{c.title}</b> · {c.body}</td>
-                <td className="num crm-list__n">{c.delivered} of {c.reachable}</td>
-              </tr>
-            ))}
+            {sent.map((c) => {
+              const r = results[c.id];
+              const words = r ? resultText(r, fmt) : null;
+              return (
+                <tr key={c.id}>
+                  <td>{shortDate(c.at)}</td>
+                  <td>{c.kind === 'auto' ? 'We miss you (automatic)' : AUDIENCE_LABEL[c.audience]}</td>
+                  <td><b>{c.title}</b> · {c.body}</td>
+                  <td className="num crm-list__n">{c.delivered} of {c.reachable}</td>
+                  <td className="crm-result">
+                    {words ? <>{words.brought}{words.others && <span className="crm__muted crm-result__others">{words.others}</span>}</> : <span className="crm__muted">–</span>}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
