@@ -33,7 +33,15 @@ export interface ReceiptLine {
   bold?: boolean;
   /** Double width and height: the shop name and the total. Half as many characters fit. */
   big?: boolean;
+  /** A QR code of this, printed above the line's text (the text stays, for whoever cannot scan). */
+  qr?: string;
 }
+
+/**
+ * Where the receipt's QR code goes: the offers sign-up on cheesybeez.com (src/order/Offers.tsx), so
+ * campaigns can reach the customer through the app. Printed only while the CRM is on.
+ */
+export const OFFERS_URL = 'https://cheesybeez.com/#offers';
 
 const TENDER_LABEL: Record<Tender, string> = {
   cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats',
@@ -73,9 +81,9 @@ const rule = (width: number): ReceiptLine => ({ text: '-'.repeat(width) });
 const minus = (cents: number) => `-${fmt(cents)}`;
 
 export function receipt(
-  paid: PaidOrder, opts: { cashier: string; shop?: ShopHeader; width?: number; copy?: boolean },
+  paid: PaidOrder, opts: { cashier: string; shop?: ShopHeader; width?: number; copy?: boolean; offers?: boolean },
 ): ReceiptLine[] {
-  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false } = opts;
+  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = false } = opts;
   const t = totals(paid);
   const out: ReceiptLine[] = [
     { text: shop.name, center: true, bold: true, big: true },
@@ -118,7 +126,16 @@ export function receipt(
   for (const box of boxes.values()) {
     if (box.saved > 0) out.push({ text: `You saved Rs ${fmt(box.saved)} with the ${box.name}` });
   }
-  out.push(rule(width), { text: shop.footer, center: true });
+  out.push(rule(width));
+  // The CRM's way in (customers.ts): a scan signs the phone up for the shop's offers. Never on a reprint.
+  if (offers && !copy) {
+    out.push(
+      { text: 'Get our offers on your phone', center: true, bold: true },
+      { text: OFFERS_URL.replace(/^https:\/\//, ''), center: true, qr: OFFERS_URL },
+      rule(width),
+    );
+  }
+  out.push({ text: shop.footer, center: true });
   return out;
 }
 
@@ -216,6 +233,22 @@ export const CMD = {
   feedCut: [GS, 0x56, 0x42, 0x04],
 } as const;
 
+/**
+ * A QR code (GS ( k, as on the XP-80T and most ESC/POS printers): model 2, 6-dot modules (about
+ * 2 cm for a short link), error correction M, store the data, print it.
+ */
+export const qrBytes = (data: string): number[] => {
+  const bytes = ascii(data);
+  const len = bytes.length + 3;
+  return [
+    GS, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00, // model 2
+    GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x06, // module size 6
+    GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31, // error correction M
+    GS, 0x28, 0x6b, len & 0xff, len >> 8, 0x31, 0x50, 0x30, ...bytes, // store
+    GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30, // print
+  ];
+};
+
 /** The printer's default code page is ASCII-safe; anything else becomes '?' rather than garbage. */
 const ascii = (s: string): number[] =>
   [...s.replace(/×/g, 'x').replace(/[·•]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')]
@@ -230,6 +263,7 @@ export const escpos = (lines: ReceiptLine[], { openDrawer = false } = {}): Uint8
   if (openDrawer) out.push(...CMD.kick);
   for (const l of lines) {
     out.push(...(l.center ? CMD.center : CMD.left));
+    if (l.qr) out.push(...qrBytes(l.qr), 0x0a);
     if (l.bold) out.push(...CMD.boldOn);
     if (l.big) out.push(...CMD.big);
     out.push(...ascii(l.text), 0x0a);

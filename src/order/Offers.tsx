@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatLkMobile, toLkMobile } from '../domain/phone.ts';
 import { api, remembered } from './api.ts';
 import { isOrderAppHost } from './pwa.ts';
@@ -18,11 +18,21 @@ const keyBytes = (b64url: string) => {
 
 type State = { at: 'off' } | { at: 'asking' } | { at: 'working' } | { at: 'on'; phone: string } | { at: 'blocked' };
 
+/** Came from the QR code on a receipt (receipt.ts OFFERS_URL): straight to the sign-up, already open. */
+const fromReceipt = () => typeof location !== 'undefined' && location.hash === '#offers';
+
 export function Offers() {
   const [state, setState] = useState<State>(() => {
     const o = remembered.offers();
-    return o ? { at: 'on', phone: o.phone } : { at: 'off' };
+    return o ? { at: 'on', phone: o.phone } : fromReceipt() ? { at: 'asking' } : { at: 'off' };
   });
+  // The section appears once the shop's push key has loaded; bring it into view then, once.
+  const scrolled = useRef(false);
+  const here = useCallback((el: HTMLElement | null) => {
+    if (!el || scrolled.current || !fromReceipt()) return;
+    scrolled.current = true;
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }, []);
   const [phone, setPhone] = useState(() => remembered.me().phone);
   const [error, setError] = useState('');
   const [key, setKey] = useState<string | null>(null);
@@ -77,7 +87,7 @@ export function Offers() {
   };
 
   return (
-    <section className="o-offers o-wrap" aria-label="Offers">
+    <section className="o-offers o-wrap" aria-label="Offers" id="offers" ref={here}>
       {state.at === 'on' ? (
         <>
           <p><b>Offers are on</b> for {formatLkMobile(state.phone)}. We send a few, never spam.</p>
