@@ -6,9 +6,10 @@ import { TypeOut } from './TypeOut.tsx';
 
 /**
  * Today at a glance (SCRUM-173). Serves the owner: he knows his shop, not the screens, and wants
- * to see in one look how it is doing, then ask "what is that?" of anything. The sales ring, the
- * shop as five stations from Deliveries to Money, sales by hour against a usual day, every
- * Rs 100 sold, a dot per stock item, and the To do list. Anything tapped explains itself on the
+ * to see in one look how it is doing, then ask "what is that?" of anything. What needs him comes
+ * first (To do, SCRUM-235); then one quiet row of sales and the shop's five stations from
+ * Deliveries to Money (grey until one needs a look); then sales by hour against a usual day,
+ * every Rs 100 sold and a dot per stock item, small, as evidence. On the PC nothing scrolls. Anything tapped explains itself on the
  * black screen (at the bottom on a phone, on the right on the counter PC), typed out; untapped,
  * the screen says the day in a sentence. Numbers count up on opening, and a station pulses when
  * something new happens there. Small charts as evidence, never a wall of them.
@@ -28,7 +29,7 @@ function useCountUp(): number {
     const start = performance.now();
     let id = 0;
     const step = (t: number) => {
-      const k = Math.min(1, (t - start) / COUNT_MS);
+      const k = Math.min(1, Math.max(0, (t - start) / COUNT_MS));
       setE(1 - Math.pow(1 - k, 3));
       if (k < 1) id = requestAnimationFrame(step);
     };
@@ -57,13 +58,6 @@ function usePulses(stations: readonly Station[]): ReadonlySet<StationId> {
   return on;
 }
 
-const ICONS: Record<StationId, ReactNode> = {
-  deliveries: <path d="M3 7h11v9H3zM14 10h4l3 3v3h-7M7 19a1.5 1.5 0 1 0 0-.01M17 19a1.5 1.5 0 1 0 0-.01" />,
-  shelves: <path d="M3 8l9-5 9 5v8l-9 5-9-5zM3 8l9 5 9-5M12 13v8" />,
-  kitchen: <path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-2 1-3 2-4 0 1.5 1 2.5 2 2.5 0-2-1-4 0-7z" />,
-  counter: <path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6" />,
-  money: <path d="M3 7h18v12H3zM3 11h18M16 15h2" />,
-};
 const icon = (d: ReactNode, size = 24) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>
 );
@@ -87,8 +81,7 @@ export function GlanceView({ glance: g, insights, links, onOpen }: {
   const open = (i: Insight) => { if (i.action.go) location.hash = i.action.go; else onOpen(i.id); };
   const maxHour = Math.max(1, ...g.hours.map((h) => Math.max(h.today ?? 0, h.usual ?? 0)));
   const share = g.share === null ? null : Math.min(1, g.share);
-  const C = 2 * Math.PI * 54;
-
+  
   // What the screen says, and where its records are.
   const station = g.stations.find((s) => s.id === key);
   const todo = key.startsWith('todo:') ? insights.find((i) => `todo:${i.id}` === key) : undefined;
@@ -110,62 +103,63 @@ export function GlanceView({ glance: g, insights, links, onOpen }: {
   return (
     <div className="glance">
       <div className="glance__main">
-        <button type="button" className="glance__card glance__sales" aria-pressed={key === 'ring'} onClick={() => pick('ring')}
-          aria-label={`Sales today ${rs(g.sales)}${share !== null ? `, ${Math.round((g.share ?? 0) * 100)}% of a usual day` : ''}`}>
-          <svg className="glance__ring" viewBox="0 0 128 128" aria-hidden="true">
-            <circle cx="64" cy="64" r="54" className="glance__ring-track" />
-            {share !== null && <circle cx="64" cy="64" r="54" className="glance__ring-fill" strokeDasharray={`${(C * share * e).toFixed(1)} ${C.toFixed(1)}`} transform="rotate(-90 64 64)" />}
-            <text x="64" y={share !== null ? 62 : 70} textAnchor="middle" className="glance__ring-pct">{share !== null ? `${Math.round((g.share ?? 0) * 100 * e)}%` : '–'}</text>
-            {share !== null && <text x="64" y="82" textAnchor="middle" className="glance__ring-sub">of usual</text>}
-          </svg>
-          <span className="glance__sales-text">
+        <section className="glance__todo" aria-label="Needs your attention">
+          <span className="glance__label">To do{insights.length ? ` · ${insights.length}` : ''}</span>
+          {insights.length === 0 && <p className="glance__calm">Nothing needs you right now.</p>}
+          {insights.map((i) => (
+            <article key={i.id} className={`glance__task glance__task--${i.tone}`} aria-label={i.title}>
+              <button type="button" className="glance__task-main" aria-pressed={key === `todo:${i.id}`} onClick={() => pick(`todo:${i.id}`)}>
+                <span className="glance__task-dot" aria-hidden="true" />
+                <span>{i.title}</span>
+              </button>
+              <button type="button" className="insight__action" onClick={() => open(i)}>{i.action.label}</button>
+            </article>
+          ))}
+        </section>
+
+        <section className="glance__card glance__strip" aria-label="The shop">
+          <button type="button" className="glance__sales" aria-pressed={key === 'ring'} onClick={() => pick('ring')}
+            aria-label={`Sales today ${rs(g.sales)}${share !== null ? `, ${Math.round((g.share ?? 0) * 100)}% of a usual day` : ''}`}>
             <span className="glance__label">Sales today</span>
             <span className="glance__big num">{rs(g.sales * e)}</span>
-            <span className="glance__sub num">{Math.round(g.orders * e)} {g.orders === 1 ? 'order' : 'orders'}{g.usualDay !== null && <> · usual day {rs(g.usualDay)}</>}</span>
-          </span>
-        </button>
-
-        <section className="glance__card" aria-label="The shop">
-          <div className="glance__flow">
-            <span className="glance__flow-line" aria-hidden="true" />
-            {g.stations.map((s) => (
-              <button key={s.id} type="button" className={`glance__st glance__st--${s.tone}${pulses.has(s.id) ? ' glance__st--pulse' : ''}`}
-                aria-pressed={key === s.id} onClick={() => pick(s.id)}
-                aria-label={`${s.label}: ${s.value}${s.badge ? `, ${s.badge} to look at` : s.tone === 'ok' ? ', fine' : ''}`}>
-                <span className="glance__st-ring">
-                  {icon(ICONS[s.id])}
-                  {s.badge > 0 && <span className="glance__st-badge num" aria-hidden="true">{s.badge}</span>}
-                </span>
-                <span className="glance__st-label">{s.label}</span>
-                <span className="glance__st-value num">{s.value}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="glance__card" aria-label="Sales by hour">
-          <div className="glance__head">
-            <span className="glance__label">Sales by hour</span>
-            <span className="glance__legend">
-              <span><i className="glance__key glance__key--today" />Today</span>
-              {g.usualDay !== null && <span><i className="glance__key glance__key--usual" />Usual</span>}
+            <span className="glance__sub num">
+              {Math.round(g.orders * e)} {g.orders === 1 ? 'order' : 'orders'}{share !== null && <> · {Math.round((g.share ?? 0) * 100 * e)}% of usual</>}
             </span>
-          </div>
-          <div className="glance__bars">
-            {g.hours.map((h) => (
-              <button key={h.hour} type="button" className="glance__bar" aria-pressed={key === `hour:${h.hour}`} onClick={() => pick(`hour:${h.hour}`)}
-                aria-label={`${h.label}: ${h.today === null ? 'still to come' : rs(h.today)}`}>
-                {h.usual !== null && <span className="glance__bar-usual" style={{ height: `${(h.usual / maxHour) * 100 * e}%` }} />}
-                {h.today !== null && <span className="glance__bar-today" style={{ height: `${(h.today / maxHour) * 100 * e}%` }} />}
-              </button>
-            ))}
-          </div>
-          <div className="glance__axis" aria-hidden="true">
-            {g.hours.filter((_, i) => i % 3 === 0 || i === g.hours.length - 1).map((h) => <span key={h.hour}>{h.label}</span>)}
-          </div>
+            {share !== null && <span className="glance__meter" aria-hidden="true"><span style={{ width: `${share * 100 * e}%` }} /></span>}
+          </button>
+          {g.stations.map((s) => (
+            <button key={s.id} type="button" className={`glance__st glance__st--${s.tone}${pulses.has(s.id) ? ' glance__st--pulse' : ''}`}
+              aria-pressed={key === s.id} onClick={() => pick(s.id)}
+              aria-label={`${s.label}: ${s.value}${s.badge ? `, ${s.badge} to look at` : s.tone === 'ok' ? ', fine' : ''}`}>
+              <span className="glance__st-label"><i className="glance__st-dot" aria-hidden="true" />{s.label}</span>
+              <span className="glance__st-value num">{s.value}{s.badge > 0 && <span className="glance__st-badge num" aria-hidden="true">{s.badge}</span>}</span>
+            </button>
+          ))}
         </section>
 
-        <div className="glance__pair">
+        <div className="glance__trio">
+          <section className="glance__card" aria-label="Sales by hour">
+            <div className="glance__head">
+              <span className="glance__label">Sales by hour</span>
+              <span className="glance__legend">
+                <span><i className="glance__key glance__key--today" />Today</span>
+                {g.usualDay !== null && <span><i className="glance__key glance__key--usual" />Usual</span>}
+              </span>
+            </div>
+            <div className="glance__bars">
+              {g.hours.map((h) => (
+                <button key={h.hour} type="button" className="glance__bar" aria-pressed={key === `hour:${h.hour}`} onClick={() => pick(`hour:${h.hour}`)}
+                  aria-label={`${h.label}: ${h.today === null ? 'still to come' : rs(h.today)}`}>
+                  {h.usual !== null && <span className="glance__bar-usual" style={{ height: `${(h.usual / maxHour) * 100 * e}%` }} />}
+                  {h.today !== null && <span className="glance__bar-today" style={{ height: `${(h.today / maxHour) * 100 * e}%` }} />}
+                </button>
+              ))}
+            </div>
+            <div className="glance__axis" aria-hidden="true">
+              {g.hours.filter((_, i) => i % 3 === 0 || i === g.hours.length - 1).map((h) => <span key={h.hour}>{h.label}</span>)}
+            </div>
+          </section>
+
           <button type="button" className="glance__card" aria-pressed={key === 'split'} onClick={() => pick('split')} disabled={!g.split}
             aria-label={g.split ? `Every Rs 100 sold: Rs ${g.split.food} food, Rs ${g.split.waste} waste, Rs ${g.split.kept} kept` : 'Every Rs 100 sold: nothing sold yet'}>
             <span className="glance__label">Every Rs 100 sold</span>
@@ -196,20 +190,6 @@ export function GlanceView({ glance: g, insights, links, onOpen }: {
             </div>
           </section>
         </div>
-
-        <section className="glance__todo" aria-label="Needs your attention">
-          <span className="glance__label">To do{insights.length ? ` · ${insights.length}` : ''}</span>
-          {insights.length === 0 && <p className="glance__calm">Nothing needs you right now.</p>}
-          {insights.map((i) => (
-            <article key={i.id} className={`glance__task glance__task--${i.tone}`} aria-label={i.title}>
-              <button type="button" className="glance__task-main" aria-pressed={key === `todo:${i.id}`} onClick={() => pick(`todo:${i.id}`)}>
-                <span className="glance__task-dot" aria-hidden="true" />
-                <span>{i.title}</span>
-              </button>
-              <button type="button" className="insight__action" onClick={() => open(i)}>{i.action.label}</button>
-            </article>
-          ))}
-        </section>
       </div>
 
       <section className="glance__screen" aria-label="Shop screen">
@@ -235,9 +215,9 @@ export function GlanceSkeleton() {
   return (
     <div className="glance" aria-busy="true" aria-label="Loading">
       <div className="glance__main">
-        <div className="glance__card skeleton" style={box(160)} />
-        <div className="glance__card skeleton" style={box(120)} />
-        <div className="glance__card skeleton" style={box(180)} />
+        <div className="glance__card skeleton" style={box(200)} />
+        <div className="glance__card skeleton" style={box(88)} />
+        <div className="glance__card skeleton" style={box(220)} />
       </div>
       <div className="glance__screen" />
     </div>
