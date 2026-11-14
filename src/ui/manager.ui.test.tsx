@@ -38,8 +38,6 @@ test('Ctrl+M + manager PIN lifts the card and reads "Managing · <name>"; a cash
   const user = userEvent.setup();
   render(<App />);
   await sendAndReopen(user);
-  expect(panel().queryByRole('button', { name: /Margherita/ })).toBeNull(); // cashier: sent lines locked
-
   await unlock(user, pinFor('cashier'));
   expect(screen.getByRole('alert').textContent).toContain('PIN not accepted');
   await user.keyboard('{Escape}');
@@ -231,6 +229,53 @@ test('editing a sent line still needs a reason', async () => {
   await user.click(sheet.getByRole('button', { name: /^Save change/ }));
   expect(total()).toBe('2,440');
   expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_changed', reason: 'Customer changed mind' });
+});
+
+test('the customer changed their mind: the cashier changes a sent line, no PIN, no reason; the kitchen sees it; Undo', async () => {
+  const user = userEvent.setup();
+  render(<><App /><Kitchen /></>);
+  await sendAndReopen(user);
+  await user.click(panel().getByRole('button', { name: /Margherita/ }));
+  const sheet = within(screen.getByRole('dialog'));
+  expect(sheet.queryByText('Reason')).toBeNull();
+  expect(sheet.queryByText(/Already made/)).toBeNull();
+  await user.click(sheet.getByRole('button', { name: /^Large/ }));
+  await user.click(sheet.getByRole('button', { name: /^Update/ }));
+  expect(managing()).toBe(false);
+  expect(total()).toBe('2,440');
+  expect(screen.getByRole('status').textContent).toContain('Changed Margherita · kitchen told');
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_changed', reason: 'Before it was made', actor: { role: 'cashier' } });
+  expect('made' in auditEvents().at(-1)!).toBe(false);
+  expect(within(kitchen().getByRole('article', { name: /^Order 1001/ })).getByText('Changed')).toBeTruthy();
+
+  await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(total()).toBe('1,900');
+  expect(auditEvents().at(-1)?.type).toBe('order.change_undone');
+});
+
+test('a line the kitchen already made says Made; removing it is recorded as waste', async () => {
+  const user = userEvent.setup();
+  render(<><App /><Kitchen /></>);
+  await sendAndReopen(user);
+  await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
+  await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001' }));
+  const burger = panel().getByRole('button', { name: /Chicken Burger/ });
+  expect(within(burger).getByText('Made')).toBeTruthy();
+  await user.click(burger);
+  const sheet = within(screen.getByRole('dialog'));
+  expect(sheet.getByText('Already made. Changing it counts as waste.')).toBeTruthy();
+  await user.click(sheet.getByRole('button', { name: 'Remove' }));
+  expect(total()).toBe('1,450');
+  expect(screen.getAllByRole('status').map((s) => s.textContent).join()).toContain('Removed Chicken Burger · counted as waste');
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Already made', made: true });
+  await user.click(panel().getByRole('button', { name: /Margherita/ }));
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Large/ }));
+  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Update/ }));
+  // Ctrl+Z undoes the newest change only.
+  await user.keyboard('{Control>}z{/Control}');
+  expect(total()).toBe('1,450');
+  // Discounts stay behind the PIN: nothing on the cashier's screen offers one.
+  expect(panel().queryByRole('group', { name: 'Order discount' })).toBeNull();
 });
 
 test('cashier rules kept: sends share the event log; Undo of a send only straight after it', async () => {

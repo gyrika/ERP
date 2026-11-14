@@ -26,11 +26,12 @@ test('only managers and owners may manage', () => {
 });
 
 test('who may record what: the same rule the server enforces', () => {
-  for (const t of ['order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone']) {
+  // The counter changes what the customer eats (a sent item too), never what they pay.
+  for (const t of ['order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled', 'order.change_undone']) {
     assert.equal(mayRecord('cashier', t), true, t);
     assert.equal(mayRecord('kitchen', t), false, t);
   }
-  for (const t of ['order.item_cancelled', 'order.discount_set', 'order.comped', 'order.line_adjusted', 'order.change_undone']) {
+  for (const t of ['order.discount_set', 'order.comped', 'order.line_adjusted', 'order.line_removed']) {
     assert.equal(mayRecord('cashier', t), false, t);
     assert.equal(mayRecord('manager', t), true, t);
     assert.equal(mayRecord('owner', t), true, t);

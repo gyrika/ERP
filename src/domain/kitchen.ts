@@ -172,6 +172,17 @@ export const cookState = (tickets: KitchenTicket[], number: number): CookState =
   return open.some((t) => t.startedAt !== undefined) ? 'cooking' : 'waiting';
 };
 
+/**
+ * One sent line, for the counter changing it: cooking once its ticket is started, done once it is
+ * bumped. Either way the food is made (or being made): changing it now wastes what it used.
+ * A line on no live ticket (pruned after an hour) counts as done.
+ */
+export const lineCookState = (tickets: KitchenTicket[], lineId: string): CookState => {
+  const t = tickets.find((x) => x.lines.some((l) => l.id === lineId));
+  if (!t || t.doneAt !== undefined) return 'done';
+  return t.startedAt !== undefined ? 'cooking' : 'waiting';
+};
+
 export const prune = (tickets: KitchenTicket[], now: number): KitchenTicket[] =>
   tickets.filter((t) => t.doneAt === undefined || now - t.doneAt < KEEP_DONE_MS);
 

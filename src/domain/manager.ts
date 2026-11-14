@@ -14,10 +14,13 @@ import type { Cents, Discount, LineSpec, Order, OrderLine } from './types.ts';
  * Menu prices are never touched: discounts live in `order.adjust`.
  */
 export type ManagerChange =
-  /** Remove a line. A line already sent to the kitchen needs a reason (owner rule). */
-  | { kind: 'void'; lineId: string; reason?: string }
-  /** Change size / extras / quantity / note. Sent lines need a reason. */
-  | { kind: 'edit'; lineId: string; after: LineSpec; reason?: string }
+  /**
+   * Remove a line. A manager gives a reason for a sent line; a cashier is never asked (the
+   * counter's own reason is recorded). `made`: the kitchen had started or finished it.
+   */
+  | { kind: 'void'; lineId: string; reason?: string; made?: boolean }
+  /** Change size / extras / quantity / note. Sent lines: as for void. */
+  | { kind: 'edit'; lineId: string; after: LineSpec; reason?: string; made?: boolean }
   /** Cents off one line (capped at the line's price). 0 removes the adjustment. */
   | { kind: 'adjustLine'; lineId: string; cents: Cents }
   /** Percentage off, Free (comp), or null to remove the order discount. */
@@ -76,8 +79,23 @@ export const applyInverse = (order: Order, inv: Inverse): Order => {
   }
 };
 
+/**
+ * What the counter may change without a manager: what the customer eats (a sent line's size,
+ * extras, quantity, or the line itself), never what they pay (discounts, line prices: a PIN).
+ * The owner, 2026-11-14: CheesyBeez has no manager on shift, and customers change their minds.
+ */
+export const cashierMay = (change: ManagerChange): boolean => change.kind === 'edit' || change.kind === 'void';
+
+/** The reason recorded when a cashier changes a sent line: what the owner needs to know is whether food was wasted. */
+export const counterReason = (made: boolean): string => (made ? 'Already made' : 'Before it was made');
+
 export function applyManagerChange(order: Order, change: ManagerChange, actor: Actor, at: number): Applied | Refusal {
-  if (!canManage(actor)) return { refused: 'not-a-manager' };
+  const manager = canManage(actor);
+  if (!manager && (actor.role === 'kitchen' || actor.role === 'vision' || !cashierMay(change))) return { refused: 'not-a-manager' };
+  /** A sent line's reason: the manager's, or the counter's own. */
+  const reasonFor = (c: { reason?: string; made?: boolean }): string =>
+    manager ? c.reason?.trim() ?? '' : counterReason(Boolean(c.made));
+  const madeMark = (c: { made?: boolean }) => (c.made ? { made: true } : {});
   const totalBefore = totals(order).total;
   const stamp = (o: Order): Order => ({ ...o, edited: { by: actor.name, at } });
   const base = { at, actor, orderNumber: order.number, totalBefore };
@@ -87,7 +105,7 @@ export function applyManagerChange(order: Order, change: ManagerChange, actor: A
       const index = order.lines.findIndex((l) => l.id === change.lineId);
       if (index < 0) return { refused: 'no-such-line' };
       const line = order.lines[index];
-      const reason = change.reason?.trim() ?? '';
+      const reason = reasonFor(change);
       if (line.sent && !reason) return { refused: 'reason-required' };
       const next = stamp({ ...order, lines: order.lines.filter((l) => l.id !== line.id) });
       const totalAfter = totals(next).total;
@@ -95,7 +113,7 @@ export function applyManagerChange(order: Order, change: ManagerChange, actor: A
         order: next,
         inverse: { kind: 'restoreLine', line, index },
         event: line.sent
-          ? { ...base, totalAfter, type: 'order.item_cancelled', lineId: line.id, index, before: line, reason }
+          ? { ...base, totalAfter, type: 'order.item_cancelled', lineId: line.id, index, before: line, reason, ...madeMark(change) }
           : { ...base, totalAfter, type: 'order.line_removed', lineId: line.id, index, before: line },
         ...(line.sent ? { kitchen: { lineId: line.id, after: null } } : {}),
       };
@@ -103,9 +121,9 @@ export function applyManagerChange(order: Order, change: ManagerChange, actor: A
     case 'edit': {
       const line = order.lines.find((l) => l.id === change.lineId);
       if (!line) return { refused: 'no-such-line' };
-      const reason = change.reason?.trim() ?? '';
+      const reason = reasonFor(change);
       if (line.sent && !reason) return { refused: 'reason-required' };
-      // A changed sent line is priced as the menu has it now (a manager chose the new size or extras).
+      // A changed sent line is priced as the menu has it now (the new size or extras were chosen).
       const after: OrderLine = {
         ...change.after, id: line.id,
         ...(line.sent ? { sent: true, unit: unitPrice(itemById(change.after.itemId), change.after) } : {}),
@@ -115,7 +133,7 @@ export function applyManagerChange(order: Order, change: ManagerChange, actor: A
       return {
         order: next,
         inverse: { kind: 'replaceLine', line },
-        event: { ...base, totalAfter: totals(next).total, type: 'order.item_changed', lineId: line.id, before: line, after, reason },
+        event: { ...base, totalAfter: totals(next).total, type: 'order.item_changed', lineId: line.id, before: line, after, reason, ...(line.sent ? madeMark(change) : {}) },
         ...(line.sent ? { kitchen: { lineId: line.id, after } } : {}),
       };
     }

@@ -38,6 +38,21 @@ test('the demo Friday: every kind of card, things needing a decision first, good
   assert.ok(unrecipe.action.items.length > 0 && unrecipe.action.items.every((i) => /^sold \d/.test(i.secondary ?? '')));
 });
 
+test('made food changed or cancelled at the counter: a card from the first one, gone after its Undo', () => {
+  const today = new Date(friday); today.setHours(0, 0, 0, 0);
+  const t = today.getTime() + 3_600_000;
+  const burger = { id: 'l1', itemId: 'chicken-burger', qty: 2, adds: [], outs: [], sent: true, unit: 65000 };
+  const audit = { shopId: 's', actor, orderNumber: 42, totalBefore: 130000, totalAfter: 0 };
+  const cancelled: SyncEvent = { ...audit, id: 'c1', at: t, type: 'order.item_cancelled', lineId: 'l1', index: 0, before: burger, reason: 'Already made', made: true };
+  const notMade: SyncEvent = { ...audit, id: 'c2', at: t, type: 'order.item_cancelled', lineId: 'l2', index: 0, before: { ...burger, id: 'l2' }, reason: 'Before it was made' };
+  const card = rulesSuggestions.insights({ events: [paid(1, t, 100000), cancelled, notMade], now: friday, stock }).find((i) => i.id === 'made-thrown');
+  assert.equal(card?.title, '1 made item thrown away today');
+  assert.match(card?.detail ?? '', /^Rs 1,300 of food/);
+  assert.deepEqual(card?.action.items.map((i) => i.secondary), ['Nimal · cancelled']);
+  const undone: SyncEvent = { ...audit, id: 'u1', at: t + 1, type: 'order.change_undone', undoneEventId: 'c1', undoneType: 'order.item_cancelled' };
+  assert.ok(!ids({ events: [paid(1, t, 100000), cancelled, undone], now: friday, stock }).includes('made-thrown'));
+});
+
 test('the summary counts today only, and a payment undone does not count', () => {
   const today = new Date(friday); today.setHours(0, 0, 0, 0);
   const events: SyncEvent[] = [

@@ -113,7 +113,9 @@ test('the register shows Waiting until Start, Cooking until Done, next to Paid /
 
   // Paid orders keep their kitchen state.
   await user.click(panel().getByRole('button', { name: /^1001/ }));
-  expect(panel().getByText('Cooking')).toBeTruthy();
+  // The order says Cooking; each sent line says its own state: the new round cooking, the first one made.
+  expect(panel().getAllByText('Cooking')).toHaveLength(2);
+  expect(panel().getByText('Made')).toBeTruthy();
   await user.click(panel().getByRole('button', { name: 'Charge' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   await user.click(panel().getByRole('button', { name: 'Next order' }));

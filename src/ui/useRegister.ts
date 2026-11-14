@@ -147,6 +147,10 @@ export function useRegister() {
   const sendOpen = useRef(false);
   /** Manager changes made in the current manager session, newest last. Cleared when the session ends. */
   const managerStack = useRef<ManagerRecord[]>([]);
+  /** The cashier's last change to a sent line, while its Undo toast shows. */
+  const [counterChange, setCounterChange] = useState<ManagerRecord | null>(null);
+  const counterRef = useRef<ManagerRecord | null>(null);
+  const setCounter = useCallback((r: ManagerRecord | null) => { counterRef.current = r; setCounterChange(r); }, []);
 
   const setHistory = useCallback((p: Snapshot[]) => {
     pastRef.current = p;
@@ -154,10 +158,11 @@ export function useRegister() {
   }, []);
 
   const seal = useCallback(() => {
+    setCounter(null); // anything else done at the counter ends a sent-line change's Undo
     if (!sendOpen.current) return;
     sendOpen.current = false;
     setHistory([]);
-  }, [setHistory]);
+  }, [setHistory, setCounter]);
 
   useEffect(() => {
     try { localStorage.setItem(KEY(), JSON.stringify(snap)); } catch { /* storage full/blocked */ }
@@ -207,7 +212,7 @@ export function useRegister() {
     commit(() => ({ ...s, order: mark ? { ...order, platform: mark } : order }), mark ? `${platformLabel(mark)}` : 'Not a delivery app order');
   }, [commit]);
 
-  /** Cashier edits: unsent lines only. Sent lines need a manager (`manage`). */
+  /** Cashier edits of unsent lines. A sent line goes through `changeSent` (audited, the kitchen told). */
   const editLine = useCallback((line: OrderLine, message: string) => {
     if (ref.current.order.lines.find((l) => l.id === line.id)?.sent) return;
     commit((s) => ({ ...s, order: updateLine(s.order, line) }), message);
@@ -357,6 +362,47 @@ export function useRegister() {
     return { applied: r, undo };
   }, [setHistory, undoRecord]);
 
+  /** Undo of the cashier's last sent-line change (the toast's Undo, Ctrl+Z). */
+  const undoCounter = useCallback((): boolean => {
+    const record = counterRef.current;
+    if (!record) return false;
+    setCounter(null);
+    undoRecord(currentCashier(), record);
+    setToast({ id: ++toastSeq.current, message: 'Undone' });
+    return true;
+  }, [setCounter, undoRecord]);
+
+  /**
+   * The cashier changes or cancels a sent line (the customer changed their mind): no PIN, no
+   * reason asked. Audited like a manager change, the kitchen is told, and the cashier's own
+   * Undo (toast, Ctrl+Z) reverses it until anything else is done or the toast goes.
+   * `made`: the kitchen had started or finished it (recorded as waste).
+   */
+  const changeSent = useCallback((change: Extract<ManagerChange, { kind: 'edit' | 'void' }>, made: boolean): ManageResult => {
+    const s = ref.current;
+    const actor = currentCashier();
+    const at = Date.now();
+    const r = applyManagerChange(s.order, { ...change, ...(made ? { made } : {}) }, actor, at);
+    if (isRefusal(r)) return r;
+
+    seal(); // a send's Undo window ends here: it must not step back over this change
+    setHistory([]);
+    const next = withOrder(s, r.order);
+    ref.current = next;
+    setSnap(next);
+    const event = appendEvent(r.event);
+    const record: ManagerRecord = { orderNumber: s.order.number, orderAfter: r.order, inverse: r.inverse, eventId: event.id, eventType: event.type };
+    setCounter(record);
+    const line = s.order.lines.find((l) => l.id === change.lineId)!;
+    const name = lineItemName(change.kind === 'edit' ? { ...line, ...change.after } : line);
+    setToast({
+      id: ++toastSeq.current,
+      message: `${change.kind === 'void' ? `Removed ${lineItemName(line)}` : `Changed ${name}`}${made ? ' · counted as waste' : ''} · kitchen told`,
+    });
+    if (navigator.vibrate) navigator.vibrate(8);
+    return { applied: r, undo: undoCounter };
+  }, [seal, setHistory, setCounter, undoCounter]);
+
   /** Ctrl+Z in manager mode: reverse the newest manager change of this session. */
   const undoManager = useCallback((actor: Actor) => {
     const record = managerStack.current.pop();
@@ -384,6 +430,7 @@ export function useRegister() {
   }, [show]);
 
   const undo = useCallback(() => {
+    if (undoCounter()) return; // the last thing done was a change to a sent line
     const p = pastRef.current;
     if (!p.length) return;
     const cur = ref.current;
@@ -404,7 +451,7 @@ export function useRegister() {
     if (cur.paid && cur.paid.number !== prev.paid?.number) {
       appendEvent({ type: 'order.payment_undone', at, actor, orderNumber: cur.paid.number });
     }
-  }, [setHistory]);
+  }, [setHistory, undoCounter]);
 
   return {
     order: snap.order,
@@ -413,10 +460,10 @@ export function useRegister() {
     paidToday: snap.sales.filter((o) => isToday(o.paidAt)).reverse(),
     paid: snap.paid,
     toast,
-    canUndo: past.length > 0,
+    canUndo: past.length > 0 || counterChange !== null,
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, send, acceptOnline, setPlatform, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, changeSent, send, acceptOnline, setPlatform, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

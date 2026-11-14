@@ -41,14 +41,12 @@ test('tap size → send → waiting → charge exact → paid → undo payment',
   expect(panel().getByRole('button', { name: 'Charge' })).toBeTruthy();
 });
 
-test('a second round on an open order: sent lines are locked, only new ones go out', async () => {
+test('a second round on an open order: only new lines go out', async () => {
   const user = userEvent.setup();
   render(<App />);
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]); // Margherita M
   await user.click(sendBtn());
   await user.click(panel().getByRole('button', { name: /^1001/ }));
-  // The sent pizza is shown but cannot be edited.
-  expect(panel().queryByRole('button', { name: /Margherita/ })).toBeNull();
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]); // another one
   expect(panel().getAllByText('Margherita').length).toBe(2); // not merged into the sent line
   await user.click(sendBtn());
@@ -134,7 +132,7 @@ test('tapping the background or pressing Escape leaves an opened order; menu tap
 
   await user.click(panel().getByRole('button', { name: /^1001/ }));
   expect(waiting()).toBeNull();
-  await user.click(panel().getByText('Margherita')); // the bill itself is not background
+  await user.click(panel().getByText('Unpaid')); // the bill itself is not background
   expect(waiting()).toBeNull();
   await user.click(screen.getByRole('main')); // empty space beside the menu
   expect(waiting()).toBeTruthy();

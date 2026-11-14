@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NumberInput } from './NumberInput.tsx';
 import type { Actor } from '../domain/auth.ts';
-import { cookState, type KitchenTicket } from '../domain/kitchen.ts';
+import { cookState, lineCookState, type KitchenTicket } from '../domain/kitchen.ts';
 import { DISCOUNT_CHIPS } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
@@ -319,10 +319,16 @@ export function OrderPanel({
               </div>
             );
           }
-          // Cashier: sent lines are locked (the kitchen may be cooking them).
-          return l.sent
-            ? <div key={l.id} className="line line--sent">{body}</div>
-            : <button key={l.id} type="button" className="line" onClick={() => onEdit(l)}>{body}</button>;
+          // Cashier: every line opens to change it. A sent one says if the kitchen has made it,
+          // so the cashier knows before telling the customer "no problem".
+          if (!l.sent) return <button key={l.id} type="button" className="line" onClick={() => onEdit(l)}>{body}</button>;
+          const cook = lineCookState(tickets, l.id);
+          return (
+            <button key={l.id} type="button" className="line line--sent" onClick={() => onEdit(l)}>
+              {body}
+              {cook !== 'waiting' && <span className={`status status--${cook} line__cook`}>{cook === 'done' ? 'Made' : 'Cooking'}</span>}
+            </button>
+          );
           };
           // A combo box (SCRUM-231): its dishes together under its name and price; each dish still taps like any line.
           const boxes = boxesIn(order.lines);
