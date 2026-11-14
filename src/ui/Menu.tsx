@@ -28,6 +28,12 @@ const visible = (c: CategoryId): MenuItem[] =>
 /** Combos on offer, in the order they were made. */
 export const offeredCombos = (): { id: string; combo: Combo }[] => comboEntries().filter(({ combo }) => !combo.hidden);
 
+/** The section bar's tabs in order: Alt+1 … Alt+9 pick them. Combos only once the shop has one: no empty tabs. */
+export const menuTabs = (): CategoryId[] => [...CATEGORIES.map((c) => c.id), ...(offeredCombos().length ? ['combos' as const] : [])];
+
+/** Up to this many sizes get a price button each on the card; more open the item. */
+const BUTTONS = 3;
+
 const ICON: Record<Category, string> = {
   pizza: 'M12 21L3.5 6.6a14 14 0 0 1 17 0Z',
   burger: 'M4 11a8 7 0 0 1 16 0Z M3 14.5h18 M5 18h14',
@@ -65,8 +71,9 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
   return (
     <>
       <nav className="cats" aria-label="Menu">
-        {tabs.map((c) => (
-          <button key={c.id} type="button" className="pill" aria-pressed={showing === c.id} onClick={() => onCategory(c.id)}>
+        {tabs.map((c, i) => (
+          <button key={c.id} type="button" className="pill" aria-pressed={showing === c.id} onClick={() => onCategory(c.id)}
+            title={i < 9 ? `Alt+${i + 1}` : undefined}>
             {c.label}
           </button>
         ))}
@@ -116,10 +123,11 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
                 <span className="card__desc">{item.description}</span>
               </button>
               <div className="card__prices">
-                {item.variants && item.variants.length === 2 ? (
+                {item.variants && item.variants.length >= 1 && item.variants.length <= BUTTONS ? (
                   item.variants.map((v) => (
-                    <button key={v.id} type="button" className="price num" disabled={item.soldOut} onClick={() => onQuickAdd(item, v.id)}>
-                      {v.id} {fmtPlain(v.price)}
+                    // Three to a card: the size small above its price, so it fits a narrow tile.
+                    <button key={v.id} type="button" className={`price num${item.variants!.length === 3 ? ' price--stack' : ''}`} disabled={item.soldOut} onClick={() => onQuickAdd(item, v.id)}>
+                      {item.variants!.length === 3 ? <><span>{v.id}</span> {fmtPlain(v.price)}</> : <>{v.id} {fmtPlain(v.price)}</>}
                     </button>
                   ))
                 ) : item.variants ? (

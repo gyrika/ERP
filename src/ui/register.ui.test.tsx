@@ -155,8 +155,10 @@ test('the order list labels unpaid and paid orders clearly', async () => {
   await user.click(sendBtn()); // 1001
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(sendBtn()); // 1002
-  await sendThenOpen(user, 1001);
+  await user.click(within(panel().getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ }));
   expect(panel().getByText('Unpaid')).toBeTruthy(); // the opened order says it is unpaid
+  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  expect(panel().getByText('Paying')).toBeTruthy(); // Charge opens in the panel itself
   await user.click(screen.getByRole('button', { name: '2,000' }));
   await user.click(panel().getByRole('button', { name: 'Next order' }));
 
