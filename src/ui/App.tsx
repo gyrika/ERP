@@ -114,8 +114,8 @@ export function App({
     void printReceipt(paid, currentCashier().name, { reprint }).then((r) =>
       setPrinting((p) => (p?.number === paid.number ? { number: paid.number, state: r === 'printed' ? 'printed' : 'failed' } : p)));
   }, []);
-  const pay = useCallback((tender: Tender, tendered: number, customerId?: string) => {
-    const paid = reg.pay(tender, tendered, customerId);
+  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
+    const paid = reg.pay(tender, tendered, customerId, unlinked);
     // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
     if (paid && !isPlatformId(tender)) print(paid);
   }, [reg, print]);
@@ -442,7 +442,7 @@ export function App({
           onNext={reg.startNew}
           onUndo={reg.undo}
           paying={paying ? {
-            onPay: (tender, tendered, customerId) => { pay(tender, tendered, customerId); closeSheet(); },
+            onPay: (tender, tendered, customerId, unlinked) => { pay(tender, tendered, customerId, unlinked); closeSheet(); },
             onClose: closeSheet,
             customers: modulesHere().crm && crmReachable(),
           } : null}
