@@ -88,6 +88,33 @@
   color-scheme: dark;
 }
 
+/*
+ * The Register scales with its window, so nothing overlaps when it is made smaller.
+ * Spacing follows the golden ratio (phi = 1.618): each step is the one before times phi
+ * (5, 8, 13, 21, 34, 55). Text steps up by phi from the body size (16 > 26 > 42), with the
+ * small sizes between. Every size is full at 1280 px wide and shrinks with the window: spacing
+ * by one golden step at most, text by about a sixth, never below what reads at arm's length.
+ */
+:root {
+  --sp-1: clamp(3px, 0.39vw, 5px);
+  --sp-2: clamp(5px, 0.625vw, 8px);
+  --sp-3: clamp(8px, 1.02vw, 13px);
+  --sp-4: clamp(13px, 1.64vw, 21px);
+  --sp-5: clamp(21px, 2.66vw, 34px);
+  --sp-6: clamp(34px, 4.3vw, 55px);
+  --fs-xs: clamp(11px, 1.02vw, 13px);
+  --fs-s: clamp(12px, 1.1vw, 14px);
+  --fs-m: clamp(13px, 1.18vw, 15px);
+  --fs-b: clamp(14px, 1.25vw, 16px);
+  --fs-l: clamp(15px, 1.41vw, 18px);
+  --fs-xl: clamp(21px, 2.03vw, 26px);
+  --fs-2xl: clamp(32px, min(3.3vw, 6.5vh), 42px);
+  /* Touch targets: 48 px, and never under 42 px in a small window. */
+  --tap: clamp(42px, 3.75vw, 48px);
+  --cta-h: clamp(52px, min(5.6vw, 10vh), 72px);
+  --panel-w: clamp(280px, 31.6vw, 404px);
+}
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {
@@ -108,13 +135,23 @@ button:active:not(:disabled) { transform: scale(0.97); transition: transform 60m
 
 /* ---------- shell ---------- */
 .register { height: 100dvh; display: flex; flex-direction: column; background: var(--ground); overflow: hidden; }
-.register__head { flex: 0 0 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; }
+.register__head { flex: 0 0 auto; min-height: var(--sp-6); display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 0 var(--sp-5); }
+/* Keep the name and keys on one line. Smaller screens use the More menu below. */
+.register__head .brand { flex: 0 1 auto; min-width: 0; font-size: var(--fs-b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.register__head .corner { flex: 0 1 auto; min-width: 0; gap: var(--sp-1); }
+.register__head .corner__key { min-height: var(--tap); padding: 0 var(--sp-3); font-size: var(--fs-s); white-space: nowrap; flex: none; }
+.register__head .cashier, .register__head .syncsign, .register__head .corner__who { font-size: var(--fs-s); white-space: nowrap; flex: none; }
+@media (max-width: 1180px) { .register__head .corner kbd { display: none; } }
 .brand { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
 .cashier { font-size: 14px; color: var(--ink-2); letter-spacing: -0.1px; }
 .corner { display: flex; align-items: center; gap: 6px; }
 .corner__who { font-size: 14px; font-weight: 600; letter-spacing: -0.1px; animation: fade 200ms var(--ease); }
 .corner__key { min-height: 48px; padding: 0 12px; border-radius: 12px; font-size: 14px; font-weight: 500; color: var(--ink-2); display: inline-flex; align-items: center; gap: 8px; }
 .corner__key:hover { background: var(--chip); color: var(--ink); }
+/* Wide screens show every key; the small counter screen folds them behind "More" (see the counter-screen block). */
+.corner__rest { display: contents; }
+.corner__more { display: none; min-width: 48px; min-height: 48px; padding: 0 12px; border-radius: 12px; font-size: 13px; letter-spacing: 1px; color: var(--ink-2); align-items: center; justify-content: center; }
+.corner__more:hover, .corner__more[aria-expanded='true'] { background: var(--chip); color: var(--ink); }
 a.corner__key { text-decoration: none; }
 .kchip { margin-right: 6px; }
 /* Online orders (cheesybeez.com): a quiet key that pulses only while an order waits for an answer. */
@@ -166,7 +203,7 @@ a.corner__key { text-decoration: none; }
 kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .chip kbd { margin-right: 8px; }
 .chip[aria-pressed='true'] kbd { border-color: currentColor; color: inherit; opacity: 0.7; }
-.panel__stamp { padding: 4px 36px 0; font-size: 13px; color: var(--ink-2); animation: fade 200ms var(--ease); }
+.panel__stamp { padding: var(--sp-1) var(--sp-5) 0; font-size: 13px; color: var(--ink-2); animation: fade 200ms var(--ease); }
 .line__adj { font-size: 13px; font-weight: 500; color: var(--ok-ink); }
 /* Manager mode lines: one selected at a time, its actions right under it. */
 .mline { display: flex; flex-direction: column; gap: 10px; margin: -8px -14px; padding: 8px 14px; border-radius: 12px; }
@@ -180,7 +217,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .chip--danger { color: var(--bad); }
 .inline { display: flex; flex-direction: column; gap: 8px; animation: rise 160ms var(--ease); }
 .inline__label { font-size: 13px; font-weight: 500; color: var(--ink-2); }
-.discounts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 14px 36px 0; animation: rise 180ms var(--ease); }
+.discounts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: var(--sp-3) var(--sp-5) 0; animation: rise 180ms var(--ease); }
 .discounts .chip { min-width: 0; padding: 0 6px; min-height: 52px; justify-content: center; display: inline-flex; align-items: center; font-size: 15px; white-space: nowrap; }
 .discounts .chip kbd { margin-right: 6px; }
 /* Free is the dangerous one: when it is on, it is red (wins over the generic pressed chip). */
@@ -196,11 +233,20 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .palette__item[aria-selected='true'] { background: var(--chip); }
 .palette__empty { padding: 14px; color: var(--ink-3); }
 .register__body { flex: 1; min-height: 0; display: flex; }
-.menu { flex: 1; min-width: 0; padding: 6px 40px 40px; display: flex; flex-direction: column; gap: 26px; overflow-y: auto; position: relative; }
+.menu { flex: 1; min-width: 0; scrollbar-width: thin; padding: 0 var(--sp-5) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); overflow-y: auto; position: relative; }
+/* Keep the section bar and other controls from shrinking in a short window. */
+.menu > * { flex-shrink: 0; }
+/* The sections stay in view while the menu scrolls under them. */
+.menu .cats { position: sticky; top: 0; z-index: 1; margin: 0 calc(-1 * var(--sp-5)); padding: var(--sp-2) var(--sp-5); background: var(--ground); }
+.menu .pill { font-size: var(--fs-m); padding: 0 var(--sp-4); min-height: var(--tap); display: inline-flex; align-items: center; }
+.menu .hint { font-size: var(--fs-xs); white-space: nowrap; flex: none; padding-left: var(--sp-3); }
 
 /* ---------- category pills + type hint ---------- */
-.cats { display: flex; align-items: center; gap: 8px; }
-.pill { padding: 10px 20px; border-radius: 980px; font-size: 15px; font-weight: 500; color: var(--ink-2); letter-spacing: -0.2px; min-height: 44px; }
+/* Every section always in sight: the bar never shrinks under a long menu, wraps onto a second line
+   instead of hiding sections off the edge. Only the Register's bar is sticky (.menu .cats): a sticky
+   bar elsewhere (the Menu screen) would show through that screen's sheets. */
+.cats { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 4px 0; background: var(--ground); }
+.pill { flex: none; white-space: nowrap; padding: 10px 20px; border-radius: 980px; font-size: 15px; font-weight: 500; color: var(--ink-2); letter-spacing: -0.2px; min-height: 44px; }
 .pill[aria-pressed='true'] { background: var(--pill-on); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); }
 .hint { margin-left: auto; font-size: 13px; color: var(--ink-3); letter-spacing: -0.1px; }
 
@@ -212,16 +258,38 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .typebar__bad { color: var(--bad); }
 
 /* ---------- menu grid ---------- */
-.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-content: start; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(150px, 17vw, 230px), 1fr)); gap: var(--sp-3); align-content: start; }
 .card--soldout { position: relative; opacity: 0.45; }
 .card__soldout { position: absolute; top: 14px; right: 14px; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
-.card { padding: 20px 20px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: 16px; }
+.card { padding: var(--sp-4); border-radius: var(--sp-4); background: var(--surface); box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: var(--sp-3); }
 .card__soldout { align-self: flex-end; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
-.card__title { text-align: left; display: flex; flex-direction: column; gap: 4px; min-height: 48px; }
-.card__name { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
+/* Menu photos (src/domain/menuPhotos.ts): a strip across the top of the tile, edge to edge; a blank where an item has none. */
+.card--photo { position: relative; overflow: hidden; }
+.card__photo { display: block; margin: calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4)) 0; height: 88px; padding: 0; border: 0; background: var(--chip); cursor: pointer; }
+.card__photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.card--soldout .card__photo img { filter: grayscale(1); }
+.card--photo .card__soldout { position: absolute; top: 10px; right: 10px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .card:not(.card--soldout) .card__photo img { filter: brightness(0.9); } }
+:root[data-theme='dark'] .card:not(.card--soldout) .card__photo img { filter: brightness(0.9); }
+/* An item's photo on its sheet: the same 4:3 picture the tiles crop. */
+.photo-slot__frame { width: min(100%, 320px); aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: var(--ground); border: 1.5px dashed var(--line);
+  display: flex; align-items: center; justify-content: center; transition: border-color 150ms var(--ease), opacity 150ms var(--ease); }
+.photo-slot__frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-slot__frame--over { border-color: var(--ink-3); }
+.photo-slot__frame--busy { opacity: 0.5; }
+.photo-slot__blank { padding: 0 24px; text-align: center; color: var(--ink-2); font-size: 14px; line-height: 1.4; }
+.photo-slot__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.photo-slot__actions .chip, .photo-slot__actions .linkbtn { min-height: 48px; }
+.menued__added { display: flex; align-items: center; gap: 16px; margin: 0; color: var(--ink-2); font-size: 15px; }
+.menued__added .linkbtn { align-self: center; }
+.card__title { text-align: left; display: flex; flex-direction: column; gap: var(--sp-1); min-height: var(--tap); }
+.card__name { font-size: var(--fs-b); font-weight: 500; letter-spacing: -0.3px; }
 .card__no { color: var(--ink-3); margin-right: 8px; }
-.card__desc { font-size: 12px; color: var(--ink-2); line-height: 1.4; letter-spacing: -0.1px; }
-.card__prices { display: flex; gap: 8px; }
+.card__desc { font-size: var(--fs-xs); color: var(--ink-2); line-height: 1.4; letter-spacing: -0.1px; }
+/* Prices sit on the card's bottom edge, so a row of cards lines up whatever the description's length;
+   centred text (the later `.price` for GRN lines makes it an inline-flex, which would left-align it). */
+.card__prices { display: flex; gap: var(--sp-2); margin-top: auto; }
+.card__prices .price { display: flex; align-items: center; justify-content: center; text-align: center; }
 /* Combo packs (SCRUM-231): a box's slots. Filled = always that dish; dashed = a choice. */
 .card__slots { display: flex; gap: 10px; }
 .slotg { position: relative; width: 40px; height: 40px; border-radius: 11px; background: var(--chip); display: inline-flex; align-items: center; justify-content: center; color: var(--ink); }
@@ -234,28 +302,30 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .box__saved { font-size: 13px; font-weight: 500; color: var(--ok-ink); }
 .box .line { padding: 6px 14px; border-radius: 12px; background: var(--surface); }
 .box .line__name { font-size: 15px; }
-.price { flex: 1; height: 48px; border-radius: 11px; background: var(--chip); font-size: 15px; font-weight: 500; letter-spacing: -0.2px; }
+.price { flex: 1; min-width: 0; height: var(--tap); padding: 0 var(--sp-1); border-radius: var(--sp-3); background: var(--chip); font-size: var(--fs-m); line-height: 1.15; font-weight: 500; letter-spacing: -0.2px; }
 .price:hover { filter: brightness(0.97); }
+.price--stack { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0 2px; }
+.price--stack span { font-size: var(--fs-xs); font-weight: 400; color: var(--ink-2); white-space: nowrap; }
 
 /* ---------- order panel ---------- */
-.panel { flex: 0 0 404px; width: 404px; display: flex; flex-direction: column; background: var(--panel); box-shadow: var(--panel-shadow);
+.panel { flex: 0 0 var(--panel-w); width: var(--panel-w); display: flex; flex-direction: column; background: var(--panel); box-shadow: var(--panel-shadow);
   position: relative; z-index: 1; transform-origin: 60% 50%;
   /* Removing .panel--managing plays this same spring in reverse: the card settles back flat. */
   transition: transform 240ms var(--spring), box-shadow 200ms var(--ease), border-radius 200ms var(--ease); }
 /* Manager unlock: the order card lifts off the flat layout, gains depth and a thin gold edge. */
 /* In dark mode shadows barely read on black, so the lifted card also steps up to the lighter surface. */
 .panel--managing { transform: translate(-10px, 0) scale(0.975); border-radius: 18px; box-shadow: var(--lift-shadow); background: var(--lift-bg); }
-.panel__no { padding: 22px 36px 0; min-height: 40px; display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--ink-3); }
+.panel__no { padding: var(--sp-4) var(--sp-5) 0; min-height: var(--sp-6); display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-xs); color: var(--ink-3); }
 .panel__keys { display: flex; gap: 4px; }
 .panel__no--manager { color: var(--ink); font-weight: 500; background: var(--chip); margin: 12px 24px 0; padding: 6px 12px 6px 14px; border-radius: 12px; }
 .panel__no--manager .panel__back { margin: 0; }
 .panel__back { min-height: 44px; margin: -12px -12px -12px 0; padding: 0 12px; border-radius: 10px; font-size: 14px; font-weight: 500; color: var(--ink-2); }
-.panel__lines { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 36px 0; display: flex; flex-direction: column; gap: 24px; }
-.line { text-align: left; display: flex; gap: 18px; align-items: baseline; min-height: 48px; }
+.panel__lines { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-4) var(--sp-5) 0; display: flex; flex-direction: column; gap: var(--sp-4); }
+.line { text-align: left; display: flex; gap: var(--sp-4); align-items: baseline; min-height: var(--tap); }
 .line__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.line__name { font-size: 16px; font-weight: 500; letter-spacing: -0.3px; }
-.line__sub { font-size: 14px; color: var(--ink-2); line-height: 1.5; letter-spacing: -0.1px; }
-.line__price { font-size: 16px; letter-spacing: -0.2px; }
+.line__name { font-size: var(--fs-b); font-weight: 500; letter-spacing: -0.3px; }
+.line__sub { font-size: var(--fs-s); color: var(--ink-2); line-height: 1.5; letter-spacing: -0.1px; }
+.line__price { font-size: var(--fs-b); letter-spacing: -0.2px; }
 /* Sent to the kitchen: locked, so it reads quieter than lines still being taken. */
 .line--sent .line__name, .line--sent .line__price { color: var(--ink-2); }
 .line--sent .line__sub { color: var(--ink-3); }
@@ -284,15 +354,16 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .status--queued { border: 1px solid var(--line); color: var(--ink-2); padding: 3px 9px; }
 .status--done { border: 1px solid var(--line); color: var(--ok-ink); padding: 3px 9px; }
 .status--done::before { content: '✓ '; }
-.panel__foot { padding: 28px 36px 36px; display: flex; flex-direction: column; gap: 20px; }
-.total { font-size: 46px; font-weight: 500; letter-spacing: -2px; line-height: 1; }
+.panel__foot { padding: var(--sp-4) var(--sp-5) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
+.total { font-size: var(--fs-2xl); font-weight: 500; letter-spacing: -2px; line-height: 1; }
 .cta { width: 100%; height: 72px; border-radius: 14px; background: var(--primary); color: var(--on-primary); font-size: 18px; font-weight: 500; letter-spacing: -0.3px; }
 .cta:disabled { opacity: 0.28; }
 .cta--danger { background: var(--bad); color: #fff; }
-.empty { margin: auto 0; display: flex; flex-direction: column; gap: 8px; color: var(--ink-3); font-size: 15px; line-height: 1.5; letter-spacing: -0.2px; }
+.panel__foot .cta { height: var(--cta-h); font-size: var(--fs-l); }
+.empty { margin: auto 0; display: flex; flex-direction: column; gap: var(--sp-2); color: var(--ink-3); font-size: var(--fs-m); line-height: 1.5; letter-spacing: -0.2px; }
 .empty b { color: var(--ink-2); font-weight: 500; }
 
-.paid { flex: 1; padding: 22px 36px 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; animation: rise 220ms var(--ease); }
+.paid { flex: 1; padding: var(--sp-4) var(--sp-5) 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; animation: rise 220ms var(--ease); }
 .paid__label { font-size: 15px; color: var(--ink-2); }
 .paid__big { font-size: 64px; font-weight: 500; letter-spacing: -3px; line-height: 1; }
 .paid__sub { font-size: 14px; color: var(--ink-3); }
@@ -310,9 +381,9 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 /* ---------- sheets ---------- */
 .scrim { position: fixed; inset: 0; background: var(--scrim); animation: fade 160ms linear; }
 .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 86dvh; display: flex; flex-direction: column; background: var(--surface); border-radius: 22px 22px 0 0; box-shadow: var(--sheet-shadow); animation: sheet-in 240ms var(--ease); }
-/* On the Register a sheet takes the menu's side only and stops at the order panel (404px),
+/* On the Register a sheet takes the menu's side only and stops at the order panel (--panel-w),
    so nothing slides under the panel and the order stays in view beside the extras. */
-.register .scrim, .register .sheet { right: 404px; z-index: 2; }
+.register .scrim, .register .sheet { right: var(--panel-w); z-index: 2; }
 .sheet__body { flex: 1; min-height: 0; overflow-y: auto; padding: 44px 80px 0; display: flex; flex-direction: column; gap: 34px; }
 .sheet__title { display: flex; align-items: baseline; gap: 16px; }
 .sheet__title h1 { margin: 0; font-size: 30px; font-weight: 500; letter-spacing: -1px; }
@@ -331,7 +402,47 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .stepper button { width: 56px; height: 56px; border-radius: 50%; background: var(--chip); font-size: 24px; }
 .stepper span { min-width: 44px; text-align: center; font-size: 20px; font-weight: 500; }
 .sheet__foot .cta { flex: 1; width: auto; }
-.pay-total { font-size: 46px; font-weight: 500; letter-spacing: -2px; line-height: 1; }
+/* ---------- Charge, inside the order panel (PayPanel) ---------- */
+/* The menu stays live behind it, only quieter: a tap adds the item and brings the order back. */
+.register--paying .menu { opacity: 0.5; transition: opacity 200ms var(--ease); }
+.pay { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: fade 180ms var(--ease); }
+.pay__body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3) var(--sp-5) 0; }
+/* The order on top, the free room in the middle, the controls down by the total: Other amount, cash, then Bank/Card/QR. */
+.pay__controls { margin-top: auto; display: flex; flex-direction: column; gap: var(--sp-3); }
+.status--paying { background: var(--chip); color: var(--ink-2); }
+.paylines { flex: 0 1 auto; min-height: 48px; overflow-y: auto; list-style: none; margin: 0; padding: 0 0 var(--sp-3); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--sp-2); }
+.paylines li { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-m); }
+.paylines__name { min-width: 0; }
+.paylines small { margin-left: 8px; font-size: var(--fs-xs); color: var(--ink-2); }
+.paylines__off { color: var(--ink-2); }
+.pay__summary { padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line); font-size: var(--fs-s); color: var(--ink-2); }
+/* Two to four amounts, always one row. */
+.pay__quick { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: var(--sp-2); }
+.pay__other, .pay__pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); }
+.pay__pad { animation: rise 180ms var(--ease); }
+.paykey { min-height: var(--tap); padding: 0 6px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 20px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+.pay__pad .paykey { min-height: clamp(46px, 7vh, 56px); }
+.paykey--solid { background: var(--chip); box-shadow: none; font-size: var(--fs-b); }
+.paykey kbd { font: inherit; font-size: 11px; font-weight: 500; color: var(--ink-3); }
+.payfield { display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 6px 0 16px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.payfield:focus-within, .payfield--on { box-shadow: inset 0 0 0 2px var(--ink); }
+.payfield__input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; outline: none; font: inherit; font-size: 20px; font-weight: 500; color: var(--ink); }
+.payfield__input::placeholder { color: var(--ink-3); font-size: 16px; font-weight: 400; }
+.payfield__toggle { height: 40px; padding: 0 12px; border-radius: 9px; background: var(--chip); color: var(--ink-2); font-size: 13px; font-weight: 500; }
+/* Customers (CRM): the optional Mobile, the same field with its name in front; who it is under it. */
+.paymobile { display: flex; flex-direction: column; gap: 4px; }
+.payfield__label { flex: none; font-size: var(--fs-s); font-weight: 500; color: var(--ink-2); }
+.payfield__optional { font-weight: 400; color: var(--ink-3); }
+.paymobile__who { padding: 0 4px; font-size: var(--fs-s); color: var(--ink-2); }
+.paymobile__who--known { color: var(--ok-ink); font-weight: 500; }
+/* The bottom never moves: the amount to read, then the one button, where Charge was. */
+.pay .panel__foot { margin-top: auto; gap: var(--sp-3); }
+.payfoot__note { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: var(--fs-m); color: var(--ink-2); }
+.payfoot__note b { font-size: var(--fs-2xl); font-weight: 500; letter-spacing: -2px; line-height: 1; color: var(--ink); }
+.payfoot__note--change, .payfoot__note--change b { color: var(--ok-ink); }
+.payfoot__note--short, .payfoot__note--short b { color: var(--bad); }
+.payfoot__sub { display: flex; justify-content: space-between; margin-top: calc(-1 * var(--sp-2)); font-size: var(--fs-s); color: var(--ink-2); }
 
 /* ---------- toast ---------- */
 .toast { position: fixed; left: 40px; bottom: 28px; display: flex; align-items: center; gap: 18px; padding: 8px 8px 8px 22px; min-height: 52px; border-radius: 980px; background: var(--primary); color: var(--on-primary); font-size: 15px; font-weight: 500; letter-spacing: -0.2px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); animation: rise 200ms var(--ease); z-index: 5; }
@@ -669,12 +780,44 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 
 /* ---------- smaller tablets / phones in landscape ---------- */
 @media (max-width: 1000px) {
-  .register__head, .menu { padding-left: 24px; padding-right: 24px; }
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .panel { flex-basis: 340px; width: 340px; }
-  .panel__no, .panel__lines, .panel__foot, .paid, .panel__stamp, .discounts { padding-left: 24px; padding-right: 24px; }
   .sheet__body, .sheet__foot { padding-left: 28px; padding-right: 28px; }
   .toast { left: 24px; }
+}
+
+/* ---------- a small, nearly square counter screen (1024x768, often at 125%) ----------
+   More of the menu, less of everything else: a slimmer order panel, one-line cards, no help text. */
+@media (max-width: 1180px), (max-height: 820px) {
+  .register { --panel-w: 300px; }
+  .register__head { flex-basis: 52px; padding: 0 20px; }
+  .corner { position: relative; }
+  .corner__more { display: inline-flex; }
+  .corner__rest { display: none; }
+  .corner__rest--open { display: flex; flex-direction: column; align-items: stretch; position: absolute; top: calc(100% + 4px); right: 0; z-index: 6;
+    min-width: 220px; padding: 6px; border-radius: 16px; background: var(--surface); box-shadow: var(--sheet-shadow); animation: rise 150ms var(--ease); }
+  .corner__rest--open .corner__key, .corner__rest--open .cashier { justify-content: flex-start; color: var(--ink); }
+  .corner__rest--open .cashier { min-height: 48px; display: flex; align-items: center; padding: 0 12px; }
+  .menu { padding: 0 20px 20px; gap: 12px; }
+  .menu .cats { margin: 0 -20px; padding-left: 20px; padding-right: 20px; } /* the bar's bleed matches the gutter: no sideways scroll */
+  .pill { padding: 0 14px; font-size: 14px; }
+  .hint { display: none; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .card { padding: 12px; gap: 10px; border-radius: 14px; }
+  .card__photo { margin: -12px -12px 0; height: 72px; }
+  .card__title { min-height: 0; gap: 2px; }
+  .card__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
+  .card__desc { display: none; }
+  .card__prices { gap: 6px; }
+  /* A price chip is never narrower than its words: the longer one takes the extra room. */
+  .price { flex: 1 0 auto; padding: 0 8px; white-space: nowrap; font-size: 14px; }
+  .panel__no, .panel__lines, .paid, .panel__stamp, .discounts { padding-left: 20px; padding-right: 20px; }
+  .panel__lines { padding-top: 16px; gap: 18px; }
+  .panel__foot { padding: 20px; gap: 14px; }
+  .total { font-size: 38px; }
+  .cta { height: 64px; }
+  .empty span { display: none; } /* the typing example: typing shows its own preview */
+  .sheet__body, .sheet__foot { padding-left: 24px; padding-right: 24px; }
+  .sheet__body { padding-top: 28px; gap: 24px; }
+  .toast { left: 20px; }
 }
 
 @media (max-width: 1000px) {
@@ -689,19 +832,23 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 }
 
 /* ---------- phones (portrait): order stacks under the menu ---------- */
-@media (max-width: 700px) {
+/* Above this the order stays beside the menu and everything scales down instead. */
+@media (max-width: 560px) {
+  .register { --panel-w: 0px; }
   .register .scrim, .register .sheet { right: 0; } /* the panel is under the menu here: full width, on top */
   .register__body { flex-direction: column; }
-  .register__head, .menu { padding-left: 16px; padding-right: 16px; }
-  .menu { flex: 1 1 50%; padding-bottom: 16px; gap: 16px; }
-  .grid { grid-template-columns: minmax(0, 1fr); }
+  .menu { flex: 1 1 50%; }
   .hint { display: none; }
-  .cats { overflow-x: auto; }
+  .cats { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .panel { flex: 0 0 auto; width: 100%; max-height: 46%; box-shadow: 0 -1px 0 rgba(127, 127, 127, 0.2); }
   .panel__no, .panel__lines, .panel__foot, .paid, .panel__stamp, .discounts { padding-left: 16px; padding-right: 16px; }
   .panel__foot { padding-top: 14px; padding-bottom: 16px; gap: 12px; flex-direction: row; align-items: center; }
   .total { font-size: 34px; }
   .cta { height: 60px; }
+  /* Paying needs the room: the panel takes most of the screen, the menu stays above it. */
+  .panel--paying { max-height: 82%; }
+  .pay__body { padding-left: 16px; padding-right: 16px; }
+  .pay .panel__foot { flex-direction: column; align-items: stretch; }
   .sheet__body, .sheet__foot { padding-left: 16px; padding-right: 16px; }
   .sheet__body { padding-top: 28px; gap: 24px; }
   .toast { left: 16px; right: 16px; bottom: 16px; justify-content: space-between; }
@@ -1988,3 +2135,111 @@ button.glance__card:disabled { cursor: default; }
 .comboed__bar--keep { background: var(--ok); }
 .comboed__keep { margin: 4px 0 0; font-size: 22px; font-weight: 600; letter-spacing: -0.5px; color: var(--ok-ink); }
 .comboed__keep--loss { color: var(--bad); }
+
+/* ---------- Customers (CRM, src/ui/customers/) ----------
+   The owner's or a manager's question: who are my customers, and who stopped coming? The numbers first
+   (tiles), then the list to narrow and open. Same cards, pills and primary button as the other Owner pages. */
+.crm__pad { display: flex; flex-direction: column; gap: 20px; max-width: 1180px; padding: 8px 40px 48px; }
+.crm__pad > .inv-page__primary { align-self: flex-start; }
+.crm__pad > .inv-notice { margin: 0; }
+.crm__lead { margin: 0; max-width: 64ch; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+.crm__lead a, .crm__top a, .crm-list a, .crm-profile a { color: var(--ink); font-weight: 500; text-decoration: none; }
+.crm__lead a:hover, .crm__top a:hover, .crm-list a:hover, .crm-profile a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.crm__muted { color: var(--ink-3); font-weight: 400; }
+.crm__hint { margin: 0; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+.crm__count { margin: -8px 0 0; font-size: 13px; }
+.crm__line { display: inline-block; width: 220px; height: 1em; border-radius: 6px; vertical-align: middle; }
+.inv-page__head a.pill { display: inline-flex; align-items: center; text-decoration: none; }
+
+/* The numbers at the top: one card each, the number large, what it counts small under it. */
+.crm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.crm-tiles li { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-tiles b { font-size: 28px; font-weight: 600; letter-spacing: -0.6px; line-height: 1.1; color: var(--ink); }
+.crm-tiles span { font-size: 13px; color: var(--ink-2); }
+.crm__top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 0; font-size: 15px; color: var(--ink-2); }
+.crm__top .num { color: var(--ink-3); }
+
+/* Segment pills on the left, search on the right; they wrap on a narrow screen. */
+.crm-filter { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.crm-filter .cats { background: none; }
+.crm-filter__n { margin-left: 6px; color: var(--ink-3); font-weight: 400; }
+.pill[aria-pressed='true'] .crm-filter__n { color: var(--ink-2); }
+.crm-filter__search { width: min(320px, 100%); height: 48px; padding: 0 20px; border: 1px solid var(--line); border-radius: 980px; background: var(--surface); font: inherit; font-size: 15px; color: var(--ink); }
+.crm-filter__search::placeholder { color: var(--ink-3); }
+.crm-filter__search:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+/* Add customer, opened: one card, the two fields and their buttons on a line. */
+.crm-add { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1.4fr) auto auto; align-items: end; gap: 12px 16px; padding: 18px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-add .setup__field input { height: 48px; font-size: 16px; }
+.crm-add .linkbtn { align-self: end; }
+.crm-add .setup__error { grid-column: 1 / -1; }
+
+/* Lists (customers, what one bought, campaigns sent, an import's rows): a card, quiet rules, numbers on the right. */
+.crm-list, .crm-import__rows { width: 100%; border-collapse: separate; border-spacing: 0; overflow: hidden; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); font-size: 15px; }
+.crm-list th, .crm-import__rows th { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; text-align: left; color: var(--ink-3); white-space: nowrap; }
+.crm-list td, .crm-import__rows td { padding: 14px 16px; border-top: 1px solid var(--line); vertical-align: middle; color: var(--ink); }
+.crm-list tbody tr:first-child td, .crm-import__rows tbody tr:first-child td { border-top: 0; }
+.crm-list tbody tr:hover td { background: var(--chip); }
+.crm-list .crm-list__n { text-align: right; white-space: nowrap; }
+.crm-list td.num { white-space: nowrap; }
+
+/* A customer's segment: the same small pill everywhere; VIP stands out, Inactive goes quiet. */
+.crm-seg { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 980px; background: var(--chip); font-size: 12px; font-weight: 600; letter-spacing: 0.1px; color: var(--ink); white-space: nowrap; }
+.crm-seg--new { color: var(--ok-ink); }
+.crm-seg--vip { background: var(--primary); color: var(--on-primary); }
+.crm-seg--inactive { color: var(--ink-3); }
+
+/* One customer. */
+.crm-profile { display: flex; flex-direction: column; gap: 20px; }
+.crm-profile > p { margin: 0; }
+.crm-profile__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.crm-profile__head h2 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.6px; }
+.crm-profile__head p { margin: 4px 0 0; }
+.crm-profile__phone { font-size: 18px; color: var(--ink-2); }
+.crm-profile h3 { margin: 8px 0 0; font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+.crm-profile__messages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 16px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-profile__messages p { margin: 0; font-size: 15px; color: var(--ink-2); }
+.crm-profile__messages .setup__error { flex-basis: 100%; }
+.crm-profile__remove { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; font-size: 13px; }
+.crm-danger { color: var(--bad); font-weight: 600; }
+
+/* Import and Campaigns: each step a card. */
+.crm-import { display: flex; flex-direction: column; gap: 14px; padding: 20px 24px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-import h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+.crm-import > p { margin: 0; }
+.crm-import .crm-list, .crm-import .crm-import__rows { border: 1px solid var(--line); box-shadow: none; }
+.crm-import__pick { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.crm-import__file { font-size: 15px; color: var(--ink-2); }
+.crm-import__counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.crm-import__counts li { padding: 8px 14px; border-radius: 980px; background: var(--chip); font-size: 14px; color: var(--ink-2); }
+.crm-import__counts b { color: var(--ink); }
+.crm-import__bad, .crm-import__counts li.crm-import__bad, .crm-import__counts li.crm-import__bad b { color: var(--bad); }
+.crm-import__rename { display: flex; align-items: center; gap: 10px; min-height: 48px; font-size: 15px; color: var(--ink-2); }
+.crm-import__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.crm-import__skeleton { height: 160px; border-radius: 16px; }
+.crm-import .setup__field input { height: 48px; font-size: 16px; }
+.crm-text { width: 100%; padding: 14px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font: inherit; font-size: 16px; line-height: 1.45; color: var(--ink); resize: vertical; }
+.crm-text:focus { outline: 2px solid var(--ink); outline-offset: 1px; }
+.crm-reach { margin: 0; font-size: 15px; color: var(--ink-2); }
+.crm-wrap { flex-wrap: wrap; background: none; }
+.crm-test { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.crm-test input { width: 180px; height: 48px; padding: 0 16px; border: 1px solid var(--line); border-radius: 980px; background: var(--surface); font: inherit; font-size: 15px; color: var(--ink); }
+.crm-test .chip { min-height: 48px; padding: 0 18px; }
+/* Fields inside a card sit a step down from it (in dark mode card and field would be one colour). */
+.crm-add .setup__field input, .crm-import .setup__field input, .crm-import .crm-text, .crm-test input { background: var(--ground); }
+/* A button that cannot be pressed yet looks it (nothing to send, nothing to save). */
+.crm__pad .inv-page__primary:disabled, .crm__pad .chip:disabled { opacity: 0.35; cursor: default; }
+.crm__pad .inv-page__primary:disabled:active { transform: none; }
+/* A customer's own tiles hold dates: a size that keeps "14 Nov 2026" on one line. */
+.crm-profile .crm-tiles b { font-size: 22px; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .crm__pad { gap: 16px; padding: 8px 16px 32px; }
+  .crm-tiles { grid-template-columns: repeat(2, 1fr); }
+  .crm-tiles b { font-size: 24px; }
+  .crm-add { grid-template-columns: 1fr; }
+  .crm-filter .cats, .crm-import .cats { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; overflow: visible; }
+  .crm-filter__search { width: 100%; }
+  .crm-list, .crm-import__rows { display: block; overflow-x: auto; }
+  .crm-test { margin-left: 0; }
+}

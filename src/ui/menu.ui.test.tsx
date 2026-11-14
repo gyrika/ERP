@@ -107,7 +107,8 @@ test('the owner adds a pasta and writes its recipe later: names stay unique, eve
   await user.keyboard('{Escape}');
   await user.click(screen.getByRole('button', { name: 'Pasta' }));
   const card = within(screen.getByText('Chicken Alfredo').closest('.card') as HTMLElement);
-  expect(card.getByRole('button', { name: 'from 1100' })).toBeTruthy();
+  // Up to three sizes: a button each, the size small above its price.
+  for (const name of ['S 1100', 'M 2100', 'L 2900']) expect(card.getByRole('button', { name })).toBeTruthy();
 });
 
 test('a dish in one flow: name, what goes in it (from a similar dish, no PIN), then the price with its margin; one Undo takes it all back', async () => {

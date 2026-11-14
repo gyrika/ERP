@@ -17,7 +17,10 @@ const readUpdated = (): string | null => {
   try { const v = sessionStorage.getItem(UPDATED); sessionStorage.removeItem(UPDATED); return v; } catch { return null; }
 };
 
-export function UpdateScreen({ reload = () => location.reload(), idleMs = LOOK_IDLE_MS, activeMs = LOOK_ACTIVE_MS }: {
+/** One function for every render: a new one each time would restart the health check at once, in a loop. */
+const reloadPage = () => location.reload();
+
+export function UpdateScreen({ reload = reloadPage, idleMs = LOOK_IDLE_MS, activeMs = LOOK_ACTIVE_MS }: {
   reload?: () => void; idleMs?: number; activeMs?: number;
 }) {
   const [state, setState] = useState<CounterUpdate>({ kind: 'none' });

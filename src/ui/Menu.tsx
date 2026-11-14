@@ -2,6 +2,7 @@ import { comboBlocked, usualPick } from '../domain/combos.ts';
 import { CATEGORIES, POPULAR_IDS, comboEntries, menuItems } from '../domain/menu.ts';
 import { fmtPlain } from '../domain/money.ts';
 import type { Category, Combo, MenuItem, SizeId } from '../domain/types.ts';
+import { photoUrl, shopHasPhotos } from '../services/menuPhotos.ts';
 import { useMenu } from './menuStore.ts';
 
 export type CategoryId = (typeof CATEGORIES)[number]['id'] | 'combos';
@@ -27,6 +28,12 @@ const visible = (c: CategoryId): MenuItem[] =>
 
 /** Combos on offer, in the order they were made. */
 export const offeredCombos = (): { id: string; combo: Combo }[] => comboEntries().filter(({ combo }) => !combo.hidden);
+
+/** The section bar's tabs in order: Alt+1 … Alt+9 pick them. Combos only once the shop has one: no empty tabs. */
+export const menuTabs = (): CategoryId[] => [...CATEGORIES.map((c) => c.id), ...(offeredCombos().length ? ['combos' as const] : [])];
+
+/** Up to this many sizes get a price button each on the card; more open the item. */
+const BUTTONS = 3;
 
 const ICON: Record<Category, string> = {
   pizza: 'M12 21L3.5 6.6a14 14 0 0 1 17 0Z',
@@ -62,11 +69,20 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
   const tabs = combos.length ? [...CATEGORIES, { id: 'combos' as const, label: 'Combos' }] : CATEGORIES;
   const showing = category === 'combos' && !combos.length ? 'popular' : category;
   const items = menuItems();
+  // Photos on the tiles once the shop has any; an item without one keeps a blank, so the grid stays even.
+  const photos = shopHasPhotos();
+  /** A tap on the photo: the first size, or the item's only price; more sizes than buttons open the item. */
+  const photoTap = (item: MenuItem) => {
+    if (item.variants && item.variants.length <= BUTTONS && item.variants[0]) onQuickAdd(item, item.variants[0].id);
+    else if (!item.variants) onQuickAdd(item);
+    else onCustomise(item);
+  };
   return (
     <>
       <nav className="cats" aria-label="Menu">
-        {tabs.map((c) => (
-          <button key={c.id} type="button" className="pill" aria-pressed={showing === c.id} onClick={() => onCategory(c.id)}>
+        {tabs.map((c, i) => (
+          <button key={c.id} type="button" className="pill" aria-pressed={showing === c.id} onClick={() => onCategory(c.id)}
+            title={i < 9 ? `Alt+${i + 1}` : undefined}>
             {c.label}
           </button>
         ))}
@@ -106,7 +122,13 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
       ) : (
         <div className="grid">
           {visible(showing).map((item) => (
-            <div key={item.id} className={`card${item.soldOut ? ' card--soldout' : ''}`}>
+            <div key={item.id} className={`card${photos ? ' card--photo' : ''}${item.soldOut ? ' card--soldout' : ''}`}>
+              {photos && (
+                // The same as the price buttons below, for the hand: no second stop for the keyboard.
+                <button type="button" className="card__photo" tabIndex={-1} aria-hidden="true" disabled={item.soldOut} onClick={() => photoTap(item)}>
+                  {photoUrl(item.id) && <img src={photoUrl(item.id)!} alt="" loading="lazy" decoding="async" draggable={false} />}
+                </button>
+              )}
               {item.soldOut && <span className="card__soldout">Sold out</span>}
               <button type="button" className="card__title" disabled={item.soldOut} onClick={() => onCustomise(item)}>
                 <span className="card__name">
@@ -116,10 +138,11 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
                 <span className="card__desc">{item.description}</span>
               </button>
               <div className="card__prices">
-                {item.variants && item.variants.length === 2 ? (
+                {item.variants && item.variants.length >= 1 && item.variants.length <= BUTTONS ? (
                   item.variants.map((v) => (
-                    <button key={v.id} type="button" className="price num" disabled={item.soldOut} onClick={() => onQuickAdd(item, v.id)}>
-                      {v.id} {fmtPlain(v.price)}
+                    // Three to a card: the size small above its price, so it fits a narrow tile.
+                    <button key={v.id} type="button" className={`price num${item.variants!.length === 3 ? ' price--stack' : ''}`} disabled={item.soldOut} onClick={() => onQuickAdd(item, v.id)}>
+                      {item.variants!.length === 3 ? <><span>{v.id}</span> {fmtPlain(v.price)}</> : <>{v.id} {fmtPlain(v.price)}</>}
                     </button>
                   ))
                 ) : item.variants ? (

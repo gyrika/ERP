@@ -17,9 +17,8 @@ import { KitchenChip } from './KitchenChip.tsx';
 import { OnlineChip, OnlineSheet, useOnline } from './Online.tsx';
 import { onlineOrders } from '../services/onlineClient.ts';
 import type { OnlineOrder } from '../domain/online.ts';
-import { Menu, type CategoryId } from './Menu.tsx';
+import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, type ManagePanel } from './OrderPanel.tsx';
-import { PaySheet } from './PaySheet.tsx';
 import { crmReachable } from '../services/crmClient.ts';
 import { modulesHere } from './eventLog.ts';
 import { PinSheet } from './PinSheet.tsx';
@@ -115,8 +114,8 @@ export function App({
     void printReceipt(paid, currentCashier().name, { reprint }).then((r) =>
       setPrinting((p) => (p?.number === paid.number ? { number: paid.number, state: r === 'printed' ? 'printed' : 'failed' } : p)));
   }, []);
-  const pay = useCallback((tender: Tender, tendered: number, customerId?: string) => {
-    const paid = reg.pay(tender, tendered, customerId);
+  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
+    const paid = reg.pay(tender, tendered, customerId, unlinked);
     // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
     if (paid && !isPlatformId(tender)) print(paid);
   }, [reg, print]);
@@ -130,6 +129,16 @@ export function App({
   const [pendingVoid, setPendingVoid] = useState<string | null>(null);
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
+  // A small counter screen folds the corner's keys behind one "More" key (CSS shows it only there).
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    if (!more) return;
+    const away = (e: PointerEvent) => { if (!(e.target as Element).closest('.corner')) setMore(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMore(false); };
+    document.addEventListener('pointerdown', away);
+    window.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away); window.removeEventListener('keydown', esc); };
+  }, [more]);
   const [sound, setSound] = useState(soundOn);
   /** The last waste or money out, for its Undo (toast and Ctrl+Z) while the toast shows. */
   const [noted, setNoted] = useState<{ id: number; message: string; undo: () => void } | null>(null);
@@ -241,6 +250,12 @@ export function App({
         if (hasNew) reg.send(); else if (canCharge) setSheet({ kind: 'pay' });
         return;
       }
+      // Alt+1 … Alt+9: the menu's tabs in their order (digits alone start typing an order).
+      if (e.altKey && !mod && /^[1-9]$/.test(e.key) && !sheet) {
+        const id = menuTabs()[Number(e.key) - 1];
+        if (id) { e.preventDefault(); setCategory(id); }
+        return;
+      }
       if (sheet || typed !== null || mod || e.altKey || isTypingTarget(e.target)) return;
       if (e.key === 'Escape' && canCharge) { reg.startNew(); return; }
       if (e.key.length === 1 && /[a-z0-9]/i.test(e.key)) { e.preventDefault(); setTyped(e.key); }
@@ -258,7 +273,13 @@ export function App({
     reg.startNew();
   };
 
+  // Paying, and the order has nothing left on it (an Undo took the last line): back to the order.
+  const paying = sheet?.kind === 'pay';
+  useEffect(() => { if (paying && listing) setSheet(null); }, [paying, listing]);
+
   const quickAdd = (item: MenuItem, size?: SizeId) => {
+    // The menu stays live while paying: the customer remembered a drink, so it goes on and the order is back.
+    if (paying) setSheet(null);
     const label = item.variants?.find((v) => v.id === size)?.label;
     reg.addSpec(bareLine(item.id, size), `Added ${item.name.en}${label ? ` · ${label}` : ''}`);
   };
@@ -267,6 +288,7 @@ export function App({
   const addCombo = (comboId: string) => {
     const combo = comboById(comboId);
     const specs = combo && boxLines(comboId, combo, menuItems());
+    if (paying) setSheet(null);
     if (combo && specs) reg.addSpecs(specs, `Added ${combo.name.en}`);
   };
 
@@ -329,7 +351,7 @@ export function App({
   }, [manager, listing, reg, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit, fleet]);
 
   return (
-    <div className={`register${manager ? ' register--managing' : ''}`} onClick={onBackground}>
+    <div className={`register${manager ? ' register--managing' : ''}${paying ? ' register--paying' : ''}`} onClick={onBackground}>
       <header className="register__head">
         <span className="brand">CheesyBeez</span>
         {manager ? (
@@ -345,32 +367,38 @@ export function App({
         ) : (
           <span className="corner">
             <OnlineChip state={online} looking={sheet?.kind === 'online'} onOpen={() => setSheet({ kind: 'online' })} />
-            {PLATFORMS.map((p, i) => (
-              <button key={p.id} type="button" className="corner__key" onClick={() => setSheet({ kind: 'platform', platform: p })}>
-                {p.name}{i === 0 && <kbd>F8</kbd>}
-              </button>
-            ))}
             {onTables && <Suspense fallback={null}><TablesChip onOpen={onTables} /></Suspense>}
             {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
-            {onVoice && (
-              <button type="button" className="corner__key" aria-label="Hold and say which page to open"
-                onPointerDown={(e) => { e.preventDefault(); onVoice.start(); }} onPointerUp={onVoice.stop} onPointerLeave={onVoice.stop}>
-                <MicIcon /> Voice <kbd>F9</kbd>
-              </button>
-            )}
-            <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'receive' })}>Receive <kbd>F7</kbd></button>
-            <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out <kbd>F6</kbd></button>
-            {/* The owner and managers see their own screen without any shortcut. */}
-            {onOwner && <button type="button" className="corner__key" onClick={onOwner}>Owner view <kbd>F3</kbd></button>}
-            {onSwitch
-              ? (
-                <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>
-                  {currentCashier().name} <kbd>F4</kbd>
+            <span className={`corner__rest${more ? ' corner__rest--open' : ''}`} id="corner-rest" onClick={() => setMore(false)}>
+              {PLATFORMS.map((p, i) => (
+                <button key={p.id} type="button" className="corner__key" onClick={() => setSheet({ kind: 'platform', platform: p })}>
+                  {p.name}{i === 0 && <kbd>F8</kbd>}
                 </button>
-              )
-              : <span className="cashier">{currentCashier().name}</span>}
-            <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
+              ))}
+              {onVoice && (
+                <button type="button" className="corner__key" aria-label="Hold and say which page to open"
+                  onPointerDown={(e) => { e.preventDefault(); onVoice.start(); }} onPointerUp={onVoice.stop} onPointerLeave={onVoice.stop}>
+                  <MicIcon /> Voice <kbd>F9</kbd>
+                </button>
+              )}
+              <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'receive' })}>Receive <kbd>F7</kbd></button>
+              <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out <kbd>F6</kbd></button>
+              {/* The owner and managers see their own screen without any shortcut. */}
+              {onOwner && <button type="button" className="corner__key" onClick={onOwner}>Owner view <kbd>F3</kbd></button>}
+              {onSwitch
+                ? (
+                  <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>
+                    {currentCashier().name} <kbd>F4</kbd>
+                  </button>
+                )
+                : <span className="cashier">{currentCashier().name}</span>}
+              <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
+            </span>
+            <button type="button" className="corner__more" aria-label="More" aria-expanded={more} aria-controls="corner-rest"
+              onClick={() => setMore(!more)}>
+              <span aria-hidden="true">•••</span>
+            </button>
           </span>
         )}
       </header>
@@ -413,6 +441,11 @@ export function App({
           onOpen={reg.openOrder}
           onNext={reg.startNew}
           onUndo={reg.undo}
+          paying={paying ? {
+            onPay: (tender, tendered, customerId, unlinked) => { pay(tender, tendered, customerId, unlinked); closeSheet(); },
+            onClose: closeSheet,
+            customers: modulesHere().crm && crmReachable(),
+          } : null}
         />
       </div>
 
@@ -452,9 +485,6 @@ export function App({
             closeSheet();
           }}
         />
-      )}
-      {sheet?.kind === 'pay' && (
-        <PaySheet total={total} onClose={closeSheet} customers={modulesHere().crm && crmReachable()} onPay={(tender, tendered, customerId) => { pay(tender, tendered, customerId); closeSheet(); }} />
       )}
       {sheet?.kind === 'online' && <OnlineSheet state={online} onAccept={acceptOnline} onOut={outOnline} onClose={closeSheet} />}
       {sheet?.kind === 'pin' && (

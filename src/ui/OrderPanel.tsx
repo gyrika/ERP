@@ -11,6 +11,7 @@ import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../do
 import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 import { boxesIn, opensBox } from '../domain/combos.ts';
+import { PayPanel } from './PayPanel.tsx';
 
 const sub = (l: OrderLine): string => {
   const item = itemById(l.itemId);
@@ -94,6 +95,49 @@ interface Props {
   printState?: 'printing' | 'printed' | 'failed' | null;
   /** Prints a COPY, without opening the drawer. Absent when this device does not print. */
   onReprint?: () => void;
+  /** Present while Charge is open: the panel becomes the payment, in place of a sheet. */
+  paying?: {
+    onPay: (tender: Tender, tendered: Cents, customerId?: string, unlinked?: boolean) => void;
+    onClose: () => void;
+    /** Customers (CRM) is on and reachable: the optional Mobile field. */
+    customers?: boolean;
+  } | null;
+}
+
+/** The order while paying: one quiet line per item (a combo box as one), to check before the money changes hands. */
+function PayLines({ order }: { order: Order }) {
+  const t = totals(order);
+  const discount = order.adjust?.discount;
+  const boxes = boxesIn(order.lines);
+  return (
+    <ul className="paylines num" aria-label="Order">
+      {order.lines.map((l, i) => {
+        if (l.box) {
+          if (!opensBox(order.lines, i)) return null;
+          const box = boxes.get(l.box.id)!;
+          return (
+            <li key={`box-${box.id}`}>
+              <span className="paylines__name">{box.name}<small>{box.lines.map(lineItemName).join(' · ')}</small></span>
+              <span>{fmt(box.lines.reduce((n, x) => n + lineNet(order, x), 0))}</span>
+            </li>
+          );
+        }
+        return (
+          <li key={l.id}>
+            <span className="paylines__name">
+              {l.qty > 1 ? `${l.qty} × ` : ''}{lineItemName(l)}
+              {sub(l) && <small>{sub(l)}</small>}
+            </span>
+            <span>{fmt(lineNet(order, l))}</span>
+          </li>
+        );
+      })}
+      {t.orderDiscount > 0 && discount && (
+        <li className="paylines__off"><span>{discountLabel(discount)}</span><span>−{fmt(t.orderDiscount)}</span></li>
+      )}
+      {t.deliveryFee > 0 && <li className="paylines__off"><span>Delivery</span><span>+{fmt(t.deliveryFee)}</span></li>}
+    </ul>
+  );
 }
 
 function VoidReasons({ lineId, onVoid }: { lineId: string; onVoid: ManagePanel['onVoid'] }) {
@@ -156,9 +200,24 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
  * and changeable, discount chips under the order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onOpen, onNext, onUndo, printState, onReprint,
+  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onOpen, onNext, onUndo, printState, onReprint, paying,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
+
+  if (paying && !paid && order.lines.length > 0) {
+    return (
+      <aside className={`${panelClass} panel--paying`} aria-label="Current order">
+        <PayPanel
+          number={order.number}
+          total={orderTotal(order)}
+          lines={<PayLines order={order} />}
+          onPay={paying.onPay}
+          onClose={paying.onClose}
+          customers={paying.customers}
+        />
+      </aside>
+    );
+  }
 
   if (paid) {
     const cashChange = paid.tender === 'cash' && paid.change > 0;

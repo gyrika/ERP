@@ -35,12 +35,13 @@ export const parseLKR = (raw: string): Cents | null => {
 /** Receipts and exports: "Rs 6,600". */
 export const formatLKR = (cents: Cents): string => `Rs ${fmt(cents)}`;
 
-const NOTES: Cents[] = [100000, 200000, 500000, 1000000, 2000000]; // Rs 1k, 2k, 5k, 10k, 20k
+const ROUND_UPS: Cents[] = [10000, 50000, 100000, 500000]; // Rs 100, 500, 1k, 5k
 
-/** Quick cash buttons: exact, next Rs 500, then the notes a customer would hand over. */
+/** Quick cash buttons: exact, then the total rounded up to each step, what a customer really hands over. */
 export const quickCashAmounts = (total: Cents): Cents[] => {
   if (total <= 0) return [];
-  const roundedUp = Math.ceil(total / 50000) * 50000;
-  const notes = NOTES.filter((n) => n >= total);
-  return [...new Set([total, roundedUp, ...notes])].sort((a, b) => a - b).slice(0, 4);
+  const amounts = new Set([total, ...ROUND_UPS.map((step) => Math.ceil(total / step) * step)]);
+  // Near a big note the steps collapse (4,700: only 5,000); the next Rs 5k is the one other real choice.
+  if (amounts.size < 3) amounts.add((Math.ceil(total / 500000) + 1) * 500000);
+  return [...amounts].sort((a, b) => a - b);
 };

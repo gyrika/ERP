@@ -73,3 +73,10 @@ test('a window brought back from minimised looks at once, not at its next slowed
   await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await new Promise((r) => setTimeout(r, 20)); });
   expect(reload).toHaveBeenCalledTimes(1);
 });
+
+test('with no update under way, the counter asks the server once and then waits (no loop of health checks)', async () => {
+  health = { ok: true, version: '1.0.9' };
+  render(<UpdateScreen />); // the app's own defaults: its reload, a look every 10 s
+  await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+  expect(fetch).toHaveBeenCalledTimes(1);
+});

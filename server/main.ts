@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createPool } from 'mysql2/promise';
 import { createApp } from './app.ts';
 import { photoFolder } from './photos.ts';
+import { fileMenuPhotos } from './menuPhotos.ts';
 import { startManagerInbox } from './managerInbox.ts';
 import { startOwnerDigest } from './ownerDigest.ts';
 import type { Device } from './store.ts';
@@ -173,6 +174,7 @@ const crmJobs = startCrmJobs({
 const server = createApp({
   crm,
   photos: photoFolder(`${dataDir}/photos`),
+  menuPhotos: fileMenuPhotos(`${dataDir}/menu-photos`),
   cloudPhoto: async (tenantId, id) => {
     const link = cloudLink();
     if (!link || tenantId !== cloudShop()) return null;

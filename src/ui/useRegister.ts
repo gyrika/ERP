@@ -266,8 +266,10 @@ export function useRegister() {
   /**
    * Returns the paid order (for its receipt), or undefined when there was nothing to pay.
    * `customerId`: the customer whose mobile was given at Charge (CRM), named on the payment by id only.
+   * `unlinked`: a mobile was given but the shop PC did not answer in time; the sale stands, and the
+   * toast says the mobile was not saved (its Undo lets the cashier take the payment again).
    */
-  const pay = useCallback((tender: Tender, tendered: number, customerId?: string): PaidOrder | undefined => {
+  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked = false): PaidOrder | undefined => {
     const total = orderTotal(ref.current.order);
     // A comped order (Free) closes at 0 with tender 'comp'; anything else needs something to pay.
     const comped = ref.current.order.adjust?.discount?.kind === 'comp';
@@ -290,7 +292,7 @@ export function useRegister() {
       paid,
       open: s.open.filter((o) => o.number !== order.number),
       sales: [...s.sales, paid],
-    }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}`);
+    }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}${unlinked ? ' · mobile not saved' : ''}`);
     appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered, ...(customerId ? { customerId } : {}) });
     return paid;
   }, [commit]);
