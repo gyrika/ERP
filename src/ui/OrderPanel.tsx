@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { NumberInput } from './NumberInput.tsx';
 import type { Actor } from '../domain/auth.ts';
 import { cookState, lineCookState, type KitchenTicket } from '../domain/kitchen.ts';
@@ -102,6 +102,8 @@ interface Props {
     /** Customers (CRM) is on and reachable: the optional Mobile field. */
     customers?: boolean;
   } | null;
+  /** Present while an item's extras are open (adding or changing a line): they take the panel, in place of a pop-up. */
+  extras?: ReactNode;
 }
 
 /** The order while paying: one quiet line per item (a combo box as one), to check before the money changes hands. */
@@ -200,9 +202,13 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
  * and changeable, discount chips under the order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onOpen, onNext, onUndo, printState, onReprint, paying,
+  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onOpen, onNext, onUndo, printState, onReprint, paying, extras,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
+
+  if (extras) {
+    return <aside className={`${panelClass} panel--extras`} aria-label="Current order">{extras}</aside>;
+  }
 
   if (paying && !paid && order.lines.length > 0) {
     return (

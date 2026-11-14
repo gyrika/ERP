@@ -206,7 +206,8 @@ test('half-and-half: pick the other half in the pizza sheet, priced half of each
   const user = userEvent.setup();
   render(<App />);
   await user.click(screen.getAllByRole('button', { name: /Margherita/ }).find((b) => b.classList.contains('card__title'))!);
-  const sheet = within(screen.getByRole('dialog', { name: 'Margherita extras' }));
+  const sheet = within(screen.getByRole('region', { name: 'Margherita extras' }));
+  expect(screen.queryByRole('dialog')).toBeNull(); // in the order panel, not a pop-up
   await user.click(sheet.getByRole('button', { name: 'Half & half…' }));
   await user.click(sheet.getByRole('button', { name: '½ Seafood' }));
   expect(sheet.getByRole('heading', { name: '½ Margherita + ½ Seafood' })).toBeTruthy();
@@ -220,7 +221,7 @@ test('half-and-half: pick the other half in the pizza sheet, priced half of each
 
   // Back to a whole pizza drops the leave-out only Seafood had.
   await user.click(panel().getByText('½ Margherita + ½ Seafood'));
-  const edit = within(screen.getByRole('dialog', { name: 'Margherita extras' }));
+  const edit = within(screen.getByRole('region', { name: 'Margherita extras' }));
   await user.click(edit.getByRole('button', { name: 'Whole pizza' }));
   expect(edit.queryByRole('button', { name: 'No tomato' })).toBeNull();
   await user.click(edit.getByRole('button', { name: 'Update · 1,990' }));

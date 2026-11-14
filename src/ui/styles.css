@@ -327,8 +327,6 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .line__sub { font-size: var(--fs-s); color: var(--ink-2); line-height: 1.5; letter-spacing: -0.1px; }
 .line__price { font-size: var(--fs-b); letter-spacing: -0.2px; }
 /* Changing a sent line the kitchen already made: one quiet line, never a dialog. */
-.sheet__made { margin: 0; font-size: var(--fs-s); color: var(--ink-2); letter-spacing: -0.1px; }
-.sheet__made::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--warn); vertical-align: 2px; }
 /* Sent to the kitchen: quieter than lines still being taken. Its Cooking / Made tag sits before the price. */
 .line__cook { order: 1; }
 .line--sent .line__price { order: 2; }
@@ -407,6 +405,22 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .stepper button { width: 56px; height: 56px; border-radius: 50%; background: var(--chip); font-size: 24px; }
 .stepper span { min-width: 44px; text-align: center; font-size: 20px; font-weight: 500; }
 .sheet__foot .cta { flex: 1; width: auto; }
+/* ---------- Extras, inside the order panel (ExtrasPanel) ---------- */
+/* Adding or changing an item takes the panel like Charge does: no pop-up, the menu quieter but live. */
+.register--extras .menu { opacity: 0.5; transition: opacity 200ms var(--ease); }
+.extras { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: fade 180ms var(--ease); }
+.extras__body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-3) var(--sp-5) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-4); }
+.extras__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.extras__title h1 { margin: 0; font-size: var(--fs-xl); font-weight: 500; letter-spacing: -0.6px; }
+.extras__title span { font-size: var(--fs-m); color: var(--ink-2); }
+.extras__title .linkbtn { margin-left: auto; min-height: 0; }
+.extras__made { margin: 0; font-size: var(--fs-s); color: var(--ink-2); letter-spacing: -0.1px; }
+.extras__made::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--warn); vertical-align: 2px; }
+.extras .chips { gap: 8px; }
+.extras .chip { padding: 12px 18px; min-height: 48px; font-size: 15px; }
+.extras__foot { flex-direction: row; align-items: center; gap: var(--sp-3); }
+.extras__foot .cta { flex: 1; width: auto; }
+
 /* ---------- Charge, inside the order panel (PayPanel) ---------- */
 /* The menu stays live behind it, only quieter: a tap adds the item and brings the order back. */
 .register--paying .menu { opacity: 0.5; transition: opacity 200ms var(--ease); }
@@ -851,7 +865,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .total { font-size: 34px; }
   .cta { height: 60px; }
   /* Paying needs the room: the panel takes most of the screen, the menu stays above it. */
-  .panel--paying { max-height: 82%; }
+  .panel--paying, .panel--extras { max-height: 82%; }
+  .extras__body { padding-left: 16px; padding-right: 16px; }
   .pay__body { padding-left: 16px; padding-right: 16px; }
   .pay .panel__foot { flex-direction: column; align-items: stretch; }
   .sheet__body, .sheet__foot { padding-left: 16px; padding-right: 16px; }

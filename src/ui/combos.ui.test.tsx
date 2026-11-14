@@ -56,7 +56,7 @@ test('a dish in the box changes pick in its own sheet; the dearer pick adds its 
   await user.click(screen.getByRole('button', { name: 'Add Family Box, 3600' }));
   await user.click(within(panel().getByRole('region', { name: 'Family Box' })).getByText('Devilled Chicken'));
 
-  const sheet = within(screen.getByRole('dialog'));
+  const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   expect(sheet.queryByRole('button', { name: 'Increase quantity' })).toBeNull();
   await user.click(sheet.getByRole('button', { name: 'Seafood · +500' }));
   await user.click(sheet.getByRole('button', { name: /^Update/ }));
@@ -66,7 +66,7 @@ test('a dish in the box changes pick in its own sheet; the dearer pick adds its 
   expect(panel().getByText('4,100', { selector: '.total' })).toBeTruthy();
 
   await user.click(box.getByText('Seafood'));
-  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove the box' }));
+  await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: 'Remove the box' }));
   expect(panel().queryByRole('region', { name: 'Family Box' })).toBeNull();
 });
 
