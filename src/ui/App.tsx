@@ -13,7 +13,7 @@ import { lineGross } from '../domain/totals.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
 import { MoneyOutSheet } from './MoneyOutSheet.tsx';
 import { ReceiveSheet } from './WorkViews.tsx';
-import { ExtrasSheet } from './ExtrasSheet.tsx';
+import { ExtrasPanel } from './ExtrasPanel.tsx';
 import { KitchenChip } from './KitchenChip.tsx';
 import { OnlineChip, OnlineSheet, useOnline } from './Online.tsx';
 import { onlineOrders } from '../services/onlineClient.ts';
@@ -280,11 +280,12 @@ export function App({
 
   // Paying, and the order has nothing left on it (an Undo took the last line): back to the order.
   const paying = sheet?.kind === 'pay';
+  const inExtras = sheet?.kind === 'extras' || sheet?.kind === 'edit';
   useEffect(() => { if (paying && listing) setSheet(null); }, [paying, listing]);
 
   const quickAdd = (item: MenuItem, size?: SizeId) => {
-    // The menu stays live while paying: the customer remembered a drink, so it goes on and the order is back.
-    if (paying) setSheet(null);
+    // The menu stays live while paying or in extras: the customer remembered a drink, so it goes on and the order is back.
+    if (paying || inExtras) setSheet(null);
     const label = item.variants?.find((v) => v.id === size)?.label;
     reg.addSpec(bareLine(item.id, size), `Added ${item.name.en}${label ? ` · ${label}` : ''}`);
   };
@@ -293,9 +294,65 @@ export function App({
   const addCombo = (comboId: string) => {
     const combo = comboById(comboId);
     const specs = combo && boxLines(comboId, combo, menuItems());
-    if (paying) setSheet(null);
+    if (paying || inExtras) setSheet(null);
     if (combo && specs) reg.addSpecs(specs, `Added ${combo.name.en}`);
   };
+
+  /** An item's extras, in the order panel (no pop-up): adding from the menu, or changing a line. */
+  const extrasPanel = (() => {
+    if (sheet?.kind === 'extras') {
+      return (
+        <ExtrasPanel
+          key={`add-${sheet.item.id}`}
+          item={sheet.item}
+          size={sheet.size}
+          onClose={closeSheet}
+          onSubmit={(spec) => { reg.addSpec(spec, `Added ${describe(spec)}`); closeSheet(); }}
+        />
+      );
+    }
+    if (sheet?.kind !== 'edit') return null;
+    const line = sheet.line;
+    const key = `edit-${line.id}`;
+    const common = { item: itemById(line.itemId), line, combo: line.box && comboById(line.box.comboId), onClose: closeSheet };
+    if (manager) {
+      // Manager edit: through `manage`, so it is audited. A sent line needs a reason.
+      return (
+        <ExtrasPanel
+          key={key}
+          {...common}
+          manager={Boolean(line.sent)}
+          onSubmit={(spec, reason) => { manage({ kind: 'edit', lineId: line.id, after: spec, reason }); closeSheet(); }}
+          onRemove={(reason) => { manage({ kind: 'void', lineId: line.id, reason }); closeSheet(); }}
+        />
+      );
+    }
+    if (line.sent) {
+      // The customer changed their mind: the cashier changes the sent line, no PIN, no reason asked.
+      const made = lineCookState(tickets, line.id) !== 'waiting';
+      return (
+        <ExtrasPanel
+          key={key}
+          {...common}
+          made={made}
+          onSubmit={(spec) => { reg.changeSent({ kind: 'edit', lineId: line.id, after: spec }, made); closeSheet(); }}
+          onRemove={() => { reg.changeSent({ kind: 'void', lineId: line.id }, made); closeSheet(); }}
+        />
+      );
+    }
+    return (
+      <ExtrasPanel
+        key={key}
+        {...common}
+        onSubmit={(spec) => { reg.editLine({ ...spec, id: line.id }, 'Updated'); closeSheet(); }}
+        onRemove={() => {
+          const box = line.box;
+          if (box) reg.dropBox(box.id, `Removed ${box.name}`); else reg.dropLine(line.id, 'Removed');
+          closeSheet();
+        }}
+      />
+    );
+  })();
 
   const managePanel: ManagePanel | null = manager && {
     actor: manager, selected, pendingVoid, adjusting,
@@ -356,7 +413,7 @@ export function App({
   }, [manager, listing, reg, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit, fleet]);
 
   return (
-    <div className={`register${manager ? ' register--managing' : ''}${paying ? ' register--paying' : ''}`} onClick={onBackground}>
+    <div className={`register${manager ? ' register--managing' : ''}${paying ? ' register--paying' : ''}${inExtras ? ' register--extras' : ''}`} onClick={onBackground}>
       <header className="register__head">
         <span className="brand">CheesyBeez</span>
         {manager ? (
@@ -451,60 +508,12 @@ export function App({
             onClose: closeSheet,
             customers: modulesHere().crm && crmReachable(),
           } : null}
+          extras={extrasPanel}
         />
       </div>
 
       {sheet?.kind === 'platform' && (
         <PlatformSheet platform={sheet.platform} onClose={closeSheet} onMark={(m) => { reg.setPlatform(m); closeSheet(); }} />
-      )}
-      {sheet?.kind === 'extras' && (
-        <ExtrasSheet
-          item={sheet.item}
-          size={sheet.size}
-          onClose={closeSheet}
-          onSubmit={(spec) => { reg.addSpec(spec, `Added ${describe(spec)}`); closeSheet(); }}
-        />
-      )}
-      {sheet?.kind === 'edit' && manager && (
-        // Manager edit: through `manage`, so it is audited. A sent line needs a reason.
-        <ExtrasSheet
-          item={itemById(sheet.line.itemId)}
-          line={sheet.line}
-          combo={sheet.line.box && comboById(sheet.line.box.comboId)}
-          manager={Boolean(sheet.line.sent)}
-          onClose={closeSheet}
-          onSubmit={(spec, reason) => { manage({ kind: 'edit', lineId: sheet.line.id, after: spec, reason }); closeSheet(); }}
-          onRemove={(reason) => { manage({ kind: 'void', lineId: sheet.line.id, reason }); closeSheet(); }}
-        />
-      )}
-      {sheet?.kind === 'edit' && !manager && sheet.line.sent && (() => {
-        // The customer changed their mind: the cashier changes the sent line, no PIN, no reason asked.
-        const made = lineCookState(tickets, sheet.line.id) !== 'waiting';
-        return (
-          <ExtrasSheet
-            item={itemById(sheet.line.itemId)}
-            line={sheet.line}
-            combo={sheet.line.box && comboById(sheet.line.box.comboId)}
-            made={made}
-            onClose={closeSheet}
-            onSubmit={(spec) => { reg.changeSent({ kind: 'edit', lineId: sheet.line.id, after: spec }, made); closeSheet(); }}
-            onRemove={() => { reg.changeSent({ kind: 'void', lineId: sheet.line.id }, made); closeSheet(); }}
-          />
-        );
-      })()}
-      {sheet?.kind === 'edit' && !manager && !sheet.line.sent && (
-        <ExtrasSheet
-          item={itemById(sheet.line.itemId)}
-          line={sheet.line}
-          combo={sheet.line.box && comboById(sheet.line.box.comboId)}
-          onClose={closeSheet}
-          onSubmit={(spec) => { reg.editLine({ ...spec, id: sheet.line.id }, 'Updated'); closeSheet(); }}
-          onRemove={() => {
-            const box = sheet.line.box;
-            if (box) reg.dropBox(box.id, `Removed ${box.name}`); else reg.dropLine(sheet.line.id, 'Removed');
-            closeSheet();
-          }}
-        />
       )}
       {sheet?.kind === 'online' && <OnlineSheet state={online} onAccept={acceptOnline} onOut={outOnline} onClose={closeSheet} />}
       {sheet?.kind === 'pin' && (

@@ -178,7 +178,7 @@ test('Esc leaves manager mode from any state', async () => {
     ['palette open', async () => { await user.keyboard('{Control>}k{/Control}'); expect(screen.getByRole('dialog', { name: 'Commands' })).toBeTruthy(); }],
     ['void reason pending', async () => { await user.keyboard('{Delete}'); expect(panel().getByRole('group', { name: 'Why void this item?' })).toBeTruthy(); }],
     ['adjusting a price', async () => { await user.keyboard('p'); await user.keyboard('12'); }],
-    ['edit sheet open', async () => { await user.keyboard('{Enter}'); expect(screen.getByRole('dialog')).toBeTruthy(); }],
+    ['extras open', async () => { await user.keyboard('{Enter}'); expect(screen.getByRole('region', { name: / extras$/ })).toBeTruthy(); }],
   ];
   for (const [name, into] of states) {
     await unlock(user);
@@ -187,6 +187,7 @@ test('Esc leaves manager mode from any state', async () => {
     await user.keyboard('{Escape}');
     expect(managing(), name).toBe(false);
     expect(screen.queryByRole('dialog'), name).toBeNull();
+    expect(screen.queryByRole('region', { name: / extras$/ }), name).toBeNull();
     expect(panel().queryByRole('group', { name: 'Why void this item?' }), name).toBeNull();
   }
 });
@@ -221,7 +222,7 @@ test('editing a sent line still needs a reason', async () => {
   await sendAndReopen(user);
   await unlock(user);
   await user.keyboard('{Enter}'); // edit Margherita
-  const sheet = within(screen.getByRole('dialog'));
+  const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   await user.click(sheet.getByRole('button', { name: /^Large/ }));
   await user.click(sheet.getByRole('button', { name: /^Save change/ }));
   expect(sheet.getByRole('alert').textContent).toBe('Pick a reason first');
@@ -236,7 +237,7 @@ test('the customer changed their mind: the cashier changes a sent line, no PIN, 
   render(<><App /><Kitchen /></>);
   await sendAndReopen(user);
   await user.click(panel().getByRole('button', { name: /Margherita/ }));
-  const sheet = within(screen.getByRole('dialog'));
+  const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   expect(sheet.queryByText('Reason')).toBeNull();
   expect(sheet.queryByText(/Already made/)).toBeNull();
   await user.click(sheet.getByRole('button', { name: /^Large/ }));
@@ -262,15 +263,15 @@ test('a line the kitchen already made says Made; removing it is recorded as wast
   const burger = panel().getByRole('button', { name: /Chicken Burger/ });
   expect(within(burger).getByText('Made')).toBeTruthy();
   await user.click(burger);
-  const sheet = within(screen.getByRole('dialog'));
+  const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   expect(sheet.getByText('Already made. Changing it counts as waste.')).toBeTruthy();
   await user.click(sheet.getByRole('button', { name: 'Remove' }));
   expect(total()).toBe('1,450');
   expect(screen.getAllByRole('status').map((s) => s.textContent).join()).toContain('Removed Chicken Burger · counted as waste');
   expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Already made', made: true });
   await user.click(panel().getByRole('button', { name: /Margherita/ }));
-  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Large/ }));
-  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Update/ }));
+  await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: /^Large/ }));
+  await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: /^Update/ }));
   // Ctrl+Z undoes the newest change only.
   await user.keyboard('{Control>}z{/Control}');
   expect(total()).toBe('1,450');
