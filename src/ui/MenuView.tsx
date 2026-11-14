@@ -19,6 +19,9 @@ import { ItemsTabs } from './ItemsTabs.tsx';
 import { OwnerNav } from './OwnerNav.tsx';
 import { draftLines, EMPTY_ROW, LinesEditor, readRows, toDraft, useOwner, type Draft } from './RecipeLines.tsx';
 import { NumberInput } from './NumberInput.tsx';
+import { photoChoice, undoChoice } from '../domain/menuPhotos.ts';
+import { photoSrc, photoUrl } from '../services/menuPhotos.ts';
+import { PhotoSlot } from './PhotoSlot.tsx';
 
 /**
  * The owner's menu (#menu). Serves the owner: they know their menu and want one change made
@@ -87,6 +90,12 @@ const setSoldOut = (itemId: string, out: boolean) =>
   appendEvent({ type: 'menu.sold_out', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, until: out ? nextMorning(Date.now()) : null });
 const addItem = (itemId: string, item: NewItem | null) =>
   appendEvent({ type: 'menu.item_added', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, item });
+/** Gives an item a photo (an id), none (null) or back to never chosen (''); returns what to send for Undo. */
+const setPhoto = (itemId: string, photo: string | null): string | null => {
+  const was = undoChoice(photoChoice(menuState(), itemId));
+  appendEvent({ type: 'menu.photo_set', at: Date.now(), orderNumber: 0, actor: currentCashier(), itemId, photo });
+  return was;
+};
 
 /** "Chicken Alfredo" → "new-chicken-alfredo", or "new-chicken-alfredo-2" if that was ever used. */
 const newId = (en: string): string => {
@@ -229,6 +238,8 @@ function AddDish({ section, ctx, onSaved, onClose }: {
   /** The recipes as written, and the owner who wrote them; null: "Later". */
   const recipe = useRef<{ lines: Record<string, BookLine[]>; by: Actor } | null>(null);
   const [error, setError] = useState('');
+  /** A photo chosen before Add: it goes with the item. */
+  const [photo, setPhotoId] = useState<string | null>(null);
   useEscape(onClose);
 
   const sizes: DishSize[] = shape.map((s) => ({ id: recipeSize(s.id), label: s.label === 'Price' ? 'Price' : s.label, price: toCents(price[s.id] ?? '') ?? 0 }));
@@ -265,11 +276,12 @@ function AddDish({ section, ctx, onSaved, onClose }: {
     if (bad) return setError(`${bad[0].toUpperCase()}${bad.slice(1)}.`);
     const id = newId(item.name.en);
     addItem(id, item);
+    if (photo) setPhoto(id, photo);
     const written = recipe.current;
     const undoRecipes = written ? saveRecipes(id, written.lines, written.by, ctx) : () => {};
     onSaved(
       `${item.name.en} is on the counter · ${written ? earnings(sizes, written.lines, ctx) : 'no recipe yet, so its sales don\'t take stock'}`,
-      () => { undoRecipes(); addItem(id, null); },
+      () => { undoRecipes(); if (photo) setPhoto(id, ''); addItem(id, null); },
     );
   };
 
@@ -297,6 +309,10 @@ function AddDish({ section, ctx, onSaved, onClose }: {
                 <label className="menued__wide">Description<input value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={160} /></label>
               </div>
             </section>
+          )}
+          {step === 0 && (
+            <PhotoSlot name={en.trim() || 'the new item'} url={photo ? photoSrc(photo) : null} onPhoto={setPhotoId}
+              onRemove={() => setPhotoId(null)} />
           )}
 
           {step === 1 && (
@@ -409,8 +425,12 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
   const [adds, setAdds] = useState<Record<string, string>>(() => Object.fromEntries(item.adds.map((a) => [a.id, String(a.price / 100)])));
   const [hidden, setHidden] = useState(Boolean(item.hidden));
   const [error, setError] = useState('');
+  /** A photo change is made at once (not on Save), with its own Undo. */
+  const [photoNote, setPhotoNote] = useState<{ message: string; undo: string | null } | null>(null);
+  useMenu();
 
   useEscape(onClose);
+  const changePhoto = (photo: string | null, message: string) => setPhotoNote({ message, undo: setPhoto(item.id, photo) });
 
   const basePrice = (id: string) => (id === 'one' ? base.price ?? 0 : base.variants!.find((v) => v.id === id)!.price);
 
@@ -471,6 +491,15 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
               }}>Delete</button>
             )}
           </div>
+
+          <PhotoSlot name={item.name.en} url={photoUrl(item.id)}
+            onPhoto={(id) => changePhoto(id, 'Photo changed.')} onRemove={() => changePhoto(null, 'Photo removed.')} />
+          {photoNote && (
+            <p className="menued__added" role="status">
+              {photoNote.message}
+              <button type="button" className="linkbtn" onClick={() => { setPhoto(item.id, photoNote.undo); setPhotoNote(null); }}>Undo</button>
+            </p>
+          )}
 
           <section className="group">
             <h2>Name</h2>

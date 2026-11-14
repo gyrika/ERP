@@ -2,6 +2,7 @@ import { comboBlocked, usualPick } from '../domain/combos.ts';
 import { CATEGORIES, POPULAR_IDS, comboEntries, menuItems } from '../domain/menu.ts';
 import { fmtPlain } from '../domain/money.ts';
 import type { Category, Combo, MenuItem, SizeId } from '../domain/types.ts';
+import { photoUrl, shopHasPhotos } from '../services/menuPhotos.ts';
 import { useMenu } from './menuStore.ts';
 
 export type CategoryId = (typeof CATEGORIES)[number]['id'] | 'combos';
@@ -68,6 +69,14 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
   const tabs = combos.length ? [...CATEGORIES, { id: 'combos' as const, label: 'Combos' }] : CATEGORIES;
   const showing = category === 'combos' && !combos.length ? 'popular' : category;
   const items = menuItems();
+  // Photos on the tiles once the shop has any; an item without one keeps a blank, so the grid stays even.
+  const photos = shopHasPhotos();
+  /** A tap on the photo: the first size, or the item's only price; more sizes than buttons open the item. */
+  const photoTap = (item: MenuItem) => {
+    if (item.variants && item.variants.length <= BUTTONS && item.variants[0]) onQuickAdd(item, item.variants[0].id);
+    else if (!item.variants) onQuickAdd(item);
+    else onCustomise(item);
+  };
   return (
     <>
       <nav className="cats" aria-label="Menu">
@@ -113,7 +122,13 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
       ) : (
         <div className="grid">
           {visible(showing).map((item) => (
-            <div key={item.id} className={`card${item.soldOut ? ' card--soldout' : ''}`}>
+            <div key={item.id} className={`card${photos ? ' card--photo' : ''}${item.soldOut ? ' card--soldout' : ''}`}>
+              {photos && (
+                // The same as the price buttons below, for the hand: no second stop for the keyboard.
+                <button type="button" className="card__photo" tabIndex={-1} aria-hidden="true" disabled={item.soldOut} onClick={() => photoTap(item)}>
+                  {photoUrl(item.id) && <img src={photoUrl(item.id)!} alt="" loading="lazy" decoding="async" draggable={false} />}
+                </button>
+              )}
               {item.soldOut && <span className="card__soldout">Sold out</span>}
               <button type="button" className="card__title" disabled={item.soldOut} onClick={() => onCustomise(item)}>
                 <span className="card__name">

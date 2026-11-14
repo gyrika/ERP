@@ -243,9 +243,9 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 
 /* ---------- category pills + type hint ---------- */
 /* Every section always in sight: the bar never shrinks under a long menu, wraps onto a second line
-   instead of hiding sections off the edge, and stays put while the items scroll under it. */
-.cats { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
-  position: sticky; top: 0; z-index: 1; padding: 4px 0; background: var(--ground); }
+   instead of hiding sections off the edge. Only the Register's bar is sticky (.menu .cats): a sticky
+   bar elsewhere (the Menu screen) would show through that screen's sheets. */
+.cats { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 4px 0; background: var(--ground); }
 .pill { flex: none; white-space: nowrap; padding: 10px 20px; border-radius: 980px; font-size: 15px; font-weight: 500; color: var(--ink-2); letter-spacing: -0.2px; min-height: 44px; }
 .pill[aria-pressed='true'] { background: var(--pill-on); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); }
 .hint { margin-left: auto; font-size: 13px; color: var(--ink-3); letter-spacing: -0.1px; }
@@ -263,6 +263,25 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .card__soldout { position: absolute; top: 14px; right: 14px; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
 .card { padding: var(--sp-4); border-radius: var(--sp-4); background: var(--surface); box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: var(--sp-3); }
 .card__soldout { align-self: flex-end; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
+/* Menu photos (src/domain/menuPhotos.ts): a strip across the top of the tile, edge to edge; a blank where an item has none. */
+.card--photo { position: relative; overflow: hidden; }
+.card__photo { display: block; margin: calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4)) 0; height: 88px; padding: 0; border: 0; background: var(--chip); cursor: pointer; }
+.card__photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.card--soldout .card__photo img { filter: grayscale(1); }
+.card--photo .card__soldout { position: absolute; top: 10px; right: 10px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .card:not(.card--soldout) .card__photo img { filter: brightness(0.9); } }
+:root[data-theme='dark'] .card:not(.card--soldout) .card__photo img { filter: brightness(0.9); }
+/* An item's photo on its sheet: the same 4:3 picture the tiles crop. */
+.photo-slot__frame { width: min(100%, 320px); aspect-ratio: 4 / 3; border-radius: 12px; overflow: hidden; background: var(--ground); border: 1.5px dashed var(--line);
+  display: flex; align-items: center; justify-content: center; transition: border-color 150ms var(--ease), opacity 150ms var(--ease); }
+.photo-slot__frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-slot__frame--over { border-color: var(--ink-3); }
+.photo-slot__frame--busy { opacity: 0.5; }
+.photo-slot__blank { padding: 0 24px; text-align: center; color: var(--ink-2); font-size: 14px; line-height: 1.4; }
+.photo-slot__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.photo-slot__actions .chip, .photo-slot__actions .linkbtn { min-height: 48px; }
+.menued__added { display: flex; align-items: center; gap: 16px; margin: 0; color: var(--ink-2); font-size: 15px; }
+.menued__added .linkbtn { align-self: center; }
 .card__title { text-align: left; display: flex; flex-direction: column; gap: var(--sp-1); min-height: var(--tap); }
 .card__name { font-size: var(--fs-b); font-weight: 500; letter-spacing: -0.3px; }
 .card__no { color: var(--ink-3); margin-right: 8px; }
@@ -780,6 +799,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
   .hint { display: none; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   .card { padding: 12px; gap: 10px; border-radius: 14px; }
+  .card__photo { margin: -12px -12px 0; height: 72px; }
   .card__title { min-height: 0; gap: 2px; }
   .card__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
   .card__desc { display: none; }

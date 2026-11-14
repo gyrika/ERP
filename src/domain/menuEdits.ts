@@ -47,9 +47,14 @@ export type MenuEvent =
    * Managers and the owner (SCRUM-231): a combo pack, made or changed (`after`), or taken off for
    * good (`after: null`). `itemId` is the combo's id (combos.ts COMBO_ID).
    */
-  | (MenuBase & { type: 'menu.combo_set'; before: Combo | null; after: Combo | null });
+  | (MenuBase & { type: 'menu.combo_set'; before: Combo | null; after: Combo | null })
+  /**
+   * Owners and managers: the item's photo (menuPhotos.ts). A photo id (the picture is kept on the
+   * shop server, by its SHA-256), `null` for no photo, or '' for never chosen (Undo of the first one).
+   */
+  | (MenuBase & { type: 'menu.photo_set'; photo: string | null });
 
-export const MENU_EVENT_TYPES = ['menu.item_set', 'menu.sold_out', 'menu.item_added', 'menu.combo_set'] as const satisfies readonly MenuEvent['type'][];
+export const MENU_EVENT_TYPES = ['menu.item_set', 'menu.sold_out', 'menu.item_added', 'menu.combo_set', 'menu.photo_set'] as const satisfies readonly MenuEvent['type'][];
 
 export interface MenuState {
   overrides: Record<string, ItemOverride>;
@@ -62,6 +67,8 @@ export interface MenuState {
   added: Record<string, NewItem & { removed?: true }>;
   /** Combo packs on offer or hidden, by id (combos.ts). Deleted ones are gone. */
   combos?: Record<string, Combo>;
+  /** Item id → the photo the shop chose: a photo id, or null for none. Absent = never chosen. */
+  photos?: Record<string, string | null>;
 }
 export const EMPTY_MENU_STATE: MenuState = { overrides: {}, soldOut: {}, added: {} };
 
@@ -71,6 +78,7 @@ export const menuStateFromEvents = (events: readonly { type: string }[]): MenuSt
   const soldOut: Record<string, number> = {};
   const added: MenuState['added'] = {};
   const combos: Record<string, Combo> = {};
+  const photos: Record<string, string | null> = {};
   for (const e of events) {
     if (e.type === 'menu.item_set') {
       const m = e as Extract<MenuEvent, { type: 'menu.item_set' }>;
@@ -88,10 +96,18 @@ export const menuStateFromEvents = (events: readonly { type: string }[]): MenuSt
       const m = e as Extract<MenuEvent, { type: 'menu.combo_set' }>;
       if (m.after) combos[m.itemId] = m.after;
       else delete combos[m.itemId];
+    } else if (e.type === 'menu.photo_set') {
+      const m = e as Extract<MenuEvent, { type: 'menu.photo_set' }>;
+      if (m.photo === '') delete photos[m.itemId];
+      else photos[m.itemId] = m.photo;
     }
   }
-  // Only a shop with combos carries them (cheesybeez.com's menu has none yet).
-  return { overrides, soldOut, added, ...(Object.keys(combos).length ? { combos } : {}) };
+  // Only a shop with combos (or photos) carries them (cheesybeez.com's menu has none yet).
+  return {
+    overrides, soldOut, added,
+    ...(Object.keys(combos).length ? { combos } : {}),
+    ...(Object.keys(photos).length ? { photos } : {}),
+  };
 };
 
 const clean = (s: string | undefined) => s?.trim() || undefined;

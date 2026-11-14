@@ -20,6 +20,7 @@ import { CAMPAIGN_EVENT_TYPES, checkCampaignEvent } from '../src/domain/campaign
 import { isCustomerId } from '../src/domain/customers.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import { checkCombo, COMBO_ID } from '../src/domain/combos.ts';
+import { validPhotoChoice } from '../src/domain/menuPhotos.ts';
 import type { Combo, MenuItem } from '../src/domain/types.ts';
 import {
   KITCHEN_EVENT_TYPES, MOVEMENT_KINDS, ORDER_EVENT_TYPES, PREP_EVENT_TYPES, PUSH_BATCH, STOCK_EVENT_TYPES, type SyncEvent,
@@ -311,6 +312,9 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'menu.combo_set' &&
         (typeof e.itemId !== 'string' || !COMBO_ID.test(e.itemId) || !validCombo(e.before) || !validCombo(e.after))) {
       return { reason: `event ${e.id} has an invalid combo` };
+    }
+    if (e.type === 'menu.photo_set' && (!shortString(e.itemId) || !onMenu(e.itemId) || !validPhotoChoice(e.photo))) {
+      return { reason: `event ${e.id} has an invalid photo change` };
     }
   }
   return { events: body.events as SyncEvent[] };

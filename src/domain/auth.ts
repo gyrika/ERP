@@ -99,6 +99,8 @@ export const mayRecord = (role: Role, type: string, remake = false): boolean => 
   if (type === 'recipe.answer_set' || type === 'recipe.viewed' || type === 'recipe.draft_set') return role === 'owner';
   // Marking something sold out, and combo packs (SCRUM-231): managers and the owner.
   if (type === 'menu.sold_out' || type === 'menu.combo_set') return managesRole(role);
+  // An item's photo (menuPhotos.ts): managers and the owner, as in Bata Kade's POS.
+  if (type === 'menu.photo_set') return managesRole(role);
   // Money out (SCRUM-105): whoever works the counter; what a cashier may pay is mayPayOut (moneyOut.ts).
   if (type === 'money.out' || type === 'money.out_undone' || type === 'money.out_restored') return role !== 'kitchen';
   if (type === 'money.choices_set') return managesRole(role);

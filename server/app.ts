@@ -12,6 +12,8 @@ import { isPin } from './pins.ts';
 import { OnlineError, type Online, type OnlineAnswer } from './online.ts';
 import { MAX_PHOTO_BYTES, isJpeg, type PhotoStore } from './photos.ts';
 import { isPhotoId } from '../src/domain/photos.ts';
+import { MAX_MENU_PHOTO_BYTES, isWebp } from '../src/domain/menuPhotos.ts';
+import type { MenuPhotoStore } from './menuPhotos.ts';
 import type { RawPrinter } from './printer.ts';
 import type { ReplicaStatus } from './replicator.ts';
 import type { Fleet } from './fleet.ts';
@@ -49,6 +51,8 @@ export interface AppOptions {
   updating?: () => UpdateStep | null;
   /** Shelf photos (SCRUM-94): a copy on this PC of the ones in the cloud. Omit and photos answer 503. */
   photos?: PhotoStore;
+  /** Menu photos (server/menuPhotos.ts). Omit and they answer 404. */
+  menuPhotos?: MenuPhotoStore;
   /** Fetches a shelf photo from the cloud (the manager phones keep them there); null when it has none. */
   cloudPhoto?: (tenantId: string, id: string) => Promise<Buffer | null>;
   /** The developer's Shops screen (only where CLOUD_ADMIN_KEY is set: the developer's laptop). */
@@ -136,7 +140,7 @@ interface Stream {
 
 const send = (ws: WebSocket, m: StreamMessage) => ws.send(JSON.stringify(m));
 
-export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, cloudPhoto, cloudAi, crm, now = Date.now }: AppOptions): Server & { ingest: Ingest } {
+export function createApp({ store, staticDir, printer, onStored, online, cloudStatus, setup, version, updating, fleet, photos, menuPhotos, cloudPhoto, cloudAi, crm, now = Date.now }: AppOptions): Server & { ingest: Ingest } {
   /** Open streams per shop. A shop's events never go to another shop's devices. */
   const streams = new Map<string, Set<Stream>>();
   /** Wrong PIN guesses per device. 10,000 PINs: without a brake, guessing would take minutes. */
@@ -289,6 +293,29 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       try { await printer.print(bytes); }
       catch (e) { console.error(e); throw new HttpError(503, 'printer', 'the printer did not take the receipt'); }
       json(res, 200, { ok: true });
+      return;
+    }
+    // Menu photos: anyone on the shop's network may look (they are the menu's public face, named by
+    // an id nobody can guess, and an <img> sends no token); only the counter adds one, and the
+    // menu.photo_set event naming it says who.
+    const menuPhoto = /^\/api\/v1\/menu-photos\/([a-f0-9]{64})\.webp$/.exec(url.pathname);
+    if (menuPhoto && req.method === 'GET') {
+      const bytes = (await menuPhotos?.get(menuPhoto[1])) ?? null;
+      if (!bytes) throw new HttpError(404, 'server', 'no such photo');
+      res.writeHead(200, { 'content-type': 'image/webp', 'cache-control': 'public, max-age=31536000, immutable' });
+      res.end(bytes);
+      return;
+    }
+    if (url.pathname === '/api/v1/menu-photos' && req.method === 'POST') {
+      const device = await authenticate(req, url);
+      if (device.kind !== 'counter') throw new HttpError(403, 'forbidden', 'only the counter adds photos');
+      if (!menuPhotos) throw new HttpError(503, 'server', 'menu photos are not kept on this server');
+      const body = await readBody(req);
+      const data = typeof body === 'object' && body !== null ? (body as { data?: unknown }).data : undefined;
+      if (typeof data !== 'string') throw new HttpError(400, 'invalid_event', 'body must be { data: base64 }');
+      const bytes = Buffer.from(data, 'base64');
+      if (bytes.length > MAX_MENU_PHOTO_BYTES || !isWebp(bytes)) throw new HttpError(400, 'invalid_event', 'a menu photo is a small WebP picture');
+      json(res, 200, { id: await menuPhotos.put(bytes) });
       return;
     }
     if (url.pathname === '/api/v1/photos' || url.pathname.startsWith('/api/v1/photos/')) {
