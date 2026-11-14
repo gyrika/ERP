@@ -3,6 +3,7 @@ import { canManage, seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { comboById, itemById, menuItems } from '../domain/menu.ts';
 import { boxLines } from '../domain/combos.ts';
+import { lineCookState } from '../domain/kitchen.ts';
 import { bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
@@ -174,10 +175,14 @@ export function App({
 
   const manage = useCallback((change: ManagerChange) => {
     if (!manager) return;
-    reg.manage(manager, change);
+    // A sent line the kitchen already made: what it used stays used (waste), whoever changes it.
+    const made = (change.kind === 'edit' || change.kind === 'void')
+      && Boolean(reg.order.lines.find((l) => l.id === change.lineId)?.sent)
+      && lineCookState(tickets, change.lineId) !== 'waiting';
+    reg.manage(manager, made ? { ...change, made } : change);
     setPendingVoid(null);
     setAdjusting(null);
-  }, [manager, reg]);
+  }, [manager, reg, tickets]);
 
   const askVoid = useCallback((line: OrderLine) => {
     setAdjusting(null);
@@ -472,6 +477,21 @@ export function App({
           onRemove={(reason) => { manage({ kind: 'void', lineId: sheet.line.id, reason }); closeSheet(); }}
         />
       )}
+      {sheet?.kind === 'edit' && !manager && sheet.line.sent && (() => {
+        // The customer changed their mind: the cashier changes the sent line, no PIN, no reason asked.
+        const made = lineCookState(tickets, sheet.line.id) !== 'waiting';
+        return (
+          <ExtrasSheet
+            item={itemById(sheet.line.itemId)}
+            line={sheet.line}
+            combo={sheet.line.box && comboById(sheet.line.box.comboId)}
+            made={made}
+            onClose={closeSheet}
+            onSubmit={(spec) => { reg.changeSent({ kind: 'edit', lineId: sheet.line.id, after: spec }, made); closeSheet(); }}
+            onRemove={() => { reg.changeSent({ kind: 'void', lineId: sheet.line.id }, made); closeSheet(); }}
+          />
+        );
+      })()}
       {sheet?.kind === 'edit' && !manager && !sheet.line.sent && (
         <ExtrasSheet
           item={itemById(sheet.line.itemId)}

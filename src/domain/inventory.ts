@@ -306,7 +306,7 @@ export const stockFromEvents = (
   /** Each shelf count's correction, for its Undo: the amount and the count time it replaced. */
   const counts = new Map<string, { itemId: string; delta: number; previous: number | undefined }>();
   /** For a manager's Undo: what the line had taken before the change (null: nothing). */
-  const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null; preps: Map<string, number> | null; gaps: { untracked: boolean; items: string[]; qty: number } | null }>();
+  const beforeChange = new Map<string, { lineId: string; usage: RecipeLine[] | null; preps: Map<string, number> | null; gaps: { untracked: boolean; items: string[]; qty: number } | null; kept: boolean }>();
   /** What each waste took, for its Undo. */
   const wasted = new Map<string, RecipeLine[]>();
   const setLine = (lineId: string, usage: RecipeLine[] | null, used: Map<string, number> | null = null) => {
@@ -517,7 +517,9 @@ export const stockFromEvents = (
         const had = taken.get(e.lineId);
         const hadGaps = gaps.get(e.lineId);
         if (!had && !hadGaps) break; // never sent: it took nothing
-        beforeChange.set(e.id, { lineId: e.lineId, usage: had ?? null, preps: prepTaken.get(e.lineId) ?? null, gaps: hadGaps ?? null });
+        beforeChange.set(e.id, { lineId: e.lineId, usage: had ?? null, preps: prepTaken.get(e.lineId) ?? null, gaps: hadGaps ?? null, kept: Boolean(e.made && had) });
+        // Already made: what it used is gone (thrown away), so it stays taken; only the new version takes more.
+        if (e.made && had) taken.delete(e.lineId);
         if (e.type === 'order.item_changed') setLine(e.lineId, usageOf(e.after, answers, tracked), prepUse(e.after, answers));
         else setLine(e.lineId, null);
         if (e.type === 'order.item_changed') gaps.set(e.lineId, { ...gapsOf(e.after, answers, tracked), qty: lineQty(e.after.qty) });
@@ -527,6 +529,8 @@ export const stockFromEvents = (
       case 'order.change_undone': {
         const was = beforeChange.get(e.undoneEventId);
         if (was) {
+          // Its Undo: the made food was never given back, so give it back once before the line takes it again.
+          if (was.kept && was.usage) take(was.usage, -1);
           setLine(was.lineId, was.usage, was.preps);
           if (was.gaps) gaps.set(was.lineId, was.gaps); else gaps.delete(was.lineId);
         }

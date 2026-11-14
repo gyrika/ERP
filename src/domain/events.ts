@@ -33,9 +33,11 @@ export type OrderEvent =
    */
   | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents; customerId?: string })
   | (Base & { type: 'order.payment_undone' })
-  // Manager changes (audited). Sent-item changes carry the reason the manager gave.
-  | (Base & Audited & { type: 'order.item_changed'; lineId: string; before: OrderLine; after: OrderLine; reason: string })
-  | (Base & Audited & { type: 'order.item_cancelled'; lineId: string; index: number; before: OrderLine; reason: string })
+  // Order changes (audited). Sent-item changes carry a reason: the manager's, or the counter's own
+  // ("Before it was made" / "Already made") when a cashier changed it.
+  // `made`: the kitchen had started or finished it, so what it used stays used (waste).
+  | (Base & Audited & { type: 'order.item_changed'; lineId: string; before: OrderLine; after: OrderLine; reason: string; made?: boolean })
+  | (Base & Audited & { type: 'order.item_cancelled'; lineId: string; index: number; before: OrderLine; reason: string; made?: boolean })
   | (Base & Audited & { type: 'order.line_removed'; lineId: string; index: number; before: OrderLine })
   | (Base & Audited & { type: 'order.line_adjusted'; lineId: string; before: Cents; after: Cents })
   | (Base & Audited & { type: 'order.discount_set'; before: Discount | null; after: Discount | null })

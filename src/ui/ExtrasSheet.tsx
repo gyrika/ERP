@@ -18,6 +18,8 @@ interface Props {
   manager?: boolean;
   /** A dish in a combo box (SCRUM-231): its combo, so the pick can be changed to another of its slot. */
   combo?: Combo;
+  /** A sent line the kitchen already started or finished: changing it wastes it, and the sheet says so. */
+  made?: boolean;
   onSubmit: (spec: LineSpec, reason: string) => void;
   onRemove?: (reason: string) => void;
   onClose: () => void;
@@ -29,7 +31,7 @@ const toggle = (list: string[], id: string): string[] =>
   list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 
 /** Modifiers appear only after the item is chosen: big chips, nothing preselected but the size. */
-export function ExtrasSheet({ item: start, line, size, manager = false, combo, onSubmit, onRemove, onClose }: Props) {
+export function ExtrasSheet({ item: start, line, size, manager = false, combo, made = false, onSubmit, onRemove, onClose }: Props) {
   /** In a box the size and quantity are the box's; only the pick, extras and leave-outs change. */
   const box = line?.box;
   const slot = box && combo?.slots[box.slot];
@@ -101,7 +103,7 @@ export function ExtrasSheet({ item: start, line, size, manager = false, combo, o
     }
     act();
   };
-  const unchanged = manager && sameAsLine(spec()); // nothing to save yet
+  const unchanged = (manager || Boolean(line?.sent)) && sameAsLine(spec()); // a sent line: nothing to save yet
   const submit = () => { if (!unchanged) withReason(() => onSubmit(spec(), reason)); };
   const pickReason = (r: string) => { setReasonPick(r); setNeedReason(false); };
 
@@ -126,6 +128,8 @@ export function ExtrasSheet({ item: start, line, size, manager = false, combo, o
               </button>
             )}
           </div>
+
+          {made && line?.sent && <p className="sheet__made">Already made. Changing it counts as waste.</p>}
 
           {manager && (
             <section className="group" ref={reasonRef}>

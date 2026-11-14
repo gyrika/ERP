@@ -282,6 +282,17 @@ test('T23: a changed sent line swaps its recipe; Undo of the change swaps it bac
   assert.equal(mozz([...events, { ...audited, id: 'u', type: 'order.change_undone', undoneEventId: 'ch', undoneType: 'order.item_changed' }]), 2000 - 90);
 });
 
+test('T23b: changed or cancelled after it was made: what it used stays used; Undo puts it back as it was', () => {
+  const cancel = { ...audited, id: 'c1', type: 'order.item_cancelled' as const, lineId: 'l1', index: 0, before: pizza('l1', 'M'), reason: 'Already made', made: true };
+  const cancelled = [stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'M')]), cancel];
+  assert.equal(mozz(cancelled), 2000 - 90, 'the made pizza was thrown away, not put back');
+  assert.equal(mozz([...cancelled, { ...audited, id: 'u1', type: 'order.change_undone', undoneEventId: 'c1', undoneType: 'order.item_cancelled' }]), 2000 - 90);
+  const change = { ...audited, id: 'ch', type: 'order.item_changed' as const, lineId: 'l1', before: pizza('l1', 'M'), after: pizza('l1', 'L'), reason: 'Already made', made: true };
+  const changed = [stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'M')]), change];
+  assert.equal(mozz(changed), 2000 - 90 - 150, 'the M was made and the L is made too');
+  assert.equal(mozz([...changed, { ...audited, id: 'u', type: 'order.change_undone', undoneEventId: 'ch', undoneType: 'order.item_changed' }]), 2000 - 90);
+});
+
 test('T24: lines never sent take nothing: removing or changing them leaves stock alone', () => {
   assert.equal(mozz([
     stockIn(MOZZ, 1),

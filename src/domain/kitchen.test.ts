@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  COOK_MINUTES, KEEP_DONE_MS, cookTimeMs,
+  COOK_MINUTES, KEEP_DONE_MS, cookTimeMs, lineCookState,
   TICKET_HORIZON_MS, ack, amendLine, bump, cookState, kitchenLine, restoreLine, elapsedLabel, fire, needsAttention, prune, queue, recall,
   ticketLines, ticketsFromEvents, unbump, urgency, start, unstart, cookLog,
 } from './kitchen.ts';
@@ -174,6 +174,19 @@ test('cookState: waiting until Start, cooking once an open ticket is started, do
   assert.equal(cookState(t, 1043), 'waiting');
   assert.equal(cookState(amendLine(t, 'x', null, 30), 1042), 'cooking'); // a manager change reopens it
   assert.equal(cookState(prune(t, 10 ** 12), 1042), 'done'); // pruned hours later: still done
+});
+
+test('lineCookState: per line, so an add-on round is not "made" with the first', () => {
+  let t = fire([], { shopId: SHOP, id: 'a', number: 1042, lines: [M('x')], firedAt: 0 });
+  t = fire(t, { shopId: SHOP, id: 'b', number: 1042, lines: [M('y')], firedAt: 5, addOn: true });
+  assert.equal(lineCookState(t, 'x'), 'waiting');
+  t = start(t, 'a', 8);
+  assert.equal(lineCookState(t, 'x'), 'cooking');
+  assert.equal(lineCookState(t, 'y'), 'waiting');
+  t = bump(t, 'a', 10);
+  assert.equal(lineCookState(t, 'x'), 'done');
+  assert.equal(lineCookState(amendLine(t, 'x', null, 30), 'x'), 'cooking', 'a change reopens it, but it was still made');
+  assert.equal(lineCookState(prune(t, 10 ** 12), 'x'), 'done', 'pruned hours later: made');
 });
 
 test('restoreLine puts a cancelled line back exactly and alerts the kitchen again', () => {

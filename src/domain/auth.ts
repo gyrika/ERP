@@ -33,13 +33,17 @@ export interface AuthService {
 export const managesRole = (role: Role): boolean => role === 'manager' || role === 'owner';
 export const canManage = (actor: Actor): boolean => managesRole(actor.role);
 
-/** What a cashier records: sending, paying, and the quick Undo straight after either. */
-const CASHIER_EVENTS = new Set(['order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone']);
-/** Everything else on an order is a manager change (audited). */
-const MANAGER_EVENTS = new Set([
-  'order.item_changed', 'order.item_cancelled', 'order.line_removed', 'order.line_adjusted',
-  'order.discount_set', 'order.comped', 'order.change_undone',
+/**
+ * What a cashier records: sending, paying, the quick Undo straight after either, and changing
+ * or cancelling a sent item when the customer changes their mind (audited; owner, 2026-11-14).
+ * `order.change_undone` is that change's Undo.
+ */
+const CASHIER_EVENTS = new Set([
+  'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone',
+  'order.item_changed', 'order.item_cancelled', 'order.change_undone',
 ]);
+/** What the customer pays is a manager's (audited). */
+const MANAGER_EVENTS = new Set(['order.line_removed', 'order.line_adjusted', 'order.discount_set', 'order.comped']);
 
 /**
  * May someone with this role record this event? Kitchen taps carry no
