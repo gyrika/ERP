@@ -9,6 +9,7 @@ import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
 import { useInstall } from '../services/ownerApp.ts';
 import { Offers } from './Offers.tsx';
+import { OffersBell } from './OffersInbox.tsx';
 import { api, remembered, type MyOrder, type Placed, type ShopInfo } from './api.ts';
 import { HERO, PHOTOS, STRIPS, type StripId } from './photos.ts';
 import { isOrderAppHost, setUpOrderApp } from './pwa.ts';
@@ -819,6 +820,9 @@ function Header({ taking, shop, onRetry, onSeeOrder }: { taking: Taking; shop: S
         <span className="o-brand">
           <img src="/icons/icon-192.png" alt="" width={32} height={32} />CheesyBeez
         </span>
+        <span className="o-head__end">
+        {/* The offers this phone received (CRM): a bell, only once offers are on. */}
+        <OffersBell />
         {/* An order still going takes the pill's place: always on screen, and the header keeps its height. */}
         {onSeeOrder && <button type="button" className="o-link" onClick={onSeeOrder}>See your order</button>}
         {!onSeeOrder && taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}
@@ -832,6 +836,7 @@ function Header({ taking, shop, onRetry, onSeeOrder }: { taking: Taking; shop: S
             Couldn&apos;t check · <u>Retry</u>
           </button>
         )}
+        </span>
       </div>
     </header>
   );

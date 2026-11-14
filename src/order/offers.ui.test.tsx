@@ -24,7 +24,10 @@ test('from the receipt (#offers): the sign-up is open, ready for the number, and
   history.replaceState(null, '', '/#offers');
   render(<Offers />);
   expect(await screen.findByRole('textbox', { name: 'Your mobile number' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Get our offers on this phone' })).toBeTruthy();
+  expect(screen.getByText('A few a month. No app, no SMS, no login. Stop any time.')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Turn on offers' })).toBeTruthy();
+  expect(screen.getByText(/your phone asks “Allow notifications\?” Tap Allow\./)).toBeTruthy();
   expect(scrolled).toHaveBeenCalledTimes(1);
 });
 
