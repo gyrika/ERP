@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { managesRole, type Actor } from '../../src/domain/auth.ts';
-import { checkMessage, isAudience, type CampaignEvent } from '../../src/domain/campaigns.ts';
+import { checkMessage, checkReceiptOffer, isAudience, type CampaignEvent } from '../../src/domain/campaigns.ts';
 import { cleanName, planImport, type ImportPlan, type KnownCustomer } from '../../src/domain/customerImport.ts';
 import { isCustomerId, type Customer } from '../../src/domain/customers.ts';
 import { modulesFromEvents } from '../../src/domain/modules.ts';
@@ -205,6 +205,20 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       if (!isAudience(body.audience)) throw new CrmError(400, 'invalid_event', 'who should it go to?');
       const message = { title: String(body.title ?? ''), body: String(body.body ?? '') };
       const event = await sending(() => pushing().campaign(device, actor, body.audience as never, message, body.testPhone));
+      return { events: [event] };
+    },
+
+    /** The receipt's words above the offers QR code (the owner's; receipt.ts prints them). */
+    async setReceipt(device: Device, staffId: unknown, body: { headline?: unknown; line?: unknown }) {
+      const actor = await who(device, staffId, 'owner');
+      const why = checkReceiptOffer(body);
+      if (why) throw new CrmError(400, 'invalid_event', why);
+      if (!ingest) throw new CrmError(503, 'unavailable', 'no event store here');
+      const event = {
+        id: randomUUID(), shopId: device.tenantId, at: now(), orderNumber: 0 as const, actor,
+        type: 'crm.receipt_set' as const, headline: String(body.headline).trim(), line: typeof body.line === 'string' ? body.line.trim() : '',
+      } satisfies CampaignEvent;
+      await ingest(device, [event]);
       return { events: [event] };
     },
 

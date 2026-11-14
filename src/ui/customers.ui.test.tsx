@@ -20,7 +20,7 @@ vi.mock('../services/serverAuth.ts', async (real) => ({
   ...(await real<typeof import('../services/serverAuth.ts')>()),
   signedIn: () => ({ id: 'o', name: 'Owner', role: shop.role }),
 }));
-const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn() }));
+const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn(), setReceipt: vi.fn() }));
 vi.mock('../services/crmClient.ts', () => ({ crmClient: crm, CrmFailed: Error }));
 
 const { default: CustomersView } = await import('./customers/CustomersView.tsx');
@@ -88,7 +88,7 @@ test('the list: the shop at a glance, segments to narrow it, search by name or n
   render(<CustomersView hash="#customers" onRegister={() => {}} />);
   const tiles = within(await screen.findByRole('list', { name: 'Customers at a glance' }));
   expect(tiles.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-    '3customers', '0new this month', '1active', '2inactive (30+ days)', '50%came back', '1have the app',
+    '3customers', '0new this month', '1active', '2inactive (30+ days)', '50%came back', '1get offers',
   ]);
   const rows = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
   expect(rows()).toEqual([
@@ -117,7 +117,7 @@ test('a customer: what they bought, and no messages with one tap', async () => {
     .toEqual(['2orders', 'Rs 21,900spent', '22 Sept 2026first visit', '9 Nov 2026last visit']);
   const bought = within(page.getByRole('table')).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
   expect(bought.map((r) => [r[1], r[2], r[3]])).toEqual([['1002', '1 × Devilled Chicken Large', 'Rs 19,000'], ['1001', '1 × Devilled Chicken Large', 'Rs 2,900']]);
-  expect(page.getByText('Has the app: campaigns can reach them.')).toBeTruthy();
+  expect(page.getByText('Signed up for offers: campaigns can reach them.')).toBeTruthy();
 
   await user.click(page.getByRole('button', { name: 'No messages for this customer' }));
   expect(crm.optOut).toHaveBeenCalledWith(KASUN.id, true);
@@ -171,6 +171,27 @@ test('Campaigns are the owner\'s: a manager sees what was sent, nothing to send 
   expect(await screen.findByText('Campaigns are sent by the owner. What was sent:')).toBeTruthy();
   expect(screen.queryByRole('button', { name: /^Send/ })).toBeNull();
   expect(crm.reach).not.toHaveBeenCalled();
+});
+
+test('On the receipt: the owner writes why to scan; a word the printer cannot print is caught before Save', async () => {
+  crm.setReceipt.mockImplementation(async (headline: string, line: string) => ({ events: [{
+    id: 'r1', shopId: 's', at: NOW, orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'crm.receipt_set', headline, line,
+  }] }));
+  const user = userEvent.setup();
+  render(<CustomersView hash="#customers/campaigns" onRegister={() => {}} />);
+  const card = within(await screen.findByRole('region', { name: 'On the receipt' }));
+  const first = card.getByRole('textbox', { name: /^First line/ }) as HTMLInputElement;
+  const save = () => card.getByRole('button', { name: 'Save the receipt words' }) as HTMLButtonElement;
+  expect(first.value).toBe('Scan for offers on your phone');
+  expect(save().disabled, 'nothing changed yet').toBe(true);
+  await user.type(card.getByRole('textbox', { name: /^Second line/ }), 'වට්ටම්');
+  expect(card.getByText(/English letters/)).toBeTruthy();
+  expect(save().disabled).toBe(true);
+  await user.clear(card.getByRole('textbox', { name: /^Second line/ }));
+  await user.type(card.getByRole('textbox', { name: /^Second line/ }), '10% off your next pizza');
+  await user.click(save());
+  expect(crm.setReceipt).toHaveBeenCalledWith('Scan for offers on your phone', '10% off your next pizza');
+  expect(await screen.findByText('The receipt prints the new words from the next sale.')).toBeTruthy();
 });
 
 test('Sent: each campaign says what it brought in that week, beside the others in its audience', async () => {

@@ -465,7 +465,7 @@ const campaignReach = (events: readonly SyncEvent[], now: number): Insight | nul
     tone: 'info',
     title: last.reachable
       ? `“${last.title}” reached ${last.delivered} of ${last.reachable} ${last.reachable === 1 ? 'phone' : 'phones'}`
-      : `“${last.title}” reached nobody: no customer in it has the app yet`,
+      : `“${last.title}” reached nobody: no customer in it has signed up for offers yet`,
     detail: last.kind === 'auto' ? 'Sent by itself to customers who stopped coming.' : `Sent ${when(last.at)} to ${AUDIENCE_LABEL[last.audience].toLowerCase()} customers.`,
     action: {
       label: 'Offers this week',

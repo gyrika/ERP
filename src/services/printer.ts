@@ -1,6 +1,7 @@
 import { escpos, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
 import type { PaidOrder } from '../domain/types.ts';
-import { modulesHere } from '../ui/eventLog.ts';
+import { receiptOfferFromEvents, type ReceiptOffer } from '../domain/campaigns.ts';
+import { modulesHere, readAll } from '../ui/eventLog.ts';
 import { syncToken } from './pairing.ts';
 
 /**
@@ -26,9 +27,11 @@ const base64 = (bytes: Uint8Array): string => {
  * never opens the drawer and is marked COPY.
  */
 export async function printReceipt(paid: PaidOrder, cashier: string, { reprint = false } = {}): Promise<PrintResult> {
-  // While the CRM is on, the receipt carries the offers QR code (receipt.ts OFFERS_URL).
-  return send(escpos(receipt(paid, { cashier, copy: reprint, offers: modulesHere().crm }), { openDrawer: !reprint && opensDrawer(paid) }));
+  return send(escpos(receipt(paid, { cashier, copy: reprint, offers: receiptOffers() }), { openDrawer: !reprint && opensDrawer(paid) }));
 }
+
+/** While the CRM is on, the receipt carries the offers QR code under the owner's words (receipt.ts). */
+export const receiptOffers = (): ReceiptOffer | null => (modulesHere().crm ? receiptOfferFromEvents(readAll()) : null);
 
 /** The delivery bill for the customer's bag (SCRUM-193). Nothing is paid yet, so the drawer stays shut. */
 export const printDeliveryBill = (lines: ReceiptLine[]): Promise<PrintResult> => send(escpos(lines));

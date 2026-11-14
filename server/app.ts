@@ -356,6 +356,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/campaigns/send': (b) => crm.send(device, staffId, b),
           '/campaigns/auto': (b) => crm.setAuto(device, staffId, b),
           '/campaigns/results': () => crm.results(device, staffId),
+          '/campaigns/receipt': (b) => crm.setReceipt(device, staffId, b),
         };
         if (posts[step] && req.method === 'POST') { json(res, 200, await posts[step](((await readBody(req)) ?? {}) as Record<string, unknown>)); return; }
         if ((step === '/import/preview' || step === '/import/save') && req.method === 'POST') {

@@ -1,3 +1,4 @@
+import type { ReceiptOffer } from './campaigns.ts';
 import { boxesIn, opensBox } from './combos.ts';
 import { itemById } from './menu.ts';
 import { fmt } from './money.ts';
@@ -81,9 +82,9 @@ const rule = (width: number): ReceiptLine => ({ text: '-'.repeat(width) });
 const minus = (cents: number) => `-${fmt(cents)}`;
 
 export function receipt(
-  paid: PaidOrder, opts: { cashier: string; shop?: ShopHeader; width?: number; copy?: boolean; offers?: boolean },
+  paid: PaidOrder, opts: { cashier: string; shop?: ShopHeader; width?: number; copy?: boolean; offers?: ReceiptOffer | null },
 ): ReceiptLine[] {
-  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = false } = opts;
+  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = null } = opts;
   const t = totals(paid);
   const out: ReceiptLine[] = [
     { text: shop.name, center: true, bold: true, big: true },
@@ -127,11 +128,14 @@ export function receipt(
     if (box.saved > 0) out.push({ text: `You saved Rs ${fmt(box.saved)} with the ${box.name}` });
   }
   out.push(rule(width));
-  // The CRM's way in (customers.ts): a scan signs the phone up for the shop's offers. Never on a reprint.
+  // The CRM's way in (customers.ts): a scan signs the phone up for the shop's offers, in the browser,
+  // no app. The owner's words say why to scan (campaigns.ts receiptOfferFromEvents). Never on a reprint.
   if (offers && !copy) {
     out.push(
-      { text: 'Get our offers on your phone', center: true, bold: true },
+      { text: offers.headline, center: true, bold: true },
+      ...(offers.line ? [{ text: offers.line, center: true }] : []),
       { text: OFFERS_URL.replace(/^https:\/\//, ''), center: true, qr: OFFERS_URL },
+      { text: 'No app needed', center: true },
       rule(width),
     );
   }
@@ -234,15 +238,17 @@ export const CMD = {
 } as const;
 
 /**
- * A QR code (GS ( k, as on the XP-80T and most ESC/POS printers): model 2, 6-dot modules (about
- * 2 cm for a short link), error correction M, store the data, print it.
+ * A QR code (GS ( k, as on the XP-80T and most ESC/POS printers): model 2, small 4-dot modules
+ * (about 1.3 cm for the short offers link: the owner wants it small, and phones still read it),
+ * error correction M, store the data, print it.
  */
+export const QR_MODULE_DOTS = 4;
 export const qrBytes = (data: string): number[] => {
   const bytes = ascii(data);
   const len = bytes.length + 3;
   return [
     GS, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00, // model 2
-    GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x06, // module size 6
+    GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, QR_MODULE_DOTS, // module size
     GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31, // error correction M
     GS, 0x28, 0x6b, len & 0xff, len >> 8, 0x31, 0x50, 0x30, ...bytes, // store
     GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30, // print

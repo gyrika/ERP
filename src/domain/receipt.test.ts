@@ -84,22 +84,31 @@ test('ESC/POS bytes: init, drawer first, styles reset, ASCII only, then feed and
   assert.deepEqual([...escpos([{ text: 'අ' }])].slice(5, 6), [0x3f], 'non-ASCII prints as ? rather than garbage');
 });
 
-test('with the CRM on: the offers QR code above the footer, its link as text too; never on a reprint, never without', () => {
-  const lines = receipt(pay(busy, 'cash'), { cashier: 'Nimal', offers: true });
+test('with the CRM on: the owner\'s words, the QR code with its link as text, "No app needed"; never on a reprint, never without', () => {
+  const offers = { headline: 'Scan for offers on your phone', line: '10% off your next pizza' };
+  const lines = receipt(pay(busy, 'cash'), { cashier: 'Nimal', offers });
   const qr = lines.findIndex((l) => l.qr);
+  assert.deepEqual(lines.slice(qr - 2, qr + 2).map((l) => [l.text, Boolean(l.bold), Boolean(l.qr)]), [
+    ['Scan for offers on your phone', true, false],
+    ['10% off your next pizza', false, false],
+    ['cheesybeez.com/#offers', false, true],
+    ['No app needed', false, false],
+  ]);
   assert.equal(lines[qr].qr, OFFERS_URL);
-  assert.equal(lines[qr].text, 'cheesybeez.com/#offers');
-  assert.equal(lines[qr - 1].text, 'Get our offers on your phone');
   assert.equal(lines.at(-1)!.text, 'Thank you!', 'the footer stays last');
   assert.ok(lines.every((l) => l.text.length <= RECEIPT_WIDTH));
+  // No second line: none printed.
+  const one = receipt(pay(busy, 'cash'), { cashier: 'Nimal', offers: { ...offers, line: '' } });
+  assert.equal(one[one.findIndex((l) => l.qr) - 1].text, 'Scan for offers on your phone');
   assert.ok(!receipt(pay(busy, 'cash'), { cashier: 'Nimal' }).some((l) => l.qr), 'off: no QR');
-  assert.ok(!receipt(pay(busy, 'cash'), { cashier: 'Nimal', offers: true, copy: true }).some((l) => l.qr), 'a reprint: no QR');
+  assert.ok(!receipt(pay(busy, 'cash'), { cashier: 'Nimal', offers, copy: true }).some((l) => l.qr), 'a reprint: no QR');
 });
 
 test('ESC/POS QR code: model 2, size, error level, the link stored with its length, then printed', () => {
   const b = qrBytes(OFFERS_URL);
   const len = OFFERS_URL.length + 3;
   assert.deepEqual(b.slice(0, 9), [0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00]);
+  assert.deepEqual(b.slice(9, 17), [0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 4], 'small: 4-dot modules');
   const store = b.indexOf(0x50) - 6; // GS ( k pL pH 31 50 30
   assert.deepEqual(b.slice(store, store + 8), [0x1d, 0x28, 0x6b, len & 0xff, len >> 8, 0x31, 0x50, 0x30]);
   assert.equal(String.fromCharCode(...b.slice(store + 8, store + 8 + OFFERS_URL.length)), OFFERS_URL);

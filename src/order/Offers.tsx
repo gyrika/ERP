@@ -18,6 +18,23 @@ const keyBytes = (b64url: string) => {
 
 type State = { at: 'off' } | { at: 'asking' } | { at: 'working' } | { at: 'on'; phone: string } | { at: 'blocked' };
 
+/** Offers turned on or off on this phone (here or from the inbox): both places follow. */
+export const OFFERS_CHANGED = 'cb-offers-changed';
+
+/** Stops offers on this phone: the shop is told, the browser forgets the subscription. */
+export async function stopOffers(): Promise<void> {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await api.unsubscribe(sub.endpoint);
+      await sub.unsubscribe();
+    }
+  } catch { /* stopped on this phone anyway: the shop forgets it when the next message cannot be delivered */ }
+  remembered.setOffers(null);
+  window.dispatchEvent(new Event(OFFERS_CHANGED));
+}
+
 /** Came from the QR code on a receipt (receipt.ts OFFERS_URL): straight to the sign-up, already open. */
 const fromReceipt = () => typeof location !== 'undefined' && location.hash === '#offers';
 
@@ -36,6 +53,13 @@ export function Offers() {
   const [phone, setPhone] = useState(() => remembered.me().phone);
   const [error, setError] = useState('');
   const [key, setKey] = useState<string | null>(null);
+
+  // Stopped from the inbox: this section says so too.
+  useEffect(() => {
+    const follow = () => { const o = remembered.offers(); setState(o ? { at: 'on', phone: o.phone } : { at: 'off' }); };
+    window.addEventListener(OFFERS_CHANGED, follow);
+    return () => window.removeEventListener(OFFERS_CHANGED, follow);
+  }, []);
 
   useEffect(() => {
     if (!supported() || !isOrderAppHost()) return;
@@ -64,6 +88,7 @@ export function Offers() {
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key!) });
       await api.subscribe(check.phone, sub.toJSON());
       remembered.setOffers({ phone: check.phone });
+      window.dispatchEvent(new Event(OFFERS_CHANGED));
       setState({ at: 'on', phone: check.phone });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That did not work. Please try again.');
@@ -74,15 +99,7 @@ export function Offers() {
   const turnOff = async () => {
     setError('');
     setState({ at: 'working' });
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      if (sub) {
-        await api.unsubscribe(sub.endpoint);
-        await sub.unsubscribe();
-      }
-    } catch { /* stopped on this phone anyway: the shop forgets it when the next message cannot be delivered */ }
-    remembered.setOffers(null);
+    await stopOffers();
     setState({ at: 'off' });
   };
 
@@ -97,16 +114,22 @@ export function Offers() {
         <p>Notifications are blocked for CheesyBeez on this phone. Allow them in the phone’s settings, then try again.</p>
       ) : state.at === 'off' ? (
         <>
-          <p><b>Get our offers on this phone.</b> A few a month, no SMS, stop any time.</p>
+          <p><b>Get our offers on this phone.</b> A few a month. No app, no SMS, no login. Stop any time.</p>
           <button type="button" className="o-primary" onClick={() => setState({ at: 'asking' })}>Get offers</button>
         </>
       ) : (
         <form className="o-offers__form" onSubmit={(e) => { e.preventDefault(); void turnOn(); }}>
+          <div className="o-offers__intro">
+            <h2>Get our offers on this phone</h2>
+            <p>A few a month. No app, no SMS, no login. Stop any time.</p>
+          </div>
           <label>
             <span>Your mobile number</span>
             <input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="077 123 4567" />
           </label>
           <button type="submit" className="o-primary" disabled={state.at === 'working'}>{state.at === 'working' ? 'Turning on…' : 'Turn on offers'}</button>
+          <p className="o-offers__next"><b>Next:</b> your phone asks “Allow notifications?” Tap Allow.</p>
+          {isIphone() && <p className="o-offers__hint">iPhone: Share, then Add to Home Screen, and open CheesyBeez from there.</p>}
         </form>
       )}
       {error && <p className="o-offers__error" role="alert">{error}</p>}

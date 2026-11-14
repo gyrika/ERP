@@ -315,3 +315,26 @@ button { cursor: pointer; }
 .o-offers__form label { display: flex; flex-direction: column; gap: 6px; flex: 1 1 220px; font-size: 14px; font-weight: 500; }
 .o-offers__form input { height: 48px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(0, 0, 0, 0.18); font: inherit; font-size: 17px; }
 .o-offers__error { color: #c62828; width: 100%; }
+/* Opened from the receipt's QR code (#offers): the sign-up says what it is, then the one field. */
+.o-offers__intro { width: 100%; }
+.o-offers__intro h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: -0.3px; color: var(--heading); }
+.o-offers__intro p, .o-offers__next, .o-offers__hint { margin: 0; flex: 1 1 100%; font-size: 14px; line-height: 1.45; color: var(--body); }
+.o-offers__next { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.o-offers__next b { color: var(--heading); font-weight: 600; }
+.o-offers__hint { font-size: 13px; color: var(--caption); }
+
+/* The offers inbox (OffersInbox.tsx): a bell beside the shop's state, the list in a sheet. */
+.o-head__end { display: inline-flex; align-items: center; gap: var(--space-1); }
+.o-bell { position: relative; display: inline-grid; place-items: center; width: var(--target); height: var(--target); border: 0; border-radius: var(--radius-pill); background: none; color: var(--heading); }
+.o-bell:hover { background: var(--chip); }
+.o-bell__n { position: absolute; top: 4px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.o-inbox__list { margin: var(--space-1) 0 var(--space-2); padding: 0; list-style: none; }
+.o-inbox__item { padding: var(--space-2) 0; border-top: 1px solid var(--border); }
+.o-inbox__item:first-child { border-top: 0; }
+.o-inbox__top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-1); color: var(--heading); font-size: 17px; }
+.o-inbox__item p { margin: 4px 0 0; color: var(--body); font-size: 15px; line-height: 1.45; }
+.o-inbox__when { display: block; margin-top: 6px; color: var(--caption); font-size: 13px; }
+.o-inbox__new { flex: none; padding: 2px 10px; border-radius: var(--radius-pill); background: var(--closed-fill); color: var(--closed-ink); font-size: 12px; font-weight: 600; }
+.o-inbox__empty { margin: var(--space-2) 0; color: var(--body); }
+.o-inbox__order { margin-top: var(--space-1); }
+.o-inbox__foot { margin: var(--space-2) 0 0; text-align: center; color: var(--caption); font-size: 14px; }
