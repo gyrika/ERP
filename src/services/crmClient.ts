@@ -1,3 +1,4 @@
+import type { CampaignResult } from '../domain/campaignResults.ts';
 import type { Audience } from '../domain/campaigns.ts';
 import type { ImportPlan } from '../domain/customerImport.ts';
 import type { Customer } from '../domain/customers.ts';
@@ -62,4 +63,6 @@ export const crmClient = {
   send: (audience: Audience, title: string, body: string, testPhone?: string) =>
     post<{ events: SyncEvent[] }>('/campaigns/send', { audience, title, body, testPhone }, 5 * 60_000),
   setAuto: (on: boolean, title: string, body: string) => post<{ events: SyncEvent[] }>('/campaigns/auto', { on, title, body }),
+  /** What each campaign brought in, by its event id (counts only; campaignResults.ts). */
+  results: () => post<{ results: Record<string, CampaignResult> }>('/campaigns/results', {}),
 };

@@ -136,3 +136,28 @@ test('SQLite: remove takes the customer, their phones and send log; restore brin
   await events.close();
   rmSync(dir, { recursive: true, force: true });
 });
+
+/** Campaign results read the send log back by key: this campaign's rows only, this shop's only. */
+const loggedStory = async (store: CustomerStore) => {
+  await store.logOnce('shop-a', 'campaign:abc:cus-1', 'cus-1', AT);
+  await store.logOnce('shop-a', 'campaign:abc:cus-2', 'cus-2', AT);
+  await store.logOnce('shop-a', 'campaign:abcd:cus-3', 'cus-3', AT); // another campaign whose id starts the same
+  await store.logOnce('shop-a', 'compare:abc:cus-4', 'cus-4', AT);
+  await store.logOnce('shop-b', 'campaign:abc:cus-9', 'cus-9', AT);
+  assert.deepEqual((await store.logged('shop-a', 'campaign:abc:')).sort(), ['cus-1', 'cus-2']);
+  assert.deepEqual(await store.logged('shop-a', 'compare:abc:'), ['cus-4']);
+  assert.deepEqual(await store.logged('shop-a', 'campaign:zzz:'), []);
+  await store.unlog('shop-a', 'campaign:abc:cus-2');
+  assert.deepEqual(await store.logged('shop-a', 'campaign:abc:'), ['cus-1']);
+};
+
+test('the send log read back for campaign results: memory and SQLite alike', async () => {
+  await loggedStory(memoryCustomers());
+  const dir = mkdtempSync(join(tmpdir(), 'cb-crm-log-'));
+  const events = sqliteStore(join(dir, 'pos.sqlite'));
+  await events.addDevice('shop-a', 'A', 'counter');
+  await events.addDevice('shop-b', 'B', 'counter');
+  await loggedStory(sqliteCustomers(events.db, crmCrypto(dir)));
+  await events.close();
+  rmSync(dir, { recursive: true, force: true });
+});

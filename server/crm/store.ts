@@ -44,6 +44,11 @@ export interface CustomerStore {
   logOnce(tenantId: string, key: string, customerId: string, at: number): Promise<boolean>;
   /** A send that failed is tried again next time. */
   unlog(tenantId: string, key: string): Promise<void>;
+  /**
+   * The customers logged under keys starting with `prefix` (campaign results, campaignResults.ts:
+   * `campaign:<id>:` who it reached, `compare:<id>:` who was in its audience but could not be).
+   */
+  logged(tenantId: string, prefix: string): Promise<string[]>;
 }
 
 export const newCustomerId = () => `cus-${randomBytes(8).toString('hex')}`;
@@ -52,7 +57,7 @@ export const newCustomerId = () => `cus-${randomBytes(8).toString('hex')}`;
 export function memoryCustomers(): CustomerStore {
   const rows = new Map<string, Customer & { tenantId: string }>();
   const subs = new Map<string, { tenantId: string; customerId: string; sub: PushSub }>(); // tenant|endpoint
-  const log = new Set<string>(); // tenant|key
+  const log = new Map<string, string>(); // tenant|key → customer
   const find = (tenantId: string, phone: string) => [...rows.values()].find((c) => c.tenantId === tenantId && c.phone === phone);
   const open = ({ tenantId: _t, ...c }: Customer & { tenantId: string }): Customer => c;
   return {
@@ -88,6 +93,7 @@ export function memoryCustomers(): CustomerStore {
       if (!c || c.tenantId !== tenantId) return null;
       rows.delete(id);
       for (const [k, s] of subs) if (s.tenantId === tenantId && s.customerId === id) subs.delete(k);
+      for (const [k, c] of log) if (k.startsWith(`${tenantId}|`) && c === id) log.delete(k);
       return open(c);
     },
     async restore(tenantId, customer) {
@@ -106,12 +112,16 @@ export function memoryCustomers(): CustomerStore {
     async subs(tenantId) {
       return [...subs.values()].filter((s) => s.tenantId === tenantId && rows.has(s.customerId)).map(({ customerId, sub }) => ({ customerId, sub }));
     },
-    async logOnce(tenantId, key) {
+    async logOnce(tenantId, key, customerId) {
       const k = `${tenantId}|${key}`;
       if (log.has(k)) return false;
-      log.add(k);
+      log.set(k, customerId);
       return true;
     },
     async unlog(tenantId, key) { log.delete(`${tenantId}|${key}`); },
+    async logged(tenantId, prefix) {
+      const p = `${tenantId}|${prefix}`;
+      return [...log].filter(([k]) => k.startsWith(p)).map(([, c]) => c);
+    },
   };
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Actor } from '../../src/domain/auth.ts';
-import { checkMessage, isPushSubscription, winbackFromEvents, type Audience, type CampaignEvent, type Message } from '../../src/domain/campaigns.ts';
+import { campaignResult, type CampaignResult } from '../../src/domain/campaignResults.ts';
+import { campaignsFromEvents, checkMessage, isPushSubscription, winbackFromEvents, type Audience, type CampaignEvent, type Message } from '../../src/domain/campaigns.ts';
 import { DEFAULT_SEGMENT_RULES, segmentsOf, visitsFromEvents, type Customer } from '../../src/domain/customers.ts';
 import { toLkMobile } from '../../src/domain/phone.ts';
 import type { SyncEvent } from '../../src/domain/sync.ts';
@@ -78,9 +79,9 @@ export function createPush(o: PushOptions) {
     return { delivered, failed };
   };
 
-  const record = async (device: Device, actor: Actor, fields: Omit<Extract<CampaignEvent, { type: 'crm.campaign_sent' }>, 'id' | 'shopId' | 'at' | 'orderNumber' | 'actor' | 'type'>) => {
+  const record = async (device: Device, actor: Actor, fields: Omit<Extract<CampaignEvent, { type: 'crm.campaign_sent' }>, 'id' | 'shopId' | 'at' | 'orderNumber' | 'actor' | 'type'>, id: string = randomUUID()) => {
     const event = {
-      id: randomUUID(), shopId: device.tenantId, at: now(), orderNumber: 0 as const, actor, type: 'crm.campaign_sent' as const, ...fields,
+      id, shopId: device.tenantId, at: now(), orderNumber: 0 as const, actor, type: 'crm.campaign_sent' as const, ...fields,
     } satisfies CampaignEvent;
     await o.ingest(device, [event]);
     return event;
@@ -100,11 +101,37 @@ export function createPush(o: PushOptions) {
       if (why) throw new PushError(why);
       const m = { title: message.title.trim(), body: message.body.trim() };
       const a = await audience(device.tenantId, who, testPhone);
+      // The campaign's own event id names its sends, so its results can be found again (campaignResults.ts).
       const id = randomUUID();
       const { delivered, failed } = await deliver(device.tenantId, a.reachable, a.phones, m, (c) => `campaign:${id}:${c.id}`);
+      // The audience it could not reach (no app, or no messages), kept as the week's comparison. Not for a test.
+      if (who !== 'test') {
+        const reached = new Set(a.reachable.map((c) => c.id));
+        for (const c of a.picked) if (!reached.has(c.id)) await o.customers.logOnce(device.tenantId, `compare:${id}:${c.id}`, c.id, now());
+      }
       return record(device, actor, {
         audience: who, kind: 'campaign', ...m, customers: a.picked.length, reachable: a.reachable.length, delivered, failed,
-      });
+      }, id);
+    },
+
+    /**
+     * What each campaign brought in (campaignResults.ts): counts only. Campaigns sent before results
+     * were kept, tests and the automatic message have none.
+     */
+    async results(tenantId: string): Promise<Record<string, CampaignResult>> {
+      const events = await o.history(tenantId);
+      const visits = visitsFromEvents(events);
+      const out: Record<string, CampaignResult> = {};
+      for (const c of campaignsFromEvents(events)) {
+        if (c.kind !== 'campaign') continue;
+        const [reached, compared] = await Promise.all([
+          o.customers.logged(tenantId, `campaign:${c.id}:`), o.customers.logged(tenantId, `compare:${c.id}:`),
+        ]);
+        // Nothing logged under this id: sent before results were kept (or everyone in it was erased).
+        if (!reached.length && !compared.length) continue;
+        out[c.id] = campaignResult(c.at, reached, compared, visits, now());
+      }
+      return out;
     },
 
     /**

@@ -3,6 +3,7 @@ import { RECEIPT_WIDTH, receipt } from '../domain/receipt.ts';
 import { totals } from '../domain/totals.ts';
 import type { Order, PaidOrder } from '../domain/types.ts';
 import { canPrint, printReceipt } from '../services/printer.ts';
+import { modulesHere } from './eventLog.ts';
 
 /**
  * /#receipt: the customer receipt as the XP-80T will print it, for the owner
@@ -28,7 +29,7 @@ export const samplePaid = (): PaidOrder => {
 export function ReceiptPreview() {
   const [paid] = useState(samplePaid);
   const [test, setTest] = useState<'idle' | 'printing' | 'printed' | 'failed'>('idle');
-  const lines = receipt(paid, { cashier: 'Nimal' });
+  const lines = receipt(paid, { cashier: 'Nimal', offers: modulesHere().crm });
 
   const printTest = async () => {
     setTest('printing');
@@ -58,6 +59,8 @@ export function ReceiptPreview() {
         {lines.map((l, i) => (
           <div key={i} className={`paper__line${l.big ? ' paper__line--big' : ''}${l.bold ? ' paper__line--bold' : ''}`}
             style={{ textAlign: l.center ? 'center' : 'left' }}>
+            {/* The printer draws the QR code itself; here a square of its size says where it goes. */}
+            {l.qr && <span className="paper__qr" role="img" aria-label={`QR code: ${l.qr}`}>QR</span>}
             {l.text || ' '}
           </div>
         ))}

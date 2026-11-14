@@ -20,7 +20,7 @@ vi.mock('../services/serverAuth.ts', async (real) => ({
   ...(await real<typeof import('../services/serverAuth.ts')>()),
   signedIn: () => ({ id: 'o', name: 'Owner', role: shop.role }),
 }));
-const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn() }));
+const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn() }));
 vi.mock('../services/crmClient.ts', () => ({ crmClient: crm, CrmFailed: Error }));
 
 const { default: CustomersView } = await import('./customers/CustomersView.tsx');
@@ -68,6 +68,7 @@ beforeEach(() => {
     id: 'c1', shopId: 's', at: NOW, orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'crm.campaign_sent',
     audience, kind: 'campaign', title, body, customers: 1, reachable: 1, delivered: 1, failed: 0,
   }] }));
+  crm.results.mockResolvedValue({ results: {} });
   crm.setAuto.mockImplementation(async (on: boolean, title: string, body: string) => ({ events: [{
     id: 'a1', shopId: 's', at: NOW, orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'crm.auto_set', on, title, body,
   }] }));
@@ -170,6 +171,19 @@ test('Campaigns are the owner\'s: a manager sees what was sent, nothing to send 
   expect(await screen.findByText('Campaigns are sent by the owner. What was sent:')).toBeTruthy();
   expect(screen.queryByRole('button', { name: /^Send/ })).toBeNull();
   expect(crm.reach).not.toHaveBeenCalled();
+});
+
+test('Sent: each campaign says what it brought in that week, beside the others in its audience', async () => {
+  shop.events = [...shop.events, {
+    id: 'c9', shopId: 's', at: NOW - 3 * DAY, orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'crm.campaign_sent',
+    audience: 'inactive', kind: 'campaign', title: 'We kept your table', body: 'A free drink this week.', customers: 30, reachable: 10, delivered: 10, failed: 0,
+  } as SyncEvent];
+  crm.results.mockResolvedValue({ results: { c9: { reached: 10, cameIn: 3, spent: 1_250_000, compared: 20, comparedCameIn: 2, final: false } } });
+  render(<CustomersView hash="#customers/campaigns" onRegister={() => {}} />);
+  const sent = within(screen.getByRole('region', { name: 'Sent' }));
+  expect(await sent.findByText(/3 of 10 came in so far · Rs 12,500/)).toBeTruthy();
+  expect(sent.getByText('Others in it: 2 of 20 (10%) vs 30%')).toBeTruthy();
+  expect(sent.getByRole('columnheader', { name: 'Came in (7 days)' })).toBeTruthy();
 });
 
 test('Add customer: the mobile first, a name if known; a number already on the list says whose it is', async () => {

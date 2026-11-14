@@ -866,6 +866,8 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .paper__line { white-space: pre; }
 .paper__line--bold { font-weight: 700; }
 .paper__line--big { font-size: 2em; line-height: 1.2; letter-spacing: 0; }
+/* Where the printer draws the offers QR code: about 2 cm square on the paper. */
+.paper__qr { display: grid; place-items: center; width: 7em; height: 7em; margin: 0.6em auto; border: 2px dashed currentColor; font-weight: 700; opacity: 0.6; white-space: normal; }
 
 /* Lock screen (SCRUM-40): four digits, typed or tapped, nothing else. */
 .lock { min-height: 100dvh; background: var(--ground); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 24px 16px; }
@@ -2182,6 +2184,9 @@ button.glance__card:disabled { cursor: default; }
 .crm-list tbody tr:hover td { background: var(--chip); }
 .crm-list .crm-list__n { text-align: right; white-space: nowrap; }
 .crm-list td.num { white-space: nowrap; }
+/* A campaign's result: what it brought, and the others in its audience under it, smaller. */
+.crm-result { min-width: 190px; font-size: 14px; line-height: 1.4; }
+.crm-result__others { display: block; font-size: 13px; }
 
 /* A customer's segment: the same small pill everywhere; VIP stands out, Inactive goes quiet. */
 .crm-seg { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 980px; background: var(--chip); font-size: 12px; font-weight: 600; letter-spacing: 0.1px; color: var(--ink); white-space: nowrap; }

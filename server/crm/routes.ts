@@ -208,6 +208,12 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       return { events: [event] };
     },
 
+    /** What each campaign brought in, as counts (managers and the owner: they both see what was sent). */
+    async results(device: Device, staffId: unknown) {
+      await who(device, staffId, 'manager');
+      return { results: await pushing().results(device.tenantId) };
+    },
+
     /** The automatic "we miss you": on or off, and its words (the owner). */
     async setAuto(device: Device, staffId: unknown, body: { on?: unknown; title?: unknown; body?: unknown }) {
       const actor = await who(device, staffId, 'owner');

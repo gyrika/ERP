@@ -122,5 +122,12 @@ export function sqliteCustomers(db: DatabaseSync, crypto: CrmCrypto): CustomerSt
     async unlog(tenantId, key) {
       db.prepare('DELETE FROM crm_push_log WHERE tenant_id = ? AND dedupe_key = ?').run(tenantId, key);
     },
+
+    async logged(tenantId, prefix) {
+      // A range on the key's index: keys are plain ASCII, and '~' sorts after every character in them.
+      const rows = db.prepare('SELECT customer_id FROM crm_push_log WHERE tenant_id = ? AND dedupe_key >= ? AND dedupe_key < ?')
+        .all(tenantId, prefix, `${prefix}~`) as { customer_id: string }[];
+      return rows.map((r) => r.customer_id);
+    },
   };
 }
