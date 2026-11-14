@@ -6,7 +6,7 @@ import { pinMatches } from './pins.ts';
  * never in the app the browser downloads, and wrong tries are slowed down (server/setup.ts).
  * To change it: hashPin(<new password>) from server/pins.ts, and replace both values.
  */
-export const MODULE_PASSWORD = { salt: '59b36f05d9fe42a388cacdc701a6d78b', hash: '6e6410d3c3b886f9dac0dc563b798bf59ef875d0ee67b62a04a91ccba4dd480e' } as const;
+export const MODULE_PASSWORD = { salt: '97610c8a080e57514039473609a37696', hash: '7b02b1bf98f9174ab8f7772bf6e509805177f311098c8799f3e96b690715cc2c' } as const;
 
 export type PasswordHash = { salt: string; hash: string };
 
