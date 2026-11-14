@@ -37,9 +37,44 @@ export type CampaignEvent =
     type: 'crm.auto_set';
     /** The automatic message to a customer who has just become Inactive. */
     on: boolean; title: string; body: string;
+  }
+  | {
+    id: string; shopId: string; at: number; orderNumber: 0; actor: Actor;
+    type: 'crm.receipt_set';
+    /** The receipt's words above the offers QR code (receipt.ts): the reason to scan, the owner's own. */
+    headline: string;
+    /** A second line, e.g. what scanning gets them; '' for none. */
+    line: string;
   };
 
-export const CAMPAIGN_EVENT_TYPES = ['crm.campaign_sent', 'crm.auto_set'] as const satisfies readonly CampaignEvent['type'][];
+export const CAMPAIGN_EVENT_TYPES = ['crm.campaign_sent', 'crm.auto_set', 'crm.receipt_set'] as const satisfies readonly CampaignEvent['type'][];
+
+/** Receipt lines are 48 characters on 80 mm paper; the headline prints bold, so it stays a little shorter. */
+export const MAX_RECEIPT_HEADLINE = 40;
+export const MAX_RECEIPT_LINE = 48;
+
+export interface ReceiptOffer { headline: string; line: string }
+/** Until the owner writes his own: a reason to scan, no promise he has not made. */
+export const DEFAULT_RECEIPT_OFFER: ReceiptOffer = { headline: 'Scan for offers on your phone', line: '' };
+
+/** Why these receipt words cannot be printed, or null. Plain printable ASCII: the printer prints anything else as '?'. */
+export const checkReceiptOffer = (v: { headline?: unknown; line?: unknown }): string | null => {
+  const headline = typeof v.headline === 'string' ? v.headline.trim() : '';
+  const line = typeof v.line === 'string' ? v.line.trim() : '';
+  if (!headline) return 'write the line that asks them to scan';
+  if (headline.length > MAX_RECEIPT_HEADLINE) return `the first line is longer than ${MAX_RECEIPT_HEADLINE} letters`;
+  if (line.length > MAX_RECEIPT_LINE) return `the second line is longer than ${MAX_RECEIPT_LINE} letters`;
+  if (!/^[\x20-\x7e]*$/.test(headline + line)) return 'the printer prints English letters, numbers and % only';
+  if (/[<>]/.test(headline + line)) return 'leave out < and >';
+  return null;
+};
+
+/** The receipt's offers words as the owner last set them. */
+export const receiptOfferFromEvents = (events: readonly SyncEvent[]): ReceiptOffer => {
+  let out = DEFAULT_RECEIPT_OFFER;
+  for (const e of events) if (e.type === 'crm.receipt_set') out = { headline: e.headline, line: e.line };
+  return out;
+};
 
 /** Why this message cannot be sent, or null. Plain words only: no links, nothing that looks like code. */
 export const checkMessage = (m: { title?: unknown; body?: unknown }): string | null => {
@@ -58,6 +93,7 @@ const count = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
 /** Why this campaign event is not as the shop server records it, or null (validate.ts). */
 export const checkCampaignEvent = (e: Record<string, unknown>): string | null => {
   if (e.orderNumber !== 0) return 'a campaign is not about an order';
+  if (e.type === 'crm.receipt_set') return checkReceiptOffer(e);
   const message = checkMessage(e);
   if (e.type === 'crm.auto_set') return typeof e.on !== 'boolean' ? 'on or off' : message;
   if (!isAudience(e.audience)) return 'unknown audience';

@@ -131,9 +131,11 @@ export const markSynced = (ids: readonly string[], now = Date.now()): void => {
     now - e.at < KEEP_SYNCED_MS ||
     e.type.startsWith('menu.') ||
     e.type === 'shop.started_fresh' ||
-    // Which modules the developers turned on (modules.ts), and the automatic customer message's setting.
+    // Which modules the developers turned on (modules.ts), the automatic customer message's setting,
+    // and the receipt's offers words (the printer reads them here).
     e.type === 'shop.module_set' ||
     e.type === 'crm.auto_set' ||
+    e.type === 'crm.receipt_set' ||
     e.type === 'recipe.answer_set' ||
     e.type === 'recipe.draft_set' ||
     e.type === 'stock.item_added' ||

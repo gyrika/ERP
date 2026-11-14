@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AUDIENCE_LABEL, campaignsFromEvents, checkMessage, MAX_BODY, MAX_TITLE, winbackFromEvents, type Audience,
+  AUDIENCE_LABEL, campaignsFromEvents, checkMessage, checkReceiptOffer, MAX_BODY, MAX_RECEIPT_HEADLINE, MAX_RECEIPT_LINE, MAX_TITLE,
+  receiptOfferFromEvents, winbackFromEvents, type Audience, type ReceiptOffer,
 } from '../../domain/campaigns.ts';
 import { RESULT_DAYS, resultText, type CampaignResult } from '../../domain/campaignResults.ts';
 import { fmt } from '../../domain/money.ts';
@@ -46,6 +47,10 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
   const auto = useMemo(() => winbackFromEvents(all), [all]);
   const [autoText, setAutoText] = useState({ title: auto.title, body: auto.body });
   useEffect(() => { setAutoText({ title: auto.title, body: auto.body }); }, [auto.title, auto.body]);
+  const receipt = useMemo(() => receiptOfferFromEvents(all), [all]);
+  const [receiptText, setReceiptText] = useState<ReceiptOffer>(receipt);
+  useEffect(() => { setReceiptText(receipt); }, [receipt]);
+  const receiptWhy = checkReceiptOffer(receiptText);
 
   useEffect(() => {
     if (!isOwner || !data) return;
@@ -68,7 +73,7 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
     setMine((m) => [...m, ...r.events]);
     const e = r.events[0] as { delivered: number; failed: number; reachable: number };
     if (!test) { setTitle(''); setBody(''); }
-    return test ? (e.delivered ? 'Test sent to your phone.' : 'The test did not arrive: is the app still allowed to notify on that phone?')
+    return test ? (e.delivered ? 'Test sent to your phone.' : 'The test did not arrive: are notifications still allowed for cheesybeez.com on that phone?')
       : `Sent: reached ${e.delivered} of ${e.reachable}${e.failed ? ` (${e.failed} could not be reached now)` : ''}.`;
   });
   const saveAuto = (on: boolean) => run(async () => {
@@ -76,6 +81,12 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
     addEvents(r.events);
     setMine((m) => [...m, ...r.events]);
     return on ? '“We miss you” is on.' : '“We miss you” is off.';
+  });
+  const saveReceipt = () => run(async () => {
+    const r = await crmClient.setReceipt(receiptText.headline, receiptText.line);
+    addEvents(r.events);
+    setMine((m) => [...m, ...r.events]);
+    return 'The receipt prints the new words from the next sale.';
   });
 
   const why = checkMessage({ title, body });
@@ -111,7 +122,7 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
 
   return (
     <>
-      <p className="crm__lead">A notification on the phones of customers who have the CheesyBeez app and allow offers. {data ? `${data.withApp.size} of ${data.customers.length} have it.` : ''}</p>
+      <p className="crm__lead">A notification on the phones of customers who signed up for offers on cheesybeez.com (the QR code on the receipt). {data ? `${data.withApp.size} of ${data.customers.length} have.` : ''}</p>
       <section className="crm-import" aria-label="New campaign">
         <h2>New campaign</h2>
         <div className="cats crm-wrap" role="group" aria-label="Send to">
@@ -119,7 +130,7 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
         </div>
         <p className="crm-reach" aria-live="polite">
           {reach === null ? <span className="skeleton crm__line" /> : reach.reachable === 0
-            ? `Reaches nobody yet: none of the ${reach.customers} ${AUDIENCE_LABEL[who].toLowerCase()} customers have the app.`
+            ? `Reaches nobody yet: none of the ${reach.customers} ${AUDIENCE_LABEL[who].toLowerCase()} customers have signed up for offers.`
             : `Reaches ${reach.reachable} of ${reach.customers} ${who === 'all' ? '' : `${AUDIENCE_LABEL[who].toLowerCase()} `}customers.`}
         </p>
         <label className="setup__field"><span>Title <span className="crm__muted num">{letters(title)}/{MAX_TITLE}</span></span>
@@ -142,7 +153,7 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
 
       <section className="crm-import" aria-label="We miss you">
         <h2>We miss you <span className={auto.on ? 'unlock__on' : 'unlock__off'}>· {auto.on ? 'On' : 'Off'}</span></h2>
-        <p className="crm__hint">Sent by itself, once, to a customer with the app on the day they reach 30 days without a visit (between 10 am and 8 pm).</p>
+        <p className="crm__hint">Sent by itself, once, to a customer signed up for offers on the day they reach 30 days without a visit (between 10 am and 8 pm).</p>
         <label className="setup__field"><span>Title</span>
           <input value={autoText.title} maxLength={MAX_TITLE} onChange={(e) => setAutoText({ ...autoText, title: e.target.value })} /></label>
         <label className="setup__field"><span>Message</span>
@@ -152,6 +163,20 @@ export function CampaignsPanel({ isOwner, data, events }: { isOwner: boolean; da
             {auto.on ? 'Turn off' : 'Turn on'}
           </button>
           {auto.on && <button type="button" className="linkbtn" disabled={busy || checkMessage(autoText) !== null} onClick={() => void saveAuto(true)}>Save the words</button>}
+        </div>
+      </section>
+      <section className="crm-import" aria-label="On the receipt">
+        <h2>On the receipt</h2>
+        <p className="crm__hint">Printed above the QR code at the bottom of every receipt. A reason to scan brings more sign-ups: an offer works best.</p>
+        <label className="setup__field"><span>First line <span className="crm__muted num">{receiptText.headline.length}/{MAX_RECEIPT_HEADLINE}</span></span>
+          <input value={receiptText.headline} maxLength={MAX_RECEIPT_HEADLINE} onChange={(e) => setReceiptText({ ...receiptText, headline: e.target.value })} /></label>
+        <label className="setup__field"><span>Second line <span className="crm__muted">if you want one</span> <span className="crm__muted num">{receiptText.line.length}/{MAX_RECEIPT_LINE}</span></span>
+          <input value={receiptText.line} maxLength={MAX_RECEIPT_LINE} onChange={(e) => setReceiptText({ ...receiptText, line: e.target.value })} placeholder="10% off your next pizza" /></label>
+        {receiptWhy && <p className="crm__hint">{receiptWhy}</p>}
+        <div className="crm-import__actions">
+          <button type="button" className="inv-page__primary" disabled={busy || receiptWhy !== null || (receiptText.headline.trim() === receipt.headline && receiptText.line.trim() === receipt.line)} onClick={() => void saveReceipt()}>
+            Save the receipt words
+          </button>
         </div>
       </section>
       {history}

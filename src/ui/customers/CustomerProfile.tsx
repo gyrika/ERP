@@ -12,7 +12,7 @@ import type { CrmData, Notice } from './CustomersView.tsx';
  * person comes, what they buy, and whether they may be sent offers. Opting out is one tap and is
  * respected by every campaign (Sri Lanka PDPA); tap again if they change their mind.
  */
-const SOURCE: Record<CustomerSource, string> = { pos: 'Given at the counter', import: 'From the imported list', manual: 'Added by hand', app: 'Signed up in the app' };
+const SOURCE: Record<CustomerSource, string> = { pos: 'Given at the counter', import: 'From the imported list', manual: 'Added by hand', app: 'Signed up for offers' };
 
 export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onRemoved }: {
   id: string; data: CrmData | null; events: readonly SyncEvent[]; now: number; isOwner: boolean;
@@ -68,7 +68,7 @@ export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onR
       <section className="crm-profile__messages" aria-label="Messages">
         <p>
           {c.optedOut ? 'Asked for no messages: no campaign reaches them.'
-            : data.withApp.has(c.id) ? 'Has the app: campaigns can reach them.' : 'No app yet: campaigns cannot reach them.'}
+            : data.withApp.has(c.id) ? 'Signed up for offers: campaigns can reach them.' : 'Not signed up for offers: campaigns cannot reach them.'}
         </p>
         <button type="button" className={c.optedOut ? 'chip chip--solid' : 'chip'} disabled={busy} onClick={() => void toggle()}>
           {c.optedOut ? 'Allow messages again' : 'No messages for this customer'}

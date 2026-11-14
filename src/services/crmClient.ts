@@ -63,6 +63,8 @@ export const crmClient = {
   send: (audience: Audience, title: string, body: string, testPhone?: string) =>
     post<{ events: SyncEvent[] }>('/campaigns/send', { audience, title, body, testPhone }, 5 * 60_000),
   setAuto: (on: boolean, title: string, body: string) => post<{ events: SyncEvent[] }>('/campaigns/auto', { on, title, body }),
+  /** The receipt's words above the offers QR code (the owner's). */
+  setReceipt: (headline: string, line: string) => post<{ events: SyncEvent[] }>('/campaigns/receipt', { headline, line }),
   /** What each campaign brought in, by its event id (counts only; campaignResults.ts). */
   results: () => post<{ results: Record<string, CampaignResult> }>('/campaigns/results', {}),
 };

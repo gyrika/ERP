@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  campaignsFromEvents, checkCampaignEvent, checkMessage, DEFAULT_WINBACK, isPushSubscription, MAX_BODY, MAX_TITLE, winbackFromEvents, type CampaignEvent,
+  campaignsFromEvents, checkCampaignEvent, checkMessage, checkReceiptOffer, DEFAULT_WINBACK, isPushSubscription, MAX_BODY, MAX_TITLE,
+  receiptOfferFromEvents, winbackFromEvents, type CampaignEvent,
 } from './campaigns.ts';
 import { rulesSuggestions } from './insights.ts';
 import { SEED_INVENTORY, SEED_SUPPLIERS } from './inventoryData.ts';
@@ -43,6 +44,20 @@ test('"we miss you": off with its default words until the owner sets it; the lat
   assert.deepEqual(campaignsFromEvents([sent(1), sent(2, { audience: 'test' }), sent(3)]).map((c) => c.at), [3, 1], 'newest first, tests left out');
 });
 
+test('the receipt\'s words above the QR code: a reason to scan by default, the owner\'s once set; checked for the printer', () => {
+  assert.deepEqual(receiptOfferFromEvents([]), { headline: 'Scan for offers on your phone', line: '' });
+  const set = (headline: string, line: string, at: number): SyncEvent => ({ id: `r${at}`, shopId: 's', at, orderNumber: 0, actor: owner, type: 'crm.receipt_set', headline, line });
+  assert.deepEqual(receiptOfferFromEvents([set('A', '', 1), set('Scan for 10% off', 'Your next pizza', 2)]), { headline: 'Scan for 10% off', line: 'Your next pizza' });
+  assert.equal(checkReceiptOffer({ headline: 'Scan for 10% off', line: '' }), null);
+  assert.match(String(checkReceiptOffer({ headline: ' ', line: 'x' })), /scan/);
+  assert.match(String(checkReceiptOffer({ headline: 'x'.repeat(41), line: '' })), /40/);
+  assert.match(String(checkReceiptOffer({ headline: 'Offers', line: 'y'.repeat(49) })), /48/);
+  assert.match(String(checkReceiptOffer({ headline: 'වට්ටම්', line: '' })), /English/, 'the printer has no Sinhala');
+  // Checked like any event, so the cloud and the shop server agree.
+  assert.equal(checkCampaignEvent(set('Scan for 10% off', '', 3) as unknown as Record<string, unknown>), null);
+  assert.match(String(checkCampaignEvent(set('', '', 4) as unknown as Record<string, unknown>)), /scan/);
+});
+
 test('a phone\'s subscription: https and keys of the right size, nothing else', () => {
   const ok = { endpoint: 'https://fcm.googleapis.com/fcm/send/x', keys: { p256dh: 'B'.repeat(87), auth: 'a'.repeat(22) } };
   assert.equal(isPushSubscription(ok), true);
@@ -61,6 +76,6 @@ test('the owner\'s feed (and phone): how many the week\'s offers reached, never 
   assert.equal(card.title, '“Weekend offer” reached 11 of 12 phones');
   assert.match(card.detail, /to vip customers/);
   assert.deepEqual(card.action.items.map((i) => i.primary), ['Weekend offer', 'Old one']);
-  assert.equal(feed([sent(NOW, { reachable: 0, delivered: 0 })])!.title, '“Weekend offer” reached nobody: no customer in it has the app yet');
+  assert.equal(feed([sent(NOW, { reachable: 0, delivered: 0 })])!.title, '“Weekend offer” reached nobody: no customer in it has signed up for offers yet');
   assert.equal(feed([sent(NOW, { kind: 'auto', audience: 'inactive' })])!.detail, 'Sent by itself to customers who stopped coming.');
 });

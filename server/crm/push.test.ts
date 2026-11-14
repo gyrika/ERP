@@ -188,6 +188,18 @@ test('campaign results: who it reached and came in within a week, beside those i
   await s.stop();
 });
 
+test('the receipt\'s words above the QR code: the owner\'s, recorded by the shop server as one event; checked for the printer', async () => {
+  const s = await shop();
+  assert.equal((await s.post('/campaigns/receipt', s.manager.id, { headline: 'Scan for offers', line: '' })).status, 403);
+  assert.match(String((await s.post('/campaigns/receipt', s.owner.id, { headline: 'වට්ටම්', line: '' })).body.message), /English/);
+  const ok = await s.post('/campaigns/receipt', s.owner.id, { headline: '  Scan for 10% off  ', line: 'Your next pizza' });
+  assert.equal(ok.status, 200);
+  const stored = (await s.recorded()).filter((e) => e.type === 'crm.receipt_set');
+  assert.equal(stored.length, 1);
+  assert.deepEqual([stored[0].headline, stored[0].line, stored[0].actor.id], ['Scan for 10% off', 'Your next pizza', s.owner.id]);
+  await s.stop();
+});
+
 test('"we miss you": off until the owner turns it on; then once per quiet spell, 10:00-19:59, only to those who just went quiet', async () => {
   const s = await shop();
   const mk = async (phone: string, lastVisitDaysAgo: number) => {

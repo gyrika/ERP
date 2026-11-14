@@ -88,7 +88,7 @@ export function CustomerList({ data, events, now, onAdded }: { data: CrmData | n
         <li><b className="num">{summary.active}</b><span>active</span></li>
         <li><b className="num">{summary.inactive}</b><span>inactive (30+ days)</span></li>
         <li><b className="num">{pct(summary.repeatRate)}</b><span>came back</span></li>
-        <li><b className="num">{data.withApp.size}</b><span>have the app</span></li>
+        <li><b className="num">{data.withApp.size}</b><span>get offers</span></li>
       </ul>
 
       {summary.top.length > 0 && (
