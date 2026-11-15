@@ -131,3 +131,12 @@ test('a sent-line void or edit tells the kitchen; discounts do not', () => {
   assert.equal(apply(order(), { kind: 'edit', lineId: 'b', after: { itemId: 'margherita', qty: 3, size: 'M', adds: [], outs: [] }, reason: 'x' }).kitchen?.after?.qty, 3);
   assert.equal(apply(order(), { kind: 'discount', discount: { kind: 'comp' } }).kitchen, undefined);
 });
+
+test('the customer changed their mind (SCRUM-242): throw away + make new is recorded made and remade; after paying, it says so', () => {
+  const large = { itemId: 'devilled-chicken', qty: 1, size: 'L' as const, adds: [], outs: [] };
+  const remade = apply(order(), { kind: 'edit', lineId: 'a', after: large, remake: true, afterPay: true }, NIMAL);
+  assert.deepEqual(remade.event, { ...remade.event, type: 'order.item_changed', reason: 'Thrown away, made again', made: true, remake: true, afterPay: true });
+  // Change the ticket: nothing wasted, whatever the kitchen had done.
+  const inPlace = apply(order(), { kind: 'edit', lineId: 'a', after: large }, NIMAL);
+  assert.equal('made' in inPlace.event || 'remake' in inPlace.event || 'afterPay' in inPlace.event, false);
+});

@@ -109,6 +109,10 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'order.paid' && e.customerId !== undefined && !isCustomerId(e.customerId)) {
       return { reason: `event ${e.id} has an invalid customer` };
     }
+    // A paid order's difference (SCRUM-242): whole cents either way, and how it moved.
+    if (e.type === 'order.settled' && (!Number.isSafeInteger(e.amount) || !Number.isSafeInteger(e.tendered) || !shortString(e.tender, 16))) {
+      return { reason: `event ${e.id} has an invalid settlement` };
+    }
     if (e.type === 'shop.module_set') {
       const why = checkModuleEvent(e);
       if (why) return { reason: `event ${e.id}: ${why}` };

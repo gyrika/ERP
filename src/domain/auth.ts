@@ -36,10 +36,10 @@ export const canManage = (actor: Actor): boolean => managesRole(actor.role);
 /**
  * What a cashier records: sending, paying, the quick Undo straight after either, and changing
  * or cancelling a sent item when the customer changes their mind (audited; owner, 2026-11-14).
- * `order.change_undone` is that change's Undo.
+ * `order.change_undone` is that change's Undo; `order.settled` settles a paid order's change (SCRUM-242).
  */
 const CASHIER_EVENTS = new Set([
-  'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.released', 'order.given', 'order.given_undone',
+  'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.settled', 'order.released', 'order.given', 'order.given_undone',
   'order.item_changed', 'order.item_cancelled', 'order.change_undone',
 ]);
 /** What the customer pays is a manager's (audited). */

@@ -107,6 +107,12 @@ export const salesFrom = (events: readonly SyncEvent[]): Sale[] => {
     } else if (e.type === 'order.payment_undone') {
       const i = open.get(e.orderNumber)?.pop();
       if (i !== undefined) sales[i] = null;
+    } else if (e.type === 'order.settled') {
+      // A paid order changed afterwards (SCRUM-242): the difference belongs to its payment.
+      const list = open.get(e.orderNumber);
+      const i = list?.[list.length - 1];
+      const sale = i === undefined ? null : sales[i];
+      if (sale) sales[i!] = { ...sale, total: sale.total + e.amount };
     }
   }
   return sales.filter((s): s is Sale => s !== null);

@@ -212,6 +212,33 @@ export function deliveryBill(
   return out;
 }
 
+/**
+ * A paid order changed afterwards (SCRUM-242): a short slip for the difference, printed with the
+ * drawer opening. `amount` > 0 the customer paid more; < 0 the shop gave it back.
+ */
+export function changeSlip(
+  o: { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents },
+  opts: { at: number; cashier: string; shop?: ShopHeader; width?: number },
+): ReceiptLine[] {
+  const { at, cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH } = opts;
+  const back = o.amount < 0;
+  const out: ReceiptLine[] = [
+    { text: shop.name, center: true, bold: true, big: true },
+    { text: 'ORDER CHANGED', center: true, bold: true },
+    rule(width),
+    { text: twoCols(`Order ${o.number}`, receiptTime(at), width) },
+    { text: `Cashier ${cashier}` },
+    rule(width),
+    { text: twoCols(back ? 'GIVEN BACK' : 'PAID MORE', `Rs ${fmt(Math.abs(o.amount))}`, width / 2), bold: true, big: true },
+  ];
+  if (!back) {
+    out.push({ text: twoCols(TENDER_LABEL[o.tender], fmt(o.tendered), width) });
+    if (o.tender === 'cash' && o.tendered > o.amount) out.push({ text: twoCols('Change', fmt(o.tendered - o.amount), width) });
+  }
+  out.push({ text: twoCols('Order total now', fmt(o.total), width) }, rule(width), { text: shop.footer, center: true });
+  return out;
+}
+
 /** Plain text, for the preview and dry-run files. Big lines are shown at half width, as on paper. */
 export const receiptText = (lines: ReceiptLine[], width = RECEIPT_WIDTH): string =>
   lines.map((l) => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import { fmt } from '../domain/money.ts';
 import {
-  addLine, addLines, emptyOrder, markSent, newLineId, orderTotal, removeLine, unsentLines, updateLine,
+  addLine, addLines, balanceDue, emptyOrder, markSent, newLineId, orderTotal, removeLine, unsentLines, updateLine,
 } from '../domain/order.ts';
 import type { NewTicket } from '../domain/kitchen.ts';
 import {
@@ -63,6 +63,8 @@ interface ManagerRecord {
   inverse: Inverse;
   eventId: string;
   eventType: string;
+  /** The change was to a paid order (SCRUM-242): which sale, so its Undo changes that sale. */
+  paidAt?: number;
 }
 
 export type ManageResult = Refusal | { applied: Applied; undo: () => void };
@@ -137,6 +139,14 @@ const park = (s: Snapshot): Snapshot => {
   };
   return { ...next, order: blank(next) };
 };
+
+/** A paid order changed (SCRUM-242): on screen as it stands now, and its sale in step. */
+const withPaid = (s: Snapshot, p: PaidOrder): Snapshot => ({
+  ...s,
+  sales: s.sales.map((x) => (sameSaleAt(x, p) ? p : x)),
+  ...(s.paid && sameSaleAt(s.paid, p) ? { order: p, paid: p, justPaid: false } : {}),
+});
+const sameSaleAt = (a: PaidOrder, b: { number: number; paidAt: number }): boolean => a.number === b.number && a.paidAt === b.paidAt;
 
 /** Orders the customer has (SCRUM-240), so an Undo can say which hand-overs it takes back. */
 const givenNumbers = (s: Snapshot): Set<number> =>
@@ -425,6 +435,17 @@ export function useRegister() {
   const undoRecord = useCallback((actor: Actor, record: ManagerRecord) => {
     const s = ref.current;
     const at = Date.now();
+    if (record.paidAt !== undefined) {
+      const sale = s.sales.find((x) => sameSaleAt(x, { number: record.orderNumber, paidAt: record.paidAt! }));
+      if (!sale) return;
+      const u = undoManagerChange(sale, record, actor, at);
+      const next = withPaid(s, u.order as PaidOrder);
+      ref.current = next;
+      setSnap(next);
+      appendEvent(u.event);
+      toastFor('Undone');
+      return;
+    }
     const current = s.order.number === record.orderNumber
       ? s.order
       : s.open.find((o) => o.number === record.orderNumber) ?? record.orderAfter;
@@ -500,26 +521,56 @@ export function useRegister() {
     const s = ref.current;
     const actor = currentCashier();
     const at = Date.now();
-    const r = applyManagerChange(s.order, { ...change, ...(made ? { made } : {}) }, actor, at);
+    // A paid order on screen (SCRUM-242): the change is to that sale; the difference is settled after.
+    const onPaid = s.paid && s.paid.number === s.order.number ? s.paid : null;
+    const r = applyManagerChange(onPaid ?? s.order, { ...change, ...(made ? { made } : {}), ...(onPaid ? { afterPay: true } : {}) }, actor, at);
     if (isRefusal(r)) return r;
 
     seal(); // a send's Undo window ends here: it must not step back over this change
     setHistory([]);
-    const next = withOrder(s, r.order);
+    const next = onPaid ? withPaid(s, r.order as PaidOrder) : withOrder(s, r.order);
     ref.current = next;
     setSnap(next);
     const event = appendEvent(r.event);
-    const record: ManagerRecord = { orderNumber: s.order.number, orderAfter: r.order, inverse: r.inverse, eventId: event.id, eventType: event.type };
+    const record: ManagerRecord = {
+      orderNumber: s.order.number, orderAfter: r.order, inverse: r.inverse, eventId: event.id, eventType: event.type,
+      ...(onPaid ? { paidAt: onPaid.paidAt } : {}),
+    };
     setCounter(record);
     const line = s.order.lines.find((l) => l.id === change.lineId)!;
     const name = lineItemName(change.kind === 'edit' ? { ...line, ...change.after } : line);
     setToast({
       id: ++toastSeq.current,
-      message: `${change.kind === 'void' ? `Removed ${lineItemName(line)}` : `Changed ${name}`}${made ? ' · counted as waste' : ''} · kitchen told`,
+      message: `${change.kind === 'void' ? `Removed ${lineItemName(line)}` : `Changed ${name}`}${
+        change.kind === 'edit' && change.remake ? ' · old one to waste, new ticket' : made ? ' · counted as waste' : ''} · kitchen told`,
     });
     if (navigator.vibrate) navigator.vibrate(8);
     return { applied: r, undo: undoCounter };
   }, [seal, setHistory, setCounter, undoCounter]);
+
+  /**
+   * A paid order changed afterwards (SCRUM-242): the difference, settled in one step. More to pay:
+   * `tender`/`tendered` as at Charge. Money back: always cash from the drawer. Final like a
+   * payment that has left the screen: money has changed hands, so there is no Undo.
+   */
+  const settle = useCallback((tender: Tender, tendered: Cents): { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents } | undefined => {
+    const s = ref.current;
+    const p = s.paid;
+    if (!p) return undefined;
+    const amount = balanceDue(p);
+    if (!amount) return undefined;
+    const how: Tender = amount < 0 ? 'cash' : tender;
+    const given = amount < 0 ? -amount : Math.max(tendered, amount);
+    seal();
+    setHistory([]);
+    const done: PaidOrder = { ...p, settled: (p.settled ?? 0) + amount };
+    const next = withPaid(s, done);
+    ref.current = next;
+    setSnap(next);
+    setToast({ id: ++toastSeq.current, message: amount > 0 ? `Paid ${fmt(amount)} more` : `Gave back ${fmt(-amount)}` });
+    appendEvent({ type: 'order.settled', at: Date.now(), actor: currentCashier(), orderNumber: p.number, amount, tender: how, tendered: given });
+    return { number: p.number, amount, tender: how, tendered: given, total: orderTotal(done) };
+  }, [seal, setHistory]);
 
   /** Ctrl+Z in manager mode: reverse the newest manager change of this session. */
   const undoManager = useCallback((actor: Actor) => {
@@ -594,6 +645,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, changeSent, send, give, acceptOnline, setPlatform, setCustomer, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

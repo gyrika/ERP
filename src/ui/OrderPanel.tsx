@@ -5,7 +5,7 @@ import { cookState, lineCookState, type KitchenTicket } from '../domain/kitchen.
 import { DISCOUNT_CHIPS } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
-import { orderTotal, unsentLines } from '../domain/order.ts';
+import { balanceDue, orderTotal, unsentLines } from '../domain/order.ts';
 import { discountLabel, lineAdjustment, lineNet, totals } from '../domain/totals.ts';
 import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
 import { platformLabel, platformName } from '../domain/platforms.ts';
@@ -153,6 +153,8 @@ interface Props {
   onEdit: (line: OrderLine) => void;
   onSend: () => void;
   onCharge: () => void;
+  /** A paid order changed so the customer gets money back (SCRUM-242): cash from the drawer, one tap. */
+  onGiveBack?: () => void;
   onCloseFree: () => void;
   /** Closes a delivery app's order (SCRUM-195): the app pays the shop, nothing is collected here. */
   onClosePlatform: () => void;
@@ -273,12 +275,28 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
  * order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, paidToday, tickets, paid, justPaid = false, onGive, now, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
+  order, paidToday, tickets, paid, justPaid = false, onGive, now, manage, onEdit, onSend, onCharge, onGiveBack, onCloseFree, onClosePlatform, onClearPlatform, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
   if (extras) {
     return <aside className={`${panelClass} panel--extras`} aria-label="Current order">{extras}</aside>;
+  }
+
+  // A paid order changed afterwards (SCRUM-242): Charge takes only the difference.
+  const due = paid ? balanceDue(paid) : 0;
+  if (paying && paid && due > 0) {
+    return (
+      <aside className={`${panelClass} panel--paying`} aria-label="Current order">
+        <PayPanel
+          number={paid.number}
+          total={due}
+          lines={<PayLines order={paid} />}
+          onPay={paying.onPay}
+          onClose={paying.onClose}
+        />
+      </aside>
+    );
   }
 
   if (paying && !paid && order.lines.length > 0) {
@@ -305,7 +323,9 @@ export function OrderPanel({
   };
 
   if (paid) {
-    const cashChange = paid.tender === 'cash' && paid.change > 0;
+    const changed = paid.settled !== undefined || due !== 0;
+    const paidSoFar = paid.total + (paid.settled ?? 0);
+    const cashChange = !changed && paid.tender === 'cash' && paid.change > 0;
     const held = Boolean(paid.held);
     const kitchen = held ? { label: 'Send to kitchen', short: 'Send', run: onSend } : kitchenSide(paid);
     return (
@@ -317,23 +337,53 @@ export function OrderPanel({
           {!kitchen.run && <button type="button" className="panel__back" autoFocus onClick={onNext}>Next order</button>}
         </div>
         <div className="paid" role="status">
-          <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
-          <span className="paid__big num">{fmt(cashChange ? paid.change : paid.total)}</span>
-          <span className="paid__sub num">
-            {paid.tender === 'cash' ? `Cash ${fmt(paid.tendered)} · ` : `${TENDER[paid.tender]} · `}
-            Total {fmt(paid.total)}
-          </span>
+          {changed ? (
+            <>
+              <span className="paid__label">Paid</span>
+              <span className="paid__big num">{fmt(paidSoFar)}</span>
+              <span className="paid__sub num">Changed after paying · total now {fmt(orderTotal(paid))}</span>
+            </>
+          ) : (
+            <>
+              <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
+              <span className="paid__big num">{fmt(cashChange ? paid.change : paid.total)}</span>
+              <span className="paid__sub num">
+                {paid.tender === 'cash' ? `Cash ${fmt(paid.tendered)} · ` : `${TENDER[paid.tender]} · `}
+                Total {fmt(paid.total)}
+              </span>
+            </>
+          )}
           <span className="paid__links">
             {justPaid && <button type="button" className="linkbtn" onClick={onUndo}>Undo payment</button>}
             {onReprint && <button type="button" className="linkbtn" onClick={onReprint}>Print again</button>}
           </span>
           {printState === 'failed' && <span className="paid__note">Receipt not printed</span>}
         </div>
+        {/* The customer changed their mind (SCRUM-242): every item still taps to change it. */}
+        <div className="panel__lines">
+          {paid.lines.map((l) => {
+            const cook = l.sent ? lineCookState(tickets, l.id) : 'waiting';
+            return (
+              <button key={l.id} type="button" className="line line--sent" onClick={() => onEdit(l)}>
+                <span className="line__main">
+                  <span className="line__name">{l.qty > 1 ? `${l.qty} × ` : ''}{lineItemName(l)}</span>
+                  {sub(l) && <span className="line__sub">{sub(l)}</span>}
+                </span>
+                <span className="line__price num">{l.box ? '' : fmt(lineNet(paid, l))}</span>
+                {cook !== 'waiting' && <span className={`status status--${cook} line__cook`}>{cook === 'done' ? 'Made' : 'Cooking'}</span>}
+              </button>
+            );
+          })}
+        </div>
         <div className="panel__foot">
           <Twin
-            primary={kitchen.run ? 'kitchen' : null}
+            primary={due ? 'money' : kitchen.run ? 'kitchen' : null}
             kitchen={kitchen}
-            money={{ label: paid.tender === 'cash' ? 'Paid · Cash' : `Paid · ${TENDER[paid.tender]}` }}
+            money={due > 0
+              ? { label: `Charge ${fmt(due)} more`, short: `Charge ${fmt(due)}`, note: 'changed', run: onCharge }
+              : due < 0
+                ? { label: `Give back ${fmt(-due)}`, note: 'cash from the drawer', run: onGiveBack }
+                : { label: paid.tender === 'cash' ? 'Paid · Cash' : `Paid · ${TENDER[paid.tender]}` }}
           />
         </div>
       </aside>

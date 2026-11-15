@@ -27,7 +27,7 @@ export async function projectSales(db: D1Like, tenantId: string): Promise<number
     const top = (await db.prepare('SELECT MAX(seq) AS top FROM events WHERE tenant_id = ?').bind(tenantId).first<{ top: number | null }>())?.top ?? 0;
     if (top <= cursor) return filed;
     const { results } = await db.prepare(`SELECT seq, type, order_number, body FROM events
-      WHERE tenant_id = ? AND seq > ? AND seq <= ? AND type IN ('order.paid', 'order.payment_undone', 'shop.started_fresh')
+      WHERE tenant_id = ? AND seq > ? AND seq <= ? AND type IN ('order.paid', 'order.payment_undone', 'order.settled', 'shop.started_fresh')
       ORDER BY seq LIMIT ?`).bind(tenantId, cursor, top, PAGE).all<Row>();
     // The clear in force (the latest, so a test payment copied late is still left out).
     const fresh = await db.prepare(`SELECT seq, body FROM events WHERE tenant_id = ? AND seq <= ? AND type = 'shop.started_fresh'
@@ -85,6 +85,34 @@ export async function projectSales(db: D1Like, tenantId: string): Promise<number
             sale.id, tenantId, it.lineNo, it.itemId, it.itemName, it.size, it.qty, it.unitPrice, it.lineTotal, it.extras, it.leftOut));
         }
         filed++;
+      } else if (row.type === 'order.settled') {
+        // A paid order changed afterwards (SCRUM-242): its sale is filed again, as it stands now.
+        const settled = JSON.parse(row.body) as Extract<OrderEvent, { type: 'order.settled' }>;
+        const sale = settled.at < cutOff || !Number.isSafeInteger(settled.amount) ? null : await db.prepare(`SELECT id, event_seq, total FROM sales
+          WHERE tenant_id = ? AND order_number = ? AND status = 'paid' AND event_seq < ?
+          ORDER BY event_seq DESC LIMIT 1`).bind(tenantId, row.order_number, row.seq).first<{ id: string; event_seq: number; total: number }>();
+        const paidBody = sale && await db.prepare('SELECT body FROM events WHERE tenant_id = ? AND seq = ?').bind(tenantId, sale.event_seq).first<{ body: string }>();
+        if (sale && paidBody) {
+          const from = (await standing(sale.event_seq))?.event_seq ?? 0;
+          const { results: order } = await db.prepare(`SELECT body FROM events
+            WHERE tenant_id = ? AND order_number = ? AND seq > ? AND seq < ? AND type LIKE 'order.%'
+            ORDER BY seq`).bind(tenantId, row.order_number, from, row.seq).all<{ body: string }>();
+          try {
+            const paid = { ...(JSON.parse(paidBody.body) as Extract<OrderEvent, { type: 'order.paid' }>), total: sale.total + settled.amount };
+            const again = saleFrom(paid, order.map((o) => JSON.parse(o.body) as OrderEvent));
+            writes.push(db.prepare(`UPDATE sales SET items_count = ?, subtotal = ?, discount = ?, total = ? WHERE id = ?`)
+              .bind(again.itemsCount, again.subtotal, again.discount, again.total, sale.id));
+            writes.push(db.prepare('DELETE FROM sale_items WHERE sale_id = ?').bind(sale.id));
+            for (const it of again.items) {
+              writes.push(db.prepare(`INSERT OR IGNORE INTO sale_items
+                (sale_id, tenant_id, line_no, item_id, item_name, size, qty, unit_price, line_total, extras, left_out)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+                sale.id, tenantId, it.lineNo, it.itemId, it.itemName, it.size, it.qty, it.unitPrice, it.lineTotal, it.extras, it.leftOut));
+            }
+          } catch (e) {
+            console.error('sales ledger: settlement skipped', row.seq, e);
+          }
+        }
       } else {
         // An Undo takes back the latest payment of that number still standing.
         const undone = await standing(row.seq);

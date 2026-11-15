@@ -4,6 +4,7 @@ import { itemById, menuItems } from '../domain/menu.ts';
 import { fmt, unitPrice } from '../domain/money.ts';
 import { alonePrice, pickable } from '../domain/combos.ts';
 import type { Combo, LineSpec, MenuItem, OrderLine, SizeId } from '../domain/types.ts';
+import type { CookState } from '../domain/kitchen.ts';
 
 interface Props {
   item: MenuItem;
@@ -18,9 +19,14 @@ interface Props {
   manager?: boolean;
   /** A dish in a combo box (SCRUM-231): its combo, so the pick can be changed to another of its slot. */
   combo?: Combo;
-  /** A sent line the kitchen already started or finished: changing it wastes it, and the sheet says so. */
-  made?: boolean;
-  onSubmit: (spec: LineSpec, reason: string) => void;
+  /**
+   * A sent line, changed by the cashier (the customer changed their mind, SCRUM-242): where the
+   * kitchen is with it. The sheet offers the two ways: change the ticket in place, or throw the old
+   * one away and make the new one on a new ticket (picked for them once the kitchen has started).
+   */
+  cook?: CookState;
+  /** `remake`: the cashier picked "Throw away, make new". */
+  onSubmit: (spec: LineSpec, reason: string, remake: boolean) => void;
   onRemove?: (reason: string) => void;
   onClose: () => void;
 }
@@ -35,7 +41,13 @@ const toggle = (list: string[], id: string): string[] =>
  * Inside the order panel, in place of the order (like Charge): no pop-up over the menu, which stays live.
  * The quantity and Add/Update sit where Send/Charge was.
  */
-export function ExtrasPanel({ item: start, line, size, manager = false, combo, made = false, onSubmit, onRemove, onClose }: Props) {
+const COOK_WORD: Record<CookState, string> = { waiting: 'Not started in the kitchen', cooking: 'Cooking in the kitchen', done: 'Made already' };
+
+export function ExtrasPanel({ item: start, line, size, manager = false, combo, cook, onSubmit, onRemove, onClose }: Props) {
+  /** The cashier changing a sent line: which way the kitchen gets it. */
+  const ways = Boolean(cook && line?.sent && !manager);
+  const made = cook !== undefined && cook !== 'waiting';
+  const [remake, setRemake] = useState(made);
   /** In a box the size and quantity are the box's; only the pick, extras and leave-outs change. */
   const box = line?.box;
   const slot = box && combo?.slots[box.slot];
@@ -108,7 +120,7 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, m
     act();
   };
   const unchanged = (manager || Boolean(line?.sent)) && sameAsLine(spec()); // a sent line: nothing to save yet
-  const submit = () => { if (!unchanged) withReason(() => onSubmit(spec(), reason)); };
+  const submit = () => { if (!unchanged) withReason(() => onSubmit(spec(), reason, ways && remake)); };
   const pickReason = (r: string) => { setReasonPick(r); setNeedReason(false); };
 
   return (
@@ -135,7 +147,20 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, m
           )}
         </div>
 
-        {made && line?.sent && <p className="extras__made">Already made. Changing it counts as waste.</p>}
+        {ways && (
+          <div className="extras__ways">
+            <span className={`extras__cook${made ? ' extras__cook--made' : ''}`}>{COOK_WORD[cook!]}</span>
+            <div className="extras__way" role="radiogroup" aria-label="How the kitchen gets the change">
+              <button type="button" role="radio" aria-checked={!remake} className="way" onClick={() => setRemake(false)}>
+                <b>Change the ticket</b><span>The kitchen changes the same one</span>
+              </button>
+              <button type="button" role="radio" aria-checked={remake} className="way" onClick={() => setRemake(true)}>
+                <b>Throw away, make new</b><span>Old one to waste · new ticket</span>
+              </button>
+            </div>
+            {made && <p className="extras__made">Removing it counts as waste.</p>}
+          </div>
+        )}
 
         {manager && (
           <section className="group" ref={reasonRef}>
@@ -252,7 +277,7 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, m
           <button type="button" aria-label="Increase quantity" onClick={() => setQty(qty + 1)}>+</button>
         </div>}
         <button ref={submitRef} type="button" className="cta num" disabled={unchanged} onClick={submit}>
-          {manager ? 'Save change' : editing ? 'Update' : 'Add'}
+          {manager ? 'Save change' : ways && remake ? 'Make new' : editing ? 'Update' : 'Add'}
           {/* In a box only what is added on top of the box price means anything to the customer. */}
           {box ? (total > box.share ? ` · +${fmt(total - box.share)}` : '') : ` · ${fmt(total)}`}
         </button>

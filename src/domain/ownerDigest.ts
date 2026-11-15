@@ -161,6 +161,12 @@ const soldSince = (events: readonly SyncEvent[], since: number): Map<string, num
     } else if (event.type === 'order.payment_undone') {
       const taken = paid.get(event.orderNumber)?.pop();
       if (taken) open.set(event.orderNumber, [...taken.events, ...(open.get(event.orderNumber) ?? [])]);
+    } else if ((event.type === 'order.item_changed' || event.type === 'order.item_cancelled') && event.afterPay) {
+      // Changed after it was paid (SCRUM-242): it changes what that payment sold.
+      const last = paid.get(event.orderNumber)?.at(-1);
+      if (last) last.events = [...last.events, event]; else open.set(event.orderNumber, [...(open.get(event.orderNumber) ?? []), event]);
+    } else if (event.type === 'order.change_undone' && paid.get(event.orderNumber)?.at(-1)?.events.some((x) => 'id' in x && x.id === event.undoneEventId)) {
+      paid.get(event.orderNumber)!.at(-1)!.events.push(event);
     } else {
       open.set(event.orderNumber, [...(open.get(event.orderNumber) ?? []), event]);
     }

@@ -4,10 +4,10 @@ import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { comboById, itemById, menuItems } from '../domain/menu.ts';
 import { boxLines } from '../domain/combos.ts';
 import { lineCookState } from '../domain/kitchen.ts';
-import { bareLine, orderTotal, unsentLines } from '../domain/order.ts';
+import { balanceDue, bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
-import { canPrint, printDeliveryBill, printReceipt } from '../services/printer.ts';
+import { canPrint, printChangeSlip, printDeliveryBill, printReceipt } from '../services/printer.ts';
 import { deliveryBill } from '../domain/receipt.ts';
 import { lineGross } from '../domain/totals.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
@@ -124,6 +124,11 @@ export function App({
     void printReceipt(paid, currentCashier().name, { reprint }).then((r) =>
       setPrinting((p) => (p?.number === paid.number ? { number: paid.number, state: r === 'printed' ? 'printed' : 'failed' } : p)));
   }, []);
+  /** A paid order changed afterwards (SCRUM-242): the difference, with its slip and the drawer. */
+  const settle = useCallback((tender: Tender, tendered: number) => {
+    const done = reg.settle(tender, tendered);
+    if (done && canPrint()) void printChangeSlip(done, currentCashier().name);
+  }, [reg]);
   const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
     // Made and waiting: whoever pays for it is taking it (SCRUM-240).
     const paid = reg.pay(tender, tendered, customerId, unlinked, kitchenWord(reg.order, tickets) === 'Ready');
@@ -266,7 +271,11 @@ export function App({
       // The dark one of the two buttons: Send while there is something new (or a paid order not sent), else Pay.
       if (mod && e.key === 'Enter' && !sheet) {
         e.preventDefault();
-        if (reg.paid) { if (reg.paid.held) reg.send(); else if (kitchenWord(reg.paid, tickets) === 'Ready') reg.give(); }
+        if (reg.paid) {
+          const due = balanceDue(reg.paid); // changed after paying (SCRUM-242): the difference first
+          if (due > 0) setSheet({ kind: 'pay' }); else if (due < 0) settle('cash', 0);
+          else if (reg.paid.held) reg.send(); else if (kitchenWord(reg.paid, tickets) === 'Ready') reg.give();
+        }
         else if (hasNew) reg.send(); else if (canCharge) setSheet({ kind: 'pay' });
         return;
       }
@@ -285,7 +294,7 @@ export function App({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [reg, sheet, typed, custTyping, crmOn, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
+  }, [reg, settle, sheet, typed, custTyping, crmOn, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
     selected, selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted, rows, tickets]);
 
   // Paying, and the order has nothing left on it (an Undo took the last line): back to the order.
@@ -366,13 +375,19 @@ export function App({
     }
     if (line.sent) {
       // The customer changed their mind: the cashier changes the sent line, no PIN, no reason asked.
-      const made = lineCookState(tickets, line.id) !== 'waiting';
+      // Two ways (SCRUM-242): the kitchen changes the same ticket (nothing wasted), or throws the old
+      // one away and makes the new one on a new ticket (the old one is waste).
+      const cook = lineCookState(tickets, line.id);
+      const made = cook !== 'waiting';
       return (
         <ExtrasPanel
           key={key}
           {...common}
-          made={made}
-          onSubmit={(spec) => { reg.changeSent({ kind: 'edit', lineId: line.id, after: spec }, made); closeSheet(); }}
+          cook={cook}
+          onSubmit={(spec, _reason, remake) => {
+            reg.changeSent({ kind: 'edit', lineId: line.id, after: spec, ...(remake ? { remake } : {}) }, remake);
+            closeSheet();
+          }}
           onRemove={() => { reg.changeSent({ kind: 'void', lineId: line.id }, made); closeSheet(); }}
         />
       );
@@ -544,6 +559,7 @@ export function App({
           onEdit={(line) => setSheet({ kind: 'edit', line })}
           onSend={reg.send}
           onCharge={() => setSheet({ kind: 'pay' })}
+          onGiveBack={() => settle('cash', 0)}
           onCloseFree={() => pay('comp', 0)}
           onClosePlatform={() => { if (reg.order.platform) pay(reg.order.platform.id, total); }}
           onClearPlatform={() => reg.setPlatform(null)}
@@ -553,7 +569,10 @@ export function App({
           onUndo={reg.undo}
           customerBar={customerBar}
           paying={paying ? {
-            onPay: (tender, tendered, customerId, unlinked) => { pay(tender, tendered, customerId, unlinked); closeSheet(); },
+            onPay: (tender, tendered, customerId, unlinked) => {
+              if (reg.paid) settle(tender, tendered); else pay(tender, tendered, customerId, unlinked);
+              closeSheet();
+            },
             onClose: closeSheet,
             customers: crmOn,
           } : null}

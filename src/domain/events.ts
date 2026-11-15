@@ -42,11 +42,20 @@ export type OrderEvent =
    */
   | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents; customerId?: string })
   | (Base & { type: 'order.payment_undone' })
+  /**
+   * A paid order changed afterwards (SCRUM-242) and the difference settled: `amount` > 0 the
+   * customer paid more, < 0 the shop gave money back (cash from the drawer). Adds to the latest
+   * payment of that number still standing; it is not a sale of its own.
+   */
+  | (Base & { type: 'order.settled'; amount: Cents; tender: Tender; tendered: Cents })
   // Order changes (audited). Sent-item changes carry a reason: the manager's, or the counter's own
   // ("Before it was made" / "Already made") when a cashier changed it.
   // `made`: the kitchen had started or finished it, so what it used stays used (waste).
-  | (Base & Audited & { type: 'order.item_changed'; lineId: string; before: OrderLine; after: OrderLine; reason: string; made?: boolean })
-  | (Base & Audited & { type: 'order.item_cancelled'; lineId: string; index: number; before: OrderLine; reason: string; made?: boolean })
+  // `remake` (SCRUM-242): thrown away and made again, so the kitchen gets the new version as a new
+  // ticket (always `made`). Without it the kitchen's ticket changes in place.
+  // `afterPay`: the order was already paid; the change belongs to that payment (see order.settled).
+  | (Base & Audited & { type: 'order.item_changed'; lineId: string; before: OrderLine; after: OrderLine; reason: string; made?: boolean; remake?: true; afterPay?: true })
+  | (Base & Audited & { type: 'order.item_cancelled'; lineId: string; index: number; before: OrderLine; reason: string; made?: boolean; afterPay?: true })
   | (Base & Audited & { type: 'order.line_removed'; lineId: string; index: number; before: OrderLine })
   | (Base & Audited & { type: 'order.line_adjusted'; lineId: string; before: Cents; after: Cents })
   | (Base & Audited & { type: 'order.discount_set'; before: Discount | null; after: Discount | null })

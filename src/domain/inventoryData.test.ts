@@ -293,6 +293,17 @@ test('T23b: changed or cancelled after it was made: what it used stays used; Und
   assert.equal(mozz([...changed, { ...audited, id: 'u', type: 'order.change_undone', undoneEventId: 'ch', undoneType: 'order.item_changed' }]), 2000 - 90);
 });
 
+test('T23c: the customer changed their mind (SCRUM-242): change the ticket gives the old back; throw away + make new keeps it used', () => {
+  const base = { ...audited, type: 'order.item_changed' as const, lineId: 'l1', before: pizza('l1', 'M'), after: pizza('l1', 'L'), afterPay: true as const };
+  // Change the ticket: the kitchen changes the same one (even started), so only the Large is used.
+  assert.equal(mozz([stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'M')]), { ...base, id: 'ch', reason: 'Before it was made' }]), 2000 - 150);
+  // Throw away, make new: the Medium went in the bin and the Large is made too.
+  const remade = [stockIn(MOZZ, 1), sent('s1', 't1', [pizza('l1', 'M')]), { ...base, id: 'rm', reason: 'Thrown away, made again', made: true, remake: true as const }];
+  assert.equal(mozz(remade), 2000 - 90 - 150);
+  // Its Undo: back to the Medium alone.
+  assert.equal(mozz([...remade, { ...audited, id: 'u', type: 'order.change_undone', undoneEventId: 'rm', undoneType: 'order.item_changed' }]), 2000 - 90);
+});
+
 test('T24: lines never sent take nothing: removing or changing them leaves stock alone', () => {
   assert.equal(mozz([
     stockIn(MOZZ, 1),
