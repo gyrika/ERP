@@ -237,6 +237,27 @@ test('tickets are folded from events: send, change, undo, seen, done, recall', (
   assert.deepEqual(ticketsFromEvents([ev[0], recalled], 200), []);
 });
 
+test('paid first (SCRUM-239): a held send reaches the kitchen only at Send, timed from Send; undone, never', () => {
+  const actor = { id: 's1', name: 'Nimal', role: 'cashier' as const };
+  const base = { shopId: SHOP, actor, orderNumber: 1044 };
+  const sent = { ...lines()[0], sent: true };
+  const ev: SyncEvent[] = [
+    { ...base, id: 'e1', at: 100, type: 'order.sent', ticketId: 't1', lines: [sent], addOn: false, held: true },
+    { ...base, id: 'e2', at: 110, type: 'order.paid', total: 250000, tender: 'cash', tendered: 250000 },
+  ];
+  assert.deepEqual(ticketsFromEvents(ev, 200), [], 'paid, not sent: nothing for the kitchen yet');
+
+  const released: SyncEvent = { ...base, id: 'e3', at: 500, type: 'order.released', ticketId: 't1' };
+  const t = ticketsFromEvents([...ev, released], 600);
+  assert.equal(t.length, 1);
+  assert.equal(t[0].firedAt, 500, 'the kitchen clock starts at Send');
+  assert.equal(needsAttention(t[0]), true, 'it arrives like any order');
+  assert.equal(ticketsFromEvents([...ev, released, released], 600).length, 1, 'released once');
+
+  const undone: SyncEvent = { ...base, id: 'e4', at: 120, type: 'order.send_undone', ticketId: 't1' };
+  assert.deepEqual(ticketsFromEvents([ev[0], undone, released], 600), [], 'a payment undone takes the held send with it');
+});
+
 test('events older than a day are skipped', () => {
   const actor = { id: 's1', name: 'Nimal', role: 'cashier' as const };
   const old: SyncEvent = { id: 'e1', shopId: SHOP, actor, orderNumber: 1001, at: 0, type: 'order.sent', ticketId: 't1', lines: lines(), addOn: false };

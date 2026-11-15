@@ -12,6 +12,7 @@ import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 import { boxesIn, opensBox } from '../domain/combos.ts';
 import { PayPanel } from './PayPanel.tsx';
+import { kitchenWord } from './OrdersRail.tsx';
 
 const sub = (l: OrderLine): string => {
   const item = itemById(l.itemId);
@@ -82,6 +83,42 @@ function CookWord({ tickets, number }: { tickets: KitchenTicket[]; number: numbe
   return <span className={`cookword cookword--${state}`}>{COOK_LABEL[state]}</span>;
 }
 
+/** What one of the two buttons does now, or (no `run`) how that side stands. `short`: the words shown under its side's name. */
+interface Side { label: string; short?: string; run?: () => void; disabled?: boolean }
+
+/**
+ * The two buttons that never move (SCRUM-239): the kitchen on the left, the money on the right.
+ * Each is the thing to do until it is done, then says how it stands, so the buttons are the
+ * order's status. Either can be done first; the likelier next one is dark and takes Ctrl+Enter.
+ */
+function Twin({ kitchen, money, primary }: { kitchen: Side; money: Side; primary: 'kitchen' | 'money' | null }) {
+  const side = (which: 'kitchen' | 'money', s: Side) => {
+    const title = which === 'kitchen' ? 'Kitchen' : 'Money';
+    if (!s.run) {
+      return (
+        <div className={`twin__side twin__is twin__is--${which}`}>
+          <small>{title}</small><strong>{s.label}</strong>
+        </div>
+      );
+    }
+    const main = primary === which;
+    return (
+      <button
+        type="button"
+        className={`twin__side${main ? ' twin__do' : ' twin__also'}`}
+        aria-label={s.label}
+        disabled={s.disabled}
+        autoFocus={main && !s.disabled ? true : undefined}
+        onClick={s.run}
+      >
+        <small aria-hidden="true">{title}</small>
+        <strong aria-hidden="true">{s.short ?? s.label}{main && !s.disabled && <kbd>Ctrl Enter</kbd>}</strong>
+      </button>
+    );
+  };
+  return <div className="twin">{side('kitchen', kitchen)}{side('money', money)}</div>;
+}
+
 /** Manager mode state and actions, owned by App (which also maps the keys). */
 export interface ManagePanel {
   actor: Actor;
@@ -100,13 +137,13 @@ export interface ManagePanel {
 
 interface Props {
   order: Order;
-  /** Sent to the kitchen, waiting to pay. */
-  open: Order[];
   /** Paid today, newest first. Read-only: nothing left to do on them. */
   paidToday: PaidOrder[];
   /** Live kitchen tickets, to show Cooking / Done beside Paid / Unpaid. */
   tickets: KitchenTicket[];
   paid: PaidOrder | null;
+  /** `paid` was paid by the last step: its Undo is the payment's. */
+  justPaid?: boolean;
   /** Present while manager mode is on. */
   manage: ManagePanel | null;
   onEdit: (line: OrderLine) => void;
@@ -117,7 +154,6 @@ interface Props {
   onClosePlatform: () => void;
   /** Takes the delivery app's mark off an order not yet sent (keyed in by mistake). */
   onClearPlatform: () => void;
-  onOpen: (number: number) => void;
   onNext: () => void;
   onUndo: () => void;
   /** The receipt of the paid order on screen; null when this device does not print. */
@@ -228,12 +264,12 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
 }
 
 /**
- * The bill. Cashier mode: one primary action at a time ("Send to kitchen",
- * then "Charge"). Manager mode: the same card lifted, every line selectable
- * and changeable, discount chips under the order. No dialogs, no banners.
+ * The bill. Cashier mode: Send to kitchen and Pay side by side, either first (SCRUM-239). Manager
+ * mode: the same card lifted, every line selectable and changeable, discount chips under the
+ * order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onOpen, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
+  order, paidToday, tickets, paid, justPaid = false, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
@@ -259,11 +295,14 @@ export function OrderPanel({
 
   if (paid) {
     const cashChange = paid.tender === 'cash' && paid.change > 0;
+    const held = Boolean(paid.held);
     return (
       <aside className={panelClass} aria-label="Current order">
         <div className="panel__no">
           <span className="panel__id"><OrderBadge number={paid.number} /><OnlineTag order={paid} time={false} />
             {paid.customer?.name && <span className="panel__cust">{paid.customer.name}</span>}</span>
+          {/* Nothing left to do here: Enter starts the next order. Paid first: Send is the thing to do. */}
+          {!held && <button type="button" className="panel__back" autoFocus onClick={onNext}>Next order</button>}
         </div>
         <div className="paid" role="status">
           <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
@@ -273,13 +312,17 @@ export function OrderPanel({
             Total {fmt(paid.total)}
           </span>
           <span className="paid__links">
-            <button type="button" className="linkbtn" onClick={onUndo}>Undo payment</button>
+            {justPaid && <button type="button" className="linkbtn" onClick={onUndo}>Undo payment</button>}
             {onReprint && <button type="button" className="linkbtn" onClick={onReprint}>Print again</button>}
           </span>
           {printState === 'failed' && <span className="paid__note">Receipt not printed</span>}
         </div>
         <div className="panel__foot">
-          <button type="button" className="cta" autoFocus onClick={onNext}>Next order</button>
+          <Twin
+            primary={held ? 'kitchen' : null}
+            kitchen={held ? { label: 'Send to kitchen', short: 'Send', run: onSend } : { label: kitchenWord(paid, tickets) }}
+            money={{ label: paid.tender === 'cash' ? 'Paid · Cash' : `Paid · ${TENDER[paid.tender]}` }}
+          />
         </div>
       </aside>
     );
@@ -302,12 +345,7 @@ export function OrderPanel({
           {order.platform && !isOpen && (
             <button type="button" className="panel__unmark" onClick={onClearPlatform} aria-label={`Not from ${platformName(order.platform.id)}`}>×</button>
           )}
-          {/* One word for how it stands; Charge below already says it is not paid. */}
-          {isOpen && <CookWord tickets={tickets} number={order.number} />}
         </span>
-        {!manage && isOpen && !hasNew && (
-          <button type="button" className="panel__back" onClick={onNext}>New order</button>
-        )}
       </div>
       {!manage && customerBar}
       {order.edited && (
@@ -315,7 +353,7 @@ export function OrderPanel({
       )}
 
       <div className="panel__lines">
-        {listing && open.length === 0 && paidToday.length === 0 && (
+        {listing && paidToday.length === 0 && (
           <div className="empty">
             <b>Tap a size to start</b>
             <span>or just start typing: “2L margherita, burger”</span>
@@ -390,27 +428,6 @@ export function OrderPanel({
           });
         })()}
 
-        {listing && open.length > 0 && (
-          <section className="waiting" aria-label="Waiting to pay">
-            <h2>Waiting to pay · {open.length}</h2>
-            {open.map((o, i) => (
-              <button
-                key={o.number}
-                type="button"
-                className={`waiting__row${manage?.selected === i ? ' waiting__row--selected' : ''}`}
-                aria-current={manage?.selected === i || undefined}
-                onClick={() => onOpen(o.number)}
-              >
-                <OrderRow o={o} total={orderTotal(o)} status={<>
-                  <CookWord tickets={tickets} number={o.number} />
-                  <OnlineTag order={o} />
-                  {o.adjust?.discount && <span className="status status--discount">{discountLabel(o.adjust.discount)}</span>}
-                </>} />
-              </button>
-            ))}
-          </section>
-        )}
-
         {listing && paidToday.length > 0 && (
           <section className="waiting waiting--paid" aria-label="Paid today">
             <h2>Paid today · {paidToday.length}</h2>
@@ -458,13 +475,15 @@ export function OrderPanel({
           </div>
         )}
         <span className="total num">{fmt(total)}</span>
-        {hasNew || !isOpen
-          ? <button type="button" className="cta" disabled={!hasNew} onClick={onSend}>Send to kitchen</button>
-          : comped
-            ? <button type="button" className="cta" onClick={onCloseFree}>Close · Free</button>
+        <Twin
+          primary={listing ? null : hasNew ? 'kitchen' : 'money'}
+          kitchen={hasNew || !isOpen ? { label: 'Send to kitchen', short: 'Send', run: onSend, disabled: !hasNew } : { label: kitchenWord(order, tickets) }}
+          money={comped
+            ? { label: 'Close · Free', run: onCloseFree, disabled: listing }
             : order.platform
-              ? <button type="button" className="cta" onClick={onClosePlatform}>Close · {platformName(order.platform.id)}</button>
-              : <button type="button" className="cta" onClick={onCharge}>Charge</button>}
+              ? { label: `Close · ${platformName(order.platform.id)}`, run: onClosePlatform, disabled: listing }
+              : { label: 'Pay', run: onCharge, disabled: listing || total <= 0 }}
+        />
       </div>
     </aside>
   );

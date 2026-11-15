@@ -20,12 +20,12 @@ const managing = () => screen.queryByText(`Managing · ${managerName}`) !== null
 const total = () => screen.getByRole('complementary', { name: 'Current order' }).querySelector('.total')!.textContent;
 const auditEvents = () => readEvents().filter((e) => 'totalBefore' in e);
 
-/** 1001 = Margherita M (1,450) + Chicken Burger (450) = 1,900, sent, then opened from "Waiting to pay". */
+/** 1001 = Margherita M (1,450) + Chicken Burger (450) = 1,900, sent, then opened from the Orders list. */
 const sendAndReopen = async (user: User) => {
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
 };
 
 /** Ctrl+M, then the PIN: the field is focused and checks itself at four digits. */
@@ -81,7 +81,7 @@ test('void a sent line (reason required) then Undo restores it in its original p
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(screen.getAllByRole('button', { name: '650' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
   await unlock(user);
 
   await user.keyboard('{ArrowDown}{Delete}');

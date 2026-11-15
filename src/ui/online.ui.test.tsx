@@ -62,9 +62,8 @@ test('an online order: seen at the counter, accepted with a time, in the kitchen
   expect(server.answers[1]).toEqual({ id: 'o-bbbbbbbbbb', status: 'declined', reason: 'Too busy right now' });
 
   await user.keyboard('{Escape}');
-  const panel = within(screen.getByRole('complementary', { name: 'Current order' }));
   const pickup = new Date(readyBy).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const row = within(panel.getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ });
+  const row = within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ });
   expect(within(row).getByText(`Online · ${pickup}`)).toBeTruthy();
   await user.keyboard('{F2}');
   const ticket = within(within(screen.getByRole('main', { name: 'Orders to make' })).getByRole('article', { name: 'Order 1001' }));
@@ -114,8 +113,7 @@ test('a delivery: the address and map for the rider, accepted with a ride time, 
   expect(await sheet.findByText('On the way · collect 3,850')).toBeTruthy();
 
   await user.keyboard('{Escape}');
-  const panel = within(screen.getByRole('complementary', { name: 'Current order' }));
-  const row = within(panel.getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ });
+  const row = within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ });
   expect(within(row).getByText(/^Delivery · /)).toBeTruthy();
   await user.keyboard('{F2}');
   const ticket = within(within(screen.getByRole('main', { name: 'Orders to make' })).getByRole('article', { name: 'Order 1001' }));

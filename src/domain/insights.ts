@@ -263,6 +263,8 @@ export const ticketTimes = (events: readonly SyncEvent[]) => {
   const out: { orderNumber: number; sentAt: number; minutes: number }[] = [];
   for (const e of events) {
     if (e.type === 'order.sent') sent.set(e.ticketId, { at: e.at, orderNumber: e.orderNumber });
+    // Paid first: the kitchen's time starts when it was sent to the kitchen, not at the payment.
+    else if (e.type === 'order.released') { const s = sent.get(e.ticketId); if (s) sent.set(e.ticketId, { ...s, at: e.at }); }
     else if (e.type === 'kitchen.bumped') {
       const s = sent.get(e.ticketId);
       if (s) { out.push({ orderNumber: s.orderNumber, sentAt: s.at, minutes: (e.at - s.at) / 60_000 }); sent.delete(e.ticketId); }

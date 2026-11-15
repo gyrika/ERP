@@ -39,8 +39,8 @@ const typeMobile = async (user: ReturnType<typeof userEvent.setup>) => {
 
 const sendAndPay = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(panel().getByRole('button', { name: /^1001|^1002/ }));
-  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001|^1002/ }));
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
 };
 
 test('a customer on the list: 0 and their mobile, Enter, and the payment is theirs; no Mobile asked at Charge', async () => {

@@ -112,8 +112,8 @@ const openPayment = async (user = userEvent.setup()) => {
   render(<App />);
   await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
   return user;
 };
 
@@ -167,7 +167,7 @@ test('Esc clears what was typed, a second Esc goes back to the order', async () 
   expect(pay().getByRole<HTMLInputElement>('textbox', { name: 'Other amount' }).value).toBe('');
   await user.keyboard('{Escape}');
   expect(paying()).toBeNull();
-  expect(panel().getByRole('button', { name: 'Charge' })).toBeTruthy();
+  expect(panel().getByRole('button', { name: 'Pay' })).toBeTruthy();
 });
 
 test('B, C and Q pay by bank transfer, card and QR in one key', async () => {
@@ -228,7 +228,9 @@ test('"More" holds the folded corner keys and closes when one is used', async ()
   const user = userEvent.setup();
   render(<App />);
   const more = screen.getByRole('button', { name: 'More' });
-  expect(screen.getByRole('button', { name: /^Money out/ }).closest('.corner__rest')).not.toBeNull();
+  expect(screen.getByRole('button', { name: /^Receive/ }).closest('.corner__rest')).not.toBeNull();
+  // The places the cashier goes to are on the bar itself, not folded away (SCRUM-239).
+  expect(screen.getByRole('button', { name: /^Money out/ }).closest('.corner__rest')).toBeNull();
   expect(more.getAttribute('aria-expanded')).toBe('false');
   await user.click(more);
   expect(more.getAttribute('aria-expanded')).toBe('true');

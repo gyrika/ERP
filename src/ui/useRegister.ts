@@ -24,17 +24,22 @@ import { lineItemName } from '../domain/halves.ts';
  * localStorage; what the shop shares (kitchen, audit) travels as events
  * through the event log, which is the sync outbox.
  *
- * Customers eat first and pay after: an order is sent to the kitchen, waits in
- * `open` until the customer pays, and can take more rounds in between.
- * Sends, payments and manager changes are written to the event log; the
- * kitchen screen is built from those events alone.
+ * Send and Pay are independent (SCRUM-239): an order can go to the kitchen first and be paid
+ * later (customers eating in), or be paid first and sent when the cashier presses Send (a held
+ * send). Every order with something on it keeps its number and waits in `open` until it is
+ * paid; a paid one stays on the Register's list until the kitchen has made it (`sales`).
+ * Sends, payments and manager changes are written to the event log; the kitchen screen is
+ * built from those events alone.
  */
 interface Snapshot {
   /** The order on screen: a new one, or an open one being added to or charged. */
   order: Order;
-  /** Sent to the kitchen, not paid yet. */
+  /** Not paid yet: sent to the kitchen, or left on the list before it went (each keeps its number). */
   open: Order[];
+  /** The paid order on screen: just paid, or opened again from the list. */
   paid: PaidOrder | null;
+  /** `paid` was paid by the last step, so its Undo is the payment's. */
+  justPaid?: boolean;
   sales: PaidOrder[];
   /** Number for the next new order. Claimed when that order is first sent, so numbers have no gaps. */
   nextNumber: number;
@@ -87,19 +92,47 @@ const blank = (s: Snapshot): Order => emptyOrder(s.nextNumber);
 const isToday = (at: number): boolean => new Date(at).toDateString() === new Date().toDateString();
 
 /** After a sale, the next tap on the menu silently opens a new order. */
-const ensureOpen = (s: Snapshot): Snapshot => (s.paid ? { ...s, order: blank(s), paid: null } : s);
+const ensureOpen = (s: Snapshot): Snapshot => (s.paid ? { ...s, order: blank(s), paid: null, justPaid: false } : s);
 
-/** Puts a changed order back on screen and keeps its "Waiting to pay" copy in step. */
+const byNumber = (list: Order[]): Order[] => [...list].sort((a, b) => a.number - b.number);
+/** On the list already: sent, or left there with its number. */
+const listed = (s: Snapshot, order: Order): boolean => order.sentAt !== undefined || s.open.some((o) => o.number === order.number);
+
+/** Puts a changed order back on screen and keeps its copy on the list in step. */
 const withOrder = (s: Snapshot, order: Order): Snapshot => {
-  const emptied = order.lines.length === 0 && order.sentAt !== undefined;
+  const onList = listed(s, order);
+  const emptied = order.lines.length === 0 && onList;
   const open = s.open.filter((o) => o.number !== order.number);
   return {
     ...s,
     paid: null,
+    justPaid: false,
     order: emptied ? blank(s) : order,
-    open: order.sentAt !== undefined && !emptied ? [...open, order].sort((a, b) => a.number - b.number) : open,
+    open: onList && !emptied ? byNumber([...open, order]) : open,
   };
 };
+
+/**
+ * Leaves the order on screen for another (SCRUM-239): with something on it, it keeps its number
+ * (claimed now if new) and waits on the list, sent or not; an empty one is just let go.
+ */
+const park = (s: Snapshot): Snapshot => {
+  if (s.paid) return { ...s, order: blank(s), paid: null, justPaid: false };
+  const o = s.order;
+  if (!o.lines.length) {
+    const open = s.open.filter((x) => x.number !== o.number);
+    return { ...s, open, order: blank(s) };
+  }
+  const next: Snapshot = {
+    ...s,
+    nextNumber: o.number === s.nextNumber ? s.nextNumber + 1 : s.nextNumber,
+    open: byNumber([...s.open.filter((x) => x.number !== o.number), o]),
+  };
+  return { ...next, order: blank(next) };
+};
+
+/** The same sale in a list: numbers repeat across days and screens, so the payment time too. */
+const sameSale = (a: PaidOrder, b: PaidOrder): boolean => a.number === b.number && a.paidAt === b.paidAt;
 
 /**
  * Marks the order's unsent lines as sent and builds their kitchen ticket.
@@ -124,11 +157,12 @@ const sendUnsent = (s: Snapshot, at: number): { s: Snapshot; order: Order; ticke
   };
 };
 
-const fireTicket = (ticket: NewTicket) => {
+/** `held`: paid first; the kitchen sees it at Send (`order.released`). */
+const fireTicket = (ticket: NewTicket, held = false) => {
   appendEvent({
     type: 'order.sent', at: ticket.firedAt, actor: currentCashier(), orderNumber: ticket.number,
     ticketId: ticket.id, lines: ticket.lines, addOn: Boolean(ticket.addOn), ...(ticket.online ? { online: ticket.online } : {}),
-    ...(ticket.platform ? { platform: ticket.platform } : {}),
+    ...(ticket.platform ? { platform: ticket.platform } : {}), ...(held ? { held: true as const } : {}),
   });
 };
 
@@ -241,8 +275,29 @@ export function useRegister() {
     commit((s) => ({ ...s, order: { ...s.order, lines: s.order.lines.filter((l) => l.box?.id !== boxId) } }), message);
   }, [commit]);
 
+  /**
+   * A paid order not yet sent (paid first) goes to the kitchen now. Final: the kitchen has it, so
+   * there is no Undo (a manager can still change what was sent).
+   */
+  const release = useCallback(() => {
+    const s = ref.current;
+    const p = s.paid;
+    if (!p?.held) return;
+    const at = Date.now();
+    const { held: ticketId, ...rest } = p;
+    const done: PaidOrder = { ...rest, sentAt: p.sentAt ?? at };
+    commit(() => ({
+      ...s, order: blank(s), paid: null, justPaid: false,
+      sales: s.sales.map((x) => (sameSale(x, p) ? done : x)),
+    }), `Sent ${p.number} to kitchen`);
+    sendOpen.current = false;
+    setHistory([]);
+    appendEvent({ type: 'order.released', at, actor: currentCashier(), orderNumber: p.number, ticketId });
+  }, [commit, setHistory]);
+
   /** Sends the new lines to the kitchen and frees the register for the next customer. */
   const send = useCallback(() => {
+    if (ref.current.paid) { release(); return; }
     const { s, order, ticket } = sendUnsent(ref.current, Date.now());
     if (!ticket) return;
     commit(() => ({
@@ -252,7 +307,7 @@ export function useRegister() {
     }), ticket.addOn ? `Sent more for ${order.number}` : `Sent ${order.number} to kitchen`);
     sendOpen.current = true;
     fireTicket(ticket);
-  }, [commit]);
+  }, [commit, release]);
 
   /**
    * An online order the counter accepted: it takes the next number and goes straight to the
@@ -291,27 +346,29 @@ export function useRegister() {
     // A comped order (Free) closes at 0 with tender 'comp'; anything else needs something to pay.
     const comped = ref.current.order.adjust?.discount?.kind === 'comp';
     if (comped ? tender !== 'comp' || !ref.current.order.lines.length : total <= 0) return undefined;
-    // Anything not yet sent goes to the kitchen first (a sealed send), so
-    // undoing the payment later never pulls food back off the kitchen screen.
-    const sent = sendUnsent(ref.current, Date.now());
+    // Paying never sends (SCRUM-239). What is not yet sent is written as a held send first, so
+    // the sale and the stock count it as sold, while the kitchen waits for Send. Undoing the
+    // payment takes the held send back with it (it is in `fired`).
+    const at = Date.now();
+    const before = ref.current;
+    const sent = sendUnsent(before, at);
+    let order = before.order;
     if (sent.ticket) {
-      const { ticket } = sent;
-      commit(() => ({ ...sent.s, order: sent.order }), `Sent ${sent.order.number} to kitchen`);
-      sendOpen.current = true; // sealed by the payment commit below
-      fireTicket(ticket);
+      const { sentAt: _never, ...rest } = sent.order;
+      order = { ...rest, ...(before.order.sentAt !== undefined ? { sentAt: before.order.sentAt } : {}), held: sent.ticket.id };
     }
-    const order = ref.current.order;
     // A customer put on the order earlier is the one paying, unless Charge was given a number now.
     customerId ??= order.customer?.id;
-    const paid: PaidOrder = {
-      ...order, total, tender, tendered, change: Math.max(0, tendered - total), paidAt: Date.now(),
-    };
-    commit((s) => ({
-      ...s,
+    const paid: PaidOrder = { ...order, total, tender, tendered, change: Math.max(0, tendered - total), paidAt: at };
+    commit(() => ({
+      ...sent.s,
+      order: paid,
       paid,
-      open: s.open.filter((o) => o.number !== order.number),
-      sales: [...s.sales, paid],
+      justPaid: true,
+      open: sent.s.open.filter((o) => o.number !== order.number),
+      sales: [...sent.s.sales, paid],
     }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}${unlinked ? ' · mobile not saved' : ''}`);
+    if (sent.ticket) fireTicket(sent.ticket, true);
     appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered, ...(customerId ? { customerId } : {}) });
     return paid;
   }, [commit]);
@@ -430,17 +487,24 @@ export function useRegister() {
     setToast((t) => (t?.manager ? null : t));
   }, []);
 
-  /** Brings a waiting order on screen to charge it or add a round. */
+  /**
+   * Brings an order from the list on screen: one not paid (to add to, send or pay), or one paid
+   * today and not yet made (to send it, or see it). The order that was on screen waits on the list.
+   */
   const openOrder = useCallback((number: number) => {
     show((s) => {
-      const hit = s.open.find((o) => o.number === number);
-      return hit && !unsentLines(s.order).length ? { ...s, order: hit, paid: null } : s;
+      if (s.order.number === number && !s.paid) return s;
+      const parked = park(s);
+      const hit = parked.open.find((o) => o.number === number);
+      if (hit) return { ...parked, order: hit, paid: null, justPaid: false };
+      const sale = [...parked.sales].reverse().find((o) => o.number === number && isToday(o.paidAt));
+      return sale ? { ...parked, order: sale, paid: sale, justPaid: false } : s;
     });
   }, [show]);
 
-  /** Back to a new order, leaving the open one waiting. */
+  /** A new order; the one on screen, if it has anything on it, waits on the list with its number. */
   const startNew = useCallback(() => {
-    show((s) => (unsentLines(s.order).length ? s : { ...s, order: blank(s), paid: null }));
+    show(park);
   }, [show]);
 
   const undo = useCallback(() => {
@@ -473,6 +537,8 @@ export function useRegister() {
     open: snap.open.filter((o) => o.number !== snap.order.number),
     paidToday: snap.sales.filter((o) => isToday(o.paidAt)).reverse(),
     paid: snap.paid,
+    /** The paid order on screen was paid by the last step: its Undo is the payment's. */
+    justPaid: Boolean(snap.paid && snap.justPaid),
     toast,
     canUndo: past.length > 0 || counterChange !== null,
     canUndoManager: () => managerStack.current.length > 0,

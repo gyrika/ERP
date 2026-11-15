@@ -212,7 +212,7 @@ export const STOCK_EVENT_TYPES = [
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
   'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',
-  'order.line_removed', 'order.line_adjusted', 'order.discount_set', 'order.comped', 'order.change_undone',
+  'order.line_removed', 'order.line_adjusted', 'order.discount_set', 'order.comped', 'order.change_undone', 'order.released',
 ] as const satisfies readonly OrderEvent['type'][];
 
 /** An event as the server hands it back: who wrote it, and where it sits in the shop's history. */
