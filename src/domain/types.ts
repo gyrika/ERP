@@ -170,6 +170,8 @@ export interface Order {
    * until then the order stays on the Register's list, "Not sent".
    */
   held?: string;
+  /** The customer has the food (SCRUM-240). An order leaves the Register's list once paid and given. */
+  givenAt?: number;
 }
 
 export interface OrderCustomer { id: string; name: string | null }

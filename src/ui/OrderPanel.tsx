@@ -12,7 +12,7 @@ import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 import { boxesIn, opensBox } from '../domain/combos.ts';
 import { PayPanel } from './PayPanel.tsx';
-import { kitchenWord } from './OrdersRail.tsx';
+import { kitchenWord, readyFor } from './OrdersRail.tsx';
 
 const sub = (l: OrderLine): string => {
   const item = itemById(l.itemId);
@@ -84,7 +84,7 @@ function CookWord({ tickets, number }: { tickets: KitchenTicket[]; number: numbe
 }
 
 /** What one of the two buttons does now, or (no `run`) how that side stands. `short`: the words shown under its side's name. */
-interface Side { label: string; short?: string; run?: () => void; disabled?: boolean }
+interface Side { label: string; short?: string; note?: string; run?: () => void; disabled?: boolean }
 
 /**
  * The two buttons that never move (SCRUM-239): the kitchen on the left, the money on the right.
@@ -93,7 +93,7 @@ interface Side { label: string; short?: string; run?: () => void; disabled?: boo
  */
 function Twin({ kitchen, money, primary }: { kitchen: Side; money: Side; primary: 'kitchen' | 'money' | null }) {
   const side = (which: 'kitchen' | 'money', s: Side) => {
-    const title = which === 'kitchen' ? 'Kitchen' : 'Money';
+    const title = `${which === 'kitchen' ? 'Kitchen' : 'Money'}${s.note ? ` · ${s.note}` : ''}`;
     if (!s.run) {
       return (
         <div className={`twin__side twin__is twin__is--${which}`}>
@@ -144,6 +144,10 @@ interface Props {
   paid: PaidOrder | null;
   /** `paid` was paid by the last step: its Undo is the payment's. */
   justPaid?: boolean;
+  /** The customer has the food (SCRUM-240): offered on the Kitchen side once it is Ready. */
+  onGive: () => void;
+  /** For how long a ready order has waited. */
+  now: number;
   /** Present while manager mode is on. */
   manage: ManagePanel | null;
   onEdit: (line: OrderLine) => void;
@@ -269,7 +273,7 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
  * order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, paidToday, tickets, paid, justPaid = false, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
+  order, paidToday, tickets, paid, justPaid = false, onGive, now, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
@@ -293,16 +297,24 @@ export function OrderPanel({
     );
   }
 
+  /** The Kitchen side once nothing is left to send: Given while it waits for the customer, else how it stands. */
+  const kitchenSide = (o: Order): Side => {
+    const word = kitchenWord(o, tickets);
+    if (word !== 'Ready') return { label: word };
+    return { label: 'Given', note: readyFor(o, tickets, now)?.label, run: onGive };
+  };
+
   if (paid) {
     const cashChange = paid.tender === 'cash' && paid.change > 0;
     const held = Boolean(paid.held);
+    const kitchen = held ? { label: 'Send to kitchen', short: 'Send', run: onSend } : kitchenSide(paid);
     return (
       <aside className={panelClass} aria-label="Current order">
         <div className="panel__no">
           <span className="panel__id"><OrderBadge number={paid.number} /><OnlineTag order={paid} time={false} />
             {paid.customer?.name && <span className="panel__cust">{paid.customer.name}</span>}</span>
           {/* Nothing left to do here: Enter starts the next order. Paid first: Send is the thing to do. */}
-          {!held && <button type="button" className="panel__back" autoFocus onClick={onNext}>Next order</button>}
+          {!kitchen.run && <button type="button" className="panel__back" autoFocus onClick={onNext}>Next order</button>}
         </div>
         <div className="paid" role="status">
           <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
@@ -319,8 +331,8 @@ export function OrderPanel({
         </div>
         <div className="panel__foot">
           <Twin
-            primary={held ? 'kitchen' : null}
-            kitchen={held ? { label: 'Send to kitchen', short: 'Send', run: onSend } : { label: kitchenWord(paid, tickets) }}
+            primary={kitchen.run ? 'kitchen' : null}
+            kitchen={kitchen}
             money={{ label: paid.tender === 'cash' ? 'Paid · Cash' : `Paid · ${TENDER[paid.tender]}` }}
           />
         </div>
@@ -477,7 +489,7 @@ export function OrderPanel({
         <span className="total num">{fmt(total)}</span>
         <Twin
           primary={listing ? null : hasNew ? 'kitchen' : 'money'}
-          kitchen={hasNew || !isOpen ? { label: 'Send to kitchen', short: 'Send', run: onSend, disabled: !hasNew } : { label: kitchenWord(order, tickets) }}
+          kitchen={hasNew || !isOpen ? { label: 'Send to kitchen', short: 'Send', run: onSend, disabled: !hasNew } : kitchenSide(order)}
           money={comped
             ? { label: 'Close · Free', run: onCloseFree, disabled: listing }
             : order.platform

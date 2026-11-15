@@ -400,6 +400,9 @@ test('paid first (SCRUM-239): a held send and its release', () => {
   assert.ok(!ok({ ...send, held: 'yes' }));
   assert.ok(ok({ ...base, orderNumber: 1044, type: 'order.released', ticketId: 't1' }));
   assert.ok(!ok({ ...base, orderNumber: 1044, type: 'order.released' }));
+  // SCRUM-240: the customer has the food, and its Undo.
+  assert.ok(ok({ ...base, orderNumber: 1044, type: 'order.given' }));
+  assert.ok(ok({ ...base, orderNumber: 1044, type: 'order.given_undone' }));
 });
 
 test('money out: whole cents above nothing, a known kind, and a name for who paid it (SCRUM-105)', () => {

@@ -32,6 +32,9 @@ export type OrderEvent =
   | (Base & { type: 'order.send_undone'; ticketId: string })
   /** A held send (paid first) goes to the kitchen now. */
   | (Base & { type: 'order.released'; ticketId: string })
+  /** The customer has the food (SCRUM-240): handed over at the counter, or out with the rider. */
+  | (Base & { type: 'order.given' })
+  | (Base & { type: 'order.given_undone' })
   /**
    * `customerId` (CRM, customers.ts): the customer whose mobile number was given at Charge, an opaque
    * `cus-…` id. Never the number or the name: those stay in the shop server's customer list, where

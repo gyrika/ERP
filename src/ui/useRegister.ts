@@ -40,6 +40,8 @@ interface Snapshot {
   paid: PaidOrder | null;
   /** `paid` was paid by the last step, so its Undo is the payment's. */
   justPaid?: boolean;
+  /** 1 once sales paid before Given existed are marked given (SCRUM-240), so none of them comes back as Ready. */
+  givenV?: 1;
   sales: PaidOrder[];
   /** Number for the next new order. Claimed when that order is first sent, so numbers have no gaps. */
   nextNumber: number;
@@ -70,7 +72,12 @@ const HISTORY = 20;
 const FIRED_KEPT = 50;
 const TOAST_MS = 6000;
 
-const fresh = (): Snapshot => ({ order: emptyOrder(1001), open: [], paid: null, sales: [], nextNumber: 1001, fired: [] });
+const fresh = (): Snapshot => ({ order: emptyOrder(1001), open: [], paid: null, sales: [], nextNumber: 1001, fired: [], givenV: 1 });
+
+/** Sales from before Given (SCRUM-240) were handed over long ago: they never come back to the list as Ready. */
+const givenSince = (s: Snapshot): Snapshot => (s.givenV ? s : {
+  ...s, givenV: 1, sales: s.sales.map((x) => (x.givenAt ? x : { ...x, givenAt: x.paidAt })),
+});
 
 const load = (): Snapshot => {
   try {
@@ -79,11 +86,11 @@ const load = (): Snapshot => {
       const s = JSON.parse(raw) as Partial<Snapshot>;
       if (s?.order && Array.isArray(s.order.lines)) {
         // Older saves predate open orders: fill the gaps rather than lose the order.
-        return { ...fresh(), ...s, open: s.open ?? [], fired: s.fired ?? [] } as Snapshot;
+        return givenSince({ ...fresh(), givenV: undefined, ...s, open: s.open ?? [], fired: s.fired ?? [] } as Snapshot);
       }
     }
   } catch { /* corrupted or unavailable storage: start clean */ }
-  if (isDemo()) return { ...fresh(), ...demoSnapshot(Date.now()) };
+  if (isDemo()) return givenSince({ ...fresh(), givenV: undefined, ...demoSnapshot(Date.now()) });
   return fresh();
 };
 
@@ -130,6 +137,10 @@ const park = (s: Snapshot): Snapshot => {
   };
   return { ...next, order: blank(next) };
 };
+
+/** Orders the customer has (SCRUM-240), so an Undo can say which hand-overs it takes back. */
+const givenNumbers = (s: Snapshot): Set<number> =>
+  new Set([s.order, ...s.open, ...s.sales].filter((o) => o.givenAt !== undefined).map((o) => o.number));
 
 /** The same sale in a list: numbers repeat across days and screens, so the payment time too. */
 const sameSale = (a: PaidOrder, b: PaidOrder): boolean => a.number === b.number && a.paidAt === b.paidAt;
@@ -341,7 +352,11 @@ export function useRegister() {
    * `unlinked`: a mobile was given but the shop PC did not answer in time; the sale stands, and the
    * toast says the mobile was not saved (its Undo lets the cashier take the payment again).
    */
-  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked = false): PaidOrder | undefined => {
+  /**
+   * `ready`: the kitchen had made it, so the customer paying is the one taking it (SCRUM-240): the
+   * payment hands it over too, and it leaves the list.
+   */
+  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked = false, ready = false): PaidOrder | undefined => {
     const total = orderTotal(ref.current.order);
     // A comped order (Free) closes at 0 with tender 'comp'; anything else needs something to pay.
     const comped = ref.current.order.adjust?.discount?.kind === 'comp';
@@ -359,7 +374,9 @@ export function useRegister() {
     }
     // A customer put on the order earlier is the one paying, unless Charge was given a number now.
     customerId ??= order.customer?.id;
-    const paid: PaidOrder = { ...order, total, tender, tendered, change: Math.max(0, tendered - total), paidAt: at };
+    const paid: PaidOrder = {
+      ...order, total, tender, tendered, change: Math.max(0, tendered - total), paidAt: at, ...(ready && !order.givenAt ? { givenAt: at } : {}),
+    };
     commit(() => ({
       ...sent.s,
       order: paid,
@@ -370,7 +387,37 @@ export function useRegister() {
     }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}${unlinked ? ' · mobile not saved' : ''}`);
     if (sent.ticket) fireTicket(sent.ticket, true);
     appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered, ...(customerId ? { customerId } : {}) });
+    if (paid.givenAt === at) appendEvent({ type: 'order.given', at, actor: currentCashier(), orderNumber: paid.number });
     return paid;
+  }, [commit]);
+
+  /**
+   * The customer has the food (SCRUM-240): the order on screen (`number` absent), or one elsewhere
+   * on the list (a delivery out with the rider). Paid and given, it leaves the list; given and not
+   * paid (eating in, or the rider's cash still to come) it stays until paid. The register is freed.
+   */
+  const give = useCallback((number?: number) => {
+    const s = ref.current;
+    const n = number ?? (s.paid ?? s.order).number;
+    const at = Date.now();
+    let next: Snapshot | null = null;
+    const unpaid = (!s.paid && s.order.number === n && s.order.lines.length ? s.order : null) ?? s.open.find((x) => x.number === n);
+    const sale = [...s.sales].reverse().find((x) => x.number === n && isToday(x.paidAt));
+    if (unpaid) {
+      if (unpaid.givenAt !== undefined) return;
+      const given = { ...unpaid, givenAt: at };
+      next = { ...s, open: byNumber([...s.open.filter((x) => x.number !== n), given]), order: !s.paid && s.order.number === n ? blank(s) : s.order };
+    } else if (sale && sale.givenAt === undefined) {
+      const given = { ...sale, givenAt: at };
+      next = {
+        ...s, sales: s.sales.map((x) => (sameSale(x, sale) ? given : x)),
+        ...(s.paid && s.paid.number === n ? { order: blank(s), paid: null, justPaid: false } : {}),
+      };
+    }
+    if (!next) return;
+    const done = next;
+    commit(() => done, `Given ${n}`);
+    appendEvent({ type: 'order.given', at, actor: currentCashier(), orderNumber: n });
   }, [commit]);
 
   const toastFor = useCallback((message: string) => setToast({ id: ++toastSeq.current, message, manager: true }), []);
@@ -526,6 +573,9 @@ export function useRegister() {
       recalled.forEach((ticketId) =>
         appendEvent({ type: 'order.send_undone', at, actor, orderNumber: prev.order.number, ticketId }));
     }
+    // A hand-over undone (on its own, or with the payment that made it).
+    const wasGiven = givenNumbers(prev);
+    for (const n of givenNumbers(cur)) if (!wasGiven.has(n)) appendEvent({ type: 'order.given_undone', at, actor, orderNumber: n });
     if (cur.paid && cur.paid.number !== prev.paid?.number) {
       appendEvent({ type: 'order.payment_undone', at, actor, orderNumber: cur.paid.number });
     }
@@ -544,6 +594,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, changeSent, send, acceptOnline, setPlatform, setCustomer, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, changeSent, send, give, acceptOnline, setPlatform, setCustomer, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

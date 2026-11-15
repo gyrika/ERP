@@ -337,3 +337,19 @@ test('a Remake marks the line on its ticket, which stays open to make again; its
   const bin: SyncEvent = { ...remade, id: 'w2', ticketId: undefined, lineId: undefined };
   assert.equal(ticketLines(ticketsFromEvents([sent, bin], 3000)[0])[0].remade, undefined);
 });
+
+test('ready to collect (SCRUM-240): since the last Done, amber at 10 min, red at 20 or when too old to know', async () => {
+  const { readySince, readyUrgency, READY_WARN_MS, READY_BAD_MS } = await import('./kitchen.ts');
+  let t = fire([], ticket('a', 1044, 100));
+  t = fire(t, ticket('b', 1044, 200));
+  assert.equal(readySince(t, 1044), null, 'still to make');
+  t = bump(t, 'a', 300);
+  assert.equal(readySince(t, 1044), null, 'one round still open');
+  t = bump(t, 'b', 500);
+  assert.equal(readySince(t, 1044), 500);
+  assert.equal(readySince(t, 1045), null);
+  assert.equal(readyUrgency(500, 500 + READY_WARN_MS - 1), 'ok');
+  assert.equal(readyUrgency(500, 500 + READY_WARN_MS), 'warn');
+  assert.equal(readyUrgency(500, 500 + READY_BAD_MS), 'bad');
+  assert.equal(readyUrgency(null, 0), 'bad');
+});
