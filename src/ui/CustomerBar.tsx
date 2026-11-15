@@ -1,0 +1,160 @@
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { toLkMobile } from '../domain/phone.ts';
+import type { OrderCustomer } from '../domain/types.ts';
+import type { Usual } from '../domain/usualOrder.ts';
+import { crmClient, type Greeting } from '../services/crmClient.ts';
+
+interface Props {
+  customer?: OrderCustomer;
+  /** Non-null while the cashier types a number (it may start with the key that opened it). */
+  typing: string | null;
+  onTyping: (text: string | null) => void;
+  onAttach: (customer: OrderCustomer) => void;
+  onRemove: () => void;
+  /** How many times this customer has paid before (from the event log). */
+  visits: (id: string) => number;
+  /** Offered while the order is still empty. */
+  usual: Usual | null;
+  onUsual: () => void;
+  /** What "the usual" holds, in a few words. */
+  describeUsual: (u: Usual) => string;
+}
+
+type Who =
+  | { at: 'none' } | { at: 'checking'; phone: string } | { at: 'known'; phone: string; customer: Greeting }
+  | { at: 'new'; phone: string } | { at: 'away'; phone: string };
+
+const ordinal = (n: number): string => {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th';
+  return `${n}${s}`;
+};
+
+/**
+ * The customer on the order (CRM), in the order panel under the order number. The cashier types the
+ * mobile (or just presses 0 on the Register): a number the list knows is greeted by name, a new one
+ * becomes a customer with Enter, a name if they give one. The customer list stays on the shop PC
+ * (crmClient); this screen is told only the id and the first name. No customer is fine: Esc.
+ */
+export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, visits, usual, onUsual, describeUsual }: Props) {
+  const phoneRef = useRef<HTMLInputElement>(null);
+  const usualRef = useRef<HTMLButtonElement>(null);
+  const [name, setName] = useState('');
+  const [who, setWho] = useState<Who>({ at: 'none' });
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const text = typing ?? '';
+  const check = typing !== null ? toLkMobile(text) : null;
+  const phone = check && 'phone' in check ? check.phone : null;
+
+  useEffect(() => {
+    if (!phone) { setWho({ at: 'none' }); return; }
+    let live = true;
+    setWho({ at: 'checking', phone });
+    crmClient.lookup(phone).then(
+      (r) => { if (live) setWho(r.customer ? { at: 'known', phone, customer: r.customer } : { at: 'new', phone }); },
+      () => { if (live) setWho({ at: 'away', phone }); },
+    );
+    return () => { live = false; };
+  }, [phone]);
+
+  useEffect(() => { if (typing === null) { setName(''); setFailed(false); } }, [typing]);
+
+  // Just put on an empty order: "the usual" takes Enter.
+  const offered = Boolean(customer && usual);
+  useEffect(() => { if (offered) usualRef.current?.focus(); }, [offered, customer?.id]);
+
+  const attach = async () => {
+    if (saving || !phone) return;
+    if (who.at === 'known' && who.phone === phone) { onAttach(who.customer); onTyping(null); return; }
+    if (who.at !== 'new' || who.phone !== phone) return;
+    setSaving(true);
+    try {
+      const r = await crmClient.ensure(phone, name.trim() || undefined);
+      onAttach(r.customer);
+      onTyping(null);
+    } catch {
+      setFailed(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onTyping(null); return; }
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void attach(); }
+  };
+
+  if (typing !== null) {
+    const hint = !text.trim() ? 'Their mobile, like 077 123 4567'
+      : !phone ? (check && 'reason' in check && text.replace(/\D/g, '').length >= 9 ? check.reason : 'Keep typing the mobile')
+        : who.at === 'checking' ? 'Looking…'
+          : who.at === 'away' ? 'The customer list is not answering. Esc to go on without'
+            : failed ? 'Not saved: the shop PC did not answer. Enter to try again'
+              : null;
+    return (
+      <div className="cust cust--open" onKeyDown={onKeyDown}>
+        <label className="cust__label" htmlFor="cust-phone">Customer</label>
+        <input
+          id="cust-phone" ref={phoneRef} className="cust__phone num" inputMode="tel" autoComplete="off" autoFocus
+          value={text} placeholder="077 123 4567" onChange={(e) => onTyping(e.target.value)}
+        />
+        {hint && <span className="cust__hint" aria-live="polite">{hint}</span>}
+        {who.at === 'known' && (
+          <button type="button" className="cust__pick" onClick={() => void attach()}>
+            <span className="cust__who">
+              <b>{who.customer.name ?? 'On the list'}</b>
+              <span className="num">{visits(who.customer.id) ? `${visits(who.customer.id)} ${visits(who.customer.id) === 1 ? 'visit' : 'visits'}` : 'No visits yet'}</span>
+            </span>
+            <kbd>Enter</kbd>
+          </button>
+        )}
+        {who.at === 'new' && (
+          <>
+            {/* Straight after the number, so Tab goes to the name. */}
+            <label className="cust__label" htmlFor="cust-name">Name, if they give it</label>
+            <input
+              id="cust-name" className="cust__name" autoComplete="off" maxLength={60} value={name}
+              placeholder="Tab, then the name" onChange={(e) => setName(e.target.value)}
+            />
+            <button type="button" className="cust__pick" onClick={() => void attach()} disabled={saving}>
+              <span className="cust__who"><b>{name.trim() ? `New customer: ${name.trim()}` : 'New customer'}</b><span className="num">{text.trim()}</span></span>
+              <kbd>Enter</kbd>
+            </button>
+          </>
+        )}
+        <span className="cust__keys">Enter put on the order · Esc no customer</span>
+      </div>
+    );
+  }
+
+  if (customer) {
+    const n = visits(customer.id);
+    return (
+      <div className="cust">
+        <div className="cust__on">
+          <button type="button" className="cust__chip" onClick={() => onTyping('')} aria-label={`Customer ${customer.name ?? ''}: change`}>
+            <b>{customer.name ?? 'Customer'}</b>
+            <span className="num">{n ? `${ordinal(n + 1)} visit` : 'First visit'}</span>
+          </button>
+          <button type="button" className="cust__off" onClick={onRemove} aria-label="Take the customer off">×</button>
+        </div>
+        {usual && (
+          <button type="button" ref={usualRef} className="cust__usual" onClick={onUsual}>
+            <span className="cust__who">
+              <b>{usual.kind === 'usual' ? 'The usual' : 'Same as last time'}</b>
+              <span>{describeUsual(usual)}</span>
+            </span>
+            <kbd>Enter</kbd>
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="cust">
+      <button type="button" className="cust__add" onClick={() => onTyping('')}>Add customer <kbd>0</kbd></button>
+    </div>
+  );
+}

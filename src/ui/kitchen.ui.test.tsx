@@ -88,14 +88,14 @@ test('a kitchen opened later still sees earlier tickets', async () => {
   expect(screen.getByRole('article', { name: 'Order 1001' })).toBeTruthy();
 });
 
-test('the register shows Waiting until Start, Cooking until Done, next to Paid / Unpaid', async () => {
+test('the register shows Waiting until Start, Cooking until Done, and keeps it once paid', async () => {
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   await sendOne(user); // 1001
   const row = () => within(panel().getByRole('button', { name: /^1001/ }));
   expect(row().getByText('Waiting')).toBeTruthy();
   expect(row().queryByText('Cooking')).toBeNull();
-  expect(row().getByText('Unpaid')).toBeTruthy();
+  expect(row().queryByText('Unpaid')).toBeNull(); // one word for how it stands: the list says it waits to pay
 
   await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
   expect(row().getByText('Cooking')).toBeTruthy();

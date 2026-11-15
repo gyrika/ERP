@@ -168,11 +168,18 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       return { customer: c ? greeting(c) : null };
     },
 
-    /** At Charge, as the payment goes in: the customer, made if new. */
-    async ensure(device: Device, staffId: unknown, body: { phone?: unknown }) {
+    /**
+     * At the counter (put on an order, or at Charge): the customer, made if new. A name, if the
+     * customer gave one, is kept only when the list has none for them: the counter never renames anyone.
+     */
+    async ensure(device: Device, staffId: unknown, body: { phone?: unknown; name?: unknown }) {
       const actor = await who(device, staffId, 'counter');
-      const { customer, created } = await customers.ensure(device.tenantId, mobile(body.phone), 'pos', actor.id, now());
-      return { customer: greeting(customer), created };
+      const phone = mobile(body.phone);
+      const { name } = cleanName(typeof body.name === 'string' ? body.name : null);
+      const { customer, created } = await customers.ensure(device.tenantId, phone, 'pos', actor.id, now());
+      if (!name || customer.name) return { customer: greeting(customer), created };
+      await customers.importRows(device.tenantId, [{ row: 0, kind: 'fill_name', phone, name, id: customer.id, notes: [] }], actor, now());
+      return { customer: greeting({ ...customer, name }), created };
     },
 
     async preview(device: Device, staffId: unknown, name: string, bytes: Buffer, renameExisting: boolean) {

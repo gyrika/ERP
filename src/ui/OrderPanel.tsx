@@ -24,8 +24,36 @@ const sub = (l: OrderLine): string => {
   ].filter(Boolean).join(' · ');
 };
 
-const itemCount = (o: Order): number => o.lines.reduce((n, l) => n + l.qty, 0);
-const items = (o: Order): string => `${itemCount(o)} ${itemCount(o) === 1 ? 'item' : 'items'}`;
+/** What an order is, in a few words ("2 Margherita L, Chicken Burger"): how the cashier tells orders apart in a list. */
+export const orderSummary = (lines: readonly Pick<OrderLine, 'itemId' | 'qty' | 'size' | 'half'>[]): string =>
+  lines.map((l) => `${l.qty > 1 ? `${l.qty} ` : ''}${lineItemName(l)}${l.size ? ` ${l.size}` : ''}`).join(', ');
+
+/** The order's number, as a badge nothing else on screen looks like (never mistaken for a price). */
+function OrderBadge({ number, quiet = false }: { number: number; quiet?: boolean }) {
+  return (
+    <span className={`obadge${quiet ? ' obadge--quiet' : ''}`}>
+      <span className="obadge__label">Order</span>
+      <span className="obadge__no num">{number}</span>
+    </span>
+  );
+}
+
+/** One row of a list of orders: number, whose and what, how it stands, and the total last and quiet. */
+function OrderRow({ o, status, total, quiet = false }: { o: Order; status: ReactNode; total: Cents; quiet?: boolean }) {
+  return (
+    <>
+      <span className={`waiting__no num${quiet ? ' waiting__no--quiet' : ''}`}>{o.number}</span>
+      <span className="waiting__main">
+        <span className="waiting__what">
+          {o.customer?.name && <b>{o.customer.name} · </b>}
+          {orderSummary(o.lines)}
+        </span>
+        <span className="waiting__meta">{status}</span>
+      </span>
+      <span className="waiting__total num">{fmt(total)}</span>
+    </>
+  );
+}
 const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats' };
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -48,9 +76,10 @@ function OnlineTag({ order, time = true }: { order: Order; time?: boolean }) {
 
 const COOK_LABEL = { waiting: 'Waiting', cooking: 'Cooking', done: 'Done' } as const;
 
-function Cook({ tickets, number }: { tickets: KitchenTicket[]; number: number }) {
+/** How a sent order stands, as one word with a dot: Waiting, Cooking, Done. */
+function CookWord({ tickets, number }: { tickets: KitchenTicket[]; number: number }) {
   const state = cookState(tickets, number);
-  return <span className={`status status--${state === 'waiting' ? 'queued' : state}`}>{COOK_LABEL[state]}</span>;
+  return <span className={`cookword cookword--${state}`}>{COOK_LABEL[state]}</span>;
 }
 
 /** Manager mode state and actions, owned by App (which also maps the keys). */
@@ -95,6 +124,8 @@ interface Props {
   printState?: 'printing' | 'printed' | 'failed' | null;
   /** Prints a COPY, without opening the drawer. Absent when this device does not print. */
   onReprint?: () => void;
+  /** The customer (CRM) on the order: put on, changed or taken off here. Absent while Customers is off. */
+  customerBar?: ReactNode;
   /** Present while Charge is open: the panel becomes the payment, in place of a sheet. */
   paying?: {
     onPay: (tender: Tender, tendered: Cents, customerId?: string, unlinked?: boolean) => void;
@@ -202,7 +233,7 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
  * and changeable, discount chips under the order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onOpen, onNext, onUndo, printState, onReprint, paying, extras,
+  order, open, paidToday, tickets, paid, manage, onEdit, onSend, onCharge, onCloseFree, onClosePlatform, onClearPlatform, onOpen, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
@@ -220,6 +251,7 @@ export function OrderPanel({
           onPay={paying.onPay}
           onClose={paying.onClose}
           customers={paying.customers}
+          customer={order.customer}
         />
       </aside>
     );
@@ -229,7 +261,10 @@ export function OrderPanel({
     const cashChange = paid.tender === 'cash' && paid.change > 0;
     return (
       <aside className={panelClass} aria-label="Current order">
-        <div className="panel__no num"><span>{paid.number}<OnlineTag order={paid} time={false} /></span></div>
+        <div className="panel__no">
+          <span className="panel__id"><OrderBadge number={paid.number} /><OnlineTag order={paid} time={false} />
+            {paid.customer?.name && <span className="panel__cust">{paid.customer.name}</span>}</span>
+        </div>
         <div className="paid" role="status">
           <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
           <span className="paid__big num">{fmt(cashChange ? paid.change : paid.total)}</span>
@@ -260,20 +295,21 @@ export function OrderPanel({
 
   return (
     <aside className={panelClass} aria-label="Current order">
-      <div className="panel__no num">
-        <span>
-          {order.number}
+      <div className="panel__no">
+        <span className="panel__id">
+          <OrderBadge number={order.number} quiet={!isOpen && listing} />
           <OnlineTag order={order} time={false} />
           {order.platform && !isOpen && (
             <button type="button" className="panel__unmark" onClick={onClearPlatform} aria-label={`Not from ${platformName(order.platform.id)}`}>×</button>
           )}
-          {isOpen && <Cook tickets={tickets} number={order.number} />}
-          {isOpen && <span className="status status--unpaid">Unpaid</span>}
+          {/* One word for how it stands; Charge below already says it is not paid. */}
+          {isOpen && <CookWord tickets={tickets} number={order.number} />}
         </span>
         {!manage && isOpen && !hasNew && (
           <button type="button" className="panel__back" onClick={onNext}>New order</button>
         )}
       </div>
+      {!manage && customerBar}
       {order.edited && (
         <div className="panel__stamp num">Edited by {order.edited.by}, {clock(order.edited.at)}</div>
       )}
@@ -365,15 +401,11 @@ export function OrderPanel({
                 aria-current={manage?.selected === i || undefined}
                 onClick={() => onOpen(o.number)}
               >
-                <span className="waiting__no num">{o.number}</span>
-                <span className="waiting__total num">{fmt(orderTotal(o))}</span>
-                <span className="waiting__meta">
-                  <span className="waiting__items">{items(o)}</span>
+                <OrderRow o={o} total={orderTotal(o)} status={<>
+                  <CookWord tickets={tickets} number={o.number} />
                   <OnlineTag order={o} />
-                  <Cook tickets={tickets} number={o.number} />
                   {o.adjust?.discount && <span className="status status--discount">{discountLabel(o.adjust.discount)}</span>}
-                  <span className="status status--unpaid">Unpaid</span>
-                </span>
+                </>} />
               </button>
             ))}
           </section>
@@ -384,14 +416,12 @@ export function OrderPanel({
             <h2>Paid today · {paidToday.length}</h2>
             {paidToday.map((o) => (
               <div key={o.number} className="waiting__row">
-                <span className="waiting__no num">{o.number}</span>
-                <span className="waiting__total num">{fmt(o.total)}</span>
-                <span className="waiting__meta">
-                  <span className="waiting__items">{items(o)}</span>
+                <OrderRow o={o} total={o.total} quiet status={<>
+                  {/* Paid, food still coming: the customer is still waiting, so the kitchen state stays. */}
+                  {cookState(tickets, o.number) !== 'done' && <CookWord tickets={tickets} number={o.number} />}
+                  <span className="cookword cookword--paid">Paid · {TENDER[o.tender]}</span>
                   <OnlineTag order={o} />
-                  <Cook tickets={tickets} number={o.number} />
-                  <span className="status status--paid">Paid · {TENDER[o.tender]}</span>
-                </span>
+                </>} />
               </div>
             ))}
           </section>

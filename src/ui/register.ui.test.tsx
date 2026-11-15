@@ -132,7 +132,7 @@ test('tapping the background or pressing Escape leaves an opened order; menu tap
 
   await user.click(panel().getByRole('button', { name: /^1001/ }));
   expect(waiting()).toBeNull();
-  await user.click(panel().getByText('Unpaid')); // the bill itself is not background
+  await user.click(panel().getByText('1001')); // the bill itself is not background
   expect(waiting()).toBeNull();
   await user.click(screen.getByRole('main')); // empty space beside the menu
   expect(waiting()).toBeTruthy();
@@ -154,14 +154,18 @@ test('the order list labels unpaid and paid orders clearly', async () => {
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(sendBtn()); // 1002
   await user.click(within(panel().getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ }));
-  expect(panel().getByText('Unpaid')).toBeTruthy(); // the opened order says it is unpaid
+  // The opened order: its number as a badge, how it stands in one word, and Charge (so: not paid).
+  expect(within(panel().getByText('1001').parentElement!).getByText('Order')).toBeTruthy();
+  expect(panel().getByText('Waiting')).toBeTruthy();
+  expect(panel().queryByText('Unpaid')).toBeNull();
   await user.click(panel().getByRole('button', { name: 'Charge' }));
   expect(panel().getByText('Paying')).toBeTruthy(); // Charge opens in the panel itself
   await user.click(screen.getByRole('button', { name: '2,000' }));
   await user.click(panel().getByRole('button', { name: 'Next order' }));
 
   const waiting = within(panel().getByRole('region', { name: 'Waiting to pay' }));
-  expect(waiting.getByRole('button', { name: /^1002.*Unpaid$/ })).toBeTruthy();
+  // A row: the number, what was ordered, how it stands, and the total last.
+  expect(waiting.getByRole('button', { name: /^1002Chicken Burger.*Waiting.*450$/ })).toBeTruthy();
 
   const paid = within(panel().getByRole('region', { name: 'Paid today' }));
   expect(paid.getByText('1001')).toBeTruthy();

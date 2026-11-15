@@ -15,7 +15,7 @@ Goal: the most advanced, premium POS the shop could use: faster than any competi
 - One primary action per screen: "Send to kitchen" while an order has new items, "Charge" once it is all sent (customers eat first, pay after). No confirmation dialogs: instant action + visible Undo.
 - Modifiers appear only after the item is chosen, as big chips, sensible defaults.
 - Payment in one gesture: cash quick amounts + automatic change, bank transfer, card, QR. All four stay on screen; card and QR get real provider integrations later.
-- Default screen = current order + menu, nothing else. Settings/reports/admin live behind a command palette and role views.
+- Default screen = current order + menu, nothing else. Register header: the brand, chips only for what needs the cashier (Online, Tables, Kitchen, offline), every other key behind ••• with its shortcut shown. Settings/reports/admin live behind a command palette and role views.
 - Kitchen display: ONE column of tickets, colour = urgency only, one tap to bump. Owner view (Today, `src/ui/Glance.tsx`, SCRUM-173): the shop at a glance (sales ring, five stations Deliveries → Shelves → Kitchen → Counter → Money, sales by hour vs usual, every Rs 100 sold, a dot per stock item) plus the To do list with one tap each; a black screen types the day in a sentence and explains whatever is tapped (phone: bottom, PC: right). Small charts as evidence, never chart walls; numbers stay pictures, words go on the screen.
 - Offline-first (power/internet are unreliable), silent background sync, real-time between counter, kitchen, owner phone.
 - Anticipation behind a swappable `SuggestionsService`: prep load, stock forecast + supplier order draft, unusual voids/discounts, price/menu suggestions. Upsell prompts subtle and ignorable.
@@ -26,7 +26,7 @@ Goal: the most advanced, premium POS the shop could use: faster than any competi
 - Manager mode (Ctrl+M → PIN; Esc or 10 s idle to leave): every manager change goes through `applyManagerChange()` / `manage()`, writes one audited event (who, when, before/after in cents) and returns an Undo. Discounts round once at order level, in integer cents. No confirmation dialogs, no banners, no PIN per action.
 - Auth behind `AuthService` (`src/domain/auth.ts`); swap the fake in `src/services/auth.ts` only. All fake data lives in `src/fake/data.ts`. Every synced row (events, kitchen tickets) carries `shopId`.
 - The one banner (owner, 2026-10-26): when a table comes to need cleaning, the Register shows "Table N needs cleaning" for 5 s, like the Undo toast (no key, no focus, never over the order or the primary action), and the Tables chip is red until it is clean.
-- Orders are identified by number only. No name/phone fields until the CRM + loyalty slice.
+- Orders are identified by their number, drawn as a badge ("ORDER 42") that nothing else looks like; list rows read number, customer · what was ordered, one status word, total last and quiet. With Customers (CRM) on, a customer can be put on an order in the order panel (`src/ui/CustomerBar.tsx`): 0 or + on the Register starts their mobile (an order never starts with 0), the shop PC's list finds or makes them (`crmClient.lookup`/`ensure`, a name kept only for someone new), "the usual" is offered on an empty order (`src/domain/usualOrder.ts`); the name stays on the counter (`Order.customer`), the payment names them by id only, and Charge then asks no Mobile.
 - If a request adds clutter, push back and offer a simpler alternative. Lead with the decision or result; be concise.
 
 ## Premium feel

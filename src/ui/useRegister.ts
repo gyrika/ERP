@@ -10,7 +10,7 @@ import {
   type ManagerChange, type Refusal,
 } from '../domain/manager.ts';
 import { discountLabel } from '../domain/totals.ts';
-import type { Cents, LineSpec, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
+import type { Cents, LineSpec, Order, OrderCustomer, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
 import { platformLabel, type PlatformMark } from '../domain/platforms.ts';
 import { demoSnapshot } from '../fake/demo.ts';
 import { currentCashier, shopId } from '../services/auth.ts';
@@ -212,6 +212,18 @@ export function useRegister() {
     commit(() => ({ ...s, order: mark ? { ...order, platform: mark } : order }), mark ? `${platformLabel(mark)}` : 'Not a delivery app order');
   }, [commit]);
 
+  /**
+   * Puts a customer (CRM) on the order on screen, or takes them off: a new order or one waiting to
+   * pay. Nothing is written to the event log; the payment names them by id when it goes in.
+   */
+  const setCustomer = useCallback((customer: OrderCustomer | null) => {
+    const s = ensureOpen(ref.current);
+    const { customer: had, ...rest } = s.order;
+    if (!customer && !had) return;
+    const order: Order = customer ? { ...rest, customer } : rest;
+    commit(() => withOrder(s, order), customer ? `${customer.name ?? 'Customer'} on order ${order.number}` : 'Customer taken off');
+  }, [commit]);
+
   /** Cashier edits of unsent lines. A sent line goes through `changeSent` (audited, the kitchen told). */
   const editLine = useCallback((line: OrderLine, message: string) => {
     if (ref.current.order.lines.find((l) => l.id === line.id)?.sent) return;
@@ -289,6 +301,8 @@ export function useRegister() {
       fireTicket(ticket);
     }
     const order = ref.current.order;
+    // A customer put on the order earlier is the one paying, unless Charge was given a number now.
+    customerId ??= order.customer?.id;
     const paid: PaidOrder = {
       ...order, total, tender, tendered, change: Math.max(0, tendered - total), paidAt: Date.now(),
     };
@@ -464,6 +478,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, changeSent, send, acceptOnline, setPlatform, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, changeSent, send, acceptOnline, setPlatform, setCustomer, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

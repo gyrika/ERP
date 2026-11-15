@@ -1,8 +1,8 @@
 import type { OrderEvent } from './events.ts';
 import { withoutTestData } from './freshStart.ts';
-import { lkDate, saleFrom, type SaleRow } from './salesLedger.ts';
+import { lkDate, orderLinesFrom, saleFrom, type SaleRow } from './salesLedger.ts';
 import type { SyncEvent } from './sync.ts';
-import type { Cents } from './types.ts';
+import type { Cents, OrderLine } from './types.ts';
 
 /**
  * Customers (CRM): who they are lives in the shop server's customer list (number, name, opt-out),
@@ -107,6 +107,13 @@ export const customerStatsFromEvents = (events: readonly SyncEvent[]): Map<strin
   for (const [id, visits] of visitsFromEvents(events)) out.set(id, statsOf(id, visits)!);
   return out;
 };
+
+/** The lines of each order one customer paid for (payments that still stand), newest first: the Register's "the usual". */
+export const customerOrders = (events: readonly SyncEvent[], customerId: string): OrderLine[][] =>
+  standingSales(events)
+    .filter(({ paid }) => paid.customerId === customerId)
+    .map(({ order }) => orderLinesFrom(order).lines)
+    .reverse();
 
 /** What one customer bought, newest first, line by line (the profile page). */
 export const purchaseHistory = (events: readonly SyncEvent[], customerId: string): SaleRow[] =>
