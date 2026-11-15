@@ -11,6 +11,7 @@ import { isManagerPhone, phoneToken } from './services/pairing.ts';
 import { setUpOwnerApp } from './services/ownerApp.ts';
 import { numbersLocally } from './services/auth.ts';
 import { startLocalScheduler } from './services/inventoryStore.ts';
+import { CrashScreen } from './ui/CrashScreen.tsx';
 import { Root } from './ui/Root.tsx';
 import { UpdateScreen } from './ui/UpdateScreen.tsx';
 import { applyTheme } from './ui/theme.ts';
@@ -30,7 +31,7 @@ if (numbersLocally()) startLocalScheduler();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Root />
+    <CrashScreen><Root /></CrashScreen>
     <UpdateScreen />
   </StrictMode>,
 );

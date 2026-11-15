@@ -43,7 +43,7 @@ export const cookMinutesSold = (events: readonly { type: string }[], menu: reado
   type Line = { itemId: string; qty: number; half?: string };
   const minutesOf = (id: string): number => {
     const item = menu.find((m) => m.id === id);
-    return item ? COOK_MINUTES[item.category] : 0;
+    return item ? COOK_MINUTES[item.category] ?? 0 : 0; // an item from an unknown section has no cook time
   };
   const worth = (l: Line) => l.qty * (l.half ? (minutesOf(l.itemId) + minutesOf(l.half)) / 2 : minutesOf(l.itemId));
   const tickets = new Map<string, number>();
@@ -109,4 +109,4 @@ export const billOfLine = (line: ResourceLine): BillKind | null => {
 
 /** What the bills add to one dish, unrounded cents, kind by kind. Only a dish on the menu has cook minutes. */
 export const billsForDish = (parts: readonly BillPart[], item: MenuItem | undefined): { part: BillPart; cents: number }[] =>
-  (item ? parts.map((part) => ({ part, cents: part.perMinute * COOK_MINUTES[item.category] })) : []);
+  (item ? parts.map((part) => ({ part, cents: part.perMinute * (COOK_MINUTES[item.category] ?? 0) })) : []);
