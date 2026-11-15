@@ -158,6 +158,12 @@ export function Root() {
       if (e.key === 'F2' && !kitchenOnly) { e.preventDefault(); show(!inKitchen); }
       if (e.key === 'F3' && seesOwner) { e.preventDefault(); go(hash === OWNER ? '' : OWNER); }
       if (e.key === 'F4' && needsLogin && staff) { e.preventDefault(); lock(); }
+      // The developers' Modules page (#unlock): the installed app has no address bar, so a hidden
+      // key opens it on the shop PC, locked or not; the developers' password is still the authority.
+      if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyU' && !isCloudSite() && !isManagerPhone()) {
+        e.preventDefault();
+        go(hash === '#unlock' ? '' : '#unlock');
+      }
       if (e.key === 'F1' && seesFloor) {
         e.preventDefault(); // F1 is the browser's help page otherwise
         if (hash === TABLES) go('');

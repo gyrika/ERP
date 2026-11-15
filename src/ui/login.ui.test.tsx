@@ -59,6 +59,17 @@ test('a paired counter opens locked; a wrong PIN says so; the right one opens th
   expect(lockScreen()).toBeTruthy();
 });
 
+test('Ctrl+Shift+U opens the developers’ Modules page from the lock screen, and again closes it', async () => {
+  pair();
+  const user = userEvent.setup();
+  render(<Root />);
+  expect(lockScreen()).toBeTruthy();
+  await user.keyboard('{Control>}{Shift>}U{/Shift}{/Control}');
+  expect(await screen.findByRole('heading', { name: 'Modules' })).toBeTruthy();
+  await user.keyboard('{Control>}{Shift>}U{/Shift}{/Control}');
+  expect(lockScreen()).toBeTruthy();
+});
+
 test('every order records who took it', async () => {
   pair();
   const user = userEvent.setup();
