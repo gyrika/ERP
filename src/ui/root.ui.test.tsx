@@ -127,7 +127,12 @@ test('the shop\'s day: the work first, then Items, then Settings; every part kee
   }
   // Items: raw materials, semi-processed, finished, all under Items.
   const tabs = () => within(screen.getByRole('navigation', { name: 'Items' }));
-  expect(tabs().getAllByRole('link').map((a) => a.firstChild?.textContent)).toEqual(['Raw materials', 'Semi-processed', 'Finished', 'Warehouses']);
+  expect(tabs().getAllByRole('link').map((a) => a.firstChild?.textContent)).toEqual(['Raw materials', 'Semi-processed', 'Finished', 'Warehouses', 'Menu']);
+  // The menu has its own tab, so it is found by its name.
+  await user.click(tabs().getByRole('link', { name: 'Menu' }));
+  expect(await screen.findByRole('main', { name: 'Menu' })).toBeTruthy();
+  expect(current()).toEqual(['Items']);
+  expect(tabs().getByRole('link', { name: 'Menu' }).getAttribute('aria-current')).toBe('page');
   await user.click(tabs().getByRole('link', { name: /^Finished/ }));
   expect(await screen.findByRole('main', { name: 'Menu' })).toBeTruthy();
   expect(current()).toEqual(['Items']);

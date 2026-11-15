@@ -14,7 +14,7 @@ import { useValuation, useValueTrend } from '../services/inventoryStore.ts';
  * tab's share. Finished items are made to order, so their value is in the other two.
  * Warehouses (SCRUM-184) is the raw and semi-processed items again, by where they are kept.
  */
-export type ItemsTab = ValueKind | 'warehouses';
+export type ItemsTab = ValueKind | 'warehouses' | 'menu';
 
 const TABS: { id: ItemsTab; label: string; href: string }[] = [
   { id: 'raw', label: 'Raw materials', href: '#items' },
@@ -22,6 +22,8 @@ const TABS: { id: ItemsTab; label: string; href: string }[] = [
   { id: 'finished', label: 'Finished', href: '#items/finished' },
   // Where the raw and semi-processed items are kept (SCRUM-184).
   { id: 'warehouses', label: 'Warehouses', href: '#items/warehouses' },
+  // The menu by its own name: prices, names, sold out, photos (owner, 2026-11-15: he looked for it here).
+  { id: 'menu', label: 'Menu', href: '#menu' },
 ];
 
 export function ItemsTabs({ current }: { current: ItemsTab }) {
@@ -35,7 +37,7 @@ export function ItemsTabs({ current }: { current: ItemsTab }) {
         {TABS.map((t) => (
           <a key={t.id} href={t.href} className="pill" aria-current={t.id === current ? 'page' : undefined}>
             {t.label}
-            {t.id !== 'warehouses' && <span className="items-tabs__value num">Rs {fmt(valuation.byKind[t.id])}</span>}
+            {t.id !== 'warehouses' && t.id !== 'menu' && <span className="items-tabs__value num">Rs {fmt(valuation.byKind[t.id])}</span>}
           </a>
         ))}
       </nav>
