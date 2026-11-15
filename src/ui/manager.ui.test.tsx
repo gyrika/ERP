@@ -3,10 +3,12 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FAKE_STAFF } from '../fake/data.ts';
+import { heldList } from './testHeld.ts';
 import { App } from './App.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { readEvents } from './eventLog.ts';
 import { MANAGER_IDLE_MS } from './useManagerMode.ts';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 beforeEach(() => localStorage.clear());
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -24,8 +26,8 @@ const auditEvents = () => readEvents().filter((e) => 'totalBefore' in e);
 const sendAndReopen = async (user: User) => {
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
 };
 
 /** Ctrl+M, then the PIN: the field is focused and checks itself at four digits. */
@@ -80,11 +82,11 @@ test('void a sent line (reason required) then Undo restores it in its original p
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(screen.getAllByRole('button', { name: '650' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
   await unlock(user);
 
-  await user.keyboard('{ArrowDown}{Delete}');
+  await user.keyboard('{ArrowUp}{Delete}'); // the last line is selected: up to the middle one
   expect(panel().getByRole('group', { name: 'Why void this item?' })).toBeTruthy(); // reason first, inline
   expect(panel().getByText('Chicken Burger')).toBeTruthy(); // nothing voided yet
   await user.keyboard('2'); // "Wrong item entered"
@@ -210,9 +212,9 @@ test('a comped order closes with "Close · Free" and shows as Paid · Free', asy
   await sendAndReopen(user);
   await unlock(user);
   await user.keyboard('4{Escape}');
-  await user.click(panel().getByRole('button', { name: 'Close · Free' }));
-  await user.click(panel().getByRole('button', { name: 'Next order' }));
-  expect(within(panel().getByRole('region', { name: 'Paid today' })).getByText('Paid · Free')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Close · Free' }));
+  await user.click(screen.getByRole('button', { name: 'New bill' }));
+  expect(within((heldList(), panel().getByRole('region', { name: 'Paid today' }))).getByText('Paid · Free')).toBeTruthy();
   expect(readEvents().at(-1)).toMatchObject({ type: 'order.paid', total: 0, tender: 'comp' });
 });
 
@@ -221,7 +223,7 @@ test('editing a sent line still needs a reason', async () => {
   render(<App />);
   await sendAndReopen(user);
   await unlock(user);
-  await user.keyboard('{Enter}'); // edit Margherita
+  await user.keyboard('{ArrowUp}{Enter}'); // edit Margherita (the last line, the burger, is selected)
   const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   await user.click(sheet.getByRole('button', { name: /^Large/ }));
   await user.click(sheet.getByRole('button', { name: /^Save change/ }));
@@ -236,7 +238,7 @@ test('the customer changed their mind: the cashier changes a sent line, no PIN, 
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   await sendAndReopen(user);
-  await user.click(panel().getByRole('button', { name: /Margherita/ }));
+  await user.click(panel().getByRole('button', { name: /^Margherita/ }));
   const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   expect(sheet.queryByText('Reason')).toBeNull();
   expect(sheet.queryByText(/Already made/)).toBeNull();
@@ -260,17 +262,21 @@ test('a line the kitchen already made says Made; removing it is recorded as wast
   await sendAndReopen(user);
   await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
   await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001' }));
-  const burger = panel().getByRole('button', { name: /Chicken Burger/ });
+  const burger = panel().getByRole('button', { name: /^Chicken Burger/ });
   expect(within(burger).getByText('Made')).toBeTruthy();
   await user.click(burger);
   const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   expect(sheet.getByText('Made already')).toBeTruthy();
   expect(sheet.getByText('Removing it counts as waste.')).toBeTruthy();
   await user.click(sheet.getByRole('button', { name: 'Remove' }));
+  // Taking a sent line off is a void: a manager's PIN first, then the reason (counter redesign, 2026-11-16).
+  expect(total()).toBe('1,900');
+  await user.keyboard(pinFor('manager'));
+  await user.click(panel().getByRole('button', { name: /Customer changed mind/ }));
   expect(total()).toBe('1,450');
-  expect(screen.getAllByRole('status').map((s) => s.textContent).join()).toContain('Removed Chicken Burger · counted as waste');
-  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Already made', made: true });
-  await user.click(panel().getByRole('button', { name: /Margherita/ }));
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Customer changed mind', made: true });
+  await user.keyboard('{Escape}'); // back to the cashier
+  await user.click(panel().getByRole('button', { name: /^Margherita/ }));
   await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: /^Large/ }));
   // Made already: throwing it away and making a new one is picked for the cashier.
   await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: /^Make new/ }));
@@ -285,7 +291,7 @@ test('cashier rules kept: sends share the event log; Undo of a send only straigh
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
   await user.click(screen.getAllByRole('button', { name: '450' })[0]); // next customer: the send is sealed
   await user.keyboard('{Control>}z{/Control}{Control>}z{/Control}');
   expect(kitchen().getByRole('article', { name: 'Order 1001' })).toBeTruthy();
@@ -306,13 +312,13 @@ test('light or dark for this screen, from the command palette; it stays after a 
   expect(screen.getByRole('option', { name: /Dark mode/ }).textContent).toContain('On');
   await user.keyboard('follow windows{Enter}');
   expect(document.documentElement.dataset.theme).toBeUndefined();
-  expect(localStorage.getItem('cb.theme')).toBeNull();
+  expect(localStorage.getItem('cb.theme')).toBe('auto'); // a choice: the counter's light default no longer applies
 });
 
 /** 1001 sent and paid in exact cash: the paid order stays on screen. */
 const sendAndPay = async (user: User) => {
   await sendAndReopen(user);
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact cash/ }));
 };
 const settledEvents = () => readEvents().filter((e) => e.type === 'order.settled');
@@ -323,7 +329,7 @@ test('changed after paying (SCRUM-242): change the ticket, charge only the diffe
   await sendAndPay(user);
 
   // Medium to Large, before the kitchen started: "Change the ticket" is picked for the cashier.
-  await user.click(panel().getByRole('button', { name: /Margherita/ }));
+  await user.click(panel().getByRole('button', { name: /^Margherita/ }));
   let sheet = within(screen.getByRole('region', { name: / extras$/ }));
   expect(sheet.getByText('Not started in the kitchen')).toBeTruthy();
   expect(sheet.getByRole('radio', { name: /Change the ticket/ }).getAttribute('aria-checked')).toBe('true');
@@ -333,18 +339,18 @@ test('changed after paying (SCRUM-242): change the ticket, charge only the diffe
   expect(within(kitchen().getByRole('article', { name: /^Order 1001/ })).getByText('Changed')).toBeTruthy();
 
   // The money side asks for the difference, and Charge takes only that.
-  await user.click(panel().getByRole('button', { name: 'Charge 540 more' }));
+  await user.click(screen.getByRole('button', { name: 'Pay 540 more' }));
   await user.click(screen.getByRole('button', { name: /Exact cash 540/ }));
   expect(settledEvents().at(-1)).toMatchObject({ amount: 54000, tender: 'cash', orderNumber: 1001 });
-  expect(panel().getByRole('button', { name: /Margherita/ })).toBeTruthy(); // still on screen, settled
+  expect(panel().getByRole('button', { name: /^Margherita/ })).toBeTruthy(); // still on screen, settled
 
   // The burger taken off: Give back, cash from the drawer, one tap.
-  await user.click(panel().getByRole('button', { name: /Chicken Burger/ }));
+  await user.click(panel().getByRole('button', { name: /^Chicken Burger/ }));
   sheet = within(screen.getByRole('region', { name: / extras$/ }));
   await user.click(sheet.getByRole('button', { name: 'Remove' }));
-  await user.click(panel().getByRole('button', { name: 'Give back 450' }));
+  await user.click(screen.getByRole('button', { name: 'Give back 450' }));
   expect(settledEvents().at(-1)).toMatchObject({ amount: -45000, tender: 'cash' });
-  expect(panel().queryByRole('button', { name: /Give back/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /Give back/ })).toBeNull();
 });
 
 test('changed after paying, already cooking (SCRUM-242): throw away + make new sends a new ticket; the old one is struck', async () => {
@@ -353,7 +359,7 @@ test('changed after paying, already cooking (SCRUM-242): throw away + make new s
   await sendAndPay(user);
   await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
 
-  await user.click(panel().getByRole('button', { name: /Margherita/ }));
+  await user.click(panel().getByRole('button', { name: /^Margherita/ }));
   const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   expect(sheet.getByText('Cooking in the kitchen')).toBeTruthy();
   expect(sheet.getByRole('radio', { name: /Throw away, make new/ }).getAttribute('aria-checked')).toBe('true');
@@ -365,11 +371,14 @@ test('changed after paying, already cooking (SCRUM-242): throw away + make new s
   expect(tickets).toHaveLength(2);
   expect(within(tickets[0]).getByText('Thrown away · new ticket')).toBeTruthy();
   expect(within(tickets[1]).getByText('Remake · customer changed')).toBeTruthy();
-  expect(panel().getByRole('button', { name: 'Charge 540 more' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Pay 540 more' })).toBeTruthy();
 
   // The cashier's Undo takes it all back: one ticket, nothing owed.
   const toast = screen.getAllByRole('status').find((s) => s.textContent?.includes('old one to waste, new ticket'))!;
   await user.click(within(toast).getByRole('button', { name: 'Undo' }));
   expect(kitchen().getAllByRole('article', { name: /^Order 1001/ })).toHaveLength(1);
-  expect(panel().queryByRole('button', { name: /Charge/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /Pay .* more/ })).toBeNull();
 });
+
+// These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

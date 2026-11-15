@@ -1,9 +1,11 @@
+import { heldList } from './testHeld.ts';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { OnlineOrder } from '../domain/online.ts';
 import { lock } from '../services/serverAuth.ts';
 import { Root } from './Root.tsx';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 const order = (id: string, name: string, more: Partial<OnlineOrder> = {}): OnlineOrder => ({
   id, createdAt: Date.now() - 120_000, status: 'new', kind: 'pickup', name, phone: '0771234567', address: null, pin: null, note: 'Ring the bell',
@@ -63,9 +65,9 @@ test('an online order: seen at the counter, accepted with a time, in the kitchen
 
   await user.keyboard('{Escape}');
   const pickup = new Date(readyBy).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const row = within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ });
+  const row = heldList().getByRole('button', { name: /^1001/ });
   expect(within(row).getByText(`Online · ${pickup}`)).toBeTruthy();
-  await user.keyboard('{F2}');
+  await user.click(screen.getByRole('button', { name: /^Kitchen:/ }));
   const ticket = within(within(screen.getByRole('main', { name: 'Orders to make' })).getByRole('article', { name: 'Order 1001' }));
   expect(ticket.getByText(`Online · pickup ${pickup}`)).toBeTruthy();
 });
@@ -113,9 +115,12 @@ test('a delivery: the address and map for the rider, accepted with a ride time, 
   expect(await sheet.findByText('On the way · collect 3,850')).toBeTruthy();
 
   await user.keyboard('{Escape}');
-  const row = within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ });
+  const row = heldList().getByRole('button', { name: /^1001/ });
   expect(within(row).getByText(/^Delivery · /)).toBeTruthy();
-  await user.keyboard('{F2}');
+  await user.click(screen.getByRole('button', { name: /^Kitchen:/ }));
   const ticket = within(within(screen.getByRole('main', { name: 'Orders to make' })).getByRole('article', { name: 'Order 1001' }));
   expect(ticket.getByText(/^Delivery · by /)).toBeTruthy();
 });
+
+// These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

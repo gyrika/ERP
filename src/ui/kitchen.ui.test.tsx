@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { heldList } from './testHeld.ts';
 import { App } from './App.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { readAll } from './eventLog.ts';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 beforeEach(() => localStorage.clear());
 afterEach(cleanup);
@@ -17,7 +19,7 @@ const sendOne = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole('button', { name: /Large/ }));
   await user.click(screen.getByRole('button', { name: /No onion/ }));
   await user.click(screen.getByRole('button', { name: /^Add ·/ }));
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
 };
 
 test('a sent order appears in the kitchen before payment; Start, then Done clears it; Undo brings it back', async () => {
@@ -64,17 +66,17 @@ test('a later round arrives as its own "added" ticket; paying does not touch the
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   await sendOne(user);
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]); // + Margherita M
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
 
   const more = within(kitchen().getByRole('article', { name: 'Order 1001, added items' }));
   expect(more.getByText('Margherita')).toBeTruthy();
   expect(more.queryByText('Devilled Chicken')).toBeNull(); // only the new round
   expect(kitchen().getAllByRole('article').length).toBe(2);
 
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   expect(kitchen().getAllByRole('article').length).toBe(2);
 });
@@ -92,7 +94,7 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   await sendOne(user); // 1001
-  const row = () => within(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  const row = () => within(heldList().getByRole('button', { name: /^1001/ }));
   expect(row().getByText('Waiting')).toBeTruthy();
   expect(row().queryByText('Cooking')).toBeNull();
   expect(row().getByText('Not paid')).toBeTruthy(); // a word for the kitchen, a word for the money
@@ -104,22 +106,22 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
   expect(row().queryByText('Cooking')).toBeNull();
 
   // A second round puts it back to Waiting, then Cooking; the opened order shows it too.
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
   expect(row().getByText('Waiting')).toBeTruthy();
   await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001, added items' }));
   expect(row().getByText('Cooking')).toBeTruthy();
 
   // Paid orders keep their kitchen state.
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
   // The order says Cooking; each sent line says its own state: the new round cooking, the first one made.
   expect(panel().getAllByText('Cooking')).toHaveLength(2);
   expect(panel().getByText('Made')).toBeTruthy();
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
-  await user.click(panel().getByRole('button', { name: 'Next order' }));
-  const paid = within(panel().getByRole('region', { name: 'Paid today' }));
+  await user.click(screen.getByRole('button', { name: 'New bill' }));
+  const paid = within((heldList(), panel().getByRole('region', { name: 'Paid today' })));
   expect(paid.getByText('Cooking')).toBeTruthy();
   expect(paid.getByText('Paid · Cash')).toBeTruthy();
   // Paid, food still coming: it stays on the list. Made, it is Ready and still stays: the customer
@@ -128,21 +130,20 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
   expect(row().getByText('Paid')).toBeTruthy();
   await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001, added items' }));
   expect(row().getByText('Ready')).toBeTruthy();
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  expect(panel().queryByRole('button', { name: 'Next order' })).toBeNull(); // Given is the thing to do
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
   await user.keyboard('{Control>}{Enter}{/Control}');
-  expect(within(screen.getByRole('navigation', { name: 'Orders' })).queryByRole('button', { name: /^1001/ })).toBeNull();
+  expect(heldList().queryByRole('button', { name: /^1001/ })).toBeNull();
   expect(readAll().filter((e) => e.type === 'order.given')).toMatchObject([{ orderNumber: 1001 }]);
 });
 
 test('paid first, cooked, waiting to be collected: Ready stays on the list until Given; Undo brings it back', async () => {
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
-  const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
+  const rail = () => heldList();
   await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
   await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
   await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001' }));
   expect(rail().getByRole('button', { name: /^1001.*Ready.*Paid/ })).toBeTruthy();
@@ -152,6 +153,7 @@ test('paid first, cooked, waiting to be collected: Ready stays on the list until
   expect(rail().queryByRole('button', { name: /^1001/ })).toBeNull();
   const toast = screen.getByText('Given 1001').closest('.toast') as HTMLElement;
   await user.click(within(toast).getByRole('button', { name: 'Undo' }));
+  await user.click(screen.getByRole('button', { name: 'New bill' })); // Undo put it back on screen; held bills are the others
   expect(rail().getByRole('button', { name: /^1001.*Ready.*Paid/ })).toBeTruthy();
   expect(readAll().map((e) => e.type).slice(-2)).toEqual(['order.given', 'order.given_undone']);
 });
@@ -162,11 +164,11 @@ test('paying for a ready order hands it over too: it leaves the list in one step
   await sendOne(user); // 1001, not paid
   await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
   await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001' }));
-  const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
+  const rail = () => heldList();
   expect(rail().getByRole('button', { name: /^1001.*Ready.*Not paid/ })).toBeTruthy();
   await user.click(rail().getByRole('button', { name: /^1001/ }));
   expect(panel().getByRole('button', { name: 'Given' })).toBeTruthy(); // eating in: handed over, paid later
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   expect(rail().queryByRole('button', { name: /^1001/ })).toBeNull();
   expect(readAll().map((e) => e.type).slice(-2)).toEqual(['order.paid', 'order.given']);
@@ -193,3 +195,6 @@ test('Remake: a burnt pizza is recorded as waste in two taps, and the line stays
   expect(readAll().at(-1)).toMatchObject({ type: 'stock.waste_undone' });
   expect(ticket.queryByText('Remake ×1')).toBeNull();
 });
+
+// These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

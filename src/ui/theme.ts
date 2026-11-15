@@ -16,6 +16,11 @@ export const themeChoice = (): ThemeChoice => {
   }
 };
 
+/** Someone chose a look on this device (Follow Windows included); else the counter starts light. */
+export const themeStored = (): boolean => {
+  try { return localStorage.getItem(KEY) !== null; } catch { return false; }
+};
+
 /** Puts the choice on the page: no attribute = follow the system. */
 export const applyTheme = (choice: ThemeChoice = themeChoice()): void => {
   const root = document.documentElement;
@@ -25,8 +30,7 @@ export const applyTheme = (choice: ThemeChoice = themeChoice()): void => {
 
 export const setTheme = (choice: ThemeChoice): void => {
   try {
-    if (choice === 'auto') localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, choice);
+    localStorage.setItem(KEY, choice);
   } catch { /* private mode: this visit only */ }
   applyTheme(choice);
 };

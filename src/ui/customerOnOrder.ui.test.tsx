@@ -1,6 +1,8 @@
+import { heldList } from './testHeld.ts';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 // The customer on the order (CRM): put on from the Register in a few keys, found or made on the
 // shop PC's list, greeted by name, offered "the usual", and named on the payment by id only.
@@ -38,9 +40,9 @@ const typeMobile = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 const sendAndPay = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001|^1002/ }));
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(heldList().getByRole('button', { name: /^1001|^1002/ }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
 };
 
 test('a customer on the list: 0 and their mobile, Enter, and the payment is theirs; no Mobile asked at Charge', async () => {
@@ -89,7 +91,7 @@ test('the next visit: "Same as last time" is offered and takes Enter; it says wh
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await sendAndPay(user);
   await user.click(screen.getByRole('button', { name: /Exact cash/ }));
-  await user.click(panel().getByRole('button', { name: 'Next order' }));
+  await user.click(screen.getByRole('button', { name: 'New bill' }));
 
   await typeMobile(user);
   expect(await panel().findByRole('button', { name: /Dilani.*1 visit/ })).toBeTruthy();
@@ -124,3 +126,6 @@ test('Esc: no customer, and Charge still offers Mobile; × takes a customer off 
   await user.click(screen.getByRole('button', { name: /Exact cash/ }));
   expect(paidEvent()?.customerId).toBeUndefined();
 });
+
+// These tests send to the kitchen first: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

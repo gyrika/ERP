@@ -1,9 +1,11 @@
+import { heldList } from './testHeld.ts';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Actor } from '../domain/auth.ts';
 import { lock } from '../services/serverAuth.ts';
 import { IDLE_LOCK_MS, Root } from './Root.tsx';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 const STAFF: Record<string, Actor> = {
   1111: { id: 's-nimal', name: 'Nimal', role: 'cashier' },
@@ -55,7 +57,7 @@ test('a paired counter opens locked; a wrong PIN says so; the right one opens th
   expect(await screen.findByRole('button', { name: 'Nimal: switch user' })).toBeTruthy();
   expect(lockScreen()).toBeNull();
 
-  await user.keyboard('{F4}');
+  await user.click(screen.getByRole('button', { name: /switch user/ }));
   expect(lockScreen()).toBeTruthy();
 });
 
@@ -77,7 +79,7 @@ test('every order records who took it', async () => {
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
   await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
   const events = JSON.parse(localStorage.getItem('cb.events.v0') ?? '[]') as { type: string; actor?: Actor }[];
   expect(events.find((e) => e.type === 'order.sent')?.actor).toEqual(STAFF[1111]);
 });
@@ -89,16 +91,17 @@ test('a cashier does not see the day’s takings; a manager does', async () => {
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
   await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
-  await user.click(panel().getByRole('button', { name: 'Next order' }));
-  expect(panel().queryByRole('region', { name: 'Paid today' })).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'New bill' }));
+  expect((heldList(), panel().queryByRole('region', { name: 'Paid today' }))).toBeNull();
 
-  await user.keyboard('{F4}2580');
+  await user.click(screen.getByRole('button', { name: /switch user/ }));
+  await user.keyboard('2580');
   await screen.findByRole('button', { name: 'Ravi: switch user' });
-  expect(panel().getByRole('region', { name: 'Paid today' })).toBeTruthy();
+  expect((heldList(), panel().getByRole('region', { name: 'Paid today' }))).toBeTruthy();
 });
 
 test('locking while the Kitchen view shows keeps the kitchen visible; the Register needs a PIN', async () => {
@@ -107,7 +110,7 @@ test('locking while the Kitchen view shows keeps the kitchen visible; the Regist
   render(<Root />);
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
-  await user.keyboard('{F2}');
+  await user.click(screen.getByRole('button', { name: /^Kitchen:/ }));
   expect(screen.getByRole('main', { name: 'Orders to make' })).toBeTruthy();
 
   act(() => lock());
@@ -185,7 +188,8 @@ test('cashiers cannot open stock views or see their command; managers can', asyn
   expect(screen.queryByText('Suppliers')).toBeNull();
   await user.keyboard('{Escape}');
 
-  await user.keyboard('{F4}2580');
+  await user.click(screen.getByRole('button', { name: /switch user/ }));
+  await user.keyboard('2580');
   expect(await screen.findByRole('main', { name: 'Inventory' })).toBeTruthy();
 });
 
@@ -212,7 +216,8 @@ test('owner view: a cashier typing the address gets the Register; the owner or a
   await screen.findByRole('button', { name: 'Nimal: switch user' });
   expect(screen.queryByRole('main', { name: 'Owner' })).toBeNull();
 
-  await user.keyboard('{F4}2580');
+  await user.click(screen.getByRole('button', { name: /switch user/ }));
+  await user.keyboard('2580');
   expect(await screen.findByRole('main', { name: 'Owner' })).toBeTruthy();
 });
 
@@ -223,12 +228,13 @@ test('the owner and managers see an Owner view key; a cashier does not', async (
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
   expect(screen.queryByRole('button', { name: /^Today/ })).toBeNull();
-  await user.keyboard('{F4}2580');
+  await user.click(screen.getByRole('button', { name: /switch user/ }));
+  await user.keyboard('2580');
   await screen.findByRole('button', { name: 'Ravi: switch user' });
-  expect(screen.getByRole('button', { name: 'Today F3' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Today F10' })).toBeTruthy();
 });
 
-test('F3 flips a manager between the Register and the Owner view; a cashier stays on the Register', async () => {
+test('F10 flips a manager between the Register and the Owner view; a cashier stays on the Register', async () => {
   pair();
   const user = userEvent.setup();
   render(<Root />);
@@ -237,18 +243,19 @@ test('F3 flips a manager between the Register and the Owner view; a cashier stay
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
   expect(screen.queryByRole('button', { name: /^Today/ })).toBeNull();
-  await user.keyboard('{F3}');
+  await user.keyboard('{F10}');
   expect(owner()).toBeNull();
 
-  await user.keyboard('{F4}2580');
+  await user.click(screen.getByRole('button', { name: /switch user/ }));
+  await user.keyboard('2580');
   await screen.findByRole('button', { name: 'Ravi: switch user' });
-  await user.keyboard('{F3}');
+  await user.keyboard('{F10}');
   expect(owner()).toBeTruthy();
-  await user.keyboard('{F3}');
+  await user.keyboard('{F10}');
   expect(owner()).toBeNull();
   expect(panel()).toBeTruthy();
 
-  await user.click(screen.getByRole('button', { name: 'Today F3' }));
+  await user.click(screen.getByRole('button', { name: 'Today F10' }));
   expect(owner()).toBeTruthy();
   await user.click(screen.getByRole('link', { name: 'Sell' })); // the register is the first part of the menu
   expect(panel()).toBeTruthy();
@@ -270,3 +277,6 @@ test("a manager sees no recipes (no Recipe on a dish), and typing the address gi
   expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();
   expect(screen.queryByLabelText('Owner PIN')).toBeNull();
 });
+
+// These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));
