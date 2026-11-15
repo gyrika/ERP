@@ -44,7 +44,7 @@ test('a dish never given a photo shows the cheesybeez.com photo; his own photo r
 
   await user.keyboard('{Escape}'); // the sheet
   await user.keyboard('{Escape}'); // the Menu screen, back to the Register
-  await screen.findAllByRole('button', { name: 'M 1450' });
+  await screen.findAllByRole('button', { name: 'M 1,450' });
   expect(strips().length).toBeGreaterThan(1);
   expect(pictures().length).toBeGreaterThan(1);
 

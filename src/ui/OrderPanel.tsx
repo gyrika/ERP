@@ -151,6 +151,8 @@ interface Props {
   /** Present while manager mode is on. */
   manage: ManagePanel | null;
   onEdit: (line: OrderLine) => void;
+  /** − / + on the line just added (not sent, not in a box): one more, one fewer; below 1 it comes off, with Undo. */
+  onStep?: (line: OrderLine, by: 1 | -1) => void;
   onSend: () => void;
   onCharge: () => void;
   /** A paid order changed so the customer gets money back (SCRUM-242): cash from the drawer, one tap. */
@@ -275,7 +277,7 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
  * order. No dialogs, no banners.
  */
 export function OrderPanel({
-  order, paidToday, tickets, paid, justPaid = false, onGive, now, manage, onEdit, onSend, onCharge, onGiveBack, onCloseFree, onClosePlatform, onClearPlatform, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
+  order, paidToday, tickets, paid, justPaid = false, onGive, now, manage, onEdit, onStep, onSend, onCharge, onGiveBack, onCloseFree, onClosePlatform, onClearPlatform, onNext, onUndo, printState, onReprint, paying, extras, customerBar,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
@@ -397,6 +399,8 @@ export function OrderPanel({
   const discount = order.adjust?.discount;
   const comped = discount?.kind === 'comp';
   const listing = order.lines.length === 0;
+  // The picked line: the last one added that can still change freely. − / + sit on it.
+  const picked = [...order.lines].reverse().find((l) => !l.sent && !l.box);
 
   return (
     <aside className={panelClass} aria-label="Current order">
@@ -463,7 +467,21 @@ export function OrderPanel({
           }
           // Cashier: every line opens to change it. A sent one says if the kitchen has made it,
           // so the cashier knows before telling the customer "no problem".
-          if (!l.sent) return <button key={l.id} type="button" className="line" onClick={() => onEdit(l)}>{body}</button>;
+          if (!l.sent) {
+            const row = <button key={l.id} type="button" className="line" onClick={() => onEdit(l)}>{body}</button>;
+            if (!onStep || l !== picked) return row;
+            const name = lineItemName(l);
+            return (
+              <div key={l.id} className="lstep">
+                {row}
+                <div className="lstep__keys" role="group" aria-label={`How many ${name}`}>
+                  <button type="button" className="lstep__key" aria-label={l.qty > 1 ? `One fewer ${name}` : `Remove ${name}`} onClick={() => onStep(l, -1)}>−</button>
+                  <span className="lstep__qty num" aria-live="polite">{l.qty}</span>
+                  <button type="button" className="lstep__key" aria-label={`One more ${name}`} onClick={() => onStep(l, 1)}>+</button>
+                </div>
+              </div>
+            );
+          }
           const cook = lineCookState(tickets, l.id);
           return (
             <button key={l.id} type="button" className="line line--sent" onClick={() => onEdit(l)}>

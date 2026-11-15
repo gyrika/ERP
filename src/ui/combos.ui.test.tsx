@@ -31,7 +31,7 @@ test('one tap sells a whole combo with its usual picks; it goes to the kitchen a
   addFamilyBox();
   render(<Root />);
   await user.click(screen.getByRole('button', { name: 'Combos' }));
-  await user.click(screen.getByRole('button', { name: 'Add Family Box, 3600' }));
+  await user.click(screen.getByRole('button', { name: 'Add Family Box, 3,600' }));
 
   const box = within(panel().getByRole('region', { name: 'Family Box' }));
   expect(box.getByText('Devilled Chicken')).toBeTruthy();
@@ -53,7 +53,7 @@ test('a dish in the box changes pick in its own sheet; the dearer pick adds its 
   addFamilyBox();
   render(<Root />);
   await user.click(screen.getByRole('button', { name: 'Combos' }));
-  await user.click(screen.getByRole('button', { name: 'Add Family Box, 3600' }));
+  await user.click(screen.getByRole('button', { name: 'Add Family Box, 3,600' }));
   await user.click(within(panel().getByRole('region', { name: 'Family Box' })).getByText('Devilled Chicken'));
 
   const sheet = within(screen.getByRole('region', { name: / extras$/ }));

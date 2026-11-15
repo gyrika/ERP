@@ -22,7 +22,7 @@ test('tap size → send → waiting → charge exact → paid → undo payment',
   render(<App />);
   expect(sendBtn().disabled).toBe(true);
 
-  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]); // Devilled Chicken L
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]); // Devilled Chicken L
   expect(panel().getByText('Devilled Chicken')).toBeTruthy();
   expect(panel().getAllByText('2,500').length).toBeGreaterThan(0);
   expect(screen.getByRole('status').textContent).toContain('Added Devilled Chicken');
@@ -44,10 +44,10 @@ test('tap size → send → waiting → charge exact → paid → undo payment',
 test('a second round on an open order: only new lines go out', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]); // Margherita M
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]); // Margherita M
   await user.click(sendBtn());
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]); // another one
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]); // another one
   expect(panel().getAllByText('Margherita').length).toBe(2); // not merged into the sent line
   await user.click(sendBtn());
   expect(screen.getByRole('status').textContent).toContain('Sent more for 1001');
@@ -58,7 +58,7 @@ test('a second round on an open order: only new lines go out', async () => {
 test('cash over total shows change', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await sendThenOpen(user, 1001);
   await user.click(screen.getByRole('button', { name: '2,000' }));
   expect(panel().getByText('Change')).toBeTruthy();
@@ -119,7 +119,7 @@ test('Esc on text the parser cannot read logs that the cashier gave up', async (
 test('Undo removes the last add', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(screen.getByRole('button', { name: 'Undo' }));
   expect(sendBtn().disabled).toBe(true);
 });
@@ -127,7 +127,7 @@ test('Undo removes the last add', async () => {
 test('Escape (+ New order) leaves an opened order on the list; a stray tap never does; menu taps add a round', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(sendBtn());
   const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
 
@@ -148,7 +148,7 @@ test('+ New order with something on the order: it keeps its number and waits on 
   const user = userEvent.setup();
   render(<App />);
   const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(rail().getByRole('button', { name: /^\+ New order/ }));
   expect(panel().queryByText('Margherita')).toBeNull();
   expect(rail().getByRole('button', { name: /^1001.*Not sent.*Not paid/ })).toBeTruthy();
@@ -170,7 +170,7 @@ test('pay first, send after: the kitchen sees nothing until Send; the sale count
   const user = userEvent.setup();
   render(<App />);
   const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
-  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
 
@@ -195,7 +195,7 @@ test('pay first, send after: the kitchen sees nothing until Send; the sale count
 test('undoing a payment made before Send takes the held send back too', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   await user.click(panel().getByRole('button', { name: 'Undo payment' }));
@@ -207,7 +207,7 @@ test('undoing a payment made before Send takes the held send back too', async ()
 test('the order list labels unpaid and paid orders clearly', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(sendBtn()); // 1001
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(sendBtn()); // 1002
@@ -235,7 +235,7 @@ test('the order list labels unpaid and paid orders clearly', async () => {
 test('bank transfer pays the full total in one tap', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await sendThenOpen(user, 1001);
   await user.click(screen.getByRole('button', { name: 'Bank transfer' }));
   await user.click(panel().getByRole('button', { name: 'Next order' }));
@@ -246,7 +246,7 @@ test('bank transfer pays the full total in one tap', async () => {
 test('the toast never covers an open sheet', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(sendBtn());
   expect(screen.getByText('Sent 1001 to kitchen')).toBeTruthy();
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
@@ -302,7 +302,7 @@ test('an Uber Eats order: F8, the code, the items; sent with the mark; closed as
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(panel().getByText('Uber Eats · 4F2A9')).toBeTruthy();
 
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]); // Margherita M
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]); // Margherita M
   await user.click(sendBtn());
   const sent = readAll().find((e) => e.type === 'order.sent');
   expect(sent).toMatchObject({ orderNumber: 1001, platform: { id: 'uber', code: '4F2A9' } });
@@ -324,4 +324,48 @@ test('the Uber Eats mark comes off with ×, before the order is sent', async () 
   await user.type(within(screen.getByRole('dialog', { name: 'Uber Eats order' })).getByLabelText('Uber Eats order code'), 'AB12{Enter}');
   await user.click(panel().getByRole('button', { name: 'Not from Uber Eats' }));
   expect(panel().queryByText('Uber Eats · AB12')).toBeNull();
+});
+
+test('− / + on the line just added: one more, one fewer, and below one it comes off with Undo (SCRUM-236)', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]); // Margherita M
+  await user.click(panel().getByRole('button', { name: 'One more Margherita' }));
+  expect(panel().getByText('2 × Margherita')).toBeTruthy();
+  expect(panel().getAllByText('2,900').length).toBeGreaterThan(0);
+  await user.click(panel().getByRole('button', { name: 'One fewer Margherita' }));
+  await user.click(panel().getByRole('button', { name: 'Remove Margherita' }));
+  expect(panel().queryByText('Margherita')).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(panel().getByText('Margherita')).toBeTruthy();
+});
+
+test('only the last unsent line has − / +; a sent line has none', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: '450' })[0]); // Chicken Burger
+  expect(panel().queryByRole('button', { name: 'One more Margherita' })).toBeNull();
+  expect(panel().getByRole('button', { name: 'One more Chicken Burger' })).toBeTruthy();
+  await user.click(sendBtn());
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  expect(panel().queryByRole('group', { name: /How many/ })).toBeNull();
+});
+
+test('the orders list counts the sent orders still to pay (SCRUM-236)', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
+  expect(rail().queryByText(/waiting to pay/)).toBeNull(); // being typed: not waiting yet
+  await user.click(sendBtn());
+  expect(rail().getByText('1 waiting to pay')).toBeTruthy();
+});
+
+test('"Type an order…" opens typed shorthand', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getByRole('button', { name: 'Type an order…' }));
+  await user.keyboard('2 burger{Enter}');
+  expect(panel().getByText('2 × Chicken Burger')).toBeTruthy();
 });

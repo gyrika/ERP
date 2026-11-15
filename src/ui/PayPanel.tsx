@@ -208,7 +208,11 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
           {!pad && quick.length > 0 && (
             <div className="pay__quick num" role="group" aria-label="Cash given">
               {quick.map((a) => (
-                <button key={a} type="button" className="paykey paykey--solid" onClick={() => void pay('cash', a)}>{fmt(a)}</button>
+                // Each tile says the change it means, so the cashier reads it before the tap.
+                <button key={a} type="button" className="paykey paykey--solid paykey--cash" aria-label={fmt(a)} onClick={() => void pay('cash', a)}>
+                  <span aria-hidden="true">{fmt(a)}</span>
+                  <small aria-hidden="true">Change {fmt(a - total)}</small>
+                </button>
               ))}
             </div>
           )}

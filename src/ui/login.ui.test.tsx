@@ -76,7 +76,7 @@ test('every order records who took it', async () => {
   render(<Root />);
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
-  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
   const events = JSON.parse(localStorage.getItem('cb.events.v0') ?? '[]') as { type: string; actor?: Actor }[];
   expect(events.find((e) => e.type === 'order.sent')?.actor).toEqual(STAFF[1111]);
@@ -88,7 +88,7 @@ test('a cashier does not see the day’s takings; a manager does', async () => {
   render(<Root />);
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
-  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
   await user.click(panel().getByRole('button', { name: 'Pay' }));

@@ -1,7 +1,7 @@
 import { comboBlocked, usualPick } from '../domain/combos.ts';
 import { POPULAR_IDS, comboEntries, menuItems, menuSections } from '../domain/menu.ts';
 import { sizeShort } from '../domain/sections.ts';
-import { fmtPlain } from '../domain/money.ts';
+import { fmt } from '../domain/money.ts';
 import type { Category, Combo, MenuItem, SizeId } from '../domain/types.ts';
 import { photoUrl, shopHasPhotos } from '../services/menuPhotos.ts';
 import { useMenu } from './menuStore.ts';
@@ -17,7 +17,8 @@ interface Props {
   onCustomise: (item: MenuItem) => void;
   /** One tap on a combo's price adds the whole box with its usual picks (SCRUM-231). */
   onAddCombo: (comboId: string) => void;
-  hint: string;
+  /** Opens typed shorthand ("2L margherita, burger"); absent in manager mode. */
+  onType?: () => void;
 }
 
 /** What the owner offers: hidden items are not shown; sold-out ones show, greyed. */
@@ -72,7 +73,7 @@ const comboLine = (combo: Combo, items: MenuItem[]): string => {
   return combo.slots.some((s) => Object.keys(s.options).length > 1) ? `Usual: ${dishes}` : dishes;
 };
 
-export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo, hint }: Props) {
+export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo, onType }: Props) {
   useMenu();
   const combos = offeredCombos();
   // The tab shows only once the shop has a combo: no empty tabs.
@@ -97,7 +98,8 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
             {c.label}
           </button>
         ))}
-        <span className="hint">{hint}</span>
+        {/* Always in sight: any letter or digit opens it too, so the keyboard never has to aim. */}
+        {onType && <button type="button" className="typeit" onClick={onType}>Type an order…</button>}
       </nav>
 
       {showing === 'combos' ? (
@@ -122,8 +124,8 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
                 </div>
                 <div className="card__prices">
                   <button type="button" className="price num" disabled={Boolean(blocked)} onClick={() => onAddCombo(id)}
-                    aria-label={`Add ${combo.name.en}, ${fmtPlain(combo.price)}`}>
-                    {fmtPlain(combo.price)}
+                    aria-label={`Add ${combo.name.en}, ${fmt(combo.price)}`}>
+                    {fmt(combo.price)}
                   </button>
                 </div>
               </div>
@@ -153,16 +155,16 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
                   item.variants.map((v) => (
                     // Three to a card: the size small above its price, so it fits a narrow tile.
                     <button key={v.id} type="button" className={`price num${item.variants!.length === 3 ? ' price--stack' : ''}`} disabled={item.soldOut} onClick={() => onQuickAdd(item, v.id)}>
-                      {item.variants!.length === 3 ? <><span>{sizeShort(v)}</span> {fmtPlain(v.price)}</> : <>{sizeShort(v)} {fmtPlain(v.price)}</>}
+                      {item.variants!.length === 3 ? <><span>{sizeShort(v)}</span> {fmt(v.price)}</> : <>{sizeShort(v)} {fmt(v.price)}</>}
                     </button>
                   ))
                 ) : item.variants ? (
                   <button type="button" className="price num" disabled={item.soldOut} onClick={() => onCustomise(item)}>
-                    from {fmtPlain(Math.min(...item.variants.map((v) => v.price)))}
+                    from {fmt(Math.min(...item.variants.map((v) => v.price)))}
                   </button>
                 ) : (
                   <button type="button" className="price num" disabled={item.soldOut} onClick={() => onQuickAdd(item)}>
-                    {fmtPlain(item.price ?? 0)}
+                    {fmt(item.price ?? 0)}
                   </button>
                 )}
               </div>
