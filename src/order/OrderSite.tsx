@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { menuItems, setMenuState } from '../domain/menu.ts';
+import { menuItems, menuSections, setMenuState } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
-import { Banknote, Bike, Clock, Hamburger, LocateFixed, MapPin, MessageCircle, Phone, Pizza, Plus, ShoppingBag, Soup } from 'lucide-react';
+import { Banknote, Bike, Clock, Hamburger, LocateFixed, MapPin, MessageCircle, Phone, Pizza, Plus, ShoppingBag, Soup, UtensilsCrossed } from 'lucide-react';
 import {
   clockText, normalisePhone, onlineLineTotal, onlineTotal, statusText, type DeliveryPin, type DeliveryQuote, type OnlineKind, type OnlineLine,
 } from '../domain/online.ts';
@@ -22,9 +22,9 @@ import { isOrderAppHost, setUpOrderApp } from './pwa.ts';
  * is ready. So: the menu, a basket, name and phone (and an address), and a live status. No account.
  */
 const rs = (cents: number) => `Rs ${fmt(cents)}`;
-const SECTIONS: { id: Category; label: string }[] = [
-  { id: 'pizza', label: 'Pizza' }, { id: 'burger', label: 'Burgers' }, { id: 'pasta', label: 'Pasta' },
-];
+/** The shop's sections in the owner's order (SCRUM-241): the ones on offer that have a dish to order. */
+const onlineSections = (): { id: Category; label: string }[] =>
+  menuSections().filter((s) => !s.hidden && menuItems().some((m) => m.category === s.id && !m.hidden)).map((s) => ({ id: s.id, label: s.label }));
 const itemOf = (id: string) => {
   const item = menuItems().find((entry) => entry.id === id);
   if (!item) throw new Error(`Unknown menu item: ${id}`);
@@ -59,7 +59,8 @@ const smooth = (): ScrollBehavior => (window.matchMedia?.('(prefers-reduced-moti
  * the accent, a tap scrolls smoothly there. Plain links underneath, so they work without script.
  */
 function SectionTabs() {
-  const [active, setActive] = useState<Category>(SECTIONS[0].id);
+  const SECTIONS = onlineSections();
+  const [active, setActive] = useState<Category>(SECTIONS[0]?.id ?? 'pizza');
   /** While a tap's smooth scroll runs, the sections it passes do not take the highlight. */
   const jumping = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -99,7 +100,8 @@ function SectionTabs() {
       line?.disconnect(); end.disconnect(); window.removeEventListener('resize', watchLine);
       if (jumping.current) clearTimeout(jumping.current);
     };
-  }, []);
+    // Again when the shop's sections arrive or change (its menu comes with the shop's status).
+  }, [SECTIONS.map((sec) => sec.id).join(' ')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const go = (e: React.MouseEvent, id: Category) => {
     const el = document.getElementById(id);
@@ -121,7 +123,7 @@ function SectionTabs() {
   );
 }
 
-const PLACEHOLDER: Record<Category, typeof Pizza> = { pizza: Pizza, burger: Hamburger, pasta: Soup };
+const PLACEHOLDER: Partial<Record<Category, typeof Pizza>> = { pizza: Pizza, burger: Hamburger, pasta: Soup };
 const TAG_LABEL: Record<MenuTag, string> = { popular: 'Popular', veg: 'Veg' };
 
 /**
@@ -130,7 +132,7 @@ const TAG_LABEL: Record<MenuTag, string> = { popular: 'Popular', veg: 'Veg' };
  */
 function ItemCard({ item, closed, onOpen, onQuickAdd }: { item: MenuItem; closed: boolean; onOpen: () => void; onQuickAdd: () => void }) {
   const photo = PHOTOS[item.id];
-  const Icon = PLACEHOLDER[item.category];
+  const Icon = PLACEHOLDER[item.category] ?? UtensilsCrossed;
   return (<>
     <button type="button" className={`o-item${item.soldOut ? ' o-item--out' : ''}`} disabled={item.soldOut} onClick={onOpen}>
       <span className="o-item__photo">
@@ -756,7 +758,7 @@ export function OrderSite() {
           <SectionTabs />
 
           <main className="o-menu">
-            {SECTIONS.map((s) => (
+            {onlineSections().map((s) => (
               <Fragment key={s.id}>
                 <section id={s.id} className="o-section" aria-labelledby={`h-${s.id}`}>
                   <h2 id={`h-${s.id}`} className="o-reveal">{s.label}</h2>

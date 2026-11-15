@@ -77,7 +77,7 @@ export const checkWaste = (what: unknown, qty: unknown, reason: unknown, note?: 
   if (typeof what !== 'object' || what === null) return 'Choose what was thrown away';
   const w = what as Record<string, unknown>;
   const id = (v: unknown, max = 120) => typeof v === 'string' && v.length > 0 && v.length <= max;
-  const ok = (w.kind === 'dish' && id(w.itemId, 64) && (w.size === undefined || ['S', 'M', 'L'].includes(String(w.size))))
+  const ok = (w.kind === 'dish' && id(w.itemId, 64) && (w.size === undefined || ['S', 'M', 'L', 'x1', 'x2', 'x3'].includes(String(w.size))))
     || (w.kind === 'prep' && id(w.name) && id(w.unit, 16))
     || (w.kind === 'stock' && id(w.itemId, 64));
   if (!ok) return 'Choose what was thrown away';

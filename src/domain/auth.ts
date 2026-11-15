@@ -99,6 +99,8 @@ export const mayRecord = (role: Role, type: string, remake = false): boolean => 
   if (type.startsWith('stock.')) return managesRole(role);
   // The menu is the owner's; marking something sold out is a manager's job during service.
   if (type === 'menu.item_set' || type === 'menu.item_added') return role === 'owner';
+  // His menu's sections, and their order (SCRUM-241).
+  if (type === 'menu.section_set' || type === 'menu.sections_ordered') return role === 'owner';
   // Answers about his recipes and costs, and opening his recipes: the owner's (SCRUM-77).
   if (type === 'recipe.answer_set' || type === 'recipe.viewed' || type === 'recipe.draft_set') return role === 'owner';
   // Marking something sold out, and combo packs (SCRUM-231): managers and the owner.

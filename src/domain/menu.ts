@@ -1,5 +1,6 @@
 import { EMPTY_MENU_STATE, effectiveMenu, type MenuState } from './menuEdits.ts';
 import type { Combo, MenuItem, MenuTag, Option, Variant } from './types.ts';
+import { sectionsOf, type Section } from './sections.ts';
 
 /** Rupees → cents. */
 const rs = (n: number) => n * 100;
@@ -140,6 +141,7 @@ export const POPULAR_IDS = [
 // ----- The shop's current menu: the printed one above, with the owner's changes (menuEdits.ts) -----
 
 let state: MenuState = EMPTY_MENU_STATE;
+let sections: Section[] = sectionsOf(EMPTY_MENU_STATE);
 let current: MenuItem[] = MENU;
 let starts: MenuItem[] = MENU;
 let version = 0;
@@ -148,12 +150,18 @@ const listeners = new Set<() => void>();
 /** Every screen sets this from the shop's menu events (src/ui/menuStore.ts); the tests leave it printed. */
 export const setMenuState = (next: MenuState, now = Date.now()): void => {
   state = next;
+  sections = sectionsOf(next);
   current = effectiveMenu(MENU, next, now);
   starts = effectiveMenu(MENU, { ...EMPTY_MENU_STATE, added: next.added ?? {} }, now);
   version++;
   listeners.forEach((l) => l());
 };
 export const menuState = (): MenuState => state;
+/** The menu's sections in the owner's order, his hidden ones included; screens offer `!hidden` (SCRUM-241). */
+export const menuSections = (): Section[] => sections;
+export const sectionById = (id: string): Section | undefined => sections.find((s) => s.id === id);
+/** A section's cook time; undefined for a section this menu does not have. */
+export const cookMinutesOf = (category: string): number | undefined => sectionById(category)?.cookMinutes;
 /** All items, hidden ones included (old orders still show them); screens offer `!hidden`. */
 export const menuItems = (): MenuItem[] => current;
 export const menuVersion = (): number => version;

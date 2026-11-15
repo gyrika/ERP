@@ -511,6 +511,8 @@ export const waitingOn = (missing: readonly string[], menu: readonly MenuItem[],
 
 /** His recipes that could be this menu item in this size, for the owner to choose from. */
 export const recipeChoices = (item: MenuItem, size: string): string[] => {
+  // His sheet's recipes are pizzas, pasta and burgers; a dish in one of his own sections has none there.
+  if (!['pizza', 'burger', 'pasta'].includes(item.category)) return [];
   const names = Object.keys(PRODUCTS);
   const sized = (n: string) => !size || (item.category === 'pizza'
     ? n.endsWith(size === 'M' ? '10 inch' : '12 inch')

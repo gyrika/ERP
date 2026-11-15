@@ -1060,6 +1060,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .menued__was { color: var(--ink-3); font-size: 12px; font-weight: 400; }
 .menued__note { margin: 12px 0 0; color: var(--ink-3); font-size: 14px; }
 .menuv__add { align-self: flex-start; margin-top: -16px; }
+/* + Add to a section, and Change section (SCRUM-241). */
+.menuv__actions { display: flex; flex-wrap: wrap; gap: 8px; align-self: flex-start; margin-top: -16px; }
+.menuv__actions .menuv__add { margin-top: 0; }
+.pill--hidden { opacity: 0.6; }
 .menued__check { display: flex; min-height: 48px; align-items: center; gap: 12px; font-size: 16px; }
 .menued__check input { width: 22px; height: 22px; }
 .menued__check span { color: var(--ink-2); font-size: 14px; }

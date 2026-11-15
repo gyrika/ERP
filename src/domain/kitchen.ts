@@ -1,4 +1,5 @@
-import { itemById } from './menu.ts';
+import { cookMinutesOf, itemById } from './menu.ts';
+import { PRINTED_COOK_MINUTES } from './sections.ts';
 import type { PlatformMark } from './platforms.ts';
 import type { SyncEvent } from './sync.ts';
 import type { Category, OnlineMark, OrderLine } from './types.ts';
@@ -55,8 +56,8 @@ export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines'
 
 export type Urgency = 'ok' | 'warn' | 'bad';
 
-/** How long each kind of item takes, from order to ready (the owner, 2026-10-12). */
-export const COOK_MINUTES: Record<Category, number> = { pizza: 10, burger: 3, pasta: 20 };
+/** How long each kind of item takes, from order to ready (the owner, 2026-10-12). His own sections carry theirs (cookMinutesOf). */
+export const COOK_MINUTES: Readonly<Record<string, number>> = PRINTED_COOK_MINUTES;
 /** Late = past the cook time; very late = past one and a half times it. */
 export const VERY_LATE = 1.5;
 /**
@@ -89,7 +90,7 @@ export const KEEP_DONE_MS = 60 * 60_000;
 /** A ticket should be ready after its slowest item (a cancelled line no longer counts). */
 export const cookTimeMs = (t: Pick<KitchenTicket, 'lines'>): number => {
   const live = t.lines.filter((l) => !l.cancelled);
-  return Math.max(0, ...live.map((l) => COOK_MINUTES[itemById(l.itemId).category])) * 60_000 || COOK_MINUTES.pizza * 60_000;
+  return Math.max(0, ...live.map((l) => cookMinutesOf(itemById(l.itemId).category) ?? 0)) * 60_000 || COOK_MINUTES.pizza * 60_000;
 };
 
 /** Amber once a ticket passes its cook time, red at one and a half times it. */

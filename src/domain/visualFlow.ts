@@ -11,6 +11,10 @@ import { billOfLine, billsForDish, BILLS_NODE, type BillKind, type BillPart } fr
 import { RESOURCE_LABEL, RESOURCE_UNIT, resourceCost, type Rates, type ResourceKind, type ResourceLine } from './resources.ts';
 import { fmt } from './money.ts';
 import type { Cents, MenuItem } from './types.ts';
+import { sectionById } from './menu.ts';
+
+/** His own section's name for a dish's group (SCRUM-241). */
+const sectionLabel = (category: string) => sectionById(category)?.label ?? category;
 
 /**
  * Visual Flow: how one finished item is made, as a graph the owner can read and change. Raw
@@ -584,7 +588,7 @@ export const focusOptions = (menu: readonly MenuItem[], answers: ReadonlyMap<str
     if (item.hidden || item.removed) continue;
     for (const size of sizesOf(item)) {
       const label = sizeLabel(item, size);
-      out.push({ id: recipeQuestion(item.id, size), label: `${item.name.en}${label ? ` ${label}` : ''}`, group: group[item.category] ?? item.category });
+      out.push({ id: recipeQuestion(item.id, size), label: `${item.name.en}${label ? ` ${label}` : ''}`, group: group[item.category] ?? sectionLabel(item.category) });
     }
   }
   const extras = new Map<string, string>();
