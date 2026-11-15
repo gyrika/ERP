@@ -44,7 +44,10 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
   const [pad, setPad] = useState(false);
   const field = useRef<HTMLInputElement>(null);
   const mobile = useRef<HTMLInputElement>(null);
+  const nameField = useRef<HTMLInputElement>(null);
   const [phoneTyped, setPhoneTyped] = useState('');
+  /** A new number's name, if the customer gives it: kept with them as they pay. */
+  const [nameTyped, setNameTyped] = useState('');
   const [who, setWho] = useState<Who>({ at: 'none' });
   const amount = parseLKR(typed);
   const enough = amount !== null && amount >= total;
@@ -53,6 +56,7 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
   const check = customers ? toLkMobile(phoneTyped) : null;
   const phone = check && 'phone' in check ? check.phone : null;
   useEffect(() => {
+    setNameTyped(''); // a name belongs to the number it was typed for
     if (!phone) { setWho({ at: 'none' }); return; }
     let live = true;
     setWho({ at: 'checking', phone });
@@ -62,14 +66,16 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
     );
     return () => { live = false; };
   }, [phone]);
+  const isNew = who.at === 'new' && who.phone === phone;
 
   /** The sale goes in now; a new number becomes a customer first (a moment on this PC), never holding the sale up for long. */
   const pay = async (tender: Tender, tendered: Cents) => {
     if (customer) { onPay(tender, tendered, customer.id); return; }
     if (!phone) { onPay(tender, tendered); return; }
     if (who.at === 'known' && who.phone === phone) { onPay(tender, tendered, who.customer.id); return; }
+    const name = isNew ? nameTyped.trim() : '';
     try {
-      const r = await crmClient.ensure(phone);
+      const r = await (name ? crmClient.ensure(phone, name) : crmClient.ensure(phone));
       onPay(tender, tendered, r.customer.id);
     } catch {
       onPay(tender, tendered, undefined, true);
@@ -84,12 +90,14 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const inMobile = customers && e.target === mobile.current;
+      const inName = customers && e.target === nameField.current;
+      const inMobile = customers && (e.target === mobile.current || inName);
       if (e.key === 'Escape') {
         if (!typed && !pad && !phoneTyped) { onClose(); return; }
         setTyped('');
         setPad(false);
         setPhoneTyped('');
+        setNameTyped('');
         field.current?.focus();
         return;
       }
@@ -97,12 +105,14 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
       if (e.key === 'Enter') {
         if (e.target instanceof HTMLButtonElement) return;
         e.preventDefault();
-        // Enter in Mobile goes back to the amount, so a second Enter pays.
+        // Enter in Mobile goes to Name for a new number, else back to the amount; Enter in Name goes
+        // to the amount. Either way the next Enter pays.
+        if (inMobile && !inName && isNew) { nameField.current?.focus(); return; }
         if (inMobile) { field.current?.focus(); return; }
         take();
         return;
       }
-      if (inMobile) return; // Mobile types its own digits
+      if (inMobile) return; // Mobile and Name type their own keys (B, C, Q are letters of a name too)
       const tender = TENDER_KEYS[e.key.toLowerCase()];
       if (tender) { e.preventDefault(); void pay(tender, total); return; }
       // A mobile number starts 0 or +; an amount never does.
@@ -148,7 +158,7 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
   const hint = !customers || !phoneTyped.trim() ? null
     : !phone ? (check && 'reason' in check && phoneTyped.replace(/\D/g, '').length >= 9 ? check.reason : 'like 077 123 4567')
       : who.at === 'known' ? (who.customer.name ? `${who.customer.name} · on the list` : 'On the list')
-        : who.at === 'new' ? 'New customer: added as they pay'
+        : who.at === 'new' ? (nameTyped.trim() ? `New customer: ${nameTyped.trim()}, added as they pay` : 'New customer: added as they pay')
           : who.at === 'away' ? 'The list is not answering: the sale still goes in' : 'Looking…';
 
   return (
@@ -175,6 +185,16 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
                   placeholder="077 123 4567" onChange={(e) => setPhoneTyped(e.target.value)}
                 />
               </label>
+              {/* A number the list does not know: its name, if they give it (Enter from Mobile lands here). */}
+              {isNew && (
+                <label className="payfield">
+                  <span className="payfield__label">Name <span className="payfield__optional">if they give it</span></span>
+                  <input
+                    ref={nameField} className="payfield__input" autoComplete="off" maxLength={60} value={nameTyped}
+                    placeholder="Enter, then the name" onChange={(e) => setNameTyped(e.target.value)}
+                  />
+                </label>
+              )}
               {hint && <span className={`paymobile__who${who.at === 'known' ? ' paymobile__who--known' : ''}`} aria-live="polite">{hint}</span>}
             </div>
           )}
