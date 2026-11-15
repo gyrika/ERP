@@ -15,7 +15,7 @@ test("the owner changes a price and a name: the counter shows it at once; an ord
   const user = userEvent.setup();
   render(<Root />);
   // An order sent at the printed price (Margherita M 1450).
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
 
   location.hash = '#menu'; // one step from the Register, so Esc comes back to it
@@ -33,7 +33,7 @@ test("the owner changes a price and a name: the counter shows it at once; an ord
   expect(e).toMatchObject({ itemId: 'margherita', before: {}, after: { prices: { M: 160000 }, name: { si: 'මාගරීටා' } } });
 
   await user.keyboard('{Escape}');
-  expect((await screen.findAllByRole('button', { name: 'M 1600' })).length).toBeGreaterThan(0);
+  expect((await screen.findAllByRole('button', { name: 'M 1,600' })).length).toBeGreaterThan(0);
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
   expect(within(screen.getByRole('complementary', { name: 'Current order' })).getAllByText('1,450').length).toBeGreaterThan(0);
 });
@@ -52,7 +52,7 @@ test('sold out for today: greyed on the counter, cannot be added; Undo brings it
   await user.keyboard('{Escape}');
   const card = screen.getByText('BBQ Chicken').closest('.card')!;
   expect(within(card as HTMLElement).getByText('Sold out')).toBeTruthy();
-  expect((within(card as HTMLElement).getByRole('button', { name: 'L 2500' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((within(card as HTMLElement).getByRole('button', { name: 'L 2,500' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 test('hidden items leave the counter; back to the printed menu in one tap', async () => {
@@ -109,7 +109,7 @@ test('the owner adds a pasta and writes its recipe later: names stay unique, eve
   await user.click(screen.getByRole('button', { name: 'Pasta' }));
   const card = within(screen.getByText('Chicken Alfredo').closest('.card') as HTMLElement);
   // Up to three sizes: a button each, the size small above its price.
-  for (const name of ['S 1100', 'M 2100', 'L 2900']) expect(card.getByRole('button', { name })).toBeTruthy();
+  for (const name of ['S 1,100', 'M 2,100', 'L 2,900']) expect(card.getByRole('button', { name })).toBeTruthy();
 });
 
 test('a dish in one flow: name, what goes in it (from a similar dish, no PIN), then the price with its margin; one Undo takes it all back', async () => {
@@ -233,7 +233,7 @@ test('the owner adds a Kottu section with Full and Normal, then a dish in it: th
   await user.keyboard('{Escape}');
   await user.click(screen.getByRole('button', { name: 'Kottu' }));
   const card = within(screen.getByText('Chicken Kottu').closest('.card') as HTMLElement);
-  expect(card.getByRole('button', { name: 'Full 1200' })).toBeTruthy();
+  expect(card.getByRole('button', { name: 'Full 1,200' })).toBeTruthy();
   expect(card.getByRole('button', { name: 'Normal 900' })).toBeTruthy();
 });
 

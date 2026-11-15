@@ -65,7 +65,7 @@ test('a later round arrives as its own "added" ticket; paying does not touch the
   render(<><App /><Kitchen /></>);
   await sendOne(user);
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]); // + Margherita M
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]); // + Margherita M
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
 
   const more = within(kitchen().getByRole('article', { name: 'Order 1001, added items' }));
@@ -105,7 +105,7 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
 
   // A second round puts it back to Waiting, then Cooking; the opened order shows it too.
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
   expect(row().getByText('Waiting')).toBeTruthy();
   await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001, added items' }));
@@ -139,7 +139,7 @@ test('paid first, cooked, waiting to be collected: Ready stays on the list until
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
-  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));

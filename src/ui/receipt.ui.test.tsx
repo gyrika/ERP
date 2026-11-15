@@ -14,7 +14,7 @@ afterEach(cleanup);
 const panel = () => within(screen.getByRole('complementary', { name: 'Current order' }));
 
 const sellOne = async (user: ReturnType<typeof userEvent.setup>, how: RegExp | string) => {
-  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
   await user.click(panel().getByRole('button', { name: 'Pay' }));

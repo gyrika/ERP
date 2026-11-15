@@ -110,7 +110,7 @@ const note = () => pay().getByRole('status').textContent;
 /** An order of 2,500, sent to the kitchen, with Charge open. */
 const openPayment = async (user = userEvent.setup()) => {
   render(<App />);
-  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
   await user.click(panel().getByRole('button', { name: 'Pay' }));
@@ -127,8 +127,11 @@ test('Charge turns the order panel into the payment: no sheet, the order still i
 
 test('the suggested amounts are the total rounded up, what a customer really hands over', async () => {
   await openPayment();
-  const given = within(pay().getByRole('group', { name: 'Cash given' })).getAllByRole('button').map((b) => b.textContent);
+  const given = within(pay().getByRole('group', { name: 'Cash given' })).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
   expect(given).toEqual(['3,000', '5,000']);
+  // Each tile says the change it means (SCRUM-236): the total here is 2,500.
+  expect(within(pay().getByRole('group', { name: 'Cash given' })).getAllByRole('button').map((b) => b.querySelector('small')?.textContent))
+    .toEqual(['Change 500', 'Change 2,500']);
   for (const name of ['Bank transfer', 'Card', 'QR']) expect(pay().getByRole('button', { name })).toBeTruthy();
 });
 
@@ -206,7 +209,7 @@ test('touch: while the amount is still short the keypad stays open', async () =>
 
 test('the menu stays live while paying: a tap adds the item and the order comes back', async () => {
   const user = await openPayment();
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   expect(paying()).toBeNull();
   expect(panel().getByRole('button', { name: 'Send to kitchen' })).toBeTruthy();
 });

@@ -543,7 +543,7 @@ export function App({
             onQuickAdd={quickAdd}
             onCustomise={(item) => setSheet({ kind: 'extras', item })}
             onAddCombo={addCombo}
-            hint={manager ? '' : 'Start typing to order'}
+            onType={manager ? undefined : () => setTyped('')}
           />
         </main>
 
@@ -557,6 +557,11 @@ export function App({
           now={now}
           manage={managePanel}
           onEdit={(line) => setSheet({ kind: 'edit', line })}
+          onStep={(line, by) => {
+            const qty = line.qty + by;
+            if (qty < 1) reg.dropLine(line.id, `Removed ${lineItemName(line)}`);
+            else reg.editLine({ ...line, qty }, `${qty} × ${lineItemName(line)}`);
+          }}
           onSend={reg.send}
           onCharge={() => setSheet({ kind: 'pay' })}
           onGiveBack={() => settle('cash', 0)}

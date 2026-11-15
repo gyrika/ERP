@@ -112,7 +112,10 @@
   /* Touch targets: 48 px, and never under 42 px in a small window. */
   --tap: clamp(42px, 3.75vw, 48px);
   --cta-h: clamp(52px, min(5.6vw, 10vh), 72px);
-  --panel-w: clamp(280px, 31.6vw, 404px);
+  --panel-w: clamp(340px, 31.6vw, 440px);
+  /* Paying (SCRUM-236): the panel opens wide for big cash tiles; the menu fades behind it. */
+  --pay-w: clamp(var(--panel-w), 52vw, 700px);
+  --thumb: clamp(56px, 5.2vw, 80px);
 }
 
 * { box-sizing: border-box; }
@@ -255,6 +258,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .pill { flex: none; white-space: nowrap; padding: 10px 20px; border-radius: 980px; font-size: 15px; font-weight: 500; color: var(--ink-2); letter-spacing: -0.2px; min-height: 44px; }
 .pill[aria-pressed='true'] { background: var(--pill-on); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); }
 .hint { margin-left: auto; font-size: 13px; color: var(--ink-3); letter-spacing: -0.1px; }
+/* Typed shorthand, always in sight (SCRUM-236): looks like a field, opens the type bar. */
+.typeit { margin-left: auto; flex: none; min-height: var(--tap); min-width: clamp(160px, 16vw, 240px); padding: 0 var(--sp-4); border-radius: 980px; text-align: left;
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); font-size: var(--fs-m); }
+.typeit:hover { color: var(--ink-2); }
 
 /* ---------- shorthand bar ---------- */
 .typebar { display: flex; flex-direction: column; gap: 10px; animation: rise 180ms var(--ease); }
@@ -269,9 +276,14 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .card__soldout { position: absolute; top: 14px; right: 14px; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
 .card { padding: var(--sp-4); border-radius: var(--sp-4); background: var(--surface); box-shadow: var(--card-shadow); display: flex; flex-direction: column; gap: var(--sp-3); }
 .card__soldout { align-self: flex-end; padding: 3px 10px; border-radius: 980px; background: var(--ink); color: var(--ground); font-size: 12px; font-weight: 600; }
-/* Menu photos (src/domain/menuPhotos.ts): a strip across the top of the tile, edge to edge; a blank where an item has none. */
-.card--photo { position: relative; overflow: hidden; }
-.card__photo { display: block; margin: calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4)) 0; height: 88px; padding: 0; border: 0; background: var(--chip); cursor: pointer; }
+/* Menu photos (src/domain/menuPhotos.ts): a square beside the name (SCRUM-236), so more of the menu fits; a blank where an item has none. */
+.card--photo { position: relative; display: grid; grid-template-columns: var(--thumb) minmax(0, 1fr); align-items: start; column-gap: var(--sp-3); }
+.card--photo .card__photo { grid-column: 1; grid-row: 1; }
+.card--photo .card__title { grid-column: 2; grid-row: 1; align-self: center; }
+.card--photo .card__prices { grid-column: 1 / -1; grid-row: 2; }
+/* A photo beside the words needs a wider tile, or the name wraps under it. */
+.grid:has(.card--photo) { grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 19vw, 290px), 1fr)); }
+.card__photo { display: block; width: var(--thumb); height: var(--thumb); padding: 0; border: 0; border-radius: var(--sp-3); overflow: hidden; background: var(--chip); cursor: pointer; }
 .card__photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .card--soldout .card__photo img { filter: grayscale(1); }
 .card--photo .card__soldout { position: absolute; top: 10px; right: 10px; }
@@ -317,7 +329,14 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .panel { flex: 0 0 var(--panel-w); width: var(--panel-w); display: flex; flex-direction: column; background: var(--panel); box-shadow: var(--panel-shadow);
   position: relative; z-index: 1; transform-origin: 60% 50%;
   /* Removing .panel--managing plays this same spring in reverse: the card settles back flat. */
-  transition: transform 240ms var(--spring), box-shadow 200ms var(--ease), border-radius 200ms var(--ease); }
+  transition: transform 240ms var(--spring), box-shadow 200ms var(--ease), border-radius 200ms var(--ease), flex-basis 220ms var(--ease), width 220ms var(--ease); }
+.panel--paying { flex-basis: var(--pay-w); width: var(--pay-w); }
+/* The line just added: − qty + under it (SCRUM-236). */
+.lstep { display: flex; flex-direction: column; gap: var(--sp-2); }
+.lstep__keys { display: flex; align-items: center; gap: 4px; }
+.lstep__key { width: var(--tap); height: var(--tap); border-radius: 12px; background: var(--chip); font-size: 22px; font-weight: 500; line-height: 1; color: var(--ink); }
+.lstep__key:hover { filter: brightness(0.97); }
+.lstep__qty { min-width: 36px; text-align: center; font-size: var(--fs-l); font-weight: 600; }
 /* Manager unlock: the order card lifts off the flat layout, gains depth and a thin gold edge. */
 /* In dark mode shadows barely read on black, so the lifted card also steps up to the lighter surface. */
 .panel--managing { transform: translate(-10px, 0) scale(0.975); border-radius: 18px; box-shadow: var(--lift-shadow); background: var(--lift-bg); }
@@ -511,6 +530,10 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .paykey { min-height: var(--tap); padding: 0 6px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   font-size: 20px; font-weight: 500; color: var(--ink); white-space: nowrap; }
 .pay__pad .paykey { min-height: clamp(46px, 7vh, 56px); }
+/* Cash tiles: the amount big, the change it means under it. */
+.paykey--cash { flex-direction: column; gap: 2px; min-height: clamp(64px, 11vh, 92px); font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.5px; }
+.paykey--cash small { font-size: var(--fs-s); font-weight: 500; letter-spacing: 0; color: var(--ok-ink); }
+.panel--paying .pay__other .paykey { min-height: clamp(48px, 8vh, 64px); font-size: var(--fs-l); }
 .paykey--solid { background: var(--chip); box-shadow: none; font-size: var(--fs-b); }
 .paykey kbd { font: inherit; font-size: 11px; font-weight: 500; color: var(--ink-3); }
 .payfield { display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 6px 0 16px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
@@ -875,15 +898,14 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 /* ---------- a small, nearly square counter screen (1024x768, often at 125%) ----------
    More of the menu, less of everything else: a slimmer order panel, one-line cards, no help text. */
 @media (max-width: 1180px), (max-height: 820px) {
-  .register { --panel-w: 300px; }
+  .register { --panel-w: clamp(320px, 30vw, 380px); }
   .register__head { flex-basis: 52px; padding: 0 20px; }
   .menu { padding: 0 20px 20px; gap: 12px; }
   .menu .cats { margin: 0 -20px; padding-left: 20px; padding-right: 20px; } /* the bar's bleed matches the gutter: no sideways scroll */
   .pill { padding: 0 14px; font-size: 14px; }
-  .hint { display: none; }
+  .typeit { min-width: 150px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
   .card { padding: 12px; gap: 10px; border-radius: 14px; }
-  .card__photo { margin: -12px -12px 0; height: 72px; }
   .card__title { min-height: 0; gap: 2px; }
   .card__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
   .card__desc { display: none; }
@@ -2346,6 +2368,7 @@ button.glance__card:disabled { cursor: default; }
 .rail__new { flex: none; min-height: 52px; border-radius: 12px; background: var(--primary); color: var(--on-primary); font-size: var(--fs-b); font-weight: 600;
   display: flex; align-items: center; justify-content: center; gap: 8px; }
 .rail__new kbd { color: inherit; border-color: currentColor; opacity: 0.6; }
+.rail__count { margin: 0 4px; padding: 6px 10px; border-radius: 10px; background: var(--chip); font-size: var(--fs-xs); font-weight: 600; color: var(--ink); text-align: center; }
 .rail__none { margin: var(--sp-2) 4px 0; font-size: var(--fs-xs); line-height: 1.4; color: var(--ink-2); }
 .rail__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .rail__row { width: 100%; min-height: 60px; padding: 6px 10px; box-sizing: border-box; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px;

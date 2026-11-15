@@ -55,7 +55,7 @@ test('a customer on the list: 0 and their mobile, Enter, and the payment is thei
   expect(panel().getByRole('button', { name: 'Customer Dilani: change' }).textContent).toContain('First visit');
   expect(crm.ensure).not.toHaveBeenCalled(); // already on the list: nothing to make
 
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await sendAndPay(user);
   expect(screen.queryByRole('textbox', { name: /Mobile/ })).toBeNull();
   expect(panel().getByText('Dilani · on the list')).toBeTruthy();
@@ -86,7 +86,7 @@ test('the next visit: "Same as last time" is offered and takes Enter; it says wh
   await typeMobile(user);
   await panel().findByRole('button', { name: /Dilani/ });
   await user.keyboard('{Enter}');
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await sendAndPay(user);
   await user.click(screen.getByRole('button', { name: /Exact cash/ }));
   await user.click(panel().getByRole('button', { name: 'Next order' }));
@@ -119,7 +119,7 @@ test('Esc: no customer, and Charge still offers Mobile; × takes a customer off 
   await user.click(panel().getByRole('button', { name: 'Take the customer off' }));
   expect(panel().queryByRole('button', { name: /Customer Dilani/ })).toBeNull();
 
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await sendAndPay(user);
   expect(screen.getByRole('textbox', { name: /Mobile/ })).toBeTruthy();
   await user.click(screen.getByRole('button', { name: /Exact cash/ }));

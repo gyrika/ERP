@@ -22,7 +22,7 @@ const auditEvents = () => readEvents().filter((e) => 'totalBefore' in e);
 
 /** 1001 = Margherita M (1,450) + Chicken Burger (450) = 1,900, sent, then opened from the Orders list. */
 const sendAndReopen = async (user: User) => {
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
   await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
@@ -77,7 +77,7 @@ test('void a sent line (reason required) then Undo restores it in its original p
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   // Three lines, so "original position" means the middle one comes back in the middle.
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(screen.getAllByRole('button', { name: '650' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
@@ -110,7 +110,7 @@ test('P adjusts one line in cents without touching the menu price, and the order
   expect(total()).toBe('1,749.50');
   expect(panel().getByText(new RegExp(`^Edited by ${managerName}, `))).toBeTruthy();
   expect(auditEvents().at(-1)).toMatchObject({ type: 'order.line_adjusted', before: 0, after: 15050, totalBefore: 190000, totalAfter: 174950 });
-  expect(screen.getAllByRole('button', { name: 'M 1450' }).length).toBeGreaterThan(0); // menu price unchanged
+  expect(screen.getAllByRole('button', { name: 'M 1,450' }).length).toBeGreaterThan(0); // menu price unchanged
 });
 
 test('the line price box takes only rupees, refuses 0, and Remove takes the adjustment off (SCRUM-137)', async () => {
@@ -284,7 +284,7 @@ test('a line the kitchen already made says Made; removing it is recorded as wast
 test('cashier rules kept: sends share the event log; Undo of a send only straight after it', async () => {
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
-  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
   await user.click(screen.getAllByRole('button', { name: '450' })[0]); // next customer: the send is sealed
   await user.keyboard('{Control>}z{/Control}{Control>}z{/Control}');

@@ -73,11 +73,14 @@ export function OrdersRail({ rows, current, selected, onNew, onOpen }: {
   onNew: () => void;
   onOpen: (number: number) => void;
 }) {
+  // Sent and not paid: customers eating who still owe. The order being typed is not counted.
+  const waiting = rows.filter((r) => !r.paid && r.order.sentAt !== undefined).length;
   return (
     <nav className="rail" aria-label="Orders">
       <button type="button" className="rail__new" onClick={onNew}>
         + New order <kbd>Esc</kbd>
       </button>
+      {waiting > 0 && <p className="rail__count" aria-live="polite">{waiting} waiting to pay</p>}
       {rows.length === 0 && <p className="rail__none">Orders show here until they are made and paid.</p>}
       <ul className="rail__list">
         {rows.map((r, i) => {
