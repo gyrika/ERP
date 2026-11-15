@@ -202,7 +202,8 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
               <div className="ticket__meta">
                 <span className="ticket__no num">{t.number}</span>
                 {t.changed && <span className="ticket__tag ticket__tag--changed">Changed</span>}
-                {t.addOn && <span className="ticket__tag">Added</span>}
+                {t.remake ? <span className="ticket__tag ticket__tag--changed">Remake · customer changed</span>
+                  : t.addOn && <span className="ticket__tag">Added</span>}
                 {t.startedAt !== undefined && <span className="ticket__tag">Cooking</span>}
                 {/* Neutral, like Added: on the kitchen screen colour means urgency only. */}
                 {t.platform && <span className="ticket__tag">{platformLabel(t.platform)}</span>}
@@ -223,7 +224,7 @@ export function Kitchen({ onBack, onSwitch }: { onBack?: () => void; onSwitch?: 
                     {l.status === 'cancelled' && (
                       <>
                         <LineBody v={l} struck showQty />
-                        <span className="ticket__cancelled">Cancelled</span>
+                        <span className="ticket__cancelled">{l.binned ? 'Thrown away · new ticket' : 'Cancelled'}</span>
                       </>
                     )}
                     {l.status === 'changed' && l.was && (

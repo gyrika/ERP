@@ -264,14 +264,16 @@ test('a line the kitchen already made says Made; removing it is recorded as wast
   expect(within(burger).getByText('Made')).toBeTruthy();
   await user.click(burger);
   const sheet = within(screen.getByRole('region', { name: / extras$/ }));
-  expect(sheet.getByText('Already made. Changing it counts as waste.')).toBeTruthy();
+  expect(sheet.getByText('Made already')).toBeTruthy();
+  expect(sheet.getByText('Removing it counts as waste.')).toBeTruthy();
   await user.click(sheet.getByRole('button', { name: 'Remove' }));
   expect(total()).toBe('1,450');
   expect(screen.getAllByRole('status').map((s) => s.textContent).join()).toContain('Removed Chicken Burger · counted as waste');
   expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Already made', made: true });
   await user.click(panel().getByRole('button', { name: /Margherita/ }));
   await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: /^Large/ }));
-  await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: /^Update/ }));
+  // Made already: throwing it away and making a new one is picked for the cashier.
+  await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: /^Make new/ }));
   // Ctrl+Z undoes the newest change only.
   await user.keyboard('{Control>}z{/Control}');
   expect(total()).toBe('1,450');
@@ -305,4 +307,69 @@ test('light or dark for this screen, from the command palette; it stays after a 
   await user.keyboard('follow windows{Enter}');
   expect(document.documentElement.dataset.theme).toBeUndefined();
   expect(localStorage.getItem('cb.theme')).toBeNull();
+});
+
+/** 1001 sent and paid in exact cash: the paid order stays on screen. */
+const sendAndPay = async (user: User) => {
+  await sendAndReopen(user);
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: /Exact cash/ }));
+};
+const settledEvents = () => readEvents().filter((e) => e.type === 'order.settled');
+
+test('changed after paying (SCRUM-242): change the ticket, charge only the difference; take one off, give back cash', async () => {
+  const user = userEvent.setup();
+  render(<><App /><Kitchen /></>);
+  await sendAndPay(user);
+
+  // Medium to Large, before the kitchen started: "Change the ticket" is picked for the cashier.
+  await user.click(panel().getByRole('button', { name: /Margherita/ }));
+  let sheet = within(screen.getByRole('region', { name: / extras$/ }));
+  expect(sheet.getByText('Not started in the kitchen')).toBeTruthy();
+  expect(sheet.getByRole('radio', { name: /Change the ticket/ }).getAttribute('aria-checked')).toBe('true');
+  await user.click(sheet.getByRole('button', { name: /^Large/ }));
+  await user.click(sheet.getByRole('button', { name: /^Update/ }));
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_changed', afterPay: true });
+  expect(within(kitchen().getByRole('article', { name: /^Order 1001/ })).getByText('Changed')).toBeTruthy();
+
+  // The money side asks for the difference, and Charge takes only that.
+  await user.click(panel().getByRole('button', { name: 'Charge 540 more' }));
+  await user.click(screen.getByRole('button', { name: /Exact cash 540/ }));
+  expect(settledEvents().at(-1)).toMatchObject({ amount: 54000, tender: 'cash', orderNumber: 1001 });
+  expect(panel().getByRole('button', { name: /Margherita/ })).toBeTruthy(); // still on screen, settled
+
+  // The burger taken off: Give back, cash from the drawer, one tap.
+  await user.click(panel().getByRole('button', { name: /Chicken Burger/ }));
+  sheet = within(screen.getByRole('region', { name: / extras$/ }));
+  await user.click(sheet.getByRole('button', { name: 'Remove' }));
+  await user.click(panel().getByRole('button', { name: 'Give back 450' }));
+  expect(settledEvents().at(-1)).toMatchObject({ amount: -45000, tender: 'cash' });
+  expect(panel().queryByRole('button', { name: /Give back/ })).toBeNull();
+});
+
+test('changed after paying, already cooking (SCRUM-242): throw away + make new sends a new ticket; the old one is struck', async () => {
+  const user = userEvent.setup();
+  render(<><App /><Kitchen /></>);
+  await sendAndPay(user);
+  await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
+
+  await user.click(panel().getByRole('button', { name: /Margherita/ }));
+  const sheet = within(screen.getByRole('region', { name: / extras$/ }));
+  expect(sheet.getByText('Cooking in the kitchen')).toBeTruthy();
+  expect(sheet.getByRole('radio', { name: /Throw away, make new/ }).getAttribute('aria-checked')).toBe('true');
+  await user.click(sheet.getByRole('button', { name: /^Large/ }));
+  await user.click(sheet.getByRole('button', { name: /^Make new/ }));
+
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_changed', made: true, remake: true, afterPay: true, reason: 'Thrown away, made again' });
+  const tickets = kitchen().getAllByRole('article', { name: /^Order 1001/ });
+  expect(tickets).toHaveLength(2);
+  expect(within(tickets[0]).getByText('Thrown away · new ticket')).toBeTruthy();
+  expect(within(tickets[1]).getByText('Remake · customer changed')).toBeTruthy();
+  expect(panel().getByRole('button', { name: 'Charge 540 more' })).toBeTruthy();
+
+  // The cashier's Undo takes it all back: one ticket, nothing owed.
+  const toast = screen.getAllByRole('status').find((s) => s.textContent?.includes('old one to waste, new ticket'))!;
+  await user.click(within(toast).getByRole('button', { name: 'Undo' }));
+  expect(kitchen().getAllByRole('article', { name: /^Order 1001/ })).toHaveLength(1);
+  expect(panel().queryByRole('button', { name: /Charge/ })).toBeNull();
 });

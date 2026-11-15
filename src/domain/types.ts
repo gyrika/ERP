@@ -192,4 +192,9 @@ export interface PaidOrder extends Order {
   tendered: Cents;
   change: Cents;
   paidAt: number;
+  /**
+   * Changed after it was paid (SCRUM-242): what was settled since, in cents (paid more > 0, given
+   * back < 0). What is still owed either way is `balanceDue` (order.ts).
+   */
+  settled?: Cents;
 }

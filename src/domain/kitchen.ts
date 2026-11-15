@@ -18,6 +18,8 @@ export interface KitchenLine extends OrderLine {
   cancelled?: boolean;
   /** Thrown away and being made again (the kitchen's Remake, SCRUM-177): how many times. */
   remade?: number;
+  /** The customer changed it and the kitchen throws this one away: the new one is on its own ticket (SCRUM-242). */
+  binned?: true;
 }
 
 /**
@@ -39,6 +41,8 @@ export interface KitchenTicket {
   platform?: PlatformMark;
   /** A manager changed or cancelled something on it. */
   changed?: boolean;
+  /** Made again because the customer changed their mind (SCRUM-242): the old one is struck on its own ticket. */
+  remake?: true;
   /** Last arrival or change. The ticket flashes until `seenAt` catches up. */
   alertAt: number;
   seenAt?: number;
@@ -52,7 +56,7 @@ export interface KitchenTicket {
   prep?: { prepId: string; name: string; qty: number; unit: string };
 }
 
-export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn' | 'online' | 'platform' | 'prep'>;
+export type NewTicket = Pick<KitchenTicket, 'id' | 'shopId' | 'number' | 'lines' | 'firedAt' | 'addOn' | 'online' | 'platform' | 'prep' | 'remake'>;
 
 export type Urgency = 'ok' | 'warn' | 'bad';
 
@@ -224,6 +228,8 @@ export interface LineView {
 export interface TicketLine extends LineView {
   key: string;
   status: 'ok' | 'changed' | 'cancelled';
+  /** Cancelled because it is thrown away and made again on a new ticket (SCRUM-242). */
+  binned?: true;
   /** For a changed line: the old version, shown struck through beside the new one. */
   was?: LineView;
   /** Remade this many times (SCRUM-177). */
@@ -253,6 +259,7 @@ export const ticketLines = (t: KitchenTicket): TicketLine[] =>
     ...(l.box ? { box: { id: l.box.id, name: l.box.name, first: t.lines.findIndex((x) => x.box?.id === l.box!.id) === i } } : {}),
     ...view(l),
     status: l.cancelled ? 'cancelled' : l.was ? 'changed' : 'ok',
+    ...(l.binned && l.cancelled ? { binned: true as const } : {}),
     ...(l.was && !l.cancelled ? { was: view(l.was) } : {}),
     ...(l.remade ? { remade: l.remade } : {}),
   }));
@@ -298,6 +305,21 @@ const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
     }));
   };
   const held = new Map<string, Extract<SyncEvent, { type: 'order.sent' }>>(); // paid first: the kitchen waits for Send
+  /** A change to a held line (paid first, not yet sent): the kitchen gets the line as it is now, at Send. */
+  const heldBefore = new Map<string, { ticketId: string; line: OrderLine; index: number }>(); // change event id → the held line before it
+  const amendHeld = (e: { id: string; lineId: string; type: string }, after: OrderLine | null): boolean => {
+    for (const [ticketId, h] of held) {
+      const index = h.lines.findIndex((l) => l.id === e.lineId);
+      if (index < 0) continue;
+      heldBefore.set(e.id, { ticketId, line: h.lines[index], index });
+      const lines = after ? h.lines.map((l, i) => (i === index ? { ...after, id: e.lineId, sent: true } : l)) : h.lines.filter((_, i) => i !== index);
+      held.set(ticketId, { ...h, lines });
+      return true;
+    }
+    return false;
+  };
+  /** Made again on a new ticket (SCRUM-242): what its Undo takes back. */
+  const remadeAs = new Map<string, { ticketId: string; binnedId: string; was: KitchenLine }>(); // change event id → it
   const ticketOf = (e: Extract<SyncEvent, { type: 'order.sent' }>, at: number): NewTicket => ({
     id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: at, addOn: e.addOn,
     ...(e.online ? { online: e.online } : {}), ...(e.platform ? { platform: e.platform } : {}),
@@ -327,13 +349,50 @@ const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
       case 'prep.order_undone': recalled.add(e.ticketId); t = recall(t, e.ticketId); break;
       case 'order.item_changed':
       case 'order.item_cancelled': {
+        if (amendHeld(e, e.type === 'order.item_changed' ? e.after : null)) break; // paid first, not sent yet
         const was = kitchenLine(t, e.lineId);
         if (!was) break; // not sent: the kitchen never saw it
         before.set(e.id, was);
+        if (e.type === 'order.item_changed' && e.remake) {
+          // Thrown away and made again: struck on its ticket, the new one on a ticket of its own.
+          const old = t.find((x) => x.lines.some((l) => l.id === e.lineId))!;
+          const binnedId = `${e.lineId}~${e.id}`;
+          const ticketId = `remake-${e.id}`;
+          t = t.map((x) => (x !== old ? x : {
+            ...x, changed: true, alertAt: e.at,
+            lines: x.lines.map((l): KitchenLine => (l.id === e.lineId ? { ...l, id: binnedId, cancelled: true, binned: true } : l)),
+          }));
+          t = fire(t, {
+            id: ticketId, shopId: e.shopId, number: e.orderNumber, lines: [{ ...e.after, id: e.lineId, sent: true }], firedAt: e.at,
+            addOn: true, remake: true, ...(old.online ? { online: old.online } : {}), ...(old.platform ? { platform: old.platform } : {}),
+          });
+          remadeAs.set(e.id, { ticketId, binnedId, was });
+          break;
+        }
         t = amendLine(t, e.lineId, e.type === 'order.item_changed' ? e.after : null, e.at);
         break;
       }
       case 'order.change_undone': {
+        const h = heldBefore.get(e.undoneEventId);
+        if (h) {
+          const sent = held.get(h.ticketId);
+          if (sent) {
+            const lines = sent.lines.some((l) => l.id === h.line.id)
+              ? sent.lines.map((l) => (l.id === h.line.id ? h.line : l))
+              : [...sent.lines.slice(0, h.index), h.line, ...sent.lines.slice(h.index)];
+            held.set(h.ticketId, { ...sent, lines });
+          }
+          break;
+        }
+        const r = remadeAs.get(e.undoneEventId);
+        if (r) {
+          remadeAs.delete(e.undoneEventId);
+          t = recall(t, r.ticketId);
+          t = t.map((x) => (x.lines.some((l) => l.id === r.binnedId)
+            ? { ...x, lines: x.lines.map((l) => (l.id === r.binnedId ? { ...r.was } : l)) } : x));
+          t = restoreLine(t, r.was, e.at);
+          break;
+        }
         const was = before.get(e.undoneEventId);
         if (was) t = restoreLine(t, was, e.at);
         break;

@@ -211,7 +211,7 @@ export const STOCK_EVENT_TYPES = [
   'stock.warehouse_set', 'stock.kitchen_side_set', 'stock.home_set', 'stock.moved', 'stock.move_undone',
 ] as const satisfies readonly StockEvent['type'][];
 export const ORDER_EVENT_TYPES = [
-  'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.item_changed', 'order.item_cancelled',
+  'order.sent', 'order.send_undone', 'order.paid', 'order.payment_undone', 'order.settled', 'order.item_changed', 'order.item_cancelled',
   'order.line_removed', 'order.line_adjusted', 'order.discount_set', 'order.comped', 'order.change_undone', 'order.released', 'order.given', 'order.given_undone',
 ] as const satisfies readonly OrderEvent['type'][];
 

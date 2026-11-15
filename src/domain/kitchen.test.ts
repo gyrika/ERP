@@ -353,3 +353,51 @@ test('ready to collect (SCRUM-240): since the last Done, amber at 10 min, red at
   assert.equal(readyUrgency(500, 500 + READY_BAD_MS), 'bad');
   assert.equal(readyUrgency(null, 0), 'bad');
 });
+
+test('the customer changed their mind (SCRUM-242): in place the ticket changes; a remake strikes it and sends a new ticket; Undo puts it back', () => {
+  const actor = { id: 'c1', name: 'Kasun', role: 'cashier' as const };
+  const M = { id: 'L1', itemId: 'margherita', size: 'M' as const, qty: 1, adds: [], outs: [], sent: true };
+  const L = { ...M, size: 'L' as const };
+  const audit = { shopId: SHOP, orderNumber: 1001, actor, totalBefore: 0, totalAfter: 0 };
+  const sent: SyncEvent = { id: 's1', shopId: SHOP, at: 1000, orderNumber: 1001, actor, type: 'order.sent', ticketId: 't1', addOn: false, lines: [M] };
+  const started: SyncEvent = { id: 'k1', shopId: SHOP, at: 1500, orderNumber: 1001, type: 'kitchen.started', ticketId: 't1' };
+  const change = (id: string, remake: boolean): SyncEvent => ({
+    ...audit, id, at: 2000, type: 'order.item_changed', lineId: 'L1', before: M, after: L, reason: 'x', ...(remake ? { made: true, remake: true } : {}),
+  });
+
+  // 1. Change the ticket: the same ticket, Medium struck, Large beside it; it flashes again.
+  const inPlace = ticketsFromEvents([sent, change('c', false)], 3000);
+  assert.equal(inPlace.length, 1);
+  assert.equal(ticketLines(inPlace[0])[0].status, 'changed');
+  assert.equal(needsAttention(inPlace[0]), true);
+
+  // 2. Throw away, make new: the old line is struck as thrown away; the Large is a new ticket, marked Remake.
+  const remade = ticketsFromEvents([sent, started, change('r', true)], 3000);
+  assert.equal(remade.length, 2);
+  const [old, fresh] = remade;
+  assert.deepEqual(ticketLines(old).map((l) => [l.status, l.binned]), [['cancelled', true]]);
+  assert.equal(needsAttention(old), true, 'the cook sees the old one is to go in the bin');
+  assert.equal(fresh.remake, true);
+  assert.equal(fresh.number, 1001);
+  assert.equal(fresh.startedAt, undefined, 'the new one is still to make');
+  assert.deepEqual(fresh.lines.map((l) => [l.id, l.size]), [['L1', 'L']]);
+  assert.equal(lineCookState(remade, 'L1'), 'waiting', 'the counter sees the new one, not to make yet');
+
+  // Undo: the new ticket goes, the old line is back as it was.
+  const undo: SyncEvent = { ...audit, id: 'u', at: 2500, type: 'order.change_undone', undoneEventId: 'r', undoneType: 'order.item_changed' };
+  const back = ticketsFromEvents([sent, started, change('r', true), undo], 3000);
+  assert.equal(back.length, 1);
+  assert.deepEqual(back[0].lines.map((l) => [l.id, l.size, Boolean(l.cancelled)]), [['L1', 'M', false]]);
+});
+
+test('a change to an order paid first and not yet sent reaches the kitchen as changed, at Send (SCRUM-242)', () => {
+  const actor = { id: 'c1', name: 'Kasun', role: 'cashier' as const };
+  const M = { id: 'L1', itemId: 'margherita', size: 'M' as const, qty: 1, adds: [], outs: [], sent: true };
+  const audit = { shopId: SHOP, orderNumber: 1001, actor, totalBefore: 0, totalAfter: 0 };
+  const held: SyncEvent = { id: 's1', shopId: SHOP, at: 1000, orderNumber: 1001, actor, type: 'order.sent', ticketId: 't1', addOn: false, lines: [M], held: true };
+  const change: SyncEvent = { ...audit, id: 'c', at: 1500, type: 'order.item_changed', lineId: 'L1', before: M, after: { ...M, size: 'L' }, reason: 'x', afterPay: true };
+  const released: SyncEvent = { id: 'r1', shopId: SHOP, at: 2000, orderNumber: 1001, actor, type: 'order.released', ticketId: 't1' };
+  assert.deepEqual(ticketsFromEvents([held, change, released], 3000)[0].lines.map((l) => l.size), ['L']);
+  const undo: SyncEvent = { ...audit, id: 'u', at: 1600, type: 'order.change_undone', undoneEventId: 'c', undoneType: 'order.item_changed' };
+  assert.deepEqual(ticketsFromEvents([held, change, undo, released], 3000)[0].lines.map((l) => l.size), ['M']);
+});

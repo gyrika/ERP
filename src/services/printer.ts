@@ -1,4 +1,4 @@
-import { escpos, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
+import { changeSlip, escpos, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
 import type { PaidOrder } from '../domain/types.ts';
 import { receiptOfferFromEvents, type ReceiptOffer } from '../domain/campaigns.ts';
 import { modulesHere, readAll } from '../ui/eventLog.ts';
@@ -51,3 +51,7 @@ async function send(bytes: Uint8Array): Promise<PrintResult> {
     return 'failed';
   }
 }
+
+/** A paid order's difference (SCRUM-242): the slip, and the drawer opens for cash either way. */
+export const printChangeSlip = (o: Parameters<typeof changeSlip>[0], cashier: string): Promise<PrintResult> =>
+  send(escpos(changeSlip(o, { at: Date.now(), cashier }), { openDrawer: o.tender === 'cash' }));

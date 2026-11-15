@@ -18,9 +18,13 @@ export type ManagerChange =
    * Remove a line. A manager gives a reason for a sent line; a cashier is never asked (the
    * counter's own reason is recorded). `made`: the kitchen had started or finished it.
    */
-  | { kind: 'void'; lineId: string; reason?: string; made?: boolean }
-  /** Change size / extras / quantity / note. Sent lines: as for void. */
-  | { kind: 'edit'; lineId: string; after: LineSpec; reason?: string; made?: boolean }
+  | { kind: 'void'; lineId: string; reason?: string; made?: boolean; afterPay?: boolean }
+  /**
+   * Change size / extras / quantity / note. Sent lines: as for void. `remake` (SCRUM-242): the
+   * kitchen throws the old one away and makes the new one as a new ticket (so it is `made`);
+   * without it the kitchen's ticket changes in place. `afterPay`: the order was already paid.
+   */
+  | { kind: 'edit'; lineId: string; after: LineSpec; reason?: string; made?: boolean; remake?: boolean; afterPay?: boolean }
   /** Cents off one line (capped at the line's price). 0 removes the adjustment. */
   | { kind: 'adjustLine'; lineId: string; cents: Cents }
   /** Percentage off, Free (comp), or null to remove the order discount. */
@@ -87,15 +91,20 @@ export const applyInverse = (order: Order, inv: Inverse): Order => {
 export const cashierMay = (change: ManagerChange): boolean => change.kind === 'edit' || change.kind === 'void';
 
 /** The reason recorded when a cashier changes a sent line: what the owner needs to know is whether food was wasted. */
-export const counterReason = (made: boolean): string => (made ? 'Already made' : 'Before it was made');
+export const counterReason = (made: boolean, remake = false): string =>
+  (remake ? 'Thrown away, made again' : made ? 'Already made' : 'Before it was made');
 
 export function applyManagerChange(order: Order, change: ManagerChange, actor: Actor, at: number): Applied | Refusal {
   const manager = canManage(actor);
   if (!manager && (actor.role === 'kitchen' || actor.role === 'vision' || !cashierMay(change))) return { refused: 'not-a-manager' };
   /** A sent line's reason: the manager's, or the counter's own. */
-  const reasonFor = (c: { reason?: string; made?: boolean }): string =>
-    manager ? c.reason?.trim() ?? '' : counterReason(Boolean(c.made));
-  const madeMark = (c: { made?: boolean }) => (c.made ? { made: true } : {});
+  const reasonFor = (c: { reason?: string; made?: boolean; remake?: boolean }): string =>
+    manager ? c.reason?.trim() ?? '' : counterReason(Boolean(c.made || c.remake), Boolean(c.remake));
+  const madeMark = (c: { made?: boolean; remake?: boolean; afterPay?: boolean }) => ({
+    ...(c.made || c.remake ? { made: true } : {}),
+    ...(c.remake ? { remake: true as const } : {}),
+    ...(c.afterPay ? { afterPay: true as const } : {}),
+  });
   const totalBefore = totals(order).total;
   const stamp = (o: Order): Order => ({ ...o, edited: { by: actor.name, at } });
   const base = { at, actor, orderNumber: order.number, totalBefore };

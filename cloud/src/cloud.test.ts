@@ -258,6 +258,28 @@ test('the sales ledger: each payment a row with its items, an Undo marks it, eac
   assert.deepEqual(sales().filter((s) => s.tenant_id === SHOP).map((s) => [s.id, s.status]), [['p1', 'undone'], ['p2', 'paid'], ['p3', 'paid']]);
 });
 
+test('the sales ledger: a paid order changed afterwards is filed again as it stands, with the difference (SCRUM-242)', async () => {
+  const { call, db } = await setup();
+  const actor = { id: 'n', name: 'Nimal', role: 'cashier' };
+  const medium = { id: 'l1', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [], sent: true, unit: 145000 };
+  const large = { ...medium, size: 'L', unit: 199000 };
+  let seq = 0;
+  const row = (e: object): SyncedEvent => {
+    seq++;
+    return { seq, deviceId: 'dev-counter', receivedAt: seq, event: { shopId: SHOP, at: Date.UTC(2026, 10, 16, 8, 0) + seq, actor, orderNumber: 1001, ...e } as SyncEvent };
+  };
+  await call('/api/v1/replica', 'server-a', { events: [
+    row({ id: 's1', type: 'order.sent', ticketId: 't1', lines: [medium], addOn: false }),
+    row({ id: 'p1', type: 'order.paid', total: 145000, tender: 'cash', tendered: 145000 }),
+    row({ id: 'c1', type: 'order.item_changed', lineId: 'l1', before: medium, after: large, reason: 'Before it was made', afterPay: true, totalBefore: 145000, totalAfter: 199000 }),
+    row({ id: 'st1', type: 'order.settled', amount: 54000, tender: 'cash', tendered: 54000 }),
+  ] });
+  assert.deepEqual(db.prepare('SELECT id, total, subtotal, discount, status FROM sales').all().map((r) => ({ ...r })), [
+    { id: 'p1', total: 199000, subtotal: 199000, discount: 0, status: 'paid' },
+  ]);
+  assert.deepEqual(db.prepare('SELECT size, line_total FROM sale_items WHERE sale_id = ?').all('p1').map((r) => ({ ...r })), [{ size: 'Large', line_total: 199000 }]);
+});
+
 test('the sales ledger after test data is cleared: test payments leave it, once; real ones stay; Undo brings them back', async () => {
   const { call, db } = await setup();
   const cashier = { id: 'n', name: 'Nimal', role: 'cashier' };

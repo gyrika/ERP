@@ -83,6 +83,20 @@ test('order numbers repeat (each screen counts from 1001): every payment is its 
   assert.deepEqual(salesFrom(events).map((s) => s.total), [200000, 300000, 120000]);
 });
 
+test('a paid order changed afterwards (SCRUM-242): the difference adds to its sale, never a sale of its own', () => {
+  const t = new Date(friday).setHours(0, 0, 0, 0);
+  const settled = (orderNumber: number, at: number, amount: number): SyncEvent =>
+    ({ type: 'order.settled', id: `s${orderNumber}-${at}`, shopId: 's', at, actor, orderNumber, amount, tender: 'cash', tendered: Math.abs(amount) });
+  const events: SyncEvent[] = [
+    paid(1001, t + 1_000_000, 145000),
+    settled(1001, t + 1_100_000, 60000), // Medium to Large: paid Rs 600 more
+    paid(1002, t + 2_000_000, 200000),
+    settled(1002, t + 2_100_000, -45000), // a burger taken off: Rs 450 back
+  ];
+  assert.deepEqual(salesFrom(events).map((s) => s.total), [205000, 155000]);
+  assert.equal(rulesSuggestions.summary({ events, now: friday }).orders, 2);
+});
+
 test('a new shop: no history, so no "usual" to compare with, and no false alarms', () => {
   const day = new Date(friday); day.setHours(0, 0, 0, 0);
   const events = Array.from({ length: 30 }, (_, i) => paid(i + 1, day.getTime() + (12 * 60 + i) * 60_000, 300000));
