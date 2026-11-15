@@ -5,6 +5,9 @@ import type { Offer } from './offersInbox.ts';
 
 // The offers inbox on cheesybeez.com (CRM): the offers this phone received, under a bell.
 
+// Midday, so "1 hour ago" is still Today whenever the tests run (CI just after midnight said Yesterday).
+vi.useFakeTimers({ toFake: ['Date'] });
+vi.setSystemTime(new Date(2026, 10, 15, 12, 0));
 const NOW = Date.now();
 const kept = vi.hoisted(() => ({ list: [] as Offer[], message: null as ((k: 'new' | 'open') => void) | null }));
 vi.mock('./offersInbox.ts', async (real) => ({
