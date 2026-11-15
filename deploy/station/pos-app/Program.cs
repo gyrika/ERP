@@ -126,6 +126,7 @@ i{width:36px;height:36px;border-radius:50%;border:3px solid #E3E1DE;border-top-c
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr FindWindow(string cls, string title);
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hwnd);
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int cmd);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
         /// <summary>Crisp text on laptops that scale the screen (125%, 150%): this app draws at the real resolution.</summary>
@@ -138,7 +139,9 @@ i{width:36px;height:36px;border-radius:50%;border:3px solid #E3E1DE;border-top-c
         {
             var h = FindWindow(null, title);
             if (h == IntPtr.Zero) return;
-            ShowWindow(h, 9); // restore
+            // Restore only a minimised window: "restore" on the full-screen window shrank it to a small
+            // white box in the corner (2026-11-15). Bring it back maximised, as it always is.
+            if (IsIconic(h)) ShowWindow(h, 3); // SW_MAXIMIZE
             SetForegroundWindow(h);
         }
     }
