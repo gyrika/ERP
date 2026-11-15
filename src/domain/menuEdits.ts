@@ -141,10 +141,27 @@ const shapeOf = (category: Category, printed: readonly MenuItem[]) => printed.fi
 export const newItemSizes = (category: Category, printed: readonly MenuItem[]): { id: SizeId | 'one'; label: string; hint?: string }[] =>
   shapeOf(category, printed)?.variants?.map((v) => ({ id: v.id, label: v.label, hint: v.hint })) ?? [{ id: 'one', label: 'Price' }];
 
-/** An added item as a menu item, before the owner's later changes (null if its section is gone). */
+/**
+ * An added item as a menu item, before the owner's later changes. One whose section this menu
+ * does not have (recorded by another build, e.g. a "sec-kottu" section with Full/Normal sizes) is
+ * kept from its own name and prices, hidden: an order that has it still shows, prices and reaches
+ * the kitchen, instead of the Register failing to draw (2026-11-15).
+ */
 export const newMenuItem = (id: string, n: NewItem & { removed?: true }, printed: readonly MenuItem[]): MenuItem | null => {
+  if (!n || typeof n !== 'object' || typeof n.name?.en !== 'string') return null;
   const shape = shapeOf(n.category, printed);
-  if (!shape) return null;
+  if (!shape) {
+    const sizes = Object.entries(n.prices ?? {}).filter(([k, v]) => k !== 'one' && Number.isSafeInteger(v)) as [string, Cents][];
+    return {
+      id, category: n.category, name: n.name, description: typeof n.description === 'string' ? n.description : '', aliases: [],
+      // Its own sizes, as recorded: not this menu's S/M/L, so the type is widened on purpose.
+      ...(sizes.length
+        ? { variants: sizes.map(([k, price]) => ({ id: k as SizeId, label: k.charAt(0).toUpperCase() + k.slice(1), price })) }
+        : { price: n.prices?.one ?? 0 }),
+      adds: [], leaveOut: [], added: true, hidden: true,
+      ...(n.removed ? { removed: true } : {}),
+    };
+  }
   return {
     id, category: n.category, name: n.name, description: n.description, aliases: [],
     ...(shape.variants

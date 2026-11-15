@@ -103,6 +103,23 @@ test("the owner's own item takes its section's shape, sells like any item, and i
   }
 });
 
+test('an added item from a section this menu does not have is kept, hidden: its order still prices (the blank Register, 2026-11-15)', () => {
+  // As the shop recorded it from another build: a "Kottu" section with Full/Normal sizes.
+  const kottu = { category: 'sec-kottu', name: { en: 'egg kottu' }, description: '', prices: { full: 80000, normal: 40000 } };
+  try {
+    setMenuState(menuStateFromEvents([added('new-egg-kottu', kottu, 1), added('new-bad', { prices: {} }, 2)]), 0);
+    const item = itemById('new-egg-kottu');
+    assert.equal(item.name.en, 'egg kottu');
+    assert.equal(item.hidden, true, 'not offered for sale');
+    assert.deepEqual(item.variants!.map((v) => [v.id, v.label, v.price]), [['full', 'Full', 80000], ['normal', 'Normal', 40000]]);
+    assert.ok(!menuItems().some((m) => m.id === 'new-bad'), 'an item with no name is still left out');
+    const sent = markSent(addLine(emptyOrder(1010), { ...bareLine('new-egg-kottu', 'full' as never), qty: 2, unit: 80000 }), 1);
+    assert.equal(orderTotal(sent), 160000);
+  } finally {
+    setMenuState(EMPTY_MENU_STATE);
+  }
+});
+
 test('Undo takes an added item off the menu, but an order that already has it still prices', () => {
   try {
     setMenuState(menuStateFromEvents([added('new-chicken-alfredo', alfredo, 1)]), 0);
