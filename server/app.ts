@@ -461,7 +461,10 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
   const serveStatic = (res: ServerResponse, url: URL) => {
     if (!staticDir) { json(res, 404, { error: 'server', message: 'not found' } satisfies ApiError); return; }
     const root = normalize(staticDir + sep);
-    let file = normalize(join(root, decodeURIComponent(url.pathname)));
+    // A broken %-escape ("/%zz") is the sender's mistake, never a reason for the server to stop (SA-03).
+    let path: string;
+    try { path = decodeURIComponent(url.pathname); } catch { res.writeHead(400).end(); return; }
+    let file = normalize(join(root, path));
     if (!file.startsWith(root)) { res.writeHead(403).end(); return; } // no ../ out of dist
     let isFile = false;
     try { isFile = statSync(file).isFile(); } catch { /* not there */ }
@@ -475,8 +478,13 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
   };
 
   const server = createServer((req, res) => {
-    const url = new URL(req.url ?? '/', 'http://local');
-    if (!url.pathname.startsWith('/api/')) { serveStatic(res, url); return; }
+    let url: URL;
+    try { url = new URL(req.url ?? '/', 'http://local'); } catch { res.writeHead(400).end(); return; }
+    if (!url.pathname.startsWith('/api/')) {
+      // Whatever goes wrong with one request, the till keeps running for the others.
+      try { serveStatic(res, url); } catch (e) { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }
+      return;
+    }
     api(req, res, url).catch((e: unknown) => {
       if (e instanceof HttpError) { json(res, e.status, { error: e.code, message: e.message } satisfies ApiError); return; }
       console.error(e);

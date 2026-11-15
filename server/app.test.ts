@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import type { StreamMessage, SyncEvent } from '../src/domain/sync.ts';
 import { createApp, type AppOptions } from './app.ts';
@@ -55,6 +58,18 @@ test('health says when an update is under way, so the counter can show it', asyn
   const s = await start(memoryStore(), undefined, { version: () => '1.0.9', updating: () => update });
   assert.deepEqual(await (await s.call('/api/v1/health', null)).json(), { ok: true, serverTime: 5000, version: '1.0.9', update });
   await s.stop();
+});
+
+test('a malformed address answers 400 and the server keeps running (SA-03)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cb-static-'));
+  writeFileSync(join(dir, 'index.html'), '<!doctype html><title>POS</title>');
+  const s = await start(memoryStore(), undefined, { staticDir: dir });
+  assert.equal((await s.call('/%zz', null)).status, 400);
+  assert.equal((await s.call('/assets/%E0%A4%A', null)).status, 400);
+  assert.equal((await s.call('/api/v1/health', null)).status, 200);
+  assert.equal(await (await s.call('/kitchen', null)).text(), '<!doctype html><title>POS</title>');
+  await s.stop();
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('push is idempotent: the same batch twice is stored once, with the same seq', async () => {
