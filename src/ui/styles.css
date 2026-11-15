@@ -2332,8 +2332,10 @@ button.glance__card:disabled { cursor: default; }
   text-align: right; box-shadow: inset 0 0 0 1.5px transparent; transition: background 150ms var(--ease), box-shadow 150ms var(--ease); }
 .rail__row:hover { background: var(--chip); }
 .rail__row--on { background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--ink); }
-.rail__row--late { box-shadow: inset 0 0 0 1.5px var(--bad); }
-.rail__row--late .rail__unpaid { color: var(--bad); font-weight: 600; }
+.rail__ready { color: var(--ink); font-weight: 600; }
+/* Food waiting to be collected (SCRUM-240): amber = going cold, red = nobody came. */
+.rail__row--warn { box-shadow: inset 0 0 0 2px var(--warn); }
+.rail__row--bad { box-shadow: inset 0 0 0 2px var(--bad); }
 .rail__row--selected { box-shadow: inset 3px 0 0 var(--gold); background: var(--chip); }
 .rail__no { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.5px; color: var(--ink); }
 .rail__state { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--ink-2); }

@@ -59,6 +59,30 @@ export type Urgency = 'ok' | 'warn' | 'bad';
 export const COOK_MINUTES: Record<Category, number> = { pizza: 10, burger: 3, pasta: 20 };
 /** Late = past the cook time; very late = past one and a half times it. */
 export const VERY_LATE = 1.5;
+/**
+ * Food waiting to be collected (SCRUM-240): amber once it has waited this long (going cold),
+ * red at READY_BAD_MS (nobody came for it).
+ */
+export const READY_WARN_MS = 10 * 60_000;
+export const READY_BAD_MS = 20 * 60_000;
+
+/**
+ * When the kitchen finished an order: its last Done, once nothing of it is still open. null while
+ * something is still to make, or when its tickets are already pruned (made over an hour ago).
+ */
+export const readySince = (tickets: KitchenTicket[], number: number): number | null => {
+  const mine = tickets.filter((t) => t.number === number && !t.prep);
+  if (!mine.length || mine.some((t) => t.doneAt === undefined)) return null;
+  return Math.max(...mine.map((t) => t.doneAt as number));
+};
+
+/** How a ready order's wait looks; an order whose Done is too old to know waited long. */
+export const readyUrgency = (since: number | null, now: number): Urgency => {
+  if (since === null) return 'bad';
+  const waited = now - since;
+  return waited >= READY_BAD_MS ? 'bad' : waited >= READY_WARN_MS ? 'warn' : 'ok';
+};
+
 /** Done tickets are kept this long so a mistaken "Done" can be undone, then dropped. */
 export const KEEP_DONE_MS = 60 * 60_000;
 

@@ -100,7 +100,7 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
   await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
   expect(row().getByText('Cooking')).toBeTruthy();
   await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001' }));
-  expect(row().getByText('Made')).toBeTruthy();
+  expect(row().getByText('Ready')).toBeTruthy(); // made, waiting for the customer (SCRUM-240)
   expect(row().queryByText('Cooking')).toBeNull();
 
   // A second round puts it back to Waiting, then Cooking; the opened order shows it too.
@@ -122,11 +122,54 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
   const paid = within(panel().getByRole('region', { name: 'Paid today' }));
   expect(paid.getByText('Cooking')).toBeTruthy();
   expect(paid.getByText('Paid · Cash')).toBeTruthy();
-  // Paid, food still coming: it stays on the list until the kitchen has made it, then leaves by itself.
+  // Paid, food still coming: it stays on the list. Made, it is Ready and still stays: the customer
+  // has not taken it yet. Given (Ctrl+Enter on the paid order) and it leaves (SCRUM-240).
   expect(row().getByText('Cooking')).toBeTruthy();
   expect(row().getByText('Paid')).toBeTruthy();
   await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001, added items' }));
+  expect(row().getByText('Ready')).toBeTruthy();
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  expect(panel().queryByRole('button', { name: 'Next order' })).toBeNull(); // Given is the thing to do
+  await user.keyboard('{Control>}{Enter}{/Control}');
   expect(within(screen.getByRole('navigation', { name: 'Orders' })).queryByRole('button', { name: /^1001/ })).toBeNull();
+  expect(readAll().filter((e) => e.type === 'order.given')).toMatchObject([{ orderNumber: 1001 }]);
+});
+
+test('paid first, cooked, waiting to be collected: Ready stays on the list until Given; Undo brings it back', async () => {
+  const user = userEvent.setup();
+  render(<><App /><Kitchen /></>);
+  const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
+  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: /Exact/ }));
+  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
+  await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001' }));
+  expect(rail().getByRole('button', { name: /^1001.*Ready.*Paid/ })).toBeTruthy();
+
+  await user.click(rail().getByRole('button', { name: /^1001/ }));
+  await user.click(panel().getByRole('button', { name: 'Given' }));
+  expect(rail().queryByRole('button', { name: /^1001/ })).toBeNull();
+  const toast = screen.getByText('Given 1001').closest('.toast') as HTMLElement;
+  await user.click(within(toast).getByRole('button', { name: 'Undo' }));
+  expect(rail().getByRole('button', { name: /^1001.*Ready.*Paid/ })).toBeTruthy();
+  expect(readAll().map((e) => e.type).slice(-2)).toEqual(['order.given', 'order.given_undone']);
+});
+
+test('paying for a ready order hands it over too: it leaves the list in one step', async () => {
+  const user = userEvent.setup();
+  render(<><App /><Kitchen /></>);
+  await sendOne(user); // 1001, not paid
+  await user.click(kitchen().getByRole('button', { name: 'Start: Order 1001' }));
+  await user.click(kitchen().getByRole('button', { name: 'Done: Order 1001' }));
+  const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
+  expect(rail().getByRole('button', { name: /^1001.*Ready.*Not paid/ })).toBeTruthy();
+  await user.click(rail().getByRole('button', { name: /^1001/ }));
+  expect(panel().getByRole('button', { name: 'Given' })).toBeTruthy(); // eating in: handed over, paid later
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: /Exact/ }));
+  expect(rail().queryByRole('button', { name: /^1001/ })).toBeNull();
+  expect(readAll().map((e) => e.type).slice(-2)).toEqual(['order.paid', 'order.given']);
 });
 
 test('Remake: a burnt pizza is recorded as waste in two taps, and the line stays on the ticket to make again (SCRUM-177)', async () => {

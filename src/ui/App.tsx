@@ -20,7 +20,8 @@ import { onlineOrders } from '../services/onlineClient.ts';
 import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, orderSummary, type ManagePanel } from './OrderPanel.tsx';
-import { OrdersRail, railRows } from './OrdersRail.tsx';
+import { OrdersRail, kitchenWord, railRows } from './OrdersRail.tsx';
+import { useNow } from './Kitchen.tsx';
 import { crmReachable } from '../services/crmClient.ts';
 import { modulesHere, readAll } from './eventLog.ts';
 import { CustomerBar } from './CustomerBar.tsx';
@@ -101,6 +102,7 @@ export function App({
    */
   const outOnline = useCallback(async (o: OnlineOrder): Promise<string | null> => {
     const why = await onlineOrders.answer(o.id, { status: 'out' });
+    if (!why && o.orderNumber !== null) reg.give(o.orderNumber); // out with the rider: the shop has handed it over (SCRUM-240)
     const order = [reg.order, ...reg.open].find((x) => x.number === o.orderNumber);
     if (!why && order && canPrint()) {
       void printDeliveryBill(deliveryBill({ ...o, lines: order.lines, total: orderTotal(order) }, order.lines.map(lineGross), { at: Date.now() }));
@@ -123,16 +125,18 @@ export function App({
       setPrinting((p) => (p?.number === paid.number ? { number: paid.number, state: r === 'printed' ? 'printed' : 'failed' } : p)));
   }, []);
   const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
-    const paid = reg.pay(tender, tendered, customerId, unlinked);
+    // Made and waiting: whoever pays for it is taking it (SCRUM-240).
+    const paid = reg.pay(tender, tendered, customerId, unlinked, kitchenWord(reg.order, tickets) === 'Ready');
     // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
     if (paid && !isPlatformId(tender)) print(paid);
-  }, [reg, print]);
+  }, [reg, print, tickets]);
   const total = orderTotal(reg.order);
   const hasNew = unsentLines(reg.order).length > 0;
   /** Something to pay on screen: Pay works at any step, sent or not (SCRUM-239). */
   const canCharge = !reg.paid && reg.order.lines.length > 0;
-  /** Every order still going, on the left (SCRUM-239). */
-  const rows = railRows(reg.order, reg.paid, reg.open, reg.paidToday, tickets);
+  /** Every order still going, on the left (SCRUM-239); minutes for food waiting to be collected (SCRUM-240). */
+  const now = useNow(30_000);
+  const rows = railRows(reg.order, reg.paid, reg.open, reg.paidToday, tickets, now);
 
   // ---------- manager mode ----------
   const [selected, setSelected] = useState(0);
@@ -262,7 +266,8 @@ export function App({
       // The dark one of the two buttons: Send while there is something new (or a paid order not sent), else Pay.
       if (mod && e.key === 'Enter' && !sheet) {
         e.preventDefault();
-        if (reg.paid) { if (reg.paid.held) reg.send(); } else if (hasNew) reg.send(); else if (canCharge) setSheet({ kind: 'pay' });
+        if (reg.paid) { if (reg.paid.held) reg.send(); else if (kitchenWord(reg.paid, tickets) === 'Ready') reg.give(); }
+        else if (hasNew) reg.send(); else if (canCharge) setSheet({ kind: 'pay' });
         return;
       }
       // Alt+1 … Alt+9: the menu's tabs in their order (digits alone start typing an order).
@@ -281,7 +286,7 @@ export function App({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [reg, sheet, typed, custTyping, crmOn, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
-    selected, selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted, rows]);
+    selected, selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted, rows, tickets]);
 
   // Paying, and the order has nothing left on it (an Undo took the last line): back to the order.
   const paying = sheet?.kind === 'pay';
@@ -533,6 +538,8 @@ export function App({
           tickets={tickets}
           paid={reg.paid}
           justPaid={reg.justPaid}
+          onGive={() => reg.give()}
+          now={now}
           manage={managePanel}
           onEdit={(line) => setSheet({ kind: 'edit', line })}
           onSend={reg.send}
