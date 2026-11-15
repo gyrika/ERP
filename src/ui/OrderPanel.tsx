@@ -318,7 +318,7 @@ export function OrderPanel({
         {listing && open.length === 0 && paidToday.length === 0 && (
           <div className="empty">
             <b>Tap a size to start</b>
-            <span>or just start typing: “2 L margherita, burger”</span>
+            <span>or just start typing: “2L margherita, burger”</span>
           </div>
         )}
 

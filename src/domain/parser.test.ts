@@ -17,6 +17,14 @@ test('typed shorthand → correct lines', () => {
   ]);
 });
 
+test('a size may touch the number: "2l" = "2 l", "5L" = menu 5 large', () => {
+  assert.deepEqual(p.interpret('2l devilled chicken no onion').lines, p.interpret('2 l devilled chicken no onion').lines);
+  const line = (s: string) => p.interpret(s).lines[0];
+  assert.deepEqual([line('5L').itemId, line('5L').qty, line('5L').size], ['devilled-chicken', 1, 'L']);
+  assert.deepEqual([line('2 5l').itemId, line('2 5l').qty, line('2 5l').size], ['devilled-chicken', 2, 'L']);
+  assert.deepEqual([line('3m margherita').qty, line('3m margherita').size], [3, 'M']);
+});
+
 test('longest alias wins; pizza names containing "and" survive splitting', () => {
   const d = p.interpret('crispy chicken burger and large bacon and onion');
   assert.deepEqual(d.lines.map((l) => l.itemId), ['crispy-chicken-burger', 'bacon-onion']);
