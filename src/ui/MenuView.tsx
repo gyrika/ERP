@@ -586,7 +586,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
     <div className="owner">
       <OwnerNav current="items" onRegister={onBack} />
       <main className="owner__main menuv" aria-label="Menu">
-        <ItemsTabs current="finished" />
+        <ItemsTabs current={location.hash === '#menu' ? 'menu' : 'finished'} />
         <h1 className="menuv__title">Menu</h1>
         <p className="menuv__lead">
           {owner ? 'Change a price, a name or what is on offer, or add something new. It reaches the counter, the kitchen and cheesybeez.com at once.'

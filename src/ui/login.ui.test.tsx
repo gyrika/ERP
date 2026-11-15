@@ -59,6 +59,17 @@ test('a paired counter opens locked; a wrong PIN says so; the right one opens th
   expect(lockScreen()).toBeTruthy();
 });
 
+test('Ctrl+Shift+U opens the developers’ Modules page from the lock screen, and again closes it', async () => {
+  pair();
+  const user = userEvent.setup();
+  render(<Root />);
+  expect(lockScreen()).toBeTruthy();
+  await user.keyboard('{Control>}{Shift>}U{/Shift}{/Control}');
+  expect(await screen.findByRole('heading', { name: 'Modules' })).toBeTruthy();
+  await user.keyboard('{Control>}{Shift>}U{/Shift}{/Control}');
+  expect(lockScreen()).toBeTruthy();
+});
+
 test('every order records who took it', async () => {
   pair();
   const user = userEvent.setup();
@@ -253,7 +264,7 @@ test("a manager sees no recipes (no Recipe on a dish), and typing the address gi
   expect(nav.getByRole('link', { name: 'Items' })).toBeTruthy();
   const tabs = within(screen.getByRole('navigation', { name: 'Items' }));
   // Semi-processed items are items, not recipes: managers see them too; the finished dishes' recipes stay the owner's.
-  expect(tabs.getAllByRole('link').map((a) => a.firstChild?.textContent)).toEqual(['Raw materials', 'Semi-processed', 'Finished', 'Warehouses']);
+  expect(tabs.getAllByRole('link').map((a) => a.firstChild?.textContent)).toEqual(['Raw materials', 'Semi-processed', 'Finished', 'Warehouses', 'Menu']);
 
   act(() => { location.hash = '#recipes'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
   expect(await screen.findByRole('complementary', { name: 'Current order' })).toBeTruthy();
