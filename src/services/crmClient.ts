@@ -50,7 +50,8 @@ export const crmClient = {
   restore: (customer: Customer) => post<{ customer: Customer }>('/customers/restore', { customer }),
   /** At Charge, while typing: quick, and it never waits long (the sale never waits on it). */
   lookup: (phone: string) => post<{ customer: Greeting | null }>('/lookup', { phone }, 2_000),
-  ensure: (phone: string) => post<{ customer: Greeting; created: boolean }>('/ensure', { phone }, 2_000),
+  /** The customer, made if new; `name` is kept only for someone the list has no name for. */
+  ensure: (phone: string, name?: string) => post<{ customer: Greeting; created: boolean }>('/ensure', { phone, ...(name ? { name } : {}) }, 2_000),
   preview: (file: File, rename: boolean) => {
     const u = upload('preview', file, rename);
     return call<{ plan: ImportPlan }>(u.path, u.init);

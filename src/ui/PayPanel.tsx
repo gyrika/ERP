@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { fmt, parseLKR, quickCashAmounts } from '../domain/money.ts';
 import { toLkMobile } from '../domain/phone.ts';
-import type { Cents, Tender } from '../domain/types.ts';
+import type { Cents, OrderCustomer, Tender } from '../domain/types.ts';
 import { crmClient, type Greeting } from '../services/crmClient.ts';
 
 interface Props {
@@ -18,6 +18,8 @@ interface Props {
   onClose: () => void;
   /** Customers (CRM) is on and this screen can reach the list: show the optional Mobile field. */
   customers?: boolean;
+  /** Already put on the order (in the order panel): the payment is theirs, no Mobile to ask. */
+  customer?: OrderCustomer;
 }
 
 const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', '⌫'];
@@ -35,7 +37,9 @@ type Who = { at: 'none' } | { at: 'checking'; phone: string } | { at: 'known'; p
  * With Customers on, a number starting 0 or + is a mobile (an amount never starts with 0), so it goes
  * to Mobile; any other digit is the cash given.
  */
-export function PayPanel({ number, total, lines, onPay, onClose, customers = false }: Props) {
+export function PayPanel({ number, total, lines, onPay, onClose, customers: crmOn = false, customer }: Props) {
+  // A customer on the order already: no Mobile field, and 0 is an amount key again.
+  const customers = crmOn && !customer;
   const [typed, setTyped] = useState('');
   const [pad, setPad] = useState(false);
   const field = useRef<HTMLInputElement>(null);
@@ -61,6 +65,7 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers = fal
 
   /** The sale goes in now; a new number becomes a customer first (a moment on this PC), never holding the sale up for long. */
   const pay = async (tender: Tender, tendered: Cents) => {
+    if (customer) { onPay(tender, tendered, customer.id); return; }
     if (!phone) { onPay(tender, tendered); return; }
     if (who.at === 'known' && who.phone === phone) { onPay(tender, tendered, who.customer.id); return; }
     try {
@@ -160,6 +165,7 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers = fal
 
         {/* The controls sit on the bottom, by the thumb and the big button; the keypad opens upward into the free room. */}
         <div className="pay__controls">
+          {customer && <div className="paymobile"><span className="paymobile__who paymobile__who--known">{customer.name ?? 'Customer'} · on the list</span></div>}
           {customers && !pad && (
             <div className="paymobile">
               <label className="payfield">

@@ -159,7 +159,15 @@ export interface Order {
   online?: OnlineMark;
   /** Came from a delivery app (SCRUM-195): its code there; the app's rider collects it, the app pays. */
   platform?: PlatformMark;
+  /**
+   * The customer (CRM) the cashier put on the order: the shop server's opaque id and the name to
+   * greet them by. Kept on this screen only; no synced event carries the name, and the payment
+   * names the customer by id alone (`order.paid.customerId`).
+   */
+  customer?: OrderCustomer;
 }
+
+export interface OrderCustomer { id: string; name: string | null }
 
 /**
  * An online order's mark, carried by the order, its kitchen ticket and its send event.

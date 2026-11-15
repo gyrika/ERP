@@ -89,10 +89,17 @@ test('at Charge: anyone at the counter finds a customer by number; a new number 
   // Only the first name at the counter.
   await s.customers.importRows(SHOP, [{ row: 2, kind: 'fill_name', phone: '+94770000001', name: 'Kasun Perera', id, notes: [] }], { id: 'x', name: 'x', role: 'owner' }, T0);
   assert.deepEqual((await s.post('/lookup', s.cashier.id, { phone: '0770000001' })).body, { customer: { id, name: 'Kasun' } });
+  // A name given at the counter is kept for someone new, never over a name the list already has.
+  const named = await s.post('/ensure', s.cashier.id, { phone: '0770000002', name: '  Dilani   Silva ' });
+  assert.deepEqual((named.body.customer as { name: string }).name, 'Dilani');
+  assert.equal((await s.customers.byPhone(SHOP, '+94770000002'))?.name, 'Dilani Silva');
+  assert.equal(((await s.post('/ensure', s.cashier.id, { phone: '0770000001', name: 'Someone Else' })).body.customer as { name: string }).name, 'Kasun');
+  assert.equal((await s.customers.byPhone(SHOP, '+94770000001'))?.name, 'Kasun Perera');
+  assert.equal(((await s.post('/ensure', s.cashier.id, { phone: '0770000003', name: '---' })).body.customer as { name: null }).name, null, 'no letters: no name');
   // The list is for managers and the owner.
   assert.equal((await s.get('/customers', s.cashier.id)).status, 403);
   const list = await s.get('/customers', s.manager.id);
-  assert.equal((list.body.customers as unknown[]).length, 1);
+  assert.equal((list.body.customers as unknown[]).length, 3);
   assert.equal((await s.get('/customers', s.manager.id)).body.withApp instanceof Array, true);
   await s.stop();
 });

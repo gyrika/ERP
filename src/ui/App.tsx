@@ -19,9 +19,12 @@ import { OnlineChip, OnlineSheet, useOnline } from './Online.tsx';
 import { onlineOrders } from '../services/onlineClient.ts';
 import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
-import { OrderPanel, VOID_REASONS, type ManagePanel } from './OrderPanel.tsx';
+import { OrderPanel, VOID_REASONS, orderSummary, type ManagePanel } from './OrderPanel.tsx';
 import { crmReachable } from '../services/crmClient.ts';
-import { modulesHere } from './eventLog.ts';
+import { modulesHere, readAll } from './eventLog.ts';
+import { CustomerBar } from './CustomerBar.tsx';
+import { customerOrders, visitsFromEvents } from '../domain/customers.ts';
+import { usualOrder } from '../domain/usualOrder.ts';
 import { PinSheet } from './PinSheet.tsx';
 import { ShorthandBar, describe } from './ShorthandBar.tsx';
 import { SyncSign } from './SyncSign.tsx';
@@ -106,6 +109,9 @@ export function App({
   const [category, setCategory] = useState<CategoryId>('popular');
   const [sheet, setSheet] = useState<Sheet>(null);
   const [typed, setTyped] = useState<string | null>(null); // non-null = shorthand bar open
+  /** Customers (CRM) is on and this counter can reach the list (the shop PC, someone signed in). */
+  const crmOn = modulesHere().crm && crmReachable();
+  const [custTyping, setCustTyping] = useState<string | null>(null); // non-null = typing a customer's mobile
   const closeSheet = useCallback(() => setSheet(null), []);
   /** The receipt of the sale on screen: printed by itself at payment, with the drawer for cash. */
   const [printing, setPrinting] = useState<{ number: number; state: 'printing' | 'printed' | 'failed' } | null>(null);
@@ -130,7 +136,7 @@ export function App({
   const [pendingVoid, setPendingVoid] = useState<string | null>(null);
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
-  // A small counter screen folds the corner's keys behind one "More" key (CSS shows it only there).
+  // The corner's rarer keys live behind one More (•••) key on every screen; only what needs the cashier stays out.
   const [more, setMore] = useState(false);
   useEffect(() => {
     if (!more) return;
@@ -261,13 +267,15 @@ export function App({
         if (id) { e.preventDefault(); setCategory(id); }
         return;
       }
-      if (sheet || typed !== null || mod || e.altKey || isTypingTarget(e.target)) return;
+      if (sheet || typed !== null || custTyping !== null || mod || e.altKey || isTypingTarget(e.target)) return;
       if (e.key === 'Escape' && canCharge) { reg.startNew(); return; }
+      // A mobile starts 0 or + (an order never does): typing one puts a customer on the order.
+      if (crmOn && (e.key === '0' || e.key === '+')) { e.preventDefault(); setCustTyping(e.key); return; }
       if (e.key.length === 1 && /[a-z0-9]/i.test(e.key)) { e.preventDefault(); setTyped(e.key); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [reg, sheet, typed, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
+  }, [reg, sheet, typed, custTyping, crmOn, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
     selected, selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted]);
 
   // Tapping empty space outside an opened order goes back to the "Waiting to pay" list.
@@ -281,6 +289,33 @@ export function App({
   // Paying, and the order has nothing left on it (an Undo took the last line): back to the order.
   const paying = sheet?.kind === 'pay';
   const inExtras = sheet?.kind === 'extras' || sheet?.kind === 'edit';
+
+  // ---------- the customer on the order (CRM) ----------
+  const customer = reg.order.customer;
+  // Visits come from the event log: worked out when the customer step opens and after each sale.
+  const visits = useMemo(
+    () => (crmOn ? visitsFromEvents(readAll()) : new Map<string, unknown[]>()),
+    [crmOn, custTyping !== null, customer?.id, reg.paidToday.length], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const usual = useMemo(() => {
+    if (!crmOn || !customer || reg.order.lines.length || reg.order.sentAt !== undefined) return null;
+    return usualOrder(customerOrders(readAll(), customer.id), (id) => menuItems().find((m) => m.id === id));
+  }, [crmOn, customer, reg.order.lines.length, reg.order.sentAt]);
+  // Another order on screen: the half-typed number was for the last one.
+  useEffect(() => { setCustTyping(null); }, [reg.order.number]);
+  const customerBar = crmOn && !reg.paid ? (
+    <CustomerBar
+      customer={customer}
+      typing={custTyping}
+      onTyping={setCustTyping}
+      onAttach={(c) => reg.setCustomer({ id: c.id, name: c.name })}
+      onRemove={() => reg.setCustomer(null)}
+      visits={(id) => visits.get(id)?.length ?? 0}
+      usual={usual}
+      onUsual={() => { if (usual) reg.addSpecs(usual.lines, usual.kind === 'usual' ? 'Added the usual' : 'Added the same as last time'); }}
+      describeUsual={(u) => orderSummary(u.lines)}
+    />
+  ) : null;
   useEffect(() => { if (paying && listing) setSheet(null); }, [paying, listing]);
 
   const quickAdd = (item: MenuItem, size?: SizeId) => {
@@ -503,10 +538,11 @@ export function App({
           onOpen={reg.openOrder}
           onNext={reg.startNew}
           onUndo={reg.undo}
+          customerBar={customerBar}
           paying={paying ? {
             onPay: (tender, tendered, customerId, unlinked) => { pay(tender, tendered, customerId, unlinked); closeSheet(); },
             onClose: closeSheet,
-            customers: modulesHere().crm && crmReachable(),
+            customers: crmOn,
           } : null}
           extras={extrasPanel}
         />
