@@ -32,8 +32,8 @@ const paidEvent = () => readAll().filter((e) => e.type === 'order.paid').at(-1) 
 const charge = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]); // Devilled Chicken L
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
   await user.type(screen.getByRole('textbox', { name: /Mobile/ }), '077 123 4567');
 };
 

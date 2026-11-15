@@ -90,8 +90,8 @@ test('a cashier does not see the day’s takings; a manager does', async () => {
   await screen.findByRole('button', { name: 'Nimal: switch user' });
   await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
   await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   await user.click(panel().getByRole('button', { name: 'Next order' }));
   expect(panel().queryByRole('region', { name: 'Paid today' })).toBeNull();
@@ -222,10 +222,10 @@ test('the owner and managers see an Owner view key; a cashier does not', async (
   render(<Root />);
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
-  expect(screen.queryByRole('button', { name: /^Owner view/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Today/ })).toBeNull();
   await user.keyboard('{F4}2580');
   await screen.findByRole('button', { name: 'Ravi: switch user' });
-  expect(screen.getByRole('button', { name: 'Owner view F3' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Today F3' })).toBeTruthy();
 });
 
 test('F3 flips a manager between the Register and the Owner view; a cashier stays on the Register', async () => {
@@ -236,7 +236,7 @@ test('F3 flips a manager between the Register and the Owner view; a cashier stay
 
   await user.keyboard('1111');
   await screen.findByRole('button', { name: 'Nimal: switch user' });
-  expect(screen.queryByRole('button', { name: /^Owner view/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /^Today/ })).toBeNull();
   await user.keyboard('{F3}');
   expect(owner()).toBeNull();
 
@@ -248,7 +248,7 @@ test('F3 flips a manager between the Register and the Owner view; a cashier stay
   expect(owner()).toBeNull();
   expect(panel()).toBeTruthy();
 
-  await user.click(screen.getByRole('button', { name: 'Owner view F3' }));
+  await user.click(screen.getByRole('button', { name: 'Today F3' }));
   expect(owner()).toBeTruthy();
   await user.click(screen.getByRole('link', { name: 'Sell' })); // the register is the first part of the menu
   expect(panel()).toBeTruthy();

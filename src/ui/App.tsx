@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { canManage, seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { comboById, itemById, menuItems } from '../domain/menu.ts';
@@ -20,6 +20,7 @@ import { onlineOrders } from '../services/onlineClient.ts';
 import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, orderSummary, type ManagePanel } from './OrderPanel.tsx';
+import { OrdersRail, railRows } from './OrdersRail.tsx';
 import { crmReachable } from '../services/crmClient.ts';
 import { modulesHere, readAll } from './eventLog.ts';
 import { CustomerBar } from './CustomerBar.tsx';
@@ -128,8 +129,10 @@ export function App({
   }, [reg, print]);
   const total = orderTotal(reg.order);
   const hasNew = unsentLines(reg.order).length > 0;
-  /** A waiting order opened from the list, with nothing new on it: Charge, or go back. */
-  const canCharge = !hasNew && reg.order.sentAt !== undefined && !reg.paid;
+  /** Something to pay on screen: Pay works at any step, sent or not (SCRUM-239). */
+  const canCharge = !reg.paid && reg.order.lines.length > 0;
+  /** Every order still going, on the left (SCRUM-239). */
+  const rows = railRows(reg.order, reg.paid, reg.open, reg.paidToday, tickets);
 
   // ---------- manager mode ----------
   const [selected, setSelected] = useState(0);
@@ -206,9 +209,9 @@ export function App({
 
   // Keep the selection on a real row as lines are voided or restored.
   useEffect(() => {
-    const max = (listing ? reg.open.length : lines.length) - 1;
+    const max = (listing ? rows.length : lines.length) - 1;
     if (selected > Math.max(0, max)) setSelected(Math.max(0, max));
-  }, [listing, lines.length, reg.open.length, selected]);
+  }, [listing, lines.length, rows.length, selected]);
 
   // ---------- keys ----------
   useEffect(() => {
@@ -233,12 +236,12 @@ export function App({
           return;
         }
         if (isTypingTarget(e.target) || mod || e.altKey) return;
-        const count = listing ? reg.open.length : lines.length;
+        const count = listing ? rows.length : lines.length;
         if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((s) => Math.min(s + 1, Math.max(0, count - 1))); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((s) => Math.max(s - 1, 0)); return; }
         if (e.key === 'Enter') {
           e.preventDefault();
-          if (listing) { const o = reg.open[selected]; if (o) reg.openOrder(o.number); }
+          if (listing) { const r = rows[selected]; if (r) reg.openOrder(r.order.number); }
           else if (selectedLine) setSheet({ kind: 'edit', line: selectedLine });
           return;
         }
@@ -256,9 +259,10 @@ export function App({
         e.preventDefault(); setTyped(null); setSheet({ kind: 'platform', platform: PLATFORMS[0] }); return;
       }
       if (mod && key === 'z') { e.preventDefault(); if (noted) undoNoted(); else reg.undo(); return; }
-      if (mod && e.key === 'Enter' && !sheet && !reg.paid) {
+      // The dark one of the two buttons: Send while there is something new (or a paid order not sent), else Pay.
+      if (mod && e.key === 'Enter' && !sheet) {
         e.preventDefault();
-        if (hasNew) reg.send(); else if (canCharge) setSheet({ kind: 'pay' });
+        if (reg.paid) { if (reg.paid.held) reg.send(); } else if (hasNew) reg.send(); else if (canCharge) setSheet({ kind: 'pay' });
         return;
       }
       // Alt+1 … Alt+9: the menu's tabs in their order (digits alone start typing an order).
@@ -268,7 +272,8 @@ export function App({
         return;
       }
       if (sheet || typed !== null || custTyping !== null || mod || e.altKey || isTypingTarget(e.target)) return;
-      if (e.key === 'Escape' && canCharge) { reg.startNew(); return; }
+      // + New order: the one on screen waits on the list with its number.
+      if (e.key === 'Escape' && (reg.order.lines.length > 0 || reg.paid)) { reg.startNew(); return; }
       // A mobile starts 0 or + (an order never does): typing one puts a customer on the order.
       if (crmOn && (e.key === '0' || e.key === '+')) { e.preventDefault(); setCustTyping(e.key); return; }
       if (e.key.length === 1 && /[a-z0-9]/i.test(e.key)) { e.preventDefault(); setTyped(e.key); }
@@ -276,15 +281,7 @@ export function App({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [reg, sheet, typed, custTyping, crmOn, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
-    selected, selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted]);
-
-  // Tapping empty space outside an opened order goes back to the "Waiting to pay" list.
-  // Cards, buttons and the order panel itself are not background, so adding a round still works.
-  const onBackground = (e: MouseEvent) => {
-    if (!canCharge || sheet || typed !== null || palette) return;
-    if ((e.target as Element).closest('button, input, a, .card, .panel, .typebar, .toast')) return;
-    reg.startNew();
-  };
+    selected, selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted, rows]);
 
   // Paying, and the order has nothing left on it (an Undo took the last line): back to the order.
   const paying = sheet?.kind === 'pay';
@@ -418,7 +415,7 @@ export function App({
         );
       }
     }
-    reg.open.forEach((o) => list.push({ id: `open-${o.number}`, label: `Open order ${o.number}`, run: () => reg.openOrder(o.number) }));
+    rows.forEach((r) => list.push({ id: `open-${r.order.number}`, label: `Open order ${r.order.number}`, run: () => reg.openOrder(r.order.number) }));
     list.push(
       { id: 'owner', label: 'Today: what needs attention', run: () => { location.hash = '#owner'; } },
       // The developer's laptop only (its server holds the admin password).
@@ -445,12 +442,20 @@ export function App({
       list.push({ id: 'suppliers', label: 'Suppliers', run: () => { location.hash = '#suppliers'; } });
     }
     return list;
-  }, [manager, listing, reg, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit, fleet]);
+  }, [manager, listing, reg, rows, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit, fleet]);
 
   return (
-    <div className={`register${manager ? ' register--managing' : ''}${paying ? ' register--paying' : ''}${inExtras ? ' register--extras' : ''}`} onClick={onBackground}>
+    <div className={`register${manager ? ' register--managing' : ''}${paying ? ' register--paying' : ''}${inExtras ? ' register--extras' : ''}`}>
       <header className="register__head">
-        <span className="brand">CheesyBeez</span>
+        {/* The shop's places, as one bar of words with their keys (SCRUM-239): learnable, and out of the cashier's way. */}
+        <nav className="tabs" aria-label="Places">
+          <span className="tab tab--on" aria-current="page">Register</span>
+          {!manager && onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
+          {!manager && onTables && <Suspense fallback={null}><TablesChip onOpen={onTables} /></Suspense>}
+          {!manager && <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out <kbd>F6</kbd></button>}
+          {/* The owner and managers see their own screen without any shortcut. */}
+          {!manager && onOwner && <button type="button" className="corner__key" onClick={onOwner}>Today <kbd>F3</kbd></button>}
+        </nav>
         {manager ? (
           <span className="corner corner--managing" role="status">
             <span className="corner__who">Managing · {manager.name}</span>
@@ -464,9 +469,14 @@ export function App({
         ) : (
           <span className="corner">
             <OnlineChip state={online} looking={sheet?.kind === 'online'} onOpen={() => setSheet({ kind: 'online' })} />
-            {onTables && <Suspense fallback={null}><TablesChip onOpen={onTables} /></Suspense>}
-            {onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
             <SyncSign />
+            {onSwitch
+              ? (
+                <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>
+                  {currentCashier().name} <kbd>F4</kbd>
+                </button>
+              )
+              : <span className="cashier">{currentCashier().name}</span>}
             <span className={`corner__rest${more ? ' corner__rest--open' : ''}`} id="corner-rest" onClick={() => setMore(false)}>
               {PLATFORMS.map((p, i) => (
                 <button key={p.id} type="button" className="corner__key" onClick={() => setSheet({ kind: 'platform', platform: p })}>
@@ -480,16 +490,6 @@ export function App({
                 </button>
               )}
               <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'receive' })}>Receive <kbd>F7</kbd></button>
-              <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out <kbd>F6</kbd></button>
-              {/* The owner and managers see their own screen without any shortcut. */}
-              {onOwner && <button type="button" className="corner__key" onClick={onOwner}>Owner view <kbd>F3</kbd></button>}
-              {onSwitch
-                ? (
-                  <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>
-                    {currentCashier().name} <kbd>F4</kbd>
-                  </button>
-                )
-                : <span className="cashier">{currentCashier().name}</span>}
               <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
             </span>
             <button type="button" className="corner__more" aria-label="More" aria-expanded={more} aria-controls="corner-rest"
@@ -501,6 +501,13 @@ export function App({
       </header>
 
       <div className="register__body">
+        <OrdersRail
+          rows={rows}
+          current={reg.paid ? reg.paid.number : reg.order.lines.length ? reg.order.number : null}
+          selected={manager && listing ? selected : null}
+          onNew={reg.startNew}
+          onOpen={reg.openOrder}
+        />
         <main className="menu">
           {typed !== null && !manager && (
             <ShorthandBar
@@ -522,10 +529,10 @@ export function App({
 
         <OrderPanel
           order={reg.order}
-          open={reg.open}
           paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
           tickets={tickets}
           paid={reg.paid}
+          justPaid={reg.justPaid}
           manage={managePanel}
           onEdit={(line) => setSheet({ kind: 'edit', line })}
           onSend={reg.send}
@@ -535,7 +542,6 @@ export function App({
           onClearPlatform={() => reg.setPlatform(null)}
           printState={canPrint() && reg.paid && printing?.number === reg.paid.number ? printing.state : null}
           onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
-          onOpen={reg.openOrder}
           onNext={reg.startNew}
           onUndo={reg.undo}
           customerBar={customerBar}

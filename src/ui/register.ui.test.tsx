@@ -10,11 +10,11 @@ afterEach(cleanup);
 const panel = () => within(screen.getByRole('complementary', { name: 'Current order' }));
 const sendBtn = () => panel().getByRole('button', { name: 'Send to kitchen' }) as HTMLButtonElement;
 
-/** Customers eat first: send, then later open the order from "Waiting to pay" and charge. */
+/** Customers eat first: send, then later open the order from the Orders list and pay. */
 const sendThenOpen = async (user: ReturnType<typeof userEvent.setup>, number: number) => {
   await user.click(sendBtn());
-  await user.click(within(panel().getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: new RegExp(`^${number}`) }));
-  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: new RegExp(`^${number}`) }));
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
 };
 
 test('tap size → send → waiting → charge exact → paid → undo payment', async () => {
@@ -32,13 +32,13 @@ test('tap size → send → waiting → charge exact → paid → undo payment',
   expect(panel().queryByText('Devilled Chicken')).toBeNull(); // register is free for the next customer
   expect(panel().getByText('1002')).toBeTruthy();
 
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   expect(panel().getByText('Paid')).toBeTruthy();
 
   await user.click(panel().getByRole('button', { name: 'Undo payment' }));
-  expect(panel().getByRole('button', { name: 'Charge' })).toBeTruthy();
+  expect(panel().getByRole('button', { name: 'Pay' })).toBeTruthy();
 });
 
 test('a second round on an open order: only new lines go out', async () => {
@@ -46,12 +46,13 @@ test('a second round on an open order: only new lines go out', async () => {
   render(<App />);
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]); // Margherita M
   await user.click(sendBtn());
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]); // another one
   expect(panel().getAllByText('Margherita').length).toBe(2); // not merged into the sent line
   await user.click(sendBtn());
   expect(screen.getByRole('status').textContent).toContain('Sent more for 1001');
-  expect(panel().getByText('2,900')).toBeTruthy(); // waiting list total for 1001
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  expect(panel().getByText('2,900')).toBeTruthy(); // both rounds on 1001
 });
 
 test('cash over total shows change', async () => {
@@ -123,27 +124,84 @@ test('Undo removes the last add', async () => {
   expect(sendBtn().disabled).toBe(true);
 });
 
-test('tapping the background or pressing Escape leaves an opened order; menu taps still add a round', async () => {
+test('Escape (+ New order) leaves an opened order on the list; a stray tap never does; menu taps add a round', async () => {
   const user = userEvent.setup();
   render(<App />);
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
   await user.click(sendBtn());
-  const waiting = () => panel().queryByRole('region', { name: 'Waiting to pay' });
+  const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
 
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
-  expect(waiting()).toBeNull();
-  await user.click(panel().getByText('1001')); // the bill itself is not background
-  expect(waiting()).toBeNull();
-  await user.click(screen.getByRole('main')); // empty space beside the menu
-  expect(waiting()).toBeTruthy();
-
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
+  await user.click(rail().getByRole('button', { name: /^1001/ }));
+  expect(panel().getByText('Margherita')).toBeTruthy();
+  await user.click(screen.getByRole('main')); // empty space beside the menu: nothing happens
+  expect(panel().getByText('Margherita')).toBeTruthy();
   await user.keyboard('{Escape}');
-  expect(waiting()).toBeTruthy();
+  expect(panel().queryByText('Margherita')).toBeNull();
+  expect(rail().getByRole('button', { name: /^1001/ })).toBeTruthy(); // still on the list
 
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
+  await user.click(rail().getByRole('button', { name: /^1001/ }));
   await user.click(screen.getAllByRole('button', { name: '450' })[0]); // a menu tap adds a round, it does not leave
   expect(panel().getByText('Chicken Burger')).toBeTruthy();
+});
+
+test('+ New order with something on the order: it keeps its number and waits on the list, not sent', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
+  await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
+  await user.click(rail().getByRole('button', { name: /^\+ New order/ }));
+  expect(panel().queryByText('Margherita')).toBeNull();
+  expect(rail().getByRole('button', { name: /^1001.*Not sent.*Not paid/ })).toBeTruthy();
+
+  await user.click(screen.getAllByRole('button', { name: '450' })[0]); // the next customer
+  await user.click(sendBtn());
+  expect(screen.getByRole('status').textContent).toContain('Sent 1002 to kitchen');
+  expect(readAll().filter((e) => e.type === 'order.sent')).toHaveLength(1);
+
+  // Back to 1001: its line is there, and it goes to the kitchen with its own number.
+  await user.click(rail().getByRole('button', { name: /^1001/ }));
+  expect(panel().getByText('Margherita')).toBeTruthy();
+  await user.click(sendBtn());
+  expect(screen.getByRole('status').textContent).toContain('Sent 1001 to kitchen');
+  expect(rail().getByRole('button', { name: /^1001.*Waiting.*Not paid/ })).toBeTruthy();
+});
+
+test('pay first, send after: the kitchen sees nothing until Send; the sale counts at once', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  const rail = () => within(screen.getByRole('navigation', { name: 'Orders' }));
+  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: /Exact/ }));
+
+  // Paid, held: the sale and its lines are written, the kitchen is not told.
+  const sent = readAll().filter((e) => e.type === 'order.sent');
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ orderNumber: 1001, held: true });
+  expect(readAll().some((e) => e.type === 'order.paid')).toBe(true);
+  expect(rail().getByRole('button', { name: /^1001.*Not sent.*Paid/ })).toBeTruthy();
+  expect(panel().queryByRole('button', { name: 'Next order' })).toBeNull(); // Send is the thing to do
+
+  // Elsewhere and back: Send is still there.
+  await user.click(screen.getAllByRole('button', { name: '450' })[0]);
+  expect(panel().getByText('Chicken Burger')).toBeTruthy(); // a new order, not added to the paid one
+  await user.keyboard('{Escape}');
+  await user.click(rail().getByRole('button', { name: /^1001/ }));
+  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  expect(readAll().filter((e) => e.type === 'order.released')).toMatchObject([{ orderNumber: 1001, ticketId: sent[0].type === 'order.sent' ? sent[0].ticketId : '' }]);
+  expect(rail().getByRole('button', { name: /^1001.*Waiting.*Paid/ })).toBeTruthy();
+});
+
+test('undoing a payment made before Send takes the held send back too', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getAllByRole('button', { name: 'L 2500' })[0]);
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: /Exact/ }));
+  await user.click(panel().getByRole('button', { name: 'Undo payment' }));
+  expect(readAll().map((e) => e.type)).toEqual(['order.sent', 'order.paid', 'order.send_undone', 'order.payment_undone']);
+  expect(panel().getByRole('button', { name: 'Send to kitchen' })).toBeTruthy();
+  expect(panel().getByRole('button', { name: 'Pay' })).toBeTruthy();
 });
 
 test('the order list labels unpaid and paid orders clearly', async () => {
@@ -153,19 +211,20 @@ test('the order list labels unpaid and paid orders clearly', async () => {
   await user.click(sendBtn()); // 1001
   await user.click(screen.getAllByRole('button', { name: '450' })[0]);
   await user.click(sendBtn()); // 1002
-  await user.click(within(panel().getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
   // The opened order: its number as a badge, how it stands in one word, and Charge (so: not paid).
   expect(within(panel().getByText('1001').parentElement!).getByText('Order')).toBeTruthy();
   expect(panel().getByText('Waiting')).toBeTruthy();
   expect(panel().queryByText('Unpaid')).toBeNull();
-  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
   expect(panel().getByText('Paying')).toBeTruthy(); // Charge opens in the panel itself
   await user.click(screen.getByRole('button', { name: '2,000' }));
   await user.click(panel().getByRole('button', { name: 'Next order' }));
 
-  const waiting = within(panel().getByRole('region', { name: 'Waiting to pay' }));
-  // A row: the number, what was ordered, how it stands, and the total last.
-  expect(waiting.getByRole('button', { name: /^1002Chicken Burger.*Waiting.*450$/ })).toBeTruthy();
+  const waiting = within(screen.getByRole('navigation', { name: 'Orders' }));
+  // A row: the number, a word for the kitchen, a word for the money.
+  expect(waiting.getByRole('button', { name: /^1002.*Waiting.*Not paid/ })).toBeTruthy();
+  expect(waiting.getByRole('button', { name: /^1001.*Waiting.*Paid/ })).toBeTruthy(); // paid, not made yet: still listed
 
   const paid = within(panel().getByRole('region', { name: 'Paid today' }));
   expect(paid.getByText('1001')).toBeTruthy();
@@ -190,8 +249,8 @@ test('the toast never covers an open sheet', async () => {
   await user.click(screen.getAllByRole('button', { name: 'M 1450' })[0]);
   await user.click(sendBtn());
   expect(screen.getByText('Sent 1001 to kitchen')).toBeTruthy();
-  await user.click(panel().getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Charge' }));
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(panel().getByRole('button', { name: 'Pay' }));
   expect(screen.queryByText('Sent 1001 to kitchen')).toBeNull();
   expect(screen.getByRole('button', { name: 'Card' })).toBeTruthy();
 });
@@ -248,10 +307,10 @@ test('an Uber Eats order: F8, the code, the items; sent with the mark; closed as
   const sent = readAll().find((e) => e.type === 'order.sent');
   expect(sent).toMatchObject({ orderNumber: 1001, platform: { id: 'uber', code: '4F2A9' } });
 
-  const row = within(panel().getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ });
+  const row = within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ });
   expect(within(row).getByText('Uber Eats · 4F2A9')).toBeTruthy();
   await user.click(row);
-  expect(panel().queryByRole('button', { name: 'Charge' })).toBeNull();
+  expect(panel().queryByRole('button', { name: 'Pay' })).toBeNull();
   await user.click(panel().getByRole('button', { name: 'Close · Uber Eats' }));
   expect(screen.queryByRole('dialog')).toBeNull(); // no pay sheet: Uber pays the shop
   expect(readAll().find((e) => e.type === 'order.paid')).toMatchObject({ orderNumber: 1001, tender: 'uber', total: 145000, tendered: 145000 });

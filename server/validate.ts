@@ -109,6 +109,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       const why = checkModuleEvent(e);
       if (why) return { reason: `event ${e.id}: ${why}` };
     }
+    if (e.type === 'order.sent' && e.held !== undefined && e.held !== true) return { reason: `event ${e.id} has an invalid hold` };
+    if (e.type === 'order.released' && !shortString(e.ticketId)) return { reason: `event ${e.id} has no ticket` };
     if (e.type === 'order.sent' && e.platform !== undefined && !isPlatformMark(e.platform)) {
       return { reason: `event ${e.id} has an unknown delivery app or code` };
     }

@@ -24,8 +24,14 @@ interface Audited {
 }
 
 export type OrderEvent =
-  | (Base & { type: 'order.sent'; ticketId: string; lines: OrderLine[]; addOn: boolean; online?: OnlineMark; platform?: PlatformMark })
+  /**
+   * `held`: paid before it went to the kitchen (SCRUM-239). Sales and stock count it from here, as
+   * sold; the kitchen sees it only at its `order.released`, when the cashier presses Send.
+   */
+  | (Base & { type: 'order.sent'; ticketId: string; lines: OrderLine[]; addOn: boolean; online?: OnlineMark; platform?: PlatformMark; held?: true })
   | (Base & { type: 'order.send_undone'; ticketId: string })
+  /** A held send (paid first) goes to the kitchen now. */
+  | (Base & { type: 'order.released'; ticketId: string })
   /**
    * `customerId` (CRM, customers.ts): the customer whose mobile number was given at Charge, an opaque
    * `cus-…` id. Never the number or the name: those stay in the shop server's customer list, where

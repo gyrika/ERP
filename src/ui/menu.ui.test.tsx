@@ -34,7 +34,8 @@ test("the owner changes a price and a name: the counter shows it at once; an ord
 
   await user.keyboard('{Escape}');
   expect((await screen.findAllByRole('button', { name: 'M 1600' })).length).toBeGreaterThan(0);
-  expect(within(panel().getByRole('region', { name: 'Waiting to pay' })).getByRole('button', { name: /^1001/ }).textContent).toContain('1,450');
+  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  expect(within(screen.getByRole('complementary', { name: 'Current order' })).getAllByText('1,450').length).toBeGreaterThan(0);
 });
 
 test('sold out for today: greyed on the counter, cannot be added; Undo brings it back', async () => {

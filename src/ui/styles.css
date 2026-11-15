@@ -2314,3 +2314,58 @@ button.glance__card:disabled { cursor: default; }
   .crm-list, .crm-import__rows { display: block; overflow-x: auto; }
   .crm-test { margin-left: 0; }
 }
+
+/* ---------- Register as a control panel (SCRUM-239): places on top, orders left, menu, this order right ---------- */
+.register__head .tabs { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tab { min-height: var(--tap); padding: 0 var(--sp-3); display: inline-flex; align-items: center; font-size: var(--fs-s); font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+.tab--on { color: var(--ink); font-weight: 700; box-shadow: inset 0 -3px 0 var(--ink); }
+.register__head .tabs .kchip { margin-right: 0; }
+
+.rail { flex: 0 0 var(--rail-w, 176px); width: var(--rail-w, 176px); display: flex; flex-direction: column; gap: var(--sp-2);
+  padding: 0 var(--sp-2) var(--sp-3) var(--sp-3); box-sizing: border-box; overflow-y: auto; scrollbar-width: thin; }
+.rail__new { flex: none; min-height: 52px; border-radius: 12px; background: var(--primary); color: var(--on-primary); font-size: var(--fs-b); font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 8px; }
+.rail__new kbd { color: inherit; border-color: currentColor; opacity: 0.6; }
+.rail__none { margin: var(--sp-2) 4px 0; font-size: var(--fs-xs); line-height: 1.4; color: var(--ink-2); }
+.rail__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rail__row { width: 100%; min-height: 60px; padding: 6px 10px; box-sizing: border-box; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  text-align: right; box-shadow: inset 0 0 0 1.5px transparent; transition: background 150ms var(--ease), box-shadow 150ms var(--ease); }
+.rail__row:hover { background: var(--chip); }
+.rail__row--on { background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.rail__row--late { box-shadow: inset 0 0 0 1.5px var(--bad); }
+.rail__row--late .rail__unpaid { color: var(--bad); font-weight: 600; }
+.rail__row--selected { box-shadow: inset 3px 0 0 var(--gold); background: var(--chip); }
+.rail__no { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.5px; color: var(--ink); }
+.rail__state { display: flex; flex-direction: column; align-items: flex-end; min-width: 0; font-size: var(--fs-xs); line-height: 1.45; color: var(--ink-2); }
+.rail__state > span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail__paid { color: var(--ok-ink); font-weight: 600; }
+.rail__from { color: var(--ink-3); }
+
+.twin { display: flex; gap: var(--sp-2); }
+.twin__side { flex: 1; min-width: 0; min-height: var(--cta-h); border-radius: 14px; padding: 10px 14px; box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 4px; text-align: left; }
+.twin__side small { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.75; }
+.twin__side strong { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--fs-l); font-weight: 600; letter-spacing: -0.3px; }
+.twin__side kbd { color: inherit; border-color: currentColor; opacity: 0.55; font-weight: 500; }
+.twin__do { background: var(--primary); color: var(--on-primary); }
+.twin__also { background: var(--panel); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.twin__side:disabled { opacity: 0.28; }
+.twin__is { background: var(--chip); color: var(--ink); }
+.twin__is small { color: var(--ink-2); opacity: 1; }
+.twin__is--money strong { color: var(--ok-ink); }
+@media (max-width: 1180px), (max-height: 820px) {
+  .register { --rail-w: 160px; }
+  .rail { padding-left: 12px; }
+  .rail__new kbd { display: none; }
+  .rail__row { padding: 6px 8px; }
+  .rail__no { font-size: 19px; }
+  .twin__side { padding: 8px 12px; }
+  .twin__side kbd { display: none; }
+}
+@media (max-width: 560px) {
+  .rail { flex: none; width: auto; flex-direction: row; overflow-x: auto; padding: 0 16px 8px; }
+  .rail__list { flex-direction: row; }
+  .rail__new { padding: 0 14px; white-space: nowrap; }
+  .rail__row { min-width: 120px; }
+  .rail__none { display: none; }
+}

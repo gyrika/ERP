@@ -390,6 +390,18 @@ test('a delivery app\'s mark on a send: a known app and a clean code, or refused
   assert.ok('reason' in validatePush({ events: [send({ id: 'foodpanda', code: 'AB12' })] }, 'shop-1'));
 });
 
+test('paid first (SCRUM-239): a held send and its release', () => {
+  const ok = (e: object) => !('reason' in validatePush({ deviceId: 'd', events: [e] }, 'shop-1'));
+  const send = {
+    ...base, orderNumber: 1044, type: 'order.sent', ticketId: 't1', addOn: false,
+    lines: [{ id: 'l1', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [], sent: true }],
+  };
+  assert.ok(ok({ ...send, held: true }));
+  assert.ok(!ok({ ...send, held: 'yes' }));
+  assert.ok(ok({ ...base, orderNumber: 1044, type: 'order.released', ticketId: 't1' }));
+  assert.ok(!ok({ ...base, orderNumber: 1044, type: 'order.released' }));
+});
+
 test('money out: whole cents above nothing, a known kind, and a name for who paid it (SCRUM-105)', () => {
   const out = { ...base, type: 'money.out', what: 'gas', from: 'drawer', cents: 250000 };
   const ok = (e: object) => !('reason' in validatePush({ deviceId: 'd', events: [e] }, 'shop-1'));

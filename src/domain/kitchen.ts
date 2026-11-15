@@ -272,12 +272,23 @@ const foldTickets = (events: readonly SyncEvent[]): KitchenTicket[] => {
       ...x, lines: x.lines.map((l) => (l.id !== lineId ? l : { ...l, remade: Math.max(0, (l.remade ?? 0) + by) })),
     }));
   };
+  const held = new Map<string, Extract<SyncEvent, { type: 'order.sent' }>>(); // paid first: the kitchen waits for Send
+  const ticketOf = (e: Extract<SyncEvent, { type: 'order.sent' }>, at: number): NewTicket => ({
+    id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: at, addOn: e.addOn,
+    ...(e.online ? { online: e.online } : {}), ...(e.platform ? { platform: e.platform } : {}),
+  });
   for (const e of events) {
     switch (e.type) {
       case 'order.sent':
-        t = fire(t, { id: e.ticketId, shopId: e.shopId, number: e.orderNumber, lines: e.lines, firedAt: e.at, addOn: e.addOn, ...(e.online ? { online: e.online } : {}), ...(e.platform ? { platform: e.platform } : {}) });
+        if (e.held) held.set(e.ticketId, e); else t = fire(t, ticketOf(e, e.at));
         break;
-      case 'order.send_undone': t = recall(t, e.ticketId); break;
+      // Its time starts at Send: the kitchen's clock is about cooking, not about when it was paid.
+      case 'order.released': {
+        const h = held.get(e.ticketId);
+        if (h) { held.delete(e.ticketId); t = fire(t, ticketOf(h, e.at)); }
+        break;
+      }
+      case 'order.send_undone': held.delete(e.ticketId); t = recall(t, e.ticketId); break;
       // A batch held for what it is made from reaches the kitchen when it is released (production.ts).
       case 'prep.ordered':
         if (e.waitFor?.length) break;

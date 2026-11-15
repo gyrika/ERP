@@ -165,6 +165,11 @@ export interface Order {
    * names the customer by id alone (`order.paid.customerId`).
    */
   customer?: OrderCustomer;
+  /**
+   * Paid before it went to the kitchen (SCRUM-239): the id of its held ticket. Send releases it;
+   * until then the order stays on the Register's list, "Not sent".
+   */
+  held?: string;
 }
 
 export interface OrderCustomer { id: string; name: string | null }
