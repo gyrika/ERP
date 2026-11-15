@@ -22,7 +22,7 @@ import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, orderSummary, type ManagePanel } from './OrderPanel.tsx';
 import { OrdersRail, kitchenWord, railRows } from './OrdersRail.tsx';
 import { useNow } from './Kitchen.tsx';
-import { crmReachable } from '../services/crmClient.ts';
+import { crmClient, crmReachable } from '../services/crmClient.ts';
 import { modulesHere, readAll } from './eventLog.ts';
 import { CustomerBar } from './CustomerBar.tsx';
 import { customerOrders, visitsFromEvents } from '../domain/customers.ts';
@@ -92,8 +92,13 @@ export function App({
   /** Tells the customer first (with the number this order will get), then sends it to the kitchen. */
   const acceptOnline = useCallback(async (o: OnlineOrder, minutes: number): Promise<string | null> => {
     const readyBy = Date.now() + minutes * 60_000;
-    const why = await onlineOrders.answer(o.id, { status: 'accepted', orderNumber: reg.nextNumber, readyBy });
-    if (!why) reg.acceptOnline(o.lines, readyBy, o.kind === 'delivery' ? { fee: o.deliveryFee } : undefined);
+    // Signed in on cheesybeez.com: the customer is found (or added) on the list while the cloud is told,
+    // never holding the acceptance up (ensure gives up after 2 s; the order then simply has no customer).
+    const [why, who] = await Promise.all([
+      onlineOrders.answer(o.id, { status: 'accepted', orderNumber: reg.nextNumber, readyBy }),
+      o.account && modulesHere().crm && crmReachable() ? crmClient.ensure(o.phone, o.name, 'app').then((r) => r.customer, () => undefined) : undefined,
+    ]);
+    if (!why) reg.acceptOnline(o.lines, readyBy, o.kind === 'delivery' ? { fee: o.deliveryFee } : undefined, who);
     return why;
   }, [reg]);
   /**

@@ -1,7 +1,9 @@
 import type { Actor } from '../../src/domain/auth.ts';
+import { createAccounts } from './accounts.ts';
 import { PULL_LIMIT, PUSH_BATCH, type ApiError, type PullResponse, type SyncedEvent } from '../../src/domain/sync.ts';
 import { validatePush } from '../../server/validate.ts';
 import { aiRoutes, type AiLike } from './ai.ts';
+import { googleKeys as liveGoogleKeys, type GoogleKeys } from './google.ts';
 import { HttpError, json, sha256Hex } from './http.ts';
 import { managerRoutes, parseActor } from './manager.ts';
 import { mcpRoutes } from './mcp.ts';
@@ -9,6 +11,7 @@ import { onlineRoutes } from './online.ts';
 import { pushRoutes } from './push.ts';
 import { projectSales } from './sales.ts';
 import type { RoadKm } from './road.ts';
+import { sealKeys } from './seal.ts';
 
 export { sha256Hex };
 
@@ -99,10 +102,22 @@ export interface CloudOptions {
   aiDailyCalls?: number;
   /** The owner's ChatGPT plugin's MCP server (wrangler.toml MCP_ENABLED, SCRUM-197); unset = off. */
   mcpEnabled?: boolean;
+  /**
+   * Customer accounts on cheesybeez.com (accounts.ts): the page's Google sign-in client id
+   * (wrangler.toml GOOGLE_CLIENT_ID) and the sealing secret (PROFILE_KEY). Either unset = no accounts.
+   */
+  googleClientId?: string;
+  profileKey?: string;
+  /** Google's public keys; tests pass their own. */
+  googleKeys?: GoogleKeys;
 }
 
 export function createCloud(db: D1Like, options: CloudOptions | (() => number) = {}) {
-  const { now = Date.now, enrolCode, ai = null, aiDailyCalls, mcpEnabled, ...order } = typeof options === 'function' ? { now: options } as CloudOptions : options;
+  const {
+    now = Date.now, enrolCode, ai = null, aiDailyCalls, mcpEnabled, googleClientId, profileKey, googleKeys = liveGoogleKeys, ...order
+  } = typeof options === 'function' ? { now: options } as CloudOptions : options;
+  // The keys come from the secret once (WebCrypto is asynchronous), then serve every request.
+  const accountsReady = sealKeys(profileKey).then((keys) => createAccounts({ db, now, orderShop: order.orderShop, googleClientId, keys, googleKeys }));
   const authenticate = async (req: Request, allowed: Kind[]): Promise<CloudDevice> => {
     const h = req.headers.get('authorization');
     const token = h?.startsWith('Bearer ') ? h.slice(7) : null;
@@ -136,7 +151,10 @@ export function createCloud(db: D1Like, options: CloudOptions | (() => number) =
     if (url.pathname === '/api/v1/health' && req.method === 'GET') return json(200, { ok: true, serverTime: now() });
     const mcp = await mcpRoutes(req, url, { db, now, enabled: mcpEnabled, authenticate });
     if (mcp) return mcp;
-    const online = await onlineRoutes(req, url, { db, now, ...order, authenticate });
+    const accounts = await accountsReady;
+    const account = await accounts.routes(req, url);
+    if (account) return account;
+    const online = await onlineRoutes(req, url, { db, now, ...order, authenticate, accounts });
     if (online) return online;
     const push = await pushRoutes(req, url, { db, now, orderShop: order.orderShop, authenticate });
     if (push) return push;

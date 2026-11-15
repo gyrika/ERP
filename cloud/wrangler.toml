@@ -41,6 +41,9 @@ ORDER_PHONE = "0771817968"
 SHOP_LOCATION = "7.4308601,79.8116327" # Google Maps listing "Cheesy Beez Restaurant", Marawila; its phone matches ORDER_PHONE
 DELIVERY_PER_KM = "50"
 DELIVERY_MAX_KM = "5"
+# Customer accounts (Sign in with Google, docs/cloud.md): the web client id from Google Cloud Console
+# (public), plus the secret PROFILE_KEY (npx wrangler secret put PROFILE_KEY). Either unset = no Sign in.
+# GOOGLE_CLIENT_ID = ""
 
 # A test copy of the cloud, apart from the shops' live one: its own address and its own empty
 # database. Try changes end to end over the internet before they reach the shop:

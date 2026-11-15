@@ -8,8 +8,10 @@ import {
 import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
 import { useInstall } from '../services/ownerApp.ts';
+import { AccountButton, AccountSheet, useAccount, type AccountState } from './Account.tsx';
 import { Offers } from './Offers.tsx';
 import { OffersBell } from './OffersInbox.tsx';
+import type { Account } from '../domain/accounts.ts';
 import { api, remembered, type MyOrder, type Placed, type ShopInfo } from './api.ts';
 import { HERO, PHOTOS, STRIPS, type StripId } from './photos.ts';
 import { isOrderAppHost, setUpOrderApp } from './pwa.ts';
@@ -19,7 +21,8 @@ import { isOrderAppHost, setUpOrderApp } from './pwa.ts';
  * pay the rider in cash (once the owner has set a delivery fee, SCRUM-193).
  * Serves the customer at home on their phone: hungry, knows what they like, and
  * wants one thing next: their order placed in under a minute, then to know when it
- * is ready. So: the menu, a basket, name and phone (and an address), and a live status. No account.
+ * is ready. So: the menu, a basket, name and phone (and an address), and a live status. An account
+ * (Sign in with Google) is optional: it fills the details in and keeps past orders (Account.tsx).
  */
 const rs = (cents: number) => `Rs ${fmt(cents)}`;
 /** The shop's sections in the owner's order (SCRUM-241): the ones on offer that have a dish to order. */
@@ -423,6 +426,14 @@ function useLocation() {
   const [pin, setPin] = useState<DeliveryPin | null>(null);
   const [quote, setQuote] = useState<DeliveryQuote | null>(null);
   const [state, setState] = useState<'idle' | 'asking' | 'failed'>('idle');
+  /** A saved address's pin: priced the same way, without asking the phone. */
+  const use = useCallback((at: DeliveryPin | null) => {
+    setPin(at);
+    setQuote(null);
+    if (!at) return;
+    setState('asking');
+    api.quote(at).then((q) => { setQuote(q); setState('idle'); }, () => setState('failed'));
+  }, []);
   const ask = () => {
     if (!navigator.geolocation) { setState('failed'); return; }
     setState('asking');
@@ -435,19 +446,35 @@ function useLocation() {
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
     );
   };
-  return { pin, quote, state, ask };
+  return { pin, quote, state, ask, use };
 }
 
-function Checkout({ basket, shop, taking, onRetry, onChange, onPlaced, onClose }: {
-  basket: OnlineLine[]; shop: ShopInfo | null; taking: Taking; onRetry: () => void;
+/** What the form starts with: the account's details when signed in (its newest address first), else what this phone remembers. */
+const startingMe = (account: Account | null) => {
+  const here = remembered.me();
+  if (!account) return here;
+  return {
+    name: account.profile.name || here.name,
+    phone: account.profile.phone || here.phone,
+    address: account.addresses[0]?.address ?? here.address,
+  };
+};
+
+function Checkout({ basket, shop, taking, account, onRetry, onChange, onPlaced, onClose }: {
+  basket: OnlineLine[]; shop: ShopInfo | null; taking: Taking; account: Account | null; onRetry: () => void;
   onChange: (b: OnlineLine[]) => void; onPlaced: (p: Placed) => void; onClose: () => void;
 }) {
-  const [me, setMe] = useState(remembered.me);
+  const [me, setMe] = useState(() => startingMe(account));
   const rules = shop?.delivery ?? null;
   const [chosen, setChosen] = useState<OnlineKind>(remembered.kind);
   const kind: OnlineKind = rules === null ? 'pickup' : chosen;
   const delivery = kind === 'delivery';
   const where = useLocation();
+  const saved = account?.addresses ?? [];
+  // Signed in with a saved address: its pin prices the delivery at once, no location asked.
+  const firstPin = saved[0]?.pin ?? null;
+  const usePin = where.use;
+  useEffect(() => { if (delivery && firstPin && !where.pin) usePin(firstPin); }, [delivery, firstPin]); // eslint-disable-line react-hooks/exhaustive-deps
   const priced = where.quote && 'fee' in where.quote ? where.quote : null;
   const fee = priced?.fee ?? 0;
   const [note, setNote] = useState('');
@@ -501,6 +528,16 @@ function Checkout({ basket, shop, taking, onRetry, onChange, onPlaced, onClose }
           {me.phone && !phoneOk && <span className="o-hint">A Sri Lankan number, like 077 123 4567</span>}
         </label>
         {delivery && (<>
+          {saved.length > 0 && (
+            <div className="o-chips o-saved" role="group" aria-label="Your saved addresses">
+              {saved.map((a) => (
+                <button key={a.id} type="button" className="o-chip" aria-pressed={me.address === a.address}
+                  onClick={() => { setMe({ ...me, address: a.address }); where.use(a.pin); }}>
+                  {a.label || (a.address.length > 24 ? `${a.address.slice(0, 23)}…` : a.address)}
+                </button>
+              ))}
+            </div>
+          )}
           <label>Delivery address
             <textarea
               value={me.address} onChange={(e) => setMe({ ...me, address: e.target.value })} rows={2} maxLength={200}
@@ -655,11 +692,13 @@ export function OrderSite() {
   const [open, setOpen] = useState<MenuItem | null>(null);
   const [sizeFor, setSizeFor] = useState<MenuItem | null>(null);
   const [checkout, setCheckout] = useState(false);
+  const account = useAccount();
+  const [accountOpen, setAccountOpen] = useState(false);
   /** The status page is showing; false once the customer went back to the menu with an order still going. */
   const [seeing, setSeeing] = useState(true);
   const onStatus = placed !== null && seeing;
-  useBackCloses(open !== null || sizeFor !== null || checkout || onStatus, () => {
-    setOpen(null); setSizeFor(null); setCheckout(false); setSeeing(false);
+  useBackCloses(open !== null || sizeFor !== null || checkout || accountOpen || onStatus, () => {
+    setOpen(null); setSizeFor(null); setCheckout(false); setAccountOpen(false); setSeeing(false);
   });
   /** Bumps on every add: replays the bar's pop and the toast. */
   const [added, setAdded] = useState(0);
@@ -706,10 +745,17 @@ export function OrderSite() {
   const count = useMemo(() => basket.reduce((n, l) => n + l.qty, 0), [basket]);
   useReveal(onStatus);
 
+  const accountSheet = accountOpen && (
+    <AccountSheet
+      state={account} describe={lineText} onClose={() => setAccountOpen(false)}
+      onAgain={(lines) => { setBasket(lines); setAccountOpen(false); setCheckout(true); }}
+    />
+  );
+
   if (onStatus) {
     return (
       <div className="o-page">
-        <Header taking={taking} shop={shop} onRetry={retry} />
+        <Header taking={taking} shop={shop} onRetry={retry} account={account} onAccount={() => setAccountOpen(true)} />
         <div className="o-wrap o-wrap--narrow">
           <Status
             placed={placed}
@@ -718,13 +764,17 @@ export function OrderSite() {
             onBack={() => setSeeing(false)}
           />
         </div>
+        {accountSheet}
       </div>
     );
   }
 
   return (
     <div className="o-page">
-      <Header taking={taking} shop={shop} onRetry={retry} onSeeOrder={placed ? () => setSeeing(true) : undefined} />
+      <Header
+        taking={taking} shop={shop} onRetry={retry} onSeeOrder={placed ? () => setSeeing(true) : undefined}
+        account={account} onAccount={() => setAccountOpen(true)}
+      />
       {/* Edge to edge; the headline stays in the centred container. */}
       <section className="o-hero">
         <picture>
@@ -803,10 +853,14 @@ export function OrderSite() {
       {open && <ItemSheet item={open} closed={taking === 'closed'} onAdd={add} onClose={() => setOpen(null)} />}
       {checkout && (
         <Checkout
-          basket={basket} shop={shop} taking={taking} onRetry={retry} onChange={setBasket} onClose={() => setCheckout(false)}
-          onPlaced={(p) => { remembered.setLast(basket); remembered.setCurrent(p); setBasket([]); setCheckout(false); setPlaced(p); setSeeing(true); }}
+          basket={basket} shop={shop} taking={taking} account={account.account} onRetry={retry} onChange={setBasket} onClose={() => setCheckout(false)}
+          onPlaced={(p) => {
+            remembered.setLast(basket); remembered.setCurrent(p); setBasket([]); setCheckout(false); setPlaced(p); setSeeing(true);
+            if (account.account) account.refresh(); // the order filled the account (its address, its list)
+          }}
         />
       )}
+      {accountSheet}
     </div>
   );
 }
@@ -815,7 +869,9 @@ export function OrderSite() {
  * Logo left, the shop's state right: the only place the page says whether it takes orders.
  * Loading is a quiet placeholder; a failed check offers Retry and never claims closed.
  */
-function Header({ taking, shop, onRetry, onSeeOrder }: { taking: Taking; shop: ShopInfo | null; onRetry: () => void; onSeeOrder?: () => void }) {
+function Header({ taking, shop, onRetry, onSeeOrder, account, onAccount }: {
+  taking: Taking; shop: ShopInfo | null; onRetry: () => void; onSeeOrder?: () => void; account?: AccountState; onAccount?: () => void;
+}) {
   return (
     <header className="o-head">
       <div className="o-wrap o-head__in">
@@ -825,6 +881,8 @@ function Header({ taking, shop, onRetry, onSeeOrder }: { taking: Taking; shop: S
         <span className="o-head__end">
         {/* The offers this phone received (CRM): a bell, only once offers are on. */}
         <OffersBell />
+        {/* Sign in, or the customer's initials: only once the cloud has accounts on. */}
+        {account && onAccount && <AccountButton state={account} onOpen={onAccount} />}
         {/* An order still going takes the pill's place: always on screen, and the header keeps its height. */}
         {onSeeOrder && <button type="button" className="o-link" onClick={onSeeOrder}>See your order</button>}
         {!onSeeOrder && taking === 'loading' && <span className="o-pill o-pill--loading" aria-hidden />}

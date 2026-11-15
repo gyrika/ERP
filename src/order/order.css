@@ -338,3 +338,25 @@ button { cursor: pointer; }
 .o-inbox__empty { margin: var(--space-2) 0; color: var(--body); }
 .o-inbox__order { margin-top: var(--space-1); }
 .o-inbox__foot { margin: var(--space-2) 0 0; text-align: center; color: var(--caption); font-size: 14px; }
+
+/* ----- The customer's account (Account.tsx) ----- */
+.o-acct-in { min-height: var(--target); font-weight: 600; text-decoration: none; }
+.o-acct-me { display: inline-grid; place-items: center; width: 40px; height: 40px; margin: 4px; border: 0; border-radius: var(--radius-pill); background: var(--primary); color: var(--on-primary); font: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+.o-acct-me:focus-visible, .o-acct-in:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.o-acct__email { margin: -8px 0 var(--space-2); }
+.o-acct__h { margin: var(--space-3) 0 var(--space-1); color: var(--heading); font-size: var(--text-card); font-weight: 700; }
+.o-acct__google { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1); min-height: 48px; margin: var(--space-2) 0; }
+.o-acct__orders, .o-acct__addrs { margin: 0; padding: 0; list-style: none; }
+.o-acct__order { padding: var(--space-2) 0; border-top: 1px solid var(--border); }
+.o-acct__order:first-child { border-top: 0; padding-top: 0; }
+.o-acct__order-top { display: flex; justify-content: space-between; gap: var(--space-2); color: var(--caption); font-size: var(--text-caption); }
+.o-acct__order p { margin: 4px 0 var(--space-1); color: var(--heading); line-height: 1.4; }
+.o-acct .o-btn { min-height: var(--target); display: inline-flex; align-items: center; justify-content: center; padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--card); color: var(--heading); font: inherit; font-weight: 600; }
+.o-acct .o-btn:disabled { color: var(--caption); }
+.o-acct__save { align-self: flex-start; }
+.o-acct__addrs li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-1); padding: var(--space-1) 0; border-top: 1px solid var(--border); color: var(--heading); }
+.o-acct__addrs li:first-child { border-top: 0; }
+.o-acct__foot { display: flex; flex-wrap: wrap; gap: 0 var(--space-1); margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.o-acct__foot .o-link { display: inline-flex; align-items: center; font-size: var(--text-caption); color: var(--caption); }
+.o-acct__delete.is-armed { color: var(--bad); font-weight: 600; }
+.o-saved { margin-bottom: var(--space-1); }
