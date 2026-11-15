@@ -11,7 +11,7 @@ const MOD_WORD = /\b(no|without|extra|add|with)\b/;
 
 /**
  * Rule-based interpreter for typed shorthand:
- *   "2 L devilled chicken no onion, 1 margherita extra bacon, burger"
+ *   "2 L devilled chicken no onion, 1 margherita extra bacon, burger" ("2L" works too)
  * Half-and-half: "L half devilled chicken half bbq chicken" or "devilled chicken / bbq chicken L".
  * Deterministic, offline, instant. A voice or LLM interpreter can implement
  * the same OrderInterpreter interface and be swapped in without touching UI.
@@ -39,7 +39,8 @@ export class ShorthandInterpreter implements OrderInterpreter {
     const lines: LineSpec[] = [];
     const unresolved: string[] = [];
 
-    let protectedInput = input.toLowerCase();
+    // "2l" = "2 l": a size letter may touch the number before it.
+    let protectedInput = input.toLowerCase().replace(/\b(\d+)([sml])\b/g, '$1 $2');
     for (const re of this.protectedNames) protectedInput = protectedInput.replace(re, (m) => m.replace(/ and /g, ' & '));
     for (const raw of protectedInput.split(/,|;|\+|\band\b|\n/)) {
       const segment = raw.trim().replace(/ & /g, ' and ');
