@@ -96,10 +96,14 @@ test('at Charge: anyone at the counter finds a customer by number; a new number 
   assert.equal(((await s.post('/ensure', s.cashier.id, { phone: '0770000001', name: 'Someone Else' })).body.customer as { name: string }).name, 'Kasun');
   assert.equal((await s.customers.byPhone(SHOP, '+94770000001'))?.name, 'Kasun Perera');
   assert.equal(((await s.post('/ensure', s.cashier.id, { phone: '0770000003', name: '---' })).body.customer as { name: null }).name, null, 'no letters: no name');
+  // An online order from a signed-in customer (cheesybeez.com account) comes from the app; anything else is the counter's.
+  await s.post('/ensure', s.cashier.id, { phone: '0770000004', name: 'Ama', source: 'app' });
+  await s.post('/ensure', s.cashier.id, { phone: '0770000005', source: 'web-hack' });
+  assert.deepEqual([(await s.customers.byPhone(SHOP, '+94770000004'))?.source, (await s.customers.byPhone(SHOP, '+94770000005'))?.source], ['app', 'pos']);
   // The list is for managers and the owner.
   assert.equal((await s.get('/customers', s.cashier.id)).status, 403);
   const list = await s.get('/customers', s.manager.id);
-  assert.equal((list.body.customers as unknown[]).length, 3);
+  assert.equal((list.body.customers as unknown[]).length, 5);
   assert.equal((await s.get('/customers', s.manager.id)).body.withApp instanceof Array, true);
   await s.stop();
 });

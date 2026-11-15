@@ -1,3 +1,4 @@
+import type { Account } from '../domain/accounts.ts';
 import type { MenuState } from '../domain/menuEdits.ts';
 import type { DeliveryPin, DeliveryQuote, OnlineKind, OnlineLine, OnlineOrder, OpeningHours } from '../domain/online.ts';
 
@@ -38,6 +39,21 @@ export const api = {
   pushKey: () => call<{ key: string | null }>('/api/v1/push/key'),
   subscribe: (phone: string, subscription: PushSubscriptionJSON) => call<{ ok: true }>('/api/v1/push/subscribe', { phone, subscription }),
   unsubscribe: (endpoint: string) => call<{ ok: true }>('/api/v1/push/unsubscribe', { endpoint }),
+};
+
+/**
+ * The customer's account (cloud/src/accounts.ts), by the sign-in cookie the cloud sets.
+ * `google`: the page's Google sign-in client id; null = accounts are off (no Sign in shown).
+ */
+export const accountApi = {
+  me: () => call<{ google: string | null; account: Account | null }>('/api/v1/account'),
+  google: (credential: string) => call<{ account: Account }>('/api/v1/account/google', { credential }),
+  profile: (p: { name: string; phone: string }) => call<{ account: Account }>('/api/v1/account/profile', p),
+  removeAddress: (id: string) => call<{ account: Account }>('/api/v1/account/addresses/remove', { id }),
+  signOut: (everywhere = false) => call<{ ok: true }>('/api/v1/account/sign-out', { everywhere }),
+  remove: () => call<{ deleted: true }>('/api/v1/account/delete', {}),
+  /** A plain link: the browser saves the file. */
+  exportUrl: '/api/v1/account/export',
 };
 
 // ----- What this phone remembers (never needed: everything works without it) -----

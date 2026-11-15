@@ -110,9 +110,8 @@ test('Esc: no customer, and Charge still offers Mobile; × takes a customer off 
   await typeMobile(user);
   await user.keyboard('{Escape}');
   expect(panel().queryByRole('textbox', { name: 'Customer' })).toBeNull();
-  expect(panel().getByRole('button', { name: /Add customer/ })).toBeTruthy();
+  expect(panel().queryByRole('button', { name: /Add customer/ })).toBeNull(); // no button: 0 opens it, or Mobile at Charge
 
-  await user.click(panel().getByRole('button', { name: /Add customer/ }));
   await user.keyboard('0771234567');
   await panel().findByRole('button', { name: /Dilani/ });
   await user.keyboard('{Enter}');

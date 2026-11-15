@@ -152,9 +152,7 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
     );
   }
 
-  return (
-    <div className="cust">
-      <button type="button" className="cust__add" onClick={() => onTyping('')}>Add customer <kbd>0</kbd></button>
-    </div>
-  );
+  // No customer yet: nothing on screen (owner, 2026-11-16). The mobile is asked at Charge; 0 on the
+  // Register still opens this for someone who wants "the usual" before ordering.
+  return null;
 }

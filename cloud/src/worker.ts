@@ -38,6 +38,10 @@ interface Env {
    */
   TWA_PACKAGE?: string;
   TWA_SHA256?: string;
+  /** Customer accounts on cheesybeez.com: Google sign-in's client id (wrangler.toml [vars], public). */
+  GOOGLE_CLIENT_ID?: string;
+  /** Seals customers' profiles (npx wrangler secret put PROFILE_KEY: 32 random bytes, base64). Unset = no accounts. */
+  PROFILE_KEY?: string;
   /** The owner's page: the cloud build of the app (npm run build:cloud), served as static files. */
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
@@ -136,6 +140,7 @@ export default {
       shopLocation: env.SHOP_LOCATION, deliveryPerKm: env.DELIVERY_PER_KM, deliveryMaxKm: env.DELIVERY_MAX_KM, roadKm: orsRoadKm(env.ORS_API_KEY),
       ai: env.AI ?? null, aiDailyCalls: Number(env.AI_DAILY_CALLS) || undefined,
       mcpEnabled: env.MCP_ENABLED === '1',
+      googleClientId: env.GOOGLE_CLIENT_ID, profileKey: env.PROFILE_KEY,
     })(request);
     if (url.pathname === '/get' || url.pathname === '/download') {
       return latestRelease().then((rel) => new Response(downloadPage(rel), {

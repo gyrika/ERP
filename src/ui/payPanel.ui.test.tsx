@@ -79,6 +79,39 @@ test('a new number: the customer is made as they pay', async () => {
   expect(crm.ensure).toHaveBeenCalledWith('+94770000099');
 });
 
+test('a new number: Enter goes to Name, the name is kept with them as they pay; Enter again pays', async () => {
+  const onPay = vi.fn();
+  const user = userEvent.setup();
+  alone(onPay, true);
+  expect(screen.queryByLabelText(/Name/)).toBeNull();
+  await user.keyboard('0770000099');
+  await screen.findByText('New customer: added as they pay');
+  await user.keyboard('{Enter}');
+  expect(document.activeElement).toBe(screen.getByLabelText(/Name/));
+  // B, C and Q are letters of a name here, never Bank, Card or QR.
+  await user.keyboard('Bimali Costa');
+  expect(onPay).not.toHaveBeenCalled();
+  expect(screen.getByText('New customer: Bimali Costa, added as they pay')).toBeTruthy();
+  await user.keyboard('{Enter}{Enter}');
+  await vi.waitFor(() => expect(onPay).toHaveBeenCalledWith('cash', 290000, 'cus-00000000000000b2'));
+  expect(crm.ensure).toHaveBeenCalledWith('+94770000099', 'Bimali Costa');
+});
+
+test('a known number asks no name; another number forgets the name typed for the last one', async () => {
+  const user = userEvent.setup();
+  alone(vi.fn(), true);
+  await user.keyboard('0770000001');
+  await screen.findByText('Kasun · on the list');
+  expect(screen.queryByLabelText(/Name/)).toBeNull();
+  const mobile = screen.getByLabelText(/Mobile/);
+  await user.clear(mobile);
+  await user.type(mobile, '0770000099');
+  await user.type(await screen.findByLabelText(/Name/), 'Ama');
+  await user.clear(mobile);
+  await user.type(mobile, '0770000098');
+  expect(((await screen.findByLabelText(/Name/)) as HTMLInputElement).value).toBe('');
+});
+
 test('the list not answering, or a half number: the sale still goes in, without a customer', async () => {
   crm.lookup.mockRejectedValue(new Error('timeout'));
   crm.ensure.mockRejectedValue(new Error('timeout'));

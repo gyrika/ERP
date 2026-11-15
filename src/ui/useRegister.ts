@@ -335,13 +335,14 @@ export function useRegister() {
    * kitchen, waiting to be paid at pickup (a delivery: when the rider is back with the cash). The order on screen is left alone (a new one moves
    * up a number). Not undoable here: the customer has already been told.
    */
-  const acceptOnline = useCallback((specs: LineSpec[], pickupBy: number, delivery?: { fee: Cents }): number => {
+  const acceptOnline = useCallback((specs: LineSpec[], pickupBy: number, delivery?: { fee: Cents }, customer?: OrderCustomer): number => {
     seal();
     const s = ref.current;
     const at = Date.now();
     const number = s.nextNumber;
     const online = { pickupBy, ...(delivery ? { delivery } : {}) };
-    const order = { ...markSent(addLines(emptyOrder(number), specs), at), online };
+    // A customer signed in on cheesybeez.com is on the order from the start, so its payment counts for them (CRM).
+    const order = { ...markSent(addLines(emptyOrder(number), specs), at), online, ...(customer ? { customer } : {}) };
     const ticket: NewTicket = { id: newLineId(), shopId: shopId(), number, lines: order.lines, firedAt: at, addOn: false, online };
     const onScreen = !s.paid && s.order.sentAt === undefined && s.order.number === number ? { ...s.order, number: number + 1 } : s.order;
     const next: Snapshot = {

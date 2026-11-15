@@ -52,6 +52,11 @@ export interface OnlineOrder {
   readyBy: number | null;
   /** Why it was declined. */
   reason: string | null;
+  /**
+   * Placed while signed in on cheesybeez.com (cloud/src/accounts.ts): the customer has an account,
+   * so the counter may put them on its customer list (CRM) as it accepts the order.
+   */
+  account?: true;
 }
 
 /** An unanswered order expires: the customer is told, rather than waiting for nothing. */
@@ -67,7 +72,7 @@ export const DELIVERY_DECLINE_REASONS = ['Too far to deliver', 'No rider right n
 /** A delivery still out after this long is worth a look (the owner's Today). */
 export const OUT_TOO_LONG_MS = 60 * 60_000;
 
-const LIMITS = { lines: 30, qty: 20, name: 40, note: 140, address: 200 };
+export const LIMITS = { lines: 30, qty: 20, name: 40, note: 140, address: 200 };
 
 /**
  * How the shop charges for delivery (owner, 2026-10-29: Rs 50 a km, up to about 5 km): from the
@@ -116,7 +121,7 @@ export const quoteFor = (km: number, rules: DeliveryRules): DeliveryQuote => {
 /** A Maps link that opens the rider's navigation at the customer's shared location. */
 export const pinLink = (pin: DeliveryPin): string => `https://www.google.com/maps/search/?api=1&query=${pin.lat},${pin.lng}`;
 
-const checkPin = (raw: unknown): DeliveryPin | null | string => {
+export const checkPin = (raw: unknown): DeliveryPin | null | string => {
   if (raw === undefined || raw === null) return null;
   const r = raw as Record<string, unknown>;
   const ok = (v: unknown, max: number) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max;

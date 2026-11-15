@@ -5,6 +5,7 @@ import {
   takingOrders, withDelivery, type DeliveryQuote,
   type DeliveryPin, type OnlineKind, type OnlineLine, type OnlineOrder, type OnlineStatus,
 } from '../../src/domain/online.ts';
+import type { Accounts } from './accounts.ts';
 import type { CloudDevice, D1Like, Kind } from './cloud.ts';
 import { HttpError, json, randomToken, sha256Hex } from './http.ts';
 import type { RoadKm } from './road.ts';
@@ -31,13 +32,15 @@ export interface OnlineContext {
   deliveryPerKm?: string;
   deliveryMaxKm?: string;
   roadKm?: RoadKm;
+  /** Customer accounts (accounts.ts): an order placed while signed in belongs to the account. */
+  accounts?: Pick<Accounts, 'signedIn' | 'afterOrder'>;
   authenticate(req: Request, allowed: Kind[]): Promise<CloudDevice>;
 }
 
 interface Row {
   id: string; status: OnlineStatus; kind: OnlineKind; name: string; phone: string; address: string | null; pin: string | null;
   body: string; delivery_fee: number; distance_m: number | null; total: number;
-  order_number: number | null; ready_by: number | null; reason: string | null; created_at: number;
+  order_number: number | null; ready_by: number | null; reason: string | null; created_at: number; account_id: string | null;
 }
 
 const HOUR = 60 * 60_000;
@@ -57,10 +60,11 @@ const toOrder = (r: Row, now: number): OnlineOrder => {
     lines: body.lines, note: body.note, deliveryFee: r.delivery_fee,
     distanceKm: r.distance_m === null ? null : Math.round(r.distance_m / 100) / 10, total: r.total,
     orderNumber: r.order_number, readyBy: r.ready_by, reason: r.reason,
+    ...(r.account_id ? { account: true as const } : {}),
   };
 };
 
-const COLUMNS = 'id, status, kind, name, phone, address, pin, body, delivery_fee, distance_m, total, order_number, ready_by, reason, created_at';
+const COLUMNS = 'id, status, kind, name, phone, address, pin, body, delivery_fee, distance_m, total, order_number, ready_by, reason, created_at, account_id';
 const IN_PLAY_SQL = IN_PLAY.map((s) => `'${s}'`).join(', ');
 
 export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Promise<Response | null> {
@@ -138,13 +142,16 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
 
     const id = `o-${randomToken(9)}`;
     const token = randomToken(24);
+    const accountId = (await c.accounts?.signedIn(req)) ?? null;
     await db.prepare(`INSERT INTO online_orders
-        (id, tenant_id, token_hash, status, kind, name, phone, address, pin, body, delivery_fee, distance_m, total, ip_hash, created_at, updated_at)
-        VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        (id, tenant_id, token_hash, status, kind, name, phone, address, pin, body, delivery_fee, distance_m, total, ip_hash, created_at, updated_at, account_id)
+        VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(id, c.orderShop, await sha256Hex(token), checked.kind, checked.name, checked.phone, checked.address,
         checked.pin ? JSON.stringify(checked.pin) : null, JSON.stringify({ lines: checked.lines, note: checked.note }),
-        checked.deliveryFee, checked.distanceKm === null ? null : Math.round(checked.distanceKm * 1000), checked.total, ip, t, t)
+        checked.deliveryFee, checked.distanceKm === null ? null : Math.round(checked.distanceKm * 1000), checked.total, ip, t, t, accountId)
       .run();
+    // The account fills itself from the order (name, phone, the delivery address); the order never waits on it.
+    if (accountId) await c.accounts!.afterOrder(accountId, checked).catch((e: unknown) => console.error('account after order', e));
     return json(200, { id, token, total: checked.total });
   }
 
@@ -154,7 +161,7 @@ export async function onlineRoutes(req: Request, url: URL, c: OnlineContext): Pr
     const row = await db.prepare(`SELECT ${COLUMNS} FROM online_orders WHERE id = ? AND token_hash = ?`)
       .bind(mine[1], await sha256Hex(token)).first<Row>();
     if (!row) throw new HttpError(404, 'server', 'That order is not here.');
-    const { phone: _phone, pin: _pin, ...order } = toOrder(row, now());
+    const { phone: _phone, pin: _pin, account: _account, ...order } = toOrder(row, now());
     return json(200, order);
   }
 

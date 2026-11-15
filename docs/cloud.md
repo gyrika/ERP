@@ -173,6 +173,45 @@ the cloud address root.
   Address and location are blanked after 30 days with the name; the customer's own status page
   never returns the location.
 
+### Customer accounts (optional sign-in)
+
+Customers may sign in on cheesybeez.com with Google; ordering without signing in works as before.
+The **cloud keeps the master copy** of an account (owner, 2026-11-16): customers change it from
+anywhere, even while the shop PC is off. Rules in `src/domain/accounts.ts`, the cloud side in
+`cloud/src/accounts.ts` (+ `google.ts`, `seal.ts`), the page in `src/order/Account.tsx`.
+
+- **What it keeps:** name, mobile, email (from Google), up to 5 delivery addresses with their map
+  pin, and which online orders are theirs. No photo, no birthday. It fills itself from orders: an
+  order placed while signed in gives the account its name and phone (when it has none) and saves a
+  delivery's address and pin, so the next delivery is priced without asking for the location.
+- **Sealed:** name, phone, email and addresses are encrypted (AES-256-GCM) with a key from the
+  `PROFILE_KEY` secret, each bound to its own row; Google ids and phones are found by keyed hash.
+  A copy of the database names nobody without the secret. Losing the secret loses every account.
+  Keep a copy of it somewhere safe outside Cloudflare.
+- **Sessions:** an HttpOnly, Secure, SameSite=Lax cookie (`cb_session`, path `/api/`) for 90
+  days; only its hash is stored. Account changes are refused from any other site (Origin check).
+  At most 20 sign-ins an hour per connection.
+- **The counter:** an order from a signed-in customer reaches the shop marked `account: true`. With
+  Customers (CRM) on, accepting it puts the customer on the shop's list (source *app*) and on the
+  order, so the payment counts for them. Nobody retypes the number. Signed-out orders never reach
+  the list.
+- **The customer's rights (PDPA):** *Download my data* (a JSON file) and *Delete my account* (a
+  second tap confirms) are in the account sheet. Deleting erases the account, its addresses and
+  sessions; past orders stay with the shop without pointing to anyone. D1 Time Travel keeps
+  restorable copies for 30 days, so an erasure is complete after 30 days.
+
+**Turning it on** (off, with no Sign in on the page, until both are set):
+1. Google Cloud Console → APIs & Services → Credentials → *Create OAuth client ID* → Web
+   application. Authorised JavaScript origins: `https://cheesybeez.com` (and the staging address).
+   No redirect URI is needed. The OAuth consent screen needs the shop's name, logo and a privacy
+   policy link.
+2. Put the client id (public) in `[vars]` as `GOOGLE_CLIENT_ID = "…apps.googleusercontent.com"`.
+3. Make the sealing key and store it as a secret (and a safe copy offline):
+   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` →
+   `npx wrangler secret put PROFILE_KEY`.
+4. `npm run migrate` (migration 0015), then `npm run deploy`. Try it on staging first
+   (`--env staging`, its own `GOOGLE_CLIENT_ID` and `PROFILE_KEY`).
+
 ## Language model (SCRUM-142/144)
 
 Cloudflare Workers AI, through the Worker's `AI` binding (`[ai]` in `cloud/wrangler.toml`, live and
