@@ -3,7 +3,9 @@ import type { Actor } from '../domain/auth.ts';
 import {
   checkOwnLines, linesCost, marginOf, menuCost, recipeOf, recipeQuestion, sizesOf, waitingOn, type CostContext,
 } from '../domain/costing.ts';
-import { MENU, comboEntries, menuItems, menuState, startingItem } from '../domain/menu.ts';
+import { MENU, comboEntries, menuItems, menuSections, menuState, sectionById, startingItem } from '../domain/menu.ts';
+import { sizeShort, type Section } from '../domain/sections.ts';
+import { SectionSheet } from './SectionSheet.tsx';
 import { managesRole } from '../domain/auth.ts';
 import { comboBlocked, separatePrice } from '../domain/combos.ts';
 import { ComboEditor, saveCombo } from './ComboEditor.tsx';
@@ -30,12 +32,11 @@ import { PhotoSlot } from './PhotoSlot.tsx';
  * Every change is an event (who, when, before/after) with an Undo, and reaches the counter,
  * the kitchen and cheesybeez.com at once.
  */
-const SECTIONS: { id: Category; label: string; one: string }[] = [
-  { id: 'pizza', label: 'Pizza', one: 'pizza' }, { id: 'burger', label: 'Burgers', one: 'burger' }, { id: 'pasta', label: 'Pasta', one: 'pasta' },
-];
+/** "Add a pizza" for a printed section; "Add to Kottu" for one of his own (SCRUM-241). */
+const addWords = (s: Section) => (s.printed ? `Add a ${s.one.toLowerCase()}` : `Add to ${s.label}`);
 /** The item as printed, or as the owner added it. */
 const startOf = (id: string) => startingItem(id) ?? MENU.find((m) => m.id === id)!;
-const prices = (m: MenuItem) => (m.variants ? m.variants.map((v) => `${v.id} ${fmt(v.price)}`).join(' · ') : fmt(m.price ?? 0));
+const prices = (m: MenuItem) => (m.variants ? m.variants.map((v) => `${sizeShort(v)} ${fmt(v.price)}`).join(' · ') : fmt(m.price ?? 0));
 
 /**
  * "Cost M 412 · 75%  L 690 · 72%", "Cost so far M 38 · L 66 · waiting on Basil price" (what is
@@ -224,9 +225,9 @@ type Step = 0 | 1 | 2;
  * until the last step, then the item and its recipes go in at once with one Undo.
  */
 function AddDish({ section, ctx, onSaved, onClose }: {
-  section: (typeof SECTIONS)[number]; ctx: CostContext; onSaved: (message: string, undo: () => void) => void; onClose: () => void;
+  section: Section; ctx: CostContext; onSaved: (message: string, undo: () => void) => void; onClose: () => void;
 }) {
-  const shape = newItemSizes(section.id, MENU);
+  const shape = newItemSizes(section.id, MENU, menuState().sections);
   const [step, setStep] = useState<Step>(0);
   const [en, setEn] = useState('');
   const [si, setSi] = useState('');
@@ -272,7 +273,7 @@ function AddDish({ section, ctx, onSaved, onClose }: {
       description: desc.trim(),
       prices,
     };
-    const bad = checkNewItem(item, MENU);
+    const bad = checkNewItem(item, MENU, menuState().sections);
     if (bad) return setError(`${bad[0].toUpperCase()}${bad.slice(1)}.`);
     const id = newId(item.name.en);
     addItem(id, item);
@@ -291,9 +292,9 @@ function AddDish({ section, ctx, onSaved, onClose }: {
   return (
     <>
       <div className="scrim" onClick={onClose} />
-      <form className="sheet menued" role="dialog" aria-modal="true" aria-label={`Add a ${section.one}`} onSubmit={submit}>
+      <form className="sheet menued" role="dialog" aria-modal="true" aria-label={addWords(section)} onSubmit={submit}>
         <div className="sheet__body">
-          <div className="sheet__title"><h1>{step === 0 || !en.trim() ? `Add a ${section.one}` : en.trim()}</h1></div>
+          <div className="sheet__title"><h1>{step === 0 || !en.trim() ? addWords(section) : en.trim()}</h1></div>
           <ol className="dish__steps" aria-label="Steps">
             {STEPS.map((label, i) => (
               <li key={label} aria-current={i === step ? 'step' : undefined} className={i < step ? 'dish__done' : undefined}>{label}</li>
@@ -317,7 +318,7 @@ function AddDish({ section, ctx, onSaved, onClose }: {
 
           {step === 1 && (
             <section className="group">
-              <p className="dish__hint">One {section.one}: what goes in, and how much. Each sale then takes it from your stock.</p>
+              <p className="dish__hint">One {section.printed ? section.one.toLowerCase() : 'dish'}: what goes in, and how much. Each sale then takes it from your stock.</p>
               <DishRecipe
                 category={section.id} name={en.trim()} sizes={sizes} rows={rows} onRows={(r) => { setRows(r); setError(''); }}
                 owner={owner} ctx={ctx}
@@ -350,7 +351,7 @@ function AddDish({ section, ctx, onSaved, onClose }: {
               </div>
               <p className="menued__note">
                 {written
-                  ? `Extras are the same as on the other ${section.label.toLowerCase()}.`
+                  ? (section.printed ? `Extras are the same as on the other ${section.label.toLowerCase()}.` : `Dishes of ${section.label} have no extras.`)
                   : 'No recipe yet: until you write it, its sales don\'t take stock. Write it any time from the Menu.'}
               </p>
             </section>
@@ -561,7 +562,11 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
 
 export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void }) {
   useMenu();
-  const [section, setSection] = useState<Category | 'combos'>('pizza');
+  const [section, setSection] = useState<Category | 'combos'>(() => menuSections()[0]?.id ?? 'pizza');
+  /** His own sections (SCRUM-241): new (null) or one to change. */
+  const [sectionEdit, setSectionEdit] = useState<{ section: Section | null } | null>(null);
+  // Managers see the sections on offer; the owner sees his hidden ones too, to bring them back.
+  const sections = menuSections().filter((s) => owner || !s.hidden);
   /** Combo packs (SCRUM-231): managers and the owner make them. */
   const mayCombos = owner || managesRole(currentCashier().role);
   const [comboEdit, setComboEdit] = useState<{ id: string | null; combo: Combo | null } | null>(null);
@@ -569,7 +574,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<{ id: number; message: string; undo: () => void } | null>(null);
   const items = menuItems().filter((m) => m.category === section && !m.removed);
-  const here = SECTIONS.find((s) => s.id === section) ?? SECTIONS[0];
+  const here = sectionById(section) ?? sections[0];
   const costs = useCostContext();
   const [writing, setWriting] = useState<MenuItem | null>(null);
 
@@ -593,10 +598,13 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
             : 'Mark something sold out for today. Prices and names are changed by the owner.'}
         </p>
         <nav className="cats" aria-label="Menu sections">
-          {SECTIONS.map((s) => (
-            <button key={s.id} type="button" className="pill" aria-pressed={section === s.id} onClick={() => setSection(s.id)}>{s.label}</button>
+          {sections.map((s) => (
+            <button key={s.id} type="button" className={`pill${s.hidden ? ' pill--hidden' : ''}`} aria-pressed={section === s.id} onClick={() => setSection(s.id)}>
+              {s.label}{s.hidden ? ' (hidden)' : ''}
+            </button>
           ))}
           <button type="button" className="pill" aria-pressed={section === 'combos'} onClick={() => setSection('combos')}>Combos</button>
+          {owner && <button type="button" className="chip" onClick={() => setSectionEdit({ section: null })}>+ Section</button>}
         </nav>
         {section === 'combos' && (
           <>
@@ -672,8 +680,14 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
             </li>
           ))}
         </ul>}
+        {section !== 'combos' && items.length === 0 && (
+          <p className="menuv__lead">Nothing in {here.label} yet.{owner ? ' Add its first dish.' : ''}</p>
+        )}
         {owner && section !== 'combos' && (
-          <button type="button" className="chip menuv__add" onClick={() => setAdding(true)}>+ Add a {here.one}</button>
+          <div className="menuv__actions">
+            <button type="button" className="chip menuv__add" onClick={() => setAdding(true)}>+ {addWords(here)}</button>
+            <button type="button" className="chip menuv__add" onClick={() => setSectionEdit({ section: here })} aria-label={`Change the ${here.label} section`}>Change section</button>
+          </div>
         )}
       </main>
       {adding && <AddDish section={here} ctx={costs} onClose={() => setAdding(false)} onSaved={(msg, undo) => { setAdding(false); said(msg, undo); }} />}
@@ -683,7 +697,11 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
         <ComboEditor comboId={comboEdit.id} combo={comboEdit.combo} ctx={costs}
           onClose={() => setComboEdit(null)} onSaved={(msg, undo) => { setComboEdit(null); said(msg, undo); }} />
       )}
-      {toast && !editing && !adding && !writing && !comboEdit && (
+      {sectionEdit && (
+        <SectionSheet section={sectionEdit.section} onClose={() => setSectionEdit(null)}
+          onSaved={(msg, undo, select) => { setSectionEdit(null); if (select) setSection(select as Category); said(msg, undo); }} />
+      )}
+      {toast && !editing && !adding && !writing && !comboEdit && !sectionEdit && (
         <div className="toast" role="status" key={toast.id}>
           <span>{toast.message}</span>
           <button type="button" onClick={() => { toast.undo(); setToast(null); }}>Undo</button>

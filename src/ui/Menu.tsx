@@ -1,11 +1,12 @@
 import { comboBlocked, usualPick } from '../domain/combos.ts';
-import { CATEGORIES, POPULAR_IDS, comboEntries, menuItems } from '../domain/menu.ts';
+import { POPULAR_IDS, comboEntries, menuItems, menuSections } from '../domain/menu.ts';
+import { sizeShort } from '../domain/sections.ts';
 import { fmtPlain } from '../domain/money.ts';
 import type { Category, Combo, MenuItem, SizeId } from '../domain/types.ts';
 import { photoUrl, shopHasPhotos } from '../services/menuPhotos.ts';
 import { useMenu } from './menuStore.ts';
 
-export type CategoryId = (typeof CATEGORIES)[number]['id'] | 'combos';
+export type CategoryId = 'popular' | Category | 'combos';
 
 interface Props {
   category: CategoryId;
@@ -30,12 +31,20 @@ const visible = (c: CategoryId): MenuItem[] =>
 export const offeredCombos = (): { id: string; combo: Combo }[] => comboEntries().filter(({ combo }) => !combo.hidden);
 
 /** The section bar's tabs in order: Alt+1 … Alt+9 pick them. Combos only once the shop has one: no empty tabs. */
-export const menuTabs = (): CategoryId[] => [...CATEGORIES.map((c) => c.id), ...(offeredCombos().length ? ['combos' as const] : [])];
+export const menuTabs = (): CategoryId[] => sectionTabs().map((t) => t.id);
+/** Popular, the sections the owner offers in his order (SCRUM-241), then Combos once there is one. */
+const sectionTabs = (): { id: CategoryId; label: string }[] => [
+  { id: 'popular', label: 'Popular' },
+  ...menuSections().filter((s) => !s.hidden).map((s) => ({ id: s.id, label: s.label })),
+  ...(offeredCombos().length ? [{ id: 'combos' as const, label: 'Combos' }] : []),
+];
 
 /** Up to this many sizes get a price button each on the card; more open the item. */
 const BUTTONS = 3;
 
-const ICON: Record<Category, string> = {
+/** A dish of his own sections gets a plate. */
+const PLATE = 'M3 13h18 M5 13a7 6 0 0 1 14 0 M12 5v2';
+const ICON: Partial<Record<Category, string>> = {
   pizza: 'M12 21L3.5 6.6a14 14 0 0 1 17 0Z',
   burger: 'M4 11a8 7 0 0 1 16 0Z M3 14.5h18 M5 18h14',
   pasta: 'M3 12h18a9 8 0 0 1-18 0Z M8 12c0-3 1.8-5 4-5s4 2 4 5',
@@ -46,7 +55,7 @@ function SlotGlyph({ category, choice, mark }: { category: Category; choice: boo
   return (
     <span className={`slotg${choice ? ' slotg--choice' : ''}`}>
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d={ICON[category]} />
+        <path d={ICON[category] ?? PLATE} />
       </svg>
       {mark && <span className="slotg__mark">{mark}</span>}
     </span>
@@ -57,7 +66,8 @@ function SlotGlyph({ category, choice, mark }: { category: Category; choice: boo
 const comboLine = (combo: Combo, items: MenuItem[]): string => {
   const dishes = combo.slots.map((s) => {
     const m = usualPick(s, items);
-    return m ? `${s.qty > 1 ? `${s.qty} × ` : ''}${m.name.en}${s.size ? ` ${s.size}` : ''}` : '';
+    const size = s.size && m?.variants?.find((v) => v.id === s.size);
+    return m ? `${s.qty > 1 ? `${s.qty} × ` : ''}${m.name.en}${size ? ` ${sizeShort(size)}` : ''}` : '';
   }).filter(Boolean).join(' · ');
   return combo.slots.some((s) => Object.keys(s.options).length > 1) ? `Usual: ${dishes}` : dishes;
 };
@@ -66,8 +76,9 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
   useMenu();
   const combos = offeredCombos();
   // The tab shows only once the shop has a combo: no empty tabs.
-  const tabs = combos.length ? [...CATEGORIES, { id: 'combos' as const, label: 'Combos' }] : CATEGORIES;
-  const showing = category === 'combos' && !combos.length ? 'popular' : category;
+  const tabs = sectionTabs();
+  // A tab that went away (no combos left, a section hidden) falls back to Popular.
+  const showing = tabs.some((t) => t.id === category) ? category : 'popular';
   const items = menuItems();
   // Photos on the tiles once the shop has any; an item without one keeps a blank, so the grid stays even.
   const photos = shopHasPhotos();
@@ -101,7 +112,7 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
                     const m = items.find((x) => x.id === s.usual);
                     return m && (
                       <SlotGlyph key={i} category={m.category} choice={Object.keys(s.options).length > 1}
-                        mark={s.qty > 1 ? `×${s.qty}` : s.size} />
+                        mark={s.qty > 1 ? `×${s.qty}` : (s.size && m.variants?.find((v) => v.id === s.size) ? sizeShort(m.variants.find((v) => v.id === s.size)!) : s.size)} />
                     );
                   })}
                 </div>
@@ -142,7 +153,7 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
                   item.variants.map((v) => (
                     // Three to a card: the size small above its price, so it fits a narrow tile.
                     <button key={v.id} type="button" className={`price num${item.variants!.length === 3 ? ' price--stack' : ''}`} disabled={item.soldOut} onClick={() => onQuickAdd(item, v.id)}>
-                      {item.variants!.length === 3 ? <><span>{v.id}</span> {fmtPlain(v.price)}</> : <>{v.id} {fmtPlain(v.price)}</>}
+                      {item.variants!.length === 3 ? <><span>{sizeShort(v)}</span> {fmtPlain(v.price)}</> : <>{sizeShort(v)} {fmtPlain(v.price)}</>}
                     </button>
                   ))
                 ) : item.variants ? (

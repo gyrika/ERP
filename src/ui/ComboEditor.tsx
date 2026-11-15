@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { menuCost, type CostContext } from '../domain/costing.ts';
 import { boxFoodCost, checkCombo, comboIdFor, MAX_SLOT_QTY, MAX_SLOTS, separatePrice } from '../domain/combos.ts';
-import { comboEntries, menuItems } from '../domain/menu.ts';
+import { comboEntries, menuItems, menuSections, sectionById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import type { Category, Cents, Combo, ComboSlot, MenuItem, SizeId } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
@@ -14,9 +14,8 @@ import { NumberInput } from './NumberInput.tsx';
  * what the shop keeps before it goes on sale. Saving is one audited `menu.combo_set` event with
  * an Undo; the Register's Combos tab shows it at once and one tap sells it.
  */
-const SECTIONS: { id: Category; one: string }[] = [
-  { id: 'pizza', one: 'Pizza' }, { id: 'burger', one: 'Burger' }, { id: 'pasta', one: 'Pasta' },
-];
+/** A slot's section word: "Pizza", or his own section's name (SCRUM-241). */
+const oneOf = (category: Category) => sectionById(category)?.one ?? 'Dish';
 
 /** "3600" → cents, whole rupees only. */
 const toCents = (text: string): Cents | null => {
@@ -80,9 +79,9 @@ function SlotEditor({ d, onChange, onRemove }: { d: SlotDraft; onChange: (d: Slo
     onChange({ ...d, size, picks: Object.fromEntries(Object.entries(d.picks).filter(([id]) => fit.has(id))) });
   };
   return (
-    <section className="group comboed__slot" aria-label={`${SECTIONS.find((s) => s.id === d.category)!.one} slot`}>
+    <section className="group comboed__slot" aria-label={`${oneOf(d.category)} slot`}>
       <div className="comboed__slothead">
-        <h2>{SECTIONS.find((s) => s.id === d.category)!.one}{d.size ? ` · ${sizes.find((v) => v.id === d.size)?.label ?? d.size}` : ''}</h2>
+        <h2>{oneOf(d.category)}{d.size ? ` · ${sizes.find((v) => v.id === d.size)?.label ?? d.size}` : ''}</h2>
         <div className="stepper" role="group" aria-label="How many">
           <button type="button" aria-label="One less" onClick={() => onChange({ ...d, qty: Math.max(1, d.qty - 1) })}>−</button>
           <span className="num" aria-live="polite">{d.qty}</span>
@@ -217,11 +216,11 @@ export function ComboEditor({ comboId, combo, ctx, onSaved, onClose }: {
           <section className="group">
             <h2>{slots.length ? 'Put more in the box' : 'Put dishes in the box'}</h2>
             <div className="chips">
-              {SECTIONS.map((s) => (
+              {menuSections().filter((s) => !s.hidden && menuItems().some((m) => m.category === s.id && !m.hidden && !m.removed)).map((s) => (
                 <button key={s.id} type="button" className="chip chip--solid" disabled={slots.length >= MAX_SLOTS} onClick={() => addSlot(s.id)}>+ {s.one}</button>
               ))}
             </div>
-            <p className="comboed__hint">Drinks are not on the menu yet, so they cannot go in a box.</p>
+            {menuSections().every((s) => s.printed) && <p className="comboed__hint">Drinks go in a box once the Menu has a Drinks section (+ Section on the Menu).</p>}
           </section>
 
           {live && (

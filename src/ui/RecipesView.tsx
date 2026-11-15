@@ -5,7 +5,7 @@ import {
   menuCost, newPrepId, ownPrepOf, ownPreps, prepOf, prepQuestion, questionKind, recipeOf, recipeQuestion, recipeUnit, sizesOf, STOCK_LINE, undefinedNames,
   UNITS, waitingOn, type Answer, type Cost, type CostContext, type OwnPrep, type Recipe,
 } from '../domain/costing.ts';
-import { menuItems } from '../domain/menu.ts';
+import { menuItems, menuSections, sectionById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { PREPS, type BookLine } from '../domain/recipeBook.ts';
 import { MENU_RECIPES } from '../domain/recipeMap.ts';
@@ -35,8 +35,8 @@ import { NumberInput } from './NumberInput.tsx';
 /** A gap in this many recipes or more is asked once, above them all. */
 const SHARED_GAP = 3;
 
-const CATEGORY_LABEL: Record<string, string> = { pizza: 'Pizza', burger: 'Burgers', pasta: 'Pasta' };
-const CATEGORY_ORDER = ['pizza', 'burger', 'pasta'];
+/** A dish's group: its section's name, in the owner's order (SCRUM-241). */
+const groupOf = (category: string) => sectionById(category)?.label ?? category;
 
 interface Entry {
   key: string;
@@ -66,7 +66,7 @@ export function entriesOf(menu: readonly MenuItem[], ctx: CostContext): Entry[] 
         key: recipeQuestion(item.id, size),
         question: recipeQuestion(item.id, size),
         title: `${item.name.en}${label ? ` ${label}` : ''}`,
-        group: CATEGORY_LABEL[item.category] ?? item.category,
+        group: groupOf(item.category),
         category: item.category,
         price: item.variants?.find((v) => v.id === size)?.price ?? item.price ?? 0,
         recipe: recipeOf(item.id, size, ctx.answers),
@@ -156,7 +156,7 @@ function Book({ owner, focus }: { owner: Actor; focus?: string }) {
 
   const complete = entries.filter((e) => e.cost.complete).length;
   // Not complete first, then by the menu's order; groups in a fixed order.
-  const groups = [...CATEGORY_ORDER.map((c) => CATEGORY_LABEL[c]), 'Extras']
+  const groups = [...new Set([...menuSections().map((s) => s.label), ...entries.map((e) => e.group).filter((g) => g !== 'Extras')]), 'Extras']
     .map((g) => ({ name: g, items: entries.filter((e) => e.group === g) }))
     .filter((g) => g.items.length)
     .map((g) => ({ ...g, items: [...g.items.filter((e) => !e.cost.complete), ...g.items.filter((e) => e.cost.complete)] }));

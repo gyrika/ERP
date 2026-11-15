@@ -18,6 +18,7 @@ import { SHOP_EVENT_TYPES } from '../src/domain/freshStart.ts';
 import { checkModuleEvent, MODULE_EVENT_TYPES } from '../src/domain/modules.ts';
 import { CAMPAIGN_EVENT_TYPES, checkCampaignEvent } from '../src/domain/campaigns.ts';
 import { isCustomerId } from '../src/domain/customers.ts';
+import { checkSection, checkSectionOrder, isCustomSection, SECTION_ID } from '../src/domain/sections.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import { checkCombo, COMBO_ID } from '../src/domain/combos.ts';
 import { validPhotoChoice } from '../src/domain/menuPhotos.ts';
@@ -42,7 +43,7 @@ const onMenu = (itemId: unknown): boolean => MENU.some((entry) => entry.id === i
  */
 const ANY_ADDED: MenuItem = {
   id: 'new-item', category: 'pizza', name: { en: 'This item' }, description: '', aliases: [],
-  variants: (['S', 'M', 'L'] as const).map((id) => ({ id, label: id, price: 0 })), price: 0,
+  variants: (['S', 'M', 'L', 'x1', 'x2', 'x3'] as const).map((id) => ({ id, label: id, price: 0 })), price: 0,
   adds: MENU.flatMap((m) => m.adds), leaveOut: [],
 };
 const validNewItem = (value: unknown): boolean =>
@@ -51,6 +52,9 @@ const validNewItem = (value: unknown): boolean =>
     Object.values(value.prices).every((price) => typeof price === 'number') &&
     Object.keys(value).every((key) => ['category', 'name', 'description', 'prices'].includes(key)) &&
     checkNewItem(value as unknown as NewItem, MENU) === null);
+/** A section's setting, or null (none / taken back); its sizes keep their count from `before`. */
+const validSection = (id: string, value: unknown, before: unknown): boolean =>
+  value === null || (isObj(value) && checkSection(id, value, isObj(before) ? before : null) === null);
 /** A combo pack (SCRUM-231): the owner's own dishes are only known by their id here. */
 const validCombo = (value: unknown): boolean =>
   value === null || (isObj(value) && checkCombo(value as unknown as Combo, MENU, isAddedId) === null &&
@@ -315,6 +319,15 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
         (typeof e.itemId !== 'string' || !COMBO_ID.test(e.itemId) || !validCombo(e.before) || !validCombo(e.after))) {
       return { reason: `event ${e.id} has an invalid combo` };
     }
+    // Sections (SCRUM-241): a printed section's id or one of his own; the whole setting, before and after.
+    if (e.type === 'menu.section_set' && (
+      typeof e.itemId !== 'string' || !(['pizza', 'burger', 'pasta'].includes(e.itemId) || SECTION_ID.test(e.itemId)) ||
+      !validSection(e.itemId, e.before, null) || !validSection(e.itemId, e.after, e.before) ||
+      (isCustomSection(e.itemId) && e.before === null && e.after === null)
+    )) return { reason: `event ${e.id} has an invalid menu section` };
+    if (e.type === 'menu.sections_ordered' && (
+      e.itemId !== 'sections' || checkSectionOrder(e.before) !== null || checkSectionOrder(e.after) !== null
+    )) return { reason: `event ${e.id} has an invalid order of sections` };
     if (e.type === 'menu.photo_set' && (!shortString(e.itemId) || !onMenu(e.itemId) || !validPhotoChoice(e.photo))) {
       return { reason: `event ${e.id} has an invalid photo change` };
     }

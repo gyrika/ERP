@@ -193,3 +193,66 @@ test('the owner deletes a dish he added (a test, say); Undo brings it back; prin
   await user.click(screen.getByRole('button', { name: 'Change Margherita' }));
   expect(within(screen.getByRole('dialog')).queryByRole('button', { name: 'Delete' })).toBeNull();
 });
+
+test('the owner adds a Kottu section with Full and Normal, then a dish in it: the counter shows the section and its sizes', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#menu');
+  render(<Root />);
+  await user.click(await screen.findByRole('button', { name: '+ Section' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'New section' }));
+  await user.type(sheet.getByLabelText('English'), 'Pizza');
+  await user.click(sheet.getByRole('button', { name: 'Add section' }));
+  expect(sheet.getByRole('alert').textContent).toContain('Pizza is already a section');
+  await user.clear(sheet.getByLabelText('English'));
+  await user.type(sheet.getByLabelText('English'), 'Kottu');
+  await user.click(sheet.getByRole('radio', { name: 'Sizes' }));
+  await user.click(sheet.getByRole('button', { name: 'Add section' }));
+  expect(sheet.getByRole('alert').textContent).toContain('Each size needs a short name');
+  await user.type(sheet.getByLabelText('Size 1'), 'Full');
+  await user.type(sheet.getByLabelText('Size 2'), 'Normal');
+  await user.clear(sheet.getByLabelText('Cook time in minutes'));
+  await user.type(sheet.getByLabelText('Cook time in minutes'), '8');
+  await user.click(sheet.getByRole('button', { name: 'Add section' }));
+
+  expect(screen.getByRole('status').textContent).toContain('Kottu is on the menu');
+  expect(readAll().find((x) => x.type === 'menu.section_set')).toMatchObject({
+    itemId: 'sec-kottu', before: null,
+    after: { name: { en: 'Kottu' }, cookMinutes: 8, sizes: [{ id: 'x1', label: 'Full' }, { id: 'x2', label: 'Normal' }] },
+  });
+  // The new section is open, empty, ready for its first dish.
+  expect(screen.getByRole('button', { name: 'Kottu' }).getAttribute('aria-pressed')).toBe('true');
+  await user.click(screen.getByRole('button', { name: '+ Add to Kottu' }));
+  const add = within(screen.getByRole('dialog', { name: 'Add to Kottu' }));
+  await user.type(add.getByLabelText('English'), 'Chicken Kottu{Enter}');
+  await user.click(add.getByRole('button', { name: 'Later' }));
+  await user.type(add.getByLabelText('Full price'), '1200');
+  await user.type(add.getByLabelText('Normal price'), '900');
+  await user.click(add.getByRole('button', { name: 'Add to the menu' }));
+  expect(screen.getByText('Full 1,200 · Normal 900')).toBeTruthy();
+
+  await user.keyboard('{Escape}');
+  await user.click(screen.getByRole('button', { name: 'Kottu' }));
+  const card = within(screen.getByText('Chicken Kottu').closest('.card') as HTMLElement);
+  expect(card.getByRole('button', { name: 'Full 1200' })).toBeTruthy();
+  expect(card.getByRole('button', { name: 'Normal 900' })).toBeTruthy();
+});
+
+test('the owner renames Burgers and moves it first; Undo puts the printed name back', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#menu');
+  render(<Root />);
+  await user.click(await screen.findByRole('button', { name: 'Burgers' }));
+  await user.click(screen.getByRole('button', { name: 'Change the Burgers section' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Section Burgers' }));
+  expect(sheet.queryByRole('checkbox', { name: /Hide this section/ })).toBeNull(); // printed sections stay
+  await user.click(sheet.getByRole('button', { name: 'Move earlier' }));
+  expect(sheet.getByText('1 of 3')).toBeTruthy();
+  await user.type(sheet.getByLabelText('English'), 'Burgers & Subs');
+  await user.click(sheet.getByRole('button', { name: 'Save' }));
+  const tabs = within(screen.getByRole('navigation', { name: 'Menu sections' })).getAllByRole('button').map((b) => b.textContent);
+  expect(tabs.slice(0, 3)).toEqual(['Burgers & Subs', 'Pizza', 'Pasta']);
+  expect(readAll().filter((x) => x.type.startsWith('menu.section')).map((x) => x.type)).toEqual(['menu.sections_ordered', 'menu.section_set']);
+  // Undo the rename: back to as printed.
+  await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
+  expect(screen.getByRole('button', { name: 'Burgers' })).toBeTruthy();
+});
