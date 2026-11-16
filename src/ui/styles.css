@@ -2412,3 +2412,13 @@ button.glance__card:disabled { cursor: default; }
   .rail__row { min-width: 120px; }
   .rail__none { display: none; }
 }
+
+/* The bill flies to the list (SCRUM-246): the copy in flight, and its row glowing as it lands. */
+.obadge--flying { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22), 0 4px 10px rgba(0, 0, 0, 0.12); will-change: transform, opacity; }
+.rail__row--landed { animation: rail-landed 600ms var(--ease); }
+@keyframes rail-landed {
+  0% { box-shadow: 0 0 0 0 var(--primary); transform: scale(1); }
+  25% { box-shadow: 0 0 0 3px var(--primary); transform: scale(1.04); }
+  100% { box-shadow: 0 0 0 0 transparent; transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .rail__row--landed { animation-duration: 1ms; } }
