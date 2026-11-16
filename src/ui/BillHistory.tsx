@@ -63,13 +63,15 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
                     aria-current={on || undefined} data-rail-order={o.number} onClick={() => onOpen(o.number)}>
                     <span className="history__top">
                       <span className="history__no num">{o.number}</span>
-                      <span className="history__total num">{fmt(o.total)}</span>
+                      {/* Changed after paying (SCRUM-247): what it comes to now. */}
+                      <span className="history__total num">{fmt(o.settled ? o.total + o.settled : o.total)}</span>
                     </span>
                     <span className="history__what">{orderSummary(o.lines)}</span>
                     <span className="history__meta">
                       {/* Paid, food still coming: the customer is still waiting, so the kitchen state stays. */}
                       {cook !== 'done' && <span className={`cookword cookword--${cook}`}>{COOK_LABEL[cook]}</span>}
                       <span className="cookword cookword--paid">Paid · {o.parts?.length ? 'Split' : TENDER[o.tender]}</span>
+                      {o.settled ? <span className="cookword num">{o.settled < 0 ? `Gave back ${fmt(-o.settled)}` : `Paid ${fmt(o.settled)} more`}</span> : null}
                       <OnlineTag order={o} />
                     </span>
                   </button>

@@ -615,6 +615,12 @@ export function App({
             <ShorthandBar
               initial={typed}
               onClose={() => setTyped(null)}
+              onOrderNumber={(n, open) => {
+                // Any of today's bills, paid or not (SCRUM-247): the customer who comes back says their number.
+                const known = (reg.paid ?? reg.order).number === n || reg.open.some((o) => o.number === n) || reg.paidToday.some((o) => o.number === n);
+                if (known && open) reg.openOrder(n);
+                return known;
+              }}
               onSubmit={(specs) =>
                 reg.addSpecs(specs, specs.length === 1 ? `Added ${describe(specs[0])}` : `Added ${specs.length} items`)}
             />

@@ -220,10 +220,11 @@ export function deliveryBill(
 
 /**
  * A paid order changed afterwards (SCRUM-242): a short slip for the difference, printed with the
- * drawer opening. `amount` > 0 the customer paid more; < 0 the shop gave it back.
+ * drawer opening. `amount` > 0 the customer paid more; < 0 the shop gave it back. `changes`
+ * (paidChanges.ts): what came off and went on, so the customer sees why (SCRUM-247).
  */
 export function changeSlip(
-  o: { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents },
+  o: { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents; changes?: string[] },
   opts: { at: number; cashier: string; shop?: ShopHeader; width?: number },
 ): ReceiptLine[] {
   const { at, cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH } = opts;
@@ -235,9 +236,12 @@ export function changeSlip(
     { text: twoCols(`Order ${o.number}`, receiptTime(at), width) },
     { text: `Cashier ${cashier}` },
     rule(width),
-    { text: twoCols(back ? 'GIVEN BACK' : 'PAID MORE', `Rs ${fmt(Math.abs(o.amount))}`, width / 2), bold: true, big: true },
   ];
-  if (!back) {
+  if (o.changes?.length) out.push(...o.changes.flatMap((c) => wrap(c, width).map((text) => ({ text }))), rule(width));
+  out.push({ text: twoCols(back ? 'GIVEN BACK' : 'PAID MORE', `Rs ${fmt(Math.abs(o.amount))}`, width / 2), bold: true, big: true });
+  if (back) {
+    out.push({ text: o.tender === 'transfer' ? 'By bank transfer' : 'Cash from the drawer' });
+  } else {
     out.push({ text: twoCols(TENDER_LABEL[o.tender], fmt(o.tendered), width) });
     if (o.tender === 'cash' && o.tendered > o.amount) out.push({ text: twoCols('Change', fmt(o.tendered - o.amount), width) });
   }
