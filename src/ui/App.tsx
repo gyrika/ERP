@@ -9,7 +9,7 @@ import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/t
 import { currentCashier } from '../services/auth.ts';
 import { useFlyToRail } from './flyToRail.ts';
 import { KeyHints } from './KeyHints.tsx';
-import { canPrint, printChangeSlip, printDeliveryBill, printPartSlip, printReceipt } from '../services/printer.ts';
+import { canPrint, printChangedBill, printDeliveryBill, printPartSlip, printReceipt } from '../services/printer.ts';
 import { deliveryBill } from '../domain/receipt.ts';
 import { lineGross } from '../domain/totals.ts';
 import { fmt } from '../domain/money.ts';
@@ -151,7 +151,7 @@ export function App({
   const settle = useCallback((tender: Tender, tendered: number) => {
     // No kitchen screen: items added after paying go out with their money, never held for Send.
     const done = reg.settle(tender, tendered, !kitchenOn);
-    if (done && canPrint()) void printChangeSlip(done, currentCashier().name);
+    if (done && canPrint()) void printChangedBill(done.paid, currentCashier().name);
   }, [reg, kitchenOn]);
   const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
     // Made and waiting: whoever pays for it is taking it (SCRUM-240). No kitchen screen: nothing to
