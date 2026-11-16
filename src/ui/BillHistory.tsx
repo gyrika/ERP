@@ -44,6 +44,7 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
                   {(kitchenOn || r.order.sentAt !== undefined) && <span>{r.ready?.label ?? r.kitchen}</span>}
                   <span className={r.paid ? 'held__paid' : 'held__unpaid'}>{r.paid ? 'Paid' : 'Not paid'}</span>
                   {r.order.dineIn && <span>{label('dineIn')}</span>}
+                  {r.order.delivery && <span>{label('delivery')}</span>}
                   <OnlineTag order={r.order} />
                 </span>
               </button>

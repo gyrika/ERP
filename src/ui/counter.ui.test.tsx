@@ -138,6 +138,21 @@ test('NEW BILL puts the bill on Held bills with its number and order type, with 
   expect(panel().getByText('Margherita')).toBeTruthy();
 });
 
+test('Delivery is the third order type: shown on Held bills, kept when reopened, Take away clears it', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await margherita(user);
+  await user.click(panel().getByRole('radio', { name: 'Dine in' }));
+  await user.click(panel().getByRole('radio', { name: 'Delivery' }));
+  expect(panel().getByRole('radio', { name: 'Dine in' }).getAttribute('aria-checked')).toBe('false');
+  await user.click(btn('New bill'));
+  await user.click(heldList().getByRole('button', { name: /^1001.*Delivery/ }));
+  expect(panel().getByRole('radio', { name: 'Delivery' }).getAttribute('aria-checked')).toBe('true');
+  await user.click(panel().getByRole('radio', { name: 'Take away' }));
+  expect(panel().getByRole('radio', { name: 'Delivery' }).getAttribute('aria-checked')).toBe('false');
+  expect(panel().getByRole('radio', { name: 'Take away' }).getAttribute('aria-checked')).toBe('true');
+});
+
 test('NEW BILL (F6) after a sale starts the next number; with items on the bill it holds them, nothing is lost', async () => {
   const user = userEvent.setup();
   render(<App />);

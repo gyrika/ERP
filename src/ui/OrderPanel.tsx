@@ -6,10 +6,11 @@ import { lineCookState, type KitchenTicket } from '../domain/kitchen.ts';
 import { DISCOUNT_CHIPS } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
-import { balanceDue, orderTotal, unsentLines } from '../domain/order.ts';
+import { balanceDue, orderTotal, orderTypeOf, unsentLines } from '../domain/order.ts';
 import { amountLeft, tenderParts, type Pick as UnitPick } from '../domain/split.ts';
 import { discountLabel, lineAdjustment, lineGross, lineNet, totals } from '../domain/totals.ts';
 import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
+import type { OrderType } from '../domain/types.ts';
 import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 import { boxesIn, opensBox } from '../domain/combos.ts';
@@ -193,8 +194,8 @@ interface Props {
   onUndo: () => void;
   /** Money back by bank to a customer who paid by transfer (the bar's Give back is cash from the drawer). */
   onGiveBack?: (how: Tender) => void;
-  /** Take away / Dine in. */
-  onDineIn: (dineIn: boolean) => void;
+  /** Take away / Dine in / Delivery. */
+  onOrderType: (type: OrderType) => void;
   /** The receipt of the paid order on screen; null when this device does not print. */
   printState?: 'printing' | 'printed' | 'failed' | null;
   /** Prints a COPY, without opening the drawer. Absent when this device does not print. */
@@ -239,7 +240,7 @@ const dateTime = (at: number) => new Date(at).toLocaleString([], { day: 'numeric
  */
 export function OrderPanel({
   order, tickets, paid, justPaid = false, onGive, now, manage, selected, onSelect, onEdit, onStep, onRemove, onClearPlatform,
-  onUndo, onGiveBack, onDineIn, printState, onReprint, paying, extras, customerBar, edits = [],
+  onUndo, onGiveBack, onOrderType, printState, onReprint, paying, extras, customerBar, edits = [],
 }: Props) {
   const editOf = new Map(edits.map((e) => [e.lineId, e]));
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
@@ -287,10 +288,10 @@ export function OrderPanel({
       </div>
       <div className="bill__row">
         <div className="seg" role="radiogroup" aria-label={label('orderType')}>
-          {([false, true] as const).map((dine) => (
-            <button key={String(dine)} type="button" role="radio" className="seg__opt" aria-checked={Boolean(shown.dineIn) === dine}
-              disabled={Boolean(paid)} onClick={() => onDineIn(dine)}>
-              {label(dine ? 'dineIn' : 'takeAway')}
+          {(['takeAway', 'dineIn', 'delivery'] as const).map((type) => (
+            <button key={type} type="button" role="radio" className="seg__opt" aria-checked={orderTypeOf(shown) === type}
+              disabled={Boolean(paid)} onClick={() => onOrderType(type)}>
+              {label(type)}
             </button>
           ))}
         </div>
