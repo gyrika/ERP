@@ -325,7 +325,8 @@ export function OrderPanel({
         <td className="bill__price num">{inBox ? '' : fmt(lineGross(l) / l.qty)}</td>
         <td className="bill__total num">{inBox ? (extra ? `${extra > 0 ? '+' : '−'}${fmt(Math.abs(extra))}` : '') : fmt(lineNet(shown, l))}</td>
         <td className="bill__x">
-          {!inBox && (
+          {/* Paid (SCRUM-251): the row opens to be changed, so it says so with an arrow, not a greyed ✕. */}
+          {paid ? <span className="bill__open" aria-hidden="true">›</span> : !inBox && (
             <button type="button" className="bill__remove" disabled={Boolean(paid)} aria-label={`${label('void')} ${name}`}
               onClick={(e) => { e.stopPropagation(); onSelect(i); onRemove(l); }}>✕</button>
           )}
@@ -416,8 +417,10 @@ export function OrderPanel({
                       <td className="bill__price num">{fmt(box.price)}</td>
                       <td className="bill__total num">{fmt(box.lines.reduce((n, x) => n + lineNet(shown, x), 0))}</td>
                       <td className="bill__x">
-                        <button type="button" className="bill__remove" disabled={Boolean(paid)} aria-label={`${label('void')} ${box.name}`}
-                          onClick={() => { onSelect(i); onRemove(l); }}>✕</button>
+                        {!paid && (
+                          <button type="button" className="bill__remove" aria-label={`${label('void')} ${box.name}`}
+                            onClick={() => { onSelect(i); onRemove(l); }}>✕</button>
+                        )}
                       </td>
                     </tr>
                     {box.lines.map((x) => row(x, shown.lines.indexOf(x), true))}

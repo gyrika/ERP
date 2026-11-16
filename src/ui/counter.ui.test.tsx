@@ -249,6 +249,22 @@ test('the counter starts in light mode unless a look was chosen', () => {
   expect(document.documentElement.dataset.theme).toBe('light');
 });
 
+test('a paid bill: F4 is CHANGE ITEM and opens the selected item to change; rows show an arrow, not a greyed ✕ (SCRUM-251)', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await margherita(user);
+  expect(btn('Void item')).toBeTruthy();
+  await user.click(btn('Pay'));
+  await user.click(screen.getByRole('button', { name: '2,000' }));
+  expect(bar().queryByRole('button', { name: 'Void item' })).toBeNull();
+  expect(btn('Change item').disabled).toBe(false);
+  expect(btn('Change item').getAttribute('aria-keyshortcuts')).toBe('F4');
+  expect(document.querySelectorAll('.bill__open')).toHaveLength(1);
+  expect(document.querySelector('.bill__remove')).toBeNull();
+  await user.keyboard('{F4}');
+  expect(screen.getByRole('button', { name: /Back to order/ })).toBeTruthy(); // the item's sheet, as a tap on the row opens
+});
+
 test('order history on the left: held bills and paid today always in sight, one tap opens either', async () => {
   const user = userEvent.setup();
   render(<App />);

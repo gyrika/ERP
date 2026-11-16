@@ -282,7 +282,10 @@ export function App({
   const barActions: BarAction[] = [
     payAction,
     ...(kitchenOn ? [{ id: 'send' as const, run: reg.send, disabled: !(reg.paid ? reg.paid.held : hasNew) }] : []),
-    { id: 'void', run: () => voidLine(selectedLine), disabled: Boolean(reg.paid) || !selectedLine },
+    // A paid bill (SCRUM-251): the same button changes the selected item, so nothing has to be known about tapping a row.
+    reg.paid
+      ? { id: 'void', text: label('changeItem'), tone: 'plain', run: () => { if (selectedLine) setSheet({ kind: 'edit', line: selectedLine }); }, disabled: !selectedLine }
+      : { id: 'void', run: () => voidLine(selectedLine), disabled: !selectedLine },
     { id: 'clear', run: reg.clear, disabled: Boolean(reg.paid) || listing || anySent },
     { id: 'new', run: reg.startNew, disabled: !reg.paid && listing },
     { id: 'hold', run: reg.hold, disabled: Boolean(reg.paid) || listing },
