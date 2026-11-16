@@ -10,7 +10,6 @@ import { whatChanged } from './paidEdits.ts';
 import type { DeliveryPin } from './online.ts';
 import { lineItemName } from './halves.ts';
 import { RECEIPT_LOGO } from './receiptLogo.ts';
-import { COMB } from './receiptComb.ts';
 
 /**
  * The customer receipt for the Xprinter XP-80T (80 mm, ESC/POS), in two
@@ -47,8 +46,6 @@ export interface ReceiptLine {
   qr?: string;
   /** White on black, the whole line (the CHANGED BILL band, SCRUM-255). */
   invert?: boolean;
-  /** A rule: printed as the honeycomb strip (SCRUM-256); the dashes stay for plain-text views. */
-  comb?: boolean;
 }
 
 /**
@@ -97,7 +94,8 @@ export const wrap = (text: string, width: number): string[] => {
   return out;
 };
 
-const rule = (width: number): ReceiptLine => ({ text: '-'.repeat(width), comb: true });
+/** A rule: a line of dashes, printed as text (SCRUM-259: dashes, not the honeycomb strip). */
+const rule = (width: number): ReceiptLine => ({ text: '-'.repeat(width) });
 
 /** The top of a bill (SCRUM-254): the logo, its tagline, then where the shop is. */
 const billTop = (shop: ShopHeader): ReceiptLine[] => [
@@ -441,7 +439,6 @@ export const escpos = (lines: ReceiptLine[], { openDrawer = false } = {}): Uint8
   for (const l of lines) {
     out.push(...(l.center ? CMD.center : CMD.left));
     if (l.logo) { out.push(...rasterBytes(RECEIPT_LOGO)); continue; }
-    if (l.comb) { out.push(...rasterBytes(COMB)); continue; }
     if (l.qr) out.push(...qrBytes(l.qr), 0x0a);
     if (l.bold) out.push(...CMD.boldOn);
     if (l.big) out.push(...CMD.big);
