@@ -26,7 +26,7 @@ const land = (row: HTMLElement) => {
 };
 
 const fly = (from: Seen, row: HTMLElement) => {
-  const target = (row.querySelector<HTMLElement>('.rail__no') ?? row).getBoundingClientRect();
+  const target = (row.querySelector<HTMLElement>('.history__no') ?? row).getBoundingClientRect();
   if (reduced() || typeof from.node.animate !== 'function' || !target.width) { land(row); return; }
   const ghost = from.node;
   ghost.removeAttribute('data-fly-badge');

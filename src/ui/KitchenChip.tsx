@@ -4,7 +4,7 @@ import { useNow } from './Kitchen.tsx';
 /**
  * While the kitchen has no screen of its own, the Register shows one quiet key:
  * how many orders the kitchen has to make and how long the oldest has waited. The dot takes
- * the kitchen's urgency colour, so the cashier knows when to look (F2).
+ * the kitchen's urgency colour, so the cashier knows when to look.
  * Its own clock, so the Register itself does not re-render every second.
  */
 export function KitchenChip({ tickets, onOpen }: { tickets: KitchenTicket[]; onOpen: () => void }) {
@@ -23,7 +23,6 @@ export function KitchenChip({ tickets, onOpen }: { tickets: KitchenTicket[]; onO
         Kitchen
         {oldest && <span className="num"> · {open.length} · {elapsedLabel(waited)}</span>}
       </span>
-      <kbd>F2</kbd>
     </button>
   );
 }

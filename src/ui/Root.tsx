@@ -26,6 +26,7 @@ import { SupplierView } from './SupplierView.tsx';
 import { OrderView, ReceiveView } from './WorkViews.tsx';
 import { useVoice, VoiceNote } from './VoiceKey.tsx';
 import { navData, navigate, onNavigate, startNav, useBackKeys } from './nav.ts';
+import { kitchenScreenOn } from './kitchenScreen.ts';
 
 import { MoneyOutView } from './MoneyOutView.tsx';
 
@@ -112,8 +113,8 @@ function NotConnected() {
  * - A kitchen device (paired as kitchen) shows the Kitchen only, with no login.
  * - On the counter, staff log in with their PIN (SCRUM-40); F4 switches user,
  *   and the screen locks itself when quiet. A kitchen login sees the Kitchen only.
- * - Until the kitchen has its own screen, F2 (or the Kitchen key) flips the
- *   counter between Register and Kitchen; F3 flips to the Owner view and back
+ * - The Kitchen view is hidden on the counter until it is turned back on (kitchenScreen.ts);
+ *   then the Kitchen key opens it and F2 comes back. F10 flips to the Owner view and back
  *   (owners and managers); F1 flips to the floor of tables and back, once the shop has a
  *   table layout (SCRUM-168). The Kitchen stays visible while the
  *   screen is locked; only going back to the Register needs a PIN.
@@ -137,7 +138,8 @@ export function Root() {
     setFilterIngredientId(navData()?.ingredient ?? null);
   }), []);
 
-  const inKitchen = hash === KITCHEN;
+  // The Kitchen view is hidden on the counter until it is turned back on (kitchenScreen.ts).
+  const inKitchen = hash === KITCHEN && kitchenScreenOn();
   /** The Owner view shows the takings: owners and managers only (SCRUM-41). */
   const seesOwner = !kitchenOnly && (!needsLogin || (staff !== null && seesTakings(staff.role)));
   /** The floor: whoever works the counter (a kitchen login records no table changes). */
@@ -155,9 +157,10 @@ export function Root() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLElement && e.target.closest('[role="dialog"]')) return;
-      if (e.key === 'F2' && !kitchenOnly) { e.preventDefault(); show(!inKitchen); }
-      if (e.key === 'F3' && seesOwner) { e.preventDefault(); go(hash === OWNER ? '' : OWNER); }
-      if (e.key === 'F4' && needsLogin && staff) { e.preventDefault(); lock(); }
+      // F2 … F8 are the Register's bill keys (ActionBar). From the Kitchen, F2 still goes back.
+      if (e.key === 'F2' && !kitchenOnly && (inKitchen || (needsLogin && !staff && kitchenScreenOn()))) { e.preventDefault(); show(!inKitchen); }
+      if (e.key === 'F10' && seesOwner) { e.preventDefault(); go(hash === OWNER ? '' : OWNER); }
+      if (e.key === 'F4' && needsLogin && staff && (inKitchen || kitchenOnly)) { e.preventDefault(); lock(); }
       // The developers' Modules page (#unlock): the installed app has no address bar, so a hidden
       // key opens it on the shop PC, locked or not; the developers' password is still the authority.
       if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyU' && !isCloudSite() && !isManagerPhone()) {

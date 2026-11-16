@@ -1,6 +1,8 @@
+import { heldList } from './testHeld.ts';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 // Charge opens inside the order panel (PayPanel), and the optional Mobile at Charge (CRM) never holds the sale up.
 
@@ -144,9 +146,9 @@ const note = () => pay().getByRole('status').textContent;
 const openPayment = async (user = userEvent.setup()) => {
   render(<App />);
   await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   return user;
 };
 
@@ -203,7 +205,7 @@ test('Esc clears what was typed, a second Esc goes back to the order', async () 
   expect(pay().getByRole<HTMLInputElement>('textbox', { name: 'Other amount' }).value).toBe('');
   await user.keyboard('{Escape}');
   expect(paying()).toBeNull();
-  expect(panel().getByRole('button', { name: 'Pay' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Pay' })).toBeTruthy();
 });
 
 test('B, C and Q pay by bank transfer, card and QR in one key', async () => {
@@ -244,7 +246,7 @@ test('the menu stays live while paying: a tap adds the item and the order comes 
   const user = await openPayment();
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
   expect(paying()).toBeNull();
-  expect(panel().getByRole('button', { name: 'Send to kitchen' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Send to kitchen' })).toBeTruthy();
 });
 
 // ---------- the counter screen ----------
@@ -260,16 +262,11 @@ test('Alt+1 … Alt+9 pick a menu tab; a digit alone still starts typing an orde
   expect(screen.getByRole('textbox')).toBeTruthy();
 });
 
-test('"More" holds the folded corner keys and closes when one is used', async () => {
-  const user = userEvent.setup();
+test('every place the counter uses is on the bar by name: nothing folded behind More', () => {
   render(<App />);
-  const more = screen.getByRole('button', { name: 'More' });
-  expect(screen.getByRole('button', { name: /^Receive/ }).closest('.corner__rest')).not.toBeNull();
-  // The places the cashier goes to are on the bar itself, not folded away (SCRUM-239).
-  expect(screen.getByRole('button', { name: /^Money out/ }).closest('.corner__rest')).toBeNull();
-  expect(more.getAttribute('aria-expanded')).toBe('false');
-  await user.click(more);
-  expect(more.getAttribute('aria-expanded')).toBe('true');
-  await user.click(screen.getByRole('button', { name: /^Receive/ }));
-  expect(more.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
+  for (const name of [/^Receive/, /^Money out/, /^Manager/, /^Uber Eats/]) expect(screen.getByRole('button', { name })).toBeTruthy();
 });
+
+// These tests send to the kitchen first: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

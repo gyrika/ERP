@@ -1,6 +1,8 @@
+import { heldList } from './testHeld.ts';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 // Mobile at Charge (CRM): the sale never waits on the customer list, and the cashier is told when a
 // number given could not be saved.
@@ -31,9 +33,9 @@ const paidEvent = () => readAll().filter((e) => e.type === 'order.paid').at(-1) 
 
 const charge = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]); // Devilled Chicken L
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.type(screen.getByRole('textbox', { name: /Mobile/ }), '077 123 4567');
 };
 
@@ -59,3 +61,6 @@ test('a number the shop PC saves: the payment names the customer, and the toast 
   expect(toast()).not.toContain('not saved');
   expect(paidEvent()?.customerId).toBe('cus-0000000000000001');
 });
+
+// These tests send to the kitchen first: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

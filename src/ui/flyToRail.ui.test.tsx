@@ -1,24 +1,25 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App.tsx';
+import { setKitchenScreen } from './kitchenScreen.ts';
+import { heldList } from './testHeld.ts';
 
 // The bill flies to the list (SCRUM-246): leaving the right panel, it lands on its row on the left.
 // jsdom has no Web Animations, so only the landing (the row's glow) shows here, as with reduced motion.
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => { localStorage.clear(); setKitchenScreen(true); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-const panel = () => within(screen.getByRole('complementary', { name: 'Current order' }));
 const row = (n: number) => document.querySelector(`[data-rail-order="${n}"]`)!;
-const landed = (n: number) => row(n).classList.contains('rail__row--landed');
+const landed = (n: number) => Boolean(row(n)?.classList.contains('rail__row--landed'));
 
 test('Send: the bill leaves the panel and lands on its row', async () => {
   const user = userEvent.setup();
   render(<App />);
   await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
   expect(landed(1001)).toBe(false); // the first item only starts the bill
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
   expect(landed(1001)).toBe(true);
 });
 
@@ -29,7 +30,7 @@ test('New order (Esc): the bill on screen lands on its row; an empty one goes no
   await user.keyboard('{Escape}');
   expect(landed(1001)).toBe(true);
   // Opening it from the list and back to an empty order: nothing flies from an empty panel.
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
   expect(document.querySelectorAll('.obadge--flying')).toHaveLength(0);
 });
 
@@ -42,7 +43,7 @@ test('with Web Animations: a copy of the badge flies, then is gone', async () =>
   const user = userEvent.setup();
   render(<App />);
   await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
   const ghost = document.querySelector('.obadge--flying')!;
   expect(ghost.textContent).toContain('1001');
   expect(ghost.getAttribute('aria-hidden')).toBe('true');
