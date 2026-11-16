@@ -8,7 +8,7 @@ import { App } from './App.tsx';
 import { Root } from './Root.tsx';
 import { readEvents } from './eventLog.ts';
 import { setKitchenScreen } from './kitchenScreen.ts';
-import { heldCount, heldList } from './testHeld.ts';
+import { heldCount, heldList, tick, ticked } from './testHeld.ts';
 
 /**
  * The counter redesigned for recognition over recall (2026-11-16): every daily action is a
@@ -67,7 +67,7 @@ test('an empty bill: PAY, Void, Clear and New bill are greyed, not hidden', asyn
   for (const name of ['Pay', 'Void item', 'Clear bill', 'New bill']) expect(btn(name).disabled).toBe(false);
 });
 
-test('PAY (F2): the payment opens in the bill; exact cash pays; with no Kitchen view the order goes out with it and is handed over', async () => {
+test('PAY (F2): the payment opens in the bill; exact cash pays; with no Kitchen view the order goes out with it; the cashier ticks it when taken', async () => {
   const user = userEvent.setup();
   render(<App />);
   await margherita(user);
@@ -79,9 +79,13 @@ test('PAY (F2): the payment opens in the bill; exact cash pays; with no Kitchen 
   const sent = events.find((e) => e.type === 'order.sent');
   expect(sent).toMatchObject({ orderNumber: 1001 });
   expect(sent && 'held' in sent).toBe(false); // nothing waits for a Send that has no button
-  expect(events.map((e) => e.type)).toEqual(['order.sent', 'order.paid', 'order.given']);
+  expect(events.map((e) => e.type)).toEqual(['order.sent', 'order.paid']);
   expect(btn('Pay').disabled).toBe(true); // paid: nothing left to pay
-  expect(heldCount(0)).toBeTruthy(); // paid and given: not left on the list
+  expect(heldCount(1)).toBeTruthy(); // paid, not yet taken
+  await user.click(tick(1001));
+  expect(readEvents().at(-1)).toMatchObject({ type: 'order.given', orderNumber: 1001 });
+  expect(heldCount(0)).toBeTruthy();
+  expect(ticked(1001)).toBe(true); // stays on the list, ticked
 });
 
 test('VOID ITEM (F4 or Delete) removes the selected line at once, with Undo', async () => {
@@ -342,7 +346,7 @@ test('the shop\'s counter (no Kitchen view): Full cheese on a paid pizza, reopen
   await user.click(btn('Pay'));
   await user.click(screen.getByRole('button', { name: /Exact cash/ }));
   await user.click(btn('New bill'));
-  await user.click(within(screen.getByRole('navigation', { name: 'Order history' })).getByRole('button', { name: /^1001/ }));
+  await user.click(within(screen.getByRole('region', { name: 'Paid today' })).getByRole('button', { name: /^1001/ }));
 
   await user.click(panel().getByRole('button', { name: /^Margherita/ }));
   const sheet = within(screen.getByRole('region', { name: / extras$/ }));
@@ -366,8 +370,8 @@ test('order history on the left: held bills and paid today always in sight, one 
   await user.click(btn('Pay'));
   await user.click(screen.getByRole('button', { name: '2,000' })); // 1001 paid, change 550
   await burger(user);
-  await user.click(btn('New bill')); // 1002 held
-  expect(history.getByRole('heading', { name: 'Held bills · 1' })).toBeTruthy();
+  await user.click(btn('New bill')); // 1002 held; 1001 paid, not yet taken
+  expect(history.getByRole('heading', { name: 'Held bills · 2' })).toBeTruthy();
   const paidToday = within(history.getByRole('region', { name: 'Paid today' }));
   expect(paidToday.getByRole('button', { name: /^1001.*Margherita.*Paid · Cash/ })).toBeTruthy();
 
@@ -378,5 +382,30 @@ test('order history on the left: held bills and paid today always in sight, one 
   expect(panel().getByText('Chicken Burger')).toBeTruthy();
   // Opened on the right, it stays on the left list, marked as the one on screen.
   expect(heldList().getByRole('button', { name: /^1002/ }).getAttribute('aria-current')).toBe('true');
-  expect(history.getByRole('heading', { name: 'Held bills · 1' })).toBeTruthy();
+  expect(history.getByRole('heading', { name: 'Held bills · 2' })).toBeTruthy();
+});
+
+test('the tick in a held bill\'s box: the customer took it; it stays, ticked, and leaves the count; Sales today shows to the cashier', async () => {
+  setKitchenScreen(true);
+  const user = userEvent.setup();
+  render(<App />);
+  const sales = () => screen.getByText('Sales today').parentElement!.textContent;
+  expect(sales()).toMatch(/0/);
+  await margherita(user);
+  await user.click(btn('Send to kitchen'));
+  // Sent, not paid: already tickable (eating in).
+  expect(screen.getByRole('button', { name: 'Order 1001 taken' })).toBeTruthy();
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
+  await user.keyboard('{F2}');
+  await user.click(screen.getByRole('button', { name: /Exact/ }));
+  expect(sales()).toMatch(/1,450/);
+  // Paid, food still coming: on the list with its tick.
+  expect(ticked(1001)).toBe(false);
+  await user.click(tick(1001));
+  expect(readEvents().at(-1)).toMatchObject({ type: 'order.given', orderNumber: 1001 });
+  expect(ticked(1001)).toBe(true);
+  expect(tick(1001).disabled).toBe(true); // once: Undo takes it back
+  expect(heldList().getByRole('button', { name: /^1001/ })).toBeTruthy(); // still in sight
+  expect(heldCount(0)).toBeTruthy();
+  setKitchenScreen(false);
 });

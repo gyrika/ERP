@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { heldList } from './testHeld.ts';
+import { heldList, tick, ticked } from './testHeld.ts';
 import { App } from './App.tsx';
 import { Kitchen } from './Kitchen.tsx';
 import { readAll } from './eventLog.ts';
@@ -132,7 +132,7 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
   expect(row().getByText('Ready')).toBeTruthy();
   await user.click(heldList().getByRole('button', { name: /^1001/ }));
   await user.keyboard('{Control>}{Enter}{/Control}');
-  expect(heldList().queryByRole('button', { name: /^1001/ })).toBeNull();
+  expect(ticked(1001)).toBe(true); // stays, ticked (SCRUM-258)
   expect(readAll().filter((e) => e.type === 'order.given')).toMatchObject([{ orderNumber: 1001 }]);
 });
 
@@ -150,7 +150,7 @@ test('paid first, cooked, waiting to be collected: Ready stays on the list until
 
   await user.click(rail().getByRole('button', { name: /^1001/ }));
   await user.click(panel().getByRole('button', { name: 'Given' }));
-  expect(rail().queryByRole('button', { name: /^1001/ })).toBeNull();
+  expect(ticked(1001)).toBe(true);
   const toast = screen.getByText('Given 1001').closest('.toast') as HTMLElement;
   await user.click(within(toast).getByRole('button', { name: 'Undo' }));
   await user.click(screen.getByRole('button', { name: 'New bill' })); // Undo put it back on screen; held bills are the others
@@ -158,7 +158,7 @@ test('paid first, cooked, waiting to be collected: Ready stays on the list until
   expect(readAll().map((e) => e.type).slice(-2)).toEqual(['order.given', 'order.given_undone']);
 });
 
-test('paying for a ready order hands it over too: it leaves the list in one step', async () => {
+test('paying for a ready order does not hand it over: the cashier ticks it when the customer takes it', async () => {
   const user = userEvent.setup();
   render(<><App /><Kitchen /></>);
   await sendOne(user); // 1001, not paid
@@ -170,8 +170,11 @@ test('paying for a ready order hands it over too: it leaves the list in one step
   expect(panel().getByRole('button', { name: 'Given' })).toBeTruthy(); // eating in: handed over, paid later
   await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
-  expect(rail().queryByRole('button', { name: /^1001/ })).toBeNull();
-  expect(readAll().map((e) => e.type).slice(-2)).toEqual(['order.paid', 'order.given']);
+  expect(ticked(1001)).toBe(false);
+  expect(readAll().map((e) => e.type).at(-1)).toBe('order.paid');
+  await user.click(tick(1001));
+  expect(ticked(1001)).toBe(true);
+  expect(readAll().map((e) => e.type).at(-1)).toBe('order.given');
 });
 
 test('Remake: a burnt pizza is recorded as waste in two taps, and the line stays on the ticket to make again (SCRUM-177)', async () => {
