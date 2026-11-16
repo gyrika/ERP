@@ -1,3 +1,4 @@
+import { heldList } from './testHeld.ts';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -5,18 +6,18 @@ import { setMenuState } from '../domain/menu.ts';
 import { EMPTY_MENU_STATE } from '../domain/menuEdits.ts';
 import { readAll } from './eventLog.ts';
 import { Root } from './Root.tsx';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/'); setMenuState(EMPTY_MENU_STATE); });
 afterEach(() => { cleanup(); setMenuState(EMPTY_MENU_STATE); });
 
-const panel = () => within(screen.getByRole('complementary', { name: 'Current order' }));
 
 test("the owner changes a price and a name: the counter shows it at once; an order already sent keeps its price", async () => {
   const user = userEvent.setup();
   render(<Root />);
   // An order sent at the printed price (Margherita M 1450).
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
 
   location.hash = '#menu'; // one step from the Register, so Esc comes back to it
   await user.click(await screen.findByRole('button', { name: 'Change Margherita' }));
@@ -34,7 +35,7 @@ test("the owner changes a price and a name: the counter shows it at once; an ord
 
   await user.keyboard('{Escape}');
   expect((await screen.findAllByRole('button', { name: 'M 1,600' })).length).toBeGreaterThan(0);
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
   expect(within(screen.getByRole('complementary', { name: 'Current order' })).getAllByText('1,450').length).toBeGreaterThan(0);
 });
 
@@ -256,3 +257,6 @@ test('the owner renames Burgers and moves it first; Undo puts the printed name b
   await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
   expect(screen.getByRole('button', { name: 'Burgers' })).toBeTruthy();
 });
+
+// These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

@@ -10,6 +10,7 @@ import { currentCashier } from '../services/auth.ts';
 import { canPrint, printChangeSlip, printDeliveryBill, printReceipt } from '../services/printer.ts';
 import { deliveryBill } from '../domain/receipt.ts';
 import { lineGross } from '../domain/totals.ts';
+import { fmt } from '../domain/money.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
 import { MoneyOutSheet } from './MoneyOutSheet.tsx';
 import { ReceiveSheet } from './WorkViews.tsx';
@@ -20,7 +21,11 @@ import { onlineOrders } from '../services/onlineClient.ts';
 import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, orderSummary, type ManagePanel } from './OrderPanel.tsx';
-import { OrdersRail, kitchenWord, railRows } from './OrdersRail.tsx';
+import { kitchenWord, railRows } from './OrdersRail.tsx';
+import { BillHistory } from './BillHistory.tsx';
+import { ActionBar, type BarAction } from './ActionBar.tsx';
+import { kitchenScreenOn, setKitchenScreen } from './kitchenScreen.ts';
+import { label } from './labels.ts';
 import { useNow } from './Kitchen.tsx';
 import { crmClient, crmReachable } from '../services/crmClient.ts';
 import { modulesHere, readAll } from './eventLog.ts';
@@ -37,7 +42,7 @@ import { useRegister } from './useRegister.ts';
 import { BinIcon, WasteSheet } from './WasteSheet.tsx';
 import { MicIcon } from './VoiceKey.tsx';
 import { useMenu } from './menuStore.ts';
-import { THEME_LABEL, setTheme, themeChoice, type ThemeChoice } from './theme.ts';
+import { THEME_LABEL, applyTheme, setTheme, themeChoice, themeStored, type ThemeChoice } from './theme.ts';
 import { useFleet } from './ShopsView.tsx';
 import { lineItemName } from '../domain/halves.ts';
 import { isPlatformId, PLATFORMS, type Platform } from '../domain/platforms.ts';
@@ -47,7 +52,8 @@ type Sheet =
   | { kind: 'extras'; item: MenuItem; size?: SizeId }
   | { kind: 'edit'; line: OrderLine }
   | { kind: 'pay' }
-  | { kind: 'pin' }
+  /** `voidLine`: the PIN was asked by VOID on a sent line; once given, that line's reasons show. */
+  | { kind: 'pin'; voidLine?: string }
   | { kind: 'online' }
   | { kind: 'waste' }
   | { kind: 'platform'; platform: Platform }
@@ -78,7 +84,7 @@ export function App({
   onKitchen?: () => void;
   /** Opens the floor of tables (SCRUM-168; F1 does the same). The chip shows only once there is a layout. */
   onTables?: () => void;
-  /** Opens the Owner view (owners and managers; F3 does the same). */
+  /** Opens the Owner view (owners and managers; F10 does the same). */
   onOwner?: () => void;
   onSwitch?: () => void;
   canManageStock?: boolean;
@@ -87,6 +93,10 @@ export function App({
 } = {}) {
   const reg = useRegister();
   useMenu();
+  // The counter is light unless someone chose otherwise (bright shop, arm's length).
+  useEffect(() => { if (!themeStored()) applyTheme('light'); }, []);
+  /** The Kitchen view is hidden until the staff are at home with the counter (kitchenScreen.ts). */
+  const [kitchenOn, setKitchenOn] = useState(kitchenScreenOn);
   const tickets = useKitchenTickets(); // live, so Cooking turns Done the moment the kitchen taps it
   const online = useOnline();
   /** Tells the customer first (with the number this order will get), then sends it to the kitchen. */
@@ -135,11 +145,12 @@ export function App({
     if (done && canPrint()) void printChangeSlip(done, currentCashier().name);
   }, [reg]);
   const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
-    // Made and waiting: whoever pays for it is taking it (SCRUM-240).
-    const paid = reg.pay(tender, tendered, customerId, unlinked, kitchenWord(reg.order, tickets) === 'Ready');
+    // Made and waiting: whoever pays for it is taking it (SCRUM-240). No kitchen screen: nothing to
+    // wait for, so it goes with the payment and is handed over at once.
+    const paid = reg.pay(tender, tendered, customerId, unlinked, !kitchenOn || kitchenWord(reg.order, tickets) === 'Ready', !kitchenOn);
     // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
     if (paid && !isPlatformId(tender)) print(paid);
-  }, [reg, print, tickets]);
+  }, [reg, print, tickets, kitchenOn]);
   const total = orderTotal(reg.order);
   const hasNew = unsentLines(reg.order).length > 0;
   /** Something to pay on screen: Pay works at any step, sent or not (SCRUM-239). */
@@ -153,16 +164,6 @@ export function App({
   const [pendingVoid, setPendingVoid] = useState<string | null>(null);
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
-  // The corner's rarer keys live behind one More (•••) key on every screen; only what needs the cashier stays out.
-  const [more, setMore] = useState(false);
-  useEffect(() => {
-    if (!more) return;
-    const away = (e: PointerEvent) => { if (!(e.target as Element).closest('.corner')) setMore(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMore(false); };
-    document.addEventListener('pointerdown', away);
-    window.addEventListener('keydown', esc);
-    return () => { document.removeEventListener('pointerdown', away); window.removeEventListener('keydown', esc); };
-  }, [more]);
   const [sound, setSound] = useState(soundOn);
   /** The last waste or money out, for its Undo (toast and Ctrl+Z) while the toast shows. */
   const [noted, setNoted] = useState<{ id: number; message: string; undo: () => void } | null>(null);
@@ -185,14 +186,20 @@ export function App({
   }, [endManagerSession]));
   const manager = mode.manager;
 
-  // A new order on screen starts with the first line selected and nothing half-done.
+  // Another bill on screen: its last line selected, nothing half-done.
+  const lines = (reg.paid ?? reg.order).lines;
   useEffect(() => {
-    setSelected(0);
+    setSelected(Math.max(0, lines.length - 1));
     setPendingVoid(null);
     setAdjusting(null);
-  }, [reg.order.number]);
+  }, [reg.order.number, reg.paid?.paidAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A line added: the selection follows it, so +, − and VOID act on what was just tapped.
+  const [seenLines, setSeenLines] = useState(lines.length);
+  if (seenLines !== lines.length) {
+    if (lines.length > seenLines) setSelected(lines.length - 1);
+    setSeenLines(lines.length);
+  }
 
-  const lines = reg.order.lines;
   const listing = lines.length === 0;
   const selectedLine: OrderLine | undefined = lines[Math.min(selected, lines.length - 1)];
 
@@ -223,9 +230,58 @@ export function App({
 
   // Keep the selection on a real row as lines are voided or restored.
   useEffect(() => {
-    const max = (listing ? rows.length : lines.length) - 1;
-    if (selected > Math.max(0, max)) setSelected(Math.max(0, max));
-  }, [listing, lines.length, rows.length, selected]);
+    if (selected > Math.max(0, lines.length - 1)) setSelected(Math.max(0, lines.length - 1));
+  }, [lines.length, selected]);
+
+  /**
+   * VOID ITEM (F4, Delete, a row's ✕): a line not yet sent comes off at once, with Undo (a combo's
+   * box comes off whole). A sent line is a manager's: the PIN first, then the reason, audited.
+   */
+  const voidLine = useCallback((line: OrderLine | undefined) => {
+    if (!line || reg.paid) return;
+    const sent = line.box ? reg.order.lines.some((l) => l.box?.id === line.box!.id && l.sent) : Boolean(line.sent);
+    if (sent) {
+      if (manager) askVoid(line);
+      else { setTyped(null); setSheet({ kind: 'pin', voidLine: line.id }); }
+      return;
+    }
+    if (manager) { askVoid(line); return; }
+    if (line.box) reg.dropBox(line.box.id, `Removed ${line.box.name}`);
+    else reg.dropLine(line.id, `Removed ${lineItemName(line)}`);
+  }, [reg, manager, askVoid]);
+
+  const stepLine = useCallback((line: OrderLine, by: 1 | -1) => {
+    if (line.sent || line.box || reg.paid) return;
+    const qty = line.qty + by;
+    if (qty < 1) reg.dropLine(line.id, `Removed ${lineItemName(line)}`);
+    else reg.editLine({ ...line, qty }, `${qty} × ${lineItemName(line)}`);
+  }, [reg]);
+
+  // ---------- the bar's actions (always there; greyed when they cannot be done) ----------
+  const due = reg.paid ? balanceDue(reg.paid) : 0;
+  const comped = reg.order.adjust?.discount?.kind === 'comp';
+  const lastSale: PaidOrder | undefined = reg.paid ?? reg.paidToday[0];
+  const anySent = reg.order.lines.some((l) => l.sent);
+  const payAction: BarAction = reg.paid
+    ? due > 0 ? { id: 'pay', text: `Pay ${fmt(due)} more`, run: () => setSheet({ kind: 'pay' }), disabled: false }
+      : due < 0 ? { id: 'pay', text: `Give back ${fmt(-due)}`, run: () => settle('cash', 0), disabled: false }
+        : { id: 'pay', run: () => {}, disabled: true }
+    : comped ? { id: 'pay', text: 'Close · Free', run: () => pay('comp', 0), disabled: listing }
+      : reg.order.platform
+        ? { id: 'pay', text: `Close · ${PLATFORMS.find((p) => p.id === reg.order.platform!.id)?.name ?? 'app'}`, run: () => pay(reg.order.platform!.id, total), disabled: listing }
+        : { id: 'pay', run: () => setSheet({ kind: 'pay' }), disabled: !canCharge || total <= 0 };
+  const barActions: BarAction[] = [
+    payAction,
+    ...(kitchenOn ? [{ id: 'send' as const, run: reg.send, disabled: !(reg.paid ? reg.paid.held : hasNew) }] : []),
+    { id: 'void', run: () => voidLine(selectedLine), disabled: Boolean(reg.paid) || !selectedLine },
+    { id: 'clear', run: reg.clear, disabled: Boolean(reg.paid) || listing || anySent },
+    { id: 'new', run: reg.startNew, disabled: !reg.paid && listing },
+    { id: 'hold', run: reg.hold, disabled: Boolean(reg.paid) || listing },
+    { id: 'print', run: () => { if (lastSale) print(lastSale, true); }, disabled: !canPrint() || !lastSale },
+  ];
+  /** F2 … F8: the bar's keys, doing exactly what its buttons do. */
+  const fkey = (key: string): BarAction | undefined =>
+    barActions.find((a) => ({ F2: 'pay', F3: 'send', F4: 'void', F5: 'clear', F6: 'new', F7: 'hold', F8: 'print' } as Record<string, string>)[key] === a.id);
 
   // ---------- keys ----------
   useEffect(() => {
@@ -233,9 +289,14 @@ export function App({
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
-      if (e.key === 'F6' && !sheet && !palette) { e.preventDefault(); setTyped(null); setSheet({ kind: 'money' }); return; }
-      // A delivery came (SCRUM-226): whoever works the counter receives it and can pay it from the drawer.
-      if (e.key === 'F7' && !sheet && !palette) { e.preventDefault(); setTyped(null); setSheet({ kind: 'receive' }); return; }
+      // The bar's keys. F5 never reloads the page here, even under a sheet.
+      if (/^F[2-8]$/.test(e.key) && !e.altKey && !mod) {
+        e.preventDefault();
+        if (sheet || palette || adjusting || pendingVoid) return;
+        const a = fkey(e.key);
+        if (a && !a.disabled) { setTyped(null); a.run(); }
+        return;
+      }
 
       if (manager) {
         // Esc leaves manager mode from ANY state: palette, sheet, half-done void or adjustment.
@@ -250,13 +311,12 @@ export function App({
           return;
         }
         if (isTypingTarget(e.target) || mod || e.altKey) return;
-        const count = listing ? rows.length : lines.length;
+        const count = lines.length;
         if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((s) => Math.min(s + 1, Math.max(0, count - 1))); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((s) => Math.max(s - 1, 0)); return; }
         if (e.key === 'Enter') {
           e.preventDefault();
-          if (listing) { const r = rows[selected]; if (r) reg.openOrder(r.order.number); }
-          else if (selectedLine) setSheet({ kind: 'edit', line: selectedLine });
+          if (selectedLine) setSheet({ kind: 'edit', line: selectedLine });
           return;
         }
         if ((e.key === 'Delete' || e.key === 'Backspace') && selectedLine && !listing) { e.preventDefault(); askVoid(selectedLine); return; }
@@ -268,20 +328,16 @@ export function App({
 
       // Cashier mode.
       if (mod && key === 'm' && !sheet) { e.preventDefault(); setTyped(null); setSheet({ kind: 'pin' }); return; }
-      // F8: a delivery app's order (today Uber Eats), keyed in from the app's tablet.
-      if (e.key === 'F8' && !sheet && PLATFORMS[0] && reg.order.sentAt === undefined) {
-        e.preventDefault(); setTyped(null); setSheet({ kind: 'platform', platform: PLATFORMS[0] }); return;
-      }
       if (mod && key === 'z') { e.preventDefault(); if (noted) undoNoted(); else reg.undo(); return; }
       // The dark one of the two buttons: Send while there is something new (or a paid order not sent), else Pay.
       if (mod && e.key === 'Enter' && !sheet) {
         e.preventDefault();
         if (reg.paid) {
-          const due = balanceDue(reg.paid); // changed after paying (SCRUM-242): the difference first
+          // changed after paying (SCRUM-242): the difference first
           if (due > 0) setSheet({ kind: 'pay' }); else if (due < 0) settle('cash', 0);
           else if (reg.paid.held) reg.send(); else if (kitchenWord(reg.paid, tickets) === 'Ready') reg.give();
         }
-        else if (hasNew) reg.send(); else if (canCharge) setSheet({ kind: 'pay' });
+        else if (hasNew && kitchenOn) reg.send(); else if (!payAction.disabled) payAction.run();
         return;
       }
       // Alt+1 … Alt+9: the menu's tabs in their order (digits alone start typing an order).
@@ -293,14 +349,22 @@ export function App({
       if (sheet || typed !== null || custTyping !== null || mod || e.altKey || isTypingTarget(e.target)) return;
       // + New order: the one on screen waits on the list with its number.
       if (e.key === 'Escape' && (reg.order.lines.length > 0 || reg.paid)) { reg.startNew(); return; }
-      // A mobile starts 0 or + (an order never does): typing one puts a customer on the order.
-      if (crmOn && (e.key === '0' || e.key === '+')) { e.preventDefault(); setCustTyping(e.key); return; }
+      // The selected line: arrows move it, + and − change how many, Delete voids it.
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelected((x) => (e.key === 'ArrowDown' ? Math.min(x + 1, Math.max(0, lines.length - 1)) : Math.max(x - 1, 0)));
+        return;
+      }
+      if ((e.key === '+' || e.key === '-') && selectedLine) { e.preventDefault(); stepLine(selectedLine, e.key === '+' ? 1 : -1); return; }
+      if (e.key === 'Delete' && selectedLine) { e.preventDefault(); voidLine(selectedLine); return; }
+      // A mobile starts 0 (an order never does): typing one puts a customer on the order.
+      if (crmOn && e.key === '0') { e.preventDefault(); setCustTyping(e.key); return; }
       if (e.key.length === 1 && /[a-z0-9]/i.test(e.key)) { e.preventDefault(); setTyped(e.key); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [reg, settle, sheet, typed, custTyping, crmOn, hasNew, canCharge, manager, mode, palette, adjusting, pendingVoid, listing, lines.length,
-    selected, selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted, rows, tickets]);
+  }, [reg, settle, sheet, typed, custTyping, crmOn, hasNew, manager, mode, palette, adjusting, pendingVoid, lines.length,
+    selectedLine, askVoid, askAdjust, toggleChip, manage, noted, undoNoted, tickets, due, kitchenOn, payAction, fkey, stepLine, voidLine]);
 
   // Paying, and the order has nothing left on it (an Undo took the last line): back to the order.
   const paying = sheet?.kind === 'pay';
@@ -383,7 +447,6 @@ export function App({
       // Two ways (SCRUM-242): the kitchen changes the same ticket (nothing wasted), or throws the old
       // one away and makes the new one on a new ticket (the old one is waste).
       const cook = lineCookState(tickets, line.id);
-      const made = cook !== 'waiting';
       return (
         <ExtrasPanel
           key={key}
@@ -393,7 +456,12 @@ export function App({
             reg.changeSent({ kind: 'edit', lineId: line.id, after: spec, ...(remake ? { remake } : {}) }, remake);
             closeSheet();
           }}
-          onRemove={() => { reg.changeSent({ kind: 'void', lineId: line.id }, made); closeSheet(); }}
+          // Taking a sent line off is VOID's: a manager's PIN first, then the reason. A paid order
+          // changed afterwards (SCRUM-242) settles the difference instead, as before.
+          onRemove={() => {
+            closeSheet();
+            if (reg.paid) reg.changeSent({ kind: 'void', lineId: line.id }, cook !== 'waiting'); else voidLine(line);
+          }}
         />
       );
     }
@@ -412,8 +480,7 @@ export function App({
   })();
 
   const managePanel: ManagePanel | null = manager && {
-    actor: manager, selected, pendingVoid, adjusting,
-    onSelect: (i) => { setSelected(i); setPendingVoid(null); setAdjusting(null); },
+    actor: manager, pendingVoid, adjusting,
     onEditLine: (line) => setSheet({ kind: 'edit', line }),
     onAskVoid: askVoid,
     onVoid: (lineId, reason) => manage({ kind: 'void', lineId, reason }),
@@ -440,8 +507,12 @@ export function App({
         );
       }
     }
-    rows.forEach((r) => list.push({ id: `open-${r.order.number}`, label: `Open order ${r.order.number}`, run: () => reg.openOrder(r.order.number) }));
     list.push(
+      // The kitchen comes back once the staff are at home with the counter (kitchenScreen.ts).
+      {
+        id: 'kitchen-screen', label: kitchenOn ? 'Kitchen screen: hide it' : 'Kitchen screen: show it (Send to kitchen, Kitchen key)',
+        run: () => { setKitchenScreen(!kitchenOn); setKitchenOn(!kitchenOn); },
+      },
       { id: 'owner', label: 'Today: what needs attention', run: () => { location.hash = '#owner'; } },
       // The developer's laptop only (its server holds the admin password).
       ...(fleet ? [{ id: 'shops', label: "Shops: every shop's sales (developer)", run: () => { location.hash = '#shops'; } }] : []),
@@ -467,19 +538,24 @@ export function App({
       list.push({ id: 'suppliers', label: 'Suppliers', run: () => { location.hash = '#suppliers'; } });
     }
     return list;
-  }, [manager, listing, reg, rows, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit, fleet]);
+  }, [manager, listing, reg, selectedLine, sound, canManageStock, manage, askAdjust, askVoid, mode.exit, fleet, kitchenOn]);
 
   return (
     <div className={`register${manager ? ' register--managing' : ''}${paying ? ' register--paying' : ''}${inExtras ? ' register--extras' : ''}`}>
       <header className="register__head">
-        {/* The shop's places, as one bar of words with their keys (SCRUM-239): learnable, and out of the cashier's way. */}
+        {/* Every place the counter uses in a day, by name, in one bar: nothing behind a menu. */}
         <nav className="tabs" aria-label="Places">
           <span className="tab tab--on" aria-current="page">Register</span>
-          {!manager && onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
+          {!manager && kitchenOn && onKitchen && <KitchenChip tickets={tickets} onOpen={onKitchen} />}
           {!manager && onTables && <Suspense fallback={null}><TablesChip onOpen={onTables} /></Suspense>}
-          {!manager && <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out <kbd>F6</kbd></button>}
-          {/* The owner and managers see their own screen without any shortcut. */}
-          {!manager && onOwner && <button type="button" className="corner__key" onClick={onOwner}>Today <kbd>F3</kbd></button>}
+          {/* The owner and managers see their own screen. */}
+          {!manager && onOwner && <button type="button" className="corner__key" onClick={onOwner}>Today <kbd>F10</kbd></button>}
+          {!manager && <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out</button>}
+          {!manager && <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'receive' })}>Receive</button>}
+          {!manager && PLATFORMS.map((p) => (
+            <button key={p.id} type="button" className="corner__key" disabled={reg.order.sentAt !== undefined || Boolean(reg.paid)}
+              onClick={() => setSheet({ kind: 'platform', platform: p })}>{p.name}</button>
+          ))}
         </nav>
         {manager ? (
           <span className="corner corner--managing" role="status">
@@ -488,6 +564,7 @@ export function App({
             <button type="button" className="corner__key corner__bin" onClick={() => setSheet({ kind: 'waste' })}>
               <BinIcon /> Waste <kbd>W</kbd>
             </button>
+            <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'money' })}>Money out</button>
             <button type="button" className="corner__key" onClick={() => setPalette(true)}>Commands <kbd>Ctrl K</kbd></button>
             <button type="button" className="corner__key" onClick={mode.exit}>Done <kbd>Esc</kbd></button>
           </span>
@@ -495,52 +572,49 @@ export function App({
           <span className="corner">
             <OnlineChip state={online} looking={sheet?.kind === 'online'} onOpen={() => setSheet({ kind: 'online' })} />
             <SyncSign />
+            {onVoice && (
+              <button type="button" className="corner__key" aria-label="Hold and say which page to open"
+                onPointerDown={(e) => { e.preventDefault(); onVoice.start(); }} onPointerUp={onVoice.stop} onPointerLeave={onVoice.stop}>
+                <MicIcon /> Voice <kbd>F9</kbd>
+              </button>
+            )}
+            <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
             {onSwitch
               ? (
                 <button type="button" className="corner__key" onClick={onSwitch} aria-label={`${currentCashier().name}: switch user`}>
-                  {currentCashier().name} <kbd>F4</kbd>
+                  {currentCashier().name} · Switch user
                 </button>
               )
               : <span className="cashier">{currentCashier().name}</span>}
-            <span className={`corner__rest${more ? ' corner__rest--open' : ''}`} id="corner-rest" onClick={() => setMore(false)}>
-              {PLATFORMS.map((p, i) => (
-                <button key={p.id} type="button" className="corner__key" onClick={() => setSheet({ kind: 'platform', platform: p })}>
-                  {p.name}{i === 0 && <kbd>F8</kbd>}
-                </button>
-              ))}
-              {onVoice && (
-                <button type="button" className="corner__key" aria-label="Hold and say which page to open"
-                  onPointerDown={(e) => { e.preventDefault(); onVoice.start(); }} onPointerUp={onVoice.stop} onPointerLeave={onVoice.stop}>
-                  <MicIcon /> Voice <kbd>F9</kbd>
-                </button>
-              )}
-              <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'receive' })}>Receive <kbd>F7</kbd></button>
-              <button type="button" className="corner__key" onClick={() => setSheet({ kind: 'pin' })}>Manager <kbd>Ctrl M</kbd></button>
-            </span>
-            <button type="button" className="corner__more" aria-label="More" aria-expanded={more} aria-controls="corner-rest"
-              onClick={() => setMore(!more)}>
-              <span aria-hidden="true">•••</span>
-            </button>
           </span>
         )}
       </header>
 
       <div className="register__body">
-        <OrdersRail
-          rows={rows}
-          current={reg.paid ? reg.paid.number : reg.order.lines.length ? reg.order.number : null}
-          selected={manager && listing ? selected : null}
-          onNew={reg.startNew}
+        <BillHistory
+          held={rows.filter((r) => r.order.number !== (reg.paid ?? reg.order).number)}
+          paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
+          tickets={tickets}
+          kitchenOn={kitchenOn}
+          current={{ number: (reg.paid ?? reg.order).number, paidAt: reg.paid?.paidAt }}
           onOpen={reg.openOrder}
         />
         <main className="menu">
-          {typed !== null && !manager && (
+          {manager ? null : typed !== null ? (
             <ShorthandBar
               initial={typed}
               onClose={() => setTyped(null)}
               onSubmit={(specs) =>
                 reg.addSpecs(specs, specs.length === 1 ? `Added ${describe(specs[0])}` : `Added ${specs.length} items`)}
             />
+          ) : (
+            // Always in sight; any letter or digit typed anywhere starts it too.
+            <div className="typebar">
+              <div className="typebar__field">
+                <input readOnly value="" placeholder={label('typeOrSearch')} aria-label={label('typeOrSearch')}
+                  onFocus={() => setTyped('')} onPointerDown={() => setTyped('')} />
+              </div>
+            </div>
           )}
           <Menu
             category={category}
@@ -548,35 +622,27 @@ export function App({
             onQuickAdd={quickAdd}
             onCustomise={(item) => setSheet({ kind: 'extras', item })}
             onAddCombo={addCombo}
-            onType={manager ? undefined : () => setTyped('')}
           />
         </main>
 
         <OrderPanel
           order={reg.order}
-          paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
           tickets={tickets}
           paid={reg.paid}
           justPaid={reg.justPaid}
           onGive={() => reg.give()}
           now={now}
           manage={managePanel}
+          selected={selected}
+          onSelect={(i) => { setSelected(i); setPendingVoid(null); setAdjusting(null); }}
           onEdit={(line) => setSheet({ kind: 'edit', line })}
-          onStep={(line, by) => {
-            const qty = line.qty + by;
-            if (qty < 1) reg.dropLine(line.id, `Removed ${lineItemName(line)}`);
-            else reg.editLine({ ...line, qty }, `${qty} × ${lineItemName(line)}`);
-          }}
-          onSend={reg.send}
-          onCharge={() => setSheet({ kind: 'pay' })}
-          onGiveBack={() => settle('cash', 0)}
-          onCloseFree={() => pay('comp', 0)}
-          onClosePlatform={() => { if (reg.order.platform) pay(reg.order.platform.id, total); }}
+          onStep={stepLine}
+          onRemove={voidLine}
           onClearPlatform={() => reg.setPlatform(null)}
+          onUndo={reg.undo}
+          onDineIn={reg.setDineIn}
           printState={canPrint() && reg.paid && printing?.number === reg.paid.number ? printing.state : null}
           onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
-          onNext={reg.startNew}
-          onUndo={reg.undo}
           customerBar={customerBar}
           paying={paying ? {
             onPay: (tender, tendered, customerId, unlinked) => {
@@ -590,12 +656,24 @@ export function App({
         />
       </div>
 
+      <ActionBar actions={barActions} />
+
       {sheet?.kind === 'platform' && (
         <PlatformSheet platform={sheet.platform} onClose={closeSheet} onMark={(m) => { reg.setPlatform(m); closeSheet(); }} />
       )}
       {sheet?.kind === 'online' && <OnlineSheet state={online} onAccept={acceptOnline} onOut={outOnline} onClose={closeSheet} />}
       {sheet?.kind === 'pin' && (
-        <PinSheet onClose={closeSheet} onUnlock={(actor) => { closeSheet(); mode.enter(actor); }} />
+        <PinSheet
+          onClose={closeSheet}
+          reason={sheet.voidLine ? 'To void an item already sent to the kitchen' : undefined}
+          onUnlock={(actor) => {
+            const lineId = sheet.voidLine;
+            closeSheet();
+            mode.enter(actor);
+            // Asked by VOID: straight on to that line's reasons.
+            if (lineId) { const i = reg.order.lines.findIndex((l) => l.id === lineId); if (i >= 0) setSelected(i); setPendingVoid(lineId); }
+          }}
+        />
       )}
       {sheet?.kind === 'waste' && manager && (
         <WasteSheet

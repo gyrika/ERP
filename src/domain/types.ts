@@ -175,6 +175,8 @@ export interface Order {
   held?: string;
   /** The customer has the food (SCRUM-240). An order leaves the Register's list once paid and given. */
   givenAt?: number;
+  /** Eaten in the shop; absent = take away (the counter's Order type toggle). Kept on this screen's order. */
+  dineIn?: true;
 }
 
 export interface OrderCustomer { id: string; name: string | null }

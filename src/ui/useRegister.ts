@@ -367,7 +367,11 @@ export function useRegister() {
    * `ready`: the kitchen had made it, so the customer paying is the one taking it (SCRUM-240): the
    * payment hands it over too, and it leaves the list.
    */
-  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked = false, ready = false): PaidOrder | undefined => {
+  /**
+   * `release`: no kitchen screen at the counter (kitchenScreen.ts): what is not yet sent goes out with
+   * the payment at once, never held for a Send that has no button.
+   */
+  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked = false, ready = false, release = false): PaidOrder | undefined => {
     const total = orderTotal(ref.current.order);
     // A comped order (Free) closes at 0 with tender 'comp'; anything else needs something to pay.
     const comped = ref.current.order.adjust?.discount?.kind === 'comp';
@@ -379,7 +383,9 @@ export function useRegister() {
     const before = ref.current;
     const sent = sendUnsent(before, at);
     let order = before.order;
-    if (sent.ticket) {
+    if (sent.ticket && release) {
+      order = sent.order;
+    } else if (sent.ticket) {
       const { sentAt: _never, ...rest } = sent.order;
       order = { ...rest, ...(before.order.sentAt !== undefined ? { sentAt: before.order.sentAt } : {}), held: sent.ticket.id };
     }
@@ -396,7 +402,7 @@ export function useRegister() {
       open: sent.s.open.filter((o) => o.number !== order.number),
       sales: [...sent.s.sales, paid],
     }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}${unlinked ? ' · mobile not saved' : ''}`);
-    if (sent.ticket) fireTicket(sent.ticket, true);
+    if (sent.ticket) fireTicket(sent.ticket, !release);
     appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered, ...(customerId ? { customerId } : {}) });
     if (paid.givenAt === at) appendEvent({ type: 'order.given', at, actor: currentCashier(), orderNumber: paid.number });
     return paid;
@@ -601,6 +607,32 @@ export function useRegister() {
     });
   }, [show]);
 
+  /**
+   * Clear bill: every line off the order on screen at once, with Undo (no dialog). Only while none
+   * of it has gone to the kitchen: a sent line is a manager's void.
+   */
+  const clear = useCallback(() => {
+    const s = ref.current;
+    if (s.paid || !s.order.lines.length || s.order.lines.some((l) => l.sent)) return;
+    const { adjust: _a, ...rest } = s.order;
+    commit(() => withOrder(s, { ...rest, lines: [] }), `Cleared bill ${s.order.number}`);
+  }, [commit]);
+
+  /** Hold: the bill waits on the Held bills list with its number; the screen is free. Undo brings it back. */
+  const hold = useCallback(() => {
+    const s = ref.current;
+    if (s.paid || !s.order.lines.length) return;
+    commit(park, `Held bill ${s.order.number}`);
+  }, [commit]);
+
+  /** Take away or dine in, on the order on screen (not yet paid). Kept on the order; no event of its own. */
+  const setDineIn = useCallback((dineIn: boolean) => {
+    const s = ensureOpen(ref.current);
+    if (Boolean(s.order.dineIn) === dineIn) return;
+    const { dineIn: _d, ...rest } = s.order;
+    show(() => withOrder(s, dineIn ? { ...rest, dineIn: true } : rest));
+  }, [show]);
+
   /** A new order; the one on screen, if it has anything on it, waits on the list with its number. */
   const startNew = useCallback(() => {
     show(park);
@@ -646,6 +678,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, clear, hold, setDineIn, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PIN_LENGTH } from '../domain/auth.ts';
+import { kitchenScreenOn } from './kitchenScreen.ts';
 import { login, type LoginResult } from '../services/serverAuth.ts';
 
 /**
@@ -74,7 +75,7 @@ export function LockScreen() {
             : <span key={i} />))}
         </div>
       </div>
-      <p className="lock__hint">Kitchen <kbd>F2</kbd></p>
+      {kitchenScreenOn() && <p className="lock__hint">Kitchen <kbd>F2</kbd></p>}
     </main>
   );
 }

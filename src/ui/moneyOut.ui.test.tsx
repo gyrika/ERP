@@ -18,7 +18,7 @@ const live = () => moneyOutFromEvents(readAll());
 test('cashier: F6, Gas, the amount, Enter: recorded at once from the drawer, with Undo', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: 'Money out' }));
   const sheet = screen.getByRole('dialog', { name: 'Money out' });
   // A cashier pays cash from the drawer only, and never rent or wages.
   expect(within(sheet).queryByRole('button', { name: /Rent/ })).toBeNull();
@@ -50,7 +50,7 @@ test('the amount typed is what is stored, in cents', async () => {
 test('Other needs a note, and nothing records until it has one', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: 'Money out' }));
   await user.click(screen.getByRole('button', { name: /Other/ }));
   await user.keyboard('500');
   expect((screen.getByRole('button', { name: 'Say what it was' }) as HTMLButtonElement).disabled).toBe(true);
@@ -63,7 +63,7 @@ test('Other needs a note, and nothing records until it has one', async () => {
 test('Esc closes the sheet without recording', async () => {
   const user = userEvent.setup();
   render(<App />);
-  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: 'Money out' }));
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog', { name: 'Money out' })).toBeNull();
   expect(live()).toEqual([]);
@@ -74,7 +74,7 @@ test('manager mode: rent from the bank, signed by the manager', async () => {
   render(<App />);
   await user.keyboard('{Control>}m{/Control}');
   await user.keyboard(pin);
-  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: 'Money out' }));
   const sheet = screen.getByRole('dialog', { name: 'Money out' });
   await user.click(within(sheet).getByRole('button', { name: /Rent/ }));
   await user.keyboard('1');
@@ -118,7 +118,7 @@ test('the month steps back, and never past this month', async () => {
 });
 
 const payGas = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: 'Money out' }));
   await user.click(screen.getByRole('button', { name: /Gas/ }));
 };
 
@@ -255,7 +255,7 @@ test('the owner removes a GRN from the unpaid list, with Undo: it leaves the Reg
   unmount();
 
   render(<App />);
-  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: 'Money out' }));
   await user.click(screen.getByRole('button', { name: /Supplier/ }));
   expect(screen.getByText(/No GRN is waiting to be paid/)).toBeTruthy();
 });
@@ -279,7 +279,7 @@ test('the Register: F6, Supplier lists the owner\'s unpaid GRNs; a key picks one
   delivery('8', 300000, now - 1000);
   const user = userEvent.setup();
   render(<App />);
-  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: 'Money out' }));
   const sheet = screen.getByRole('dialog', { name: 'Money out' });
   await user.click(within(sheet).getByRole('button', { name: /Supplier/ }));
   expect(within(sheet).queryByRole('group', { name: 'Which supplier' })).toBeNull();
@@ -298,7 +298,7 @@ test('the Register: F6, Supplier lists the owner\'s unpaid GRNs; a key picks one
   expect(live()[0].grnIds).toHaveLength(1);
 
   // Paid: it no longer asks, and the other stays.
-  await user.keyboard('{F6}');
+  await user.click(screen.getByRole('button', { name: 'Money out' }));
   const next = screen.getByRole('dialog', { name: 'Money out' });
   await user.click(within(next).getByRole('button', { name: /Supplier/ }));
   expect(within(next).queryByRole('button', { name: /GRN-7/ })).toBeNull();

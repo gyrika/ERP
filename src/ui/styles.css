@@ -2412,3 +2412,130 @@ button.glance__card:disabled { cursor: default; }
   .rail__row { min-width: 120px; }
   .rail__none { display: none; }
 }
+
+/* ---------- counter, recognition over recall (2026-11-16) ----------
+   The layout staff know from their old POS: the day's bills on the left, the menu, the bill on the right,
+   and every day's action as a labelled button in one bar along the bottom, its key printed on it. */
+.register { --panel-w: clamp(420px, 36vw, 640px); --bar-h: clamp(60px, 9vh, 72px); --pay: #E8A94B; --on-pay: #1C1C1E; }
+.register .panel, .register .panel--paying { flex: 0 0 var(--panel-w); width: var(--panel-w); }
+.register .menu { padding-top: var(--sp-3); }
+.register .typebar__field input[readonly] { cursor: text; }
+.register .typebar__field input::placeholder { color: var(--ink-3); }
+
+/* The bar: PAY the largest and the shop's colour; red for the two that take things away. */
+.actbar { flex: 0 0 var(--bar-h); display: grid; grid-template-columns: 2fr repeat(6, 1fr); gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
+  background: var(--surface); box-shadow: 0 -1px 0 var(--line); }
+.actbar:not(:has(.actbar__btn--main)) { grid-template-columns: 2fr repeat(5, 1fr); }
+.actbar__btn { min-height: 48px; padding: 0 var(--sp-2); border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  font-size: var(--fs-m); font-weight: 600; letter-spacing: 0.2px; text-transform: uppercase; background: var(--chip); color: var(--ink);
+  transition: transform 80ms var(--ease), filter 120ms var(--ease); }
+.actbar__btn:active:not(:disabled) { transform: scale(0.98); }
+.actbar__btn:hover:not(:disabled) { filter: brightness(0.96); }
+.actbar__btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.actbar__btn kbd { font-size: var(--fs-xs); font-weight: 600; padding: 2px 6px; border-radius: 6px; border: 1px solid currentColor; opacity: 0.7; text-transform: none; }
+.actbar__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actbar__btn--pay { background: var(--pay); color: var(--on-pay); font-size: var(--fs-xl); font-weight: 700; }
+.actbar__btn--main { background: var(--primary); color: var(--on-primary); }
+.actbar__btn--danger { background: var(--bad); color: #fff; }
+.actbar__btn--danger-line { background: none; color: var(--bad); box-shadow: inset 0 0 0 2px var(--bad); }
+.actbar__btn:disabled { opacity: 0.35; cursor: not-allowed; filter: grayscale(0.6); }
+
+/* Toasts sit above the bar, never on it. */
+.register .toast { bottom: calc(var(--bar-h) + 16px); }
+.register:has(.toast:not(.toast--note)) .toast--note { bottom: calc(var(--bar-h) + 80px); }
+
+/* The bill's header: number, date and time, Held bills; then Take away | Dine in. */
+.bill__head { padding: var(--sp-3) var(--sp-4) 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.bill__row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.bill__head .obadge { height: 52px; min-width: 76px; }
+.bill__head .obadge__no { font-size: 24px; }
+.bill__when { font-size: var(--fs-s); color: var(--ink-2); margin-left: auto; }
+.bill__held { min-height: 48px; padding: 0 var(--sp-3); border-radius: 12px; background: var(--chip); display: inline-flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-m); font-weight: 600; color: var(--ink); }
+.bill__held[aria-pressed='true'] { background: var(--primary); color: var(--on-primary); }
+.bill__badge { min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; background: var(--bad); color: #fff; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; }
+.bill__badge--none { background: var(--line); color: var(--ink-2); }
+.bill__give { min-height: 48px; padding: 0 var(--sp-3); border-radius: 12px; background: var(--ok); color: #fff; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+.bill__give small { font-weight: 500; opacity: 0.9; }
+.seg { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--chip); }
+.seg__opt { min-height: 44px; padding: 0 var(--sp-4); border-radius: 10px; font-size: var(--fs-m); font-weight: 600; color: var(--ink-2); }
+.seg__opt[aria-checked='true'] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.seg__opt:disabled { cursor: default; }
+.seg__opt:disabled:not([aria-checked='true']) { opacity: 0.4; }
+
+/* The lines: a real table, the selected line highlighted. */
+.bill__lines { padding: var(--sp-3) var(--sp-3) 0; gap: 0; }
+.bill { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.bill th { position: sticky; top: 0; z-index: 1; background: var(--panel); padding: 6px 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); text-align: left;
+  text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid var(--line); }
+.bill th:nth-child(2) { width: 124px; text-align: center; }
+.bill th:nth-child(3), .bill th:nth-child(4) { width: 72px; text-align: right; }
+.bill th:nth-child(5) { width: 52px; }
+.bill td { padding: 4px 6px; vertical-align: middle; border-bottom: 1px solid var(--line); }
+.bill__line { cursor: pointer; }
+.bill__line--on td { background: color-mix(in srgb, var(--pay) 22%, transparent); }
+.bill__line--on td:first-child { box-shadow: inset 4px 0 0 var(--pay); }
+.bill__line--sent .line__name, .bill__line--sent .bill__total { color: var(--ink-2); }
+.bill__line--dish .bill__name { padding-left: 14px; }
+.bill__boxhead td { font-weight: 600; background: var(--chip); }
+.bill__name { width: 100%; min-height: 48px; padding: 4px 0; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.bill__name .status { margin: 2px 0 0; align-self: flex-start; }
+.bill__price, .bill__total { text-align: right; font-size: var(--fs-m); white-space: nowrap; }
+.bill__total { font-weight: 600; }
+.bill__qty { text-align: center; }
+.qty { display: inline-flex; align-items: center; gap: 2px; }
+.qty__key { width: 40px; height: 48px; border-radius: 10px; background: var(--chip); font-size: 22px; font-weight: 600; line-height: 1; color: var(--ink); }
+.qty__key:disabled { opacity: 0.3; }
+.qty__n { min-width: 28px; text-align: center; font-size: var(--fs-l); font-weight: 600; }
+.bill__remove { width: 44px; height: 48px; border-radius: 10px; color: var(--bad); font-size: 18px; font-weight: 700; }
+.bill__remove:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.bill__remove:disabled { opacity: 0.25; }
+.bill__manage td { background: color-mix(in srgb, var(--pay) 10%, transparent); padding: 8px; }
+
+/* Totals: Subtotal, Discount, then NET AMOUNT large. */
+.sums { margin: 0; padding: var(--sp-3) var(--sp-4) var(--sp-4); display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); }
+.sums div { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-m); color: var(--ink-2); }
+.sums dt, .sums dd { margin: 0; }
+.sums__net { padding-top: 6px; color: var(--ink) !important; }
+.sums__net dt { font-size: var(--fs-b); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+.sums__net .total { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -1px; }
+.paid--bar { flex: none; padding: var(--sp-3) var(--sp-4) 0; }
+.paid--bar .paid__big { font-size: 48px; }
+
+/* Order history: the left column, every bill of the day in sight (held, then paid today). */
+.register { --history-w: clamp(184px, 14.5vw, 260px); }
+.history { flex: 0 0 var(--history-w); width: var(--history-w); min-height: 0; overflow-y: auto; scrollbar-width: thin; box-sizing: border-box;
+  padding: var(--sp-3) var(--sp-2) var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-4); border-right: 1px solid var(--line); }
+.history__part { display: flex; flex-direction: column; gap: 6px; }
+.history__head { margin: 0 4px; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--ink-2); }
+.history__none { margin: 0 4px; font-size: var(--fs-xs); color: var(--ink-3); }
+.history__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.history__row { width: 100%; min-height: 56px; padding: 6px 10px; box-sizing: border-box; border-radius: 12px; display: flex; flex-direction: column; gap: 2px; text-align: left;
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
+.history__row:hover { background: var(--chip); }
+.history__row--paid { background: none; }
+.history__row--on { background: var(--surface); box-shadow: inset 0 0 0 2px var(--ink); }
+.history__row--warn { box-shadow: inset 4px 0 0 var(--warn), inset 0 0 0 1px var(--line); }
+.history__row--bad { box-shadow: inset 4px 0 0 var(--bad), inset 0 0 0 1px var(--line); }
+.history__top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.history__no { font-size: var(--fs-l); font-weight: 700; letter-spacing: -0.3px; }
+.history__total { font-size: var(--fs-s); font-weight: 600; }
+.history__what { font-size: var(--fs-xs); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history__meta { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: var(--fs-xs); color: var(--ink-2); }
+.history__meta .cookword { padding: 0; background: none; font-size: inherit; }
+.held__paid { color: var(--ok-ink); font-weight: 600; }
+.held__unpaid { color: var(--ink); font-weight: 600; }
+@media (max-width: 560px) { .history { display: none; } }
+
+/* The places bar holds every place by name now: it scrolls sideways before it would wrap. */
+.register__head .tabs .corner__key:disabled { opacity: 0.4; }
+@media (max-width: 1400px) {
+  .actbar__btn { font-size: var(--fs-s); letter-spacing: 0; }
+  .actbar__btn--pay { font-size: var(--fs-l); }
+  .bill th:nth-child(2) { width: 112px; }
+  .qty__key { width: 36px; }
+}
+.actbar__btn--pay kbd, .actbar__btn--danger kbd, .actbar__btn--main kbd { opacity: 1; }
+.bill td:first-child, .bill th:first-child { padding-left: 12px; }
+.actbar__btn--danger kbd { color: #fff; border-color: #fff; background: none; }
+.actbar__btn--pay kbd { color: var(--on-pay); border-color: var(--on-pay); background: none; }
