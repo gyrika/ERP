@@ -135,3 +135,15 @@ test('box shares are whole rupees, so reports never show a dish at Rs 1,842.12',
   assert.ok(lines.every((l) => l.box!.share % 100 === 0));
   assert.equal(lines.reduce((s, l) => s + l.box!.share, 0), rs(3599));
 });
+
+test('a box on the bill and receipt: the same dish once with how many; a changed pick gets its own row; arrows skip the rest', async () => {
+  const { groupDishes, nextShownLine } = await import('./combos.ts');
+  const four: Combo = { ...FAMILY, slots: [FAMILY.slots[0], { ...FAMILY.slots[1], qty: 4 }] };
+  const lines = boxLines('c', four, MENU, { boxId: 'b1' })!.map((l, i) => ({ ...l, id: `l${i}` })) as OrderLine[];
+  assert.deepEqual(groupDishes(lines).map((g) => [g.lines[0].itemId, g.qty]), [['devilled-chicken', 1], ['chicken-burger', 4]]);
+  const crispy = lines.map((l, i) => (i === 4 ? swapPick(l, itemById('crispy-chicken-burger'), four) : l));
+  assert.deepEqual(groupDishes(crispy).map((g) => [g.lines[0].itemId, g.qty]), [['devilled-chicken', 1], ['chicken-burger', 3], ['crispy-chicken-burger', 1]]);
+  assert.equal(nextShownLine(lines, 0, 1), 1); // pizza → the burgers' row
+  assert.equal(nextShownLine(lines, 1, 1), 1); // the burgers are the last row
+  assert.equal(nextShownLine(lines, 1, -1), 0); // the burgers' row → the pizza
+});

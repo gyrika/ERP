@@ -4,7 +4,7 @@ import { CMD, OFFERS_URL, APP_URL, RECEIPT_WIDTH, SHOP_HEADER, deliveryBill, esc
 import { RECEIPT_LOGO } from './receiptLogo.ts';
 import { fmt } from './money.ts';
 import { totals } from './totals.ts';
-import type { Order, PaidOrder, Tender } from './types.ts';
+import type { Order, OrderLine, PaidOrder, Tender } from './types.ts';
 
 const at = new Date(2026, 9, 12, 19, 42).getTime(); // local time, as the receipt prints it
 
@@ -198,4 +198,17 @@ test('a delivery: the receipt shows the fee; the bill for the bag says where, an
   assert.ok(lines.some((l) => l.big && l.text.startsWith('COLLECT') && l.text.endsWith(`Rs ${fmt(total)}`)));
   assert.ok(lines.every((l) => l.text.length <= (l.big ? RECEIPT_WIDTH / 2 : RECEIPT_WIDTH)), 'fits the paper');
   assert.ok(!escpos(lines).some((b, i, all) => b === CMD.kick[0] && all[i + 1] === CMD.kick[1]), 'nothing paid yet: the drawer stays shut');
+});
+
+test('a combo on the receipt: the box price once, the same dish once with how many', () => {
+  const box = (id: string, itemId: string, size?: OrderLine['size']): OrderLine => ({
+    id, itemId, qty: 1, adds: [], outs: [], sent: true, ...(size ? { size } : {}),
+    box: { id: 'b1', comboId: 'c', name: 'Family Box', slot: 0, share: 120000, extra: 0, alone: 150000 },
+  });
+  const order: Order = { number: 1044, lines: [box('a', 'devilled-chicken', 'L'), box('b', 'chicken-burger'), box('c', 'chicken-burger')] };
+  const text = receiptText(receipt(pay(order, 'cash'), { cashier: 'Nimal' }));
+  assert.match(text, /Family Box +3,600/);
+  assert.match(text, /\n  Devilled Chicken Large\n/);
+  assert.match(text, /\n  2 x Chicken Burger\n/);
+  assert.equal(text.match(/Chicken Burger/g)!.length, 1);
 });

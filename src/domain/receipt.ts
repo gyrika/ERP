@@ -1,5 +1,5 @@
 import type { ReceiptOffer } from './campaigns.ts';
-import { boxesIn, opensBox } from './combos.ts';
+import { boxesIn, groupDishes, opensBox } from './combos.ts';
 import { itemById } from './menu.ts';
 import { fmt } from './money.ts';
 import { discountLabel, lineAdjustment, lineGross, totals } from './totals.ts';
@@ -185,10 +185,17 @@ const billBody = (order: Order, width: number): ReceiptLine[] => {
   const boxes = boxesIn(order.lines);
   for (const [i, l] of order.lines.entries()) {
     if (l.box) {
-      // A combo box (SCRUM-231): its price once, its dishes under it, a price only where one was added.
+      // A combo box (SCRUM-231): its price once, its dishes under it, a price only where one was added;
+      // the same dish once with how many ("4 x Chicken Burger"), as on the bill.
+      if (!opensBox(order.lines, i)) continue;
       const box = boxes.get(l.box.id)!;
-      if (opensBox(order.lines, i)) out.push({ text: twoCols(box.name, fmt(box.price), width) });
-      out.push(...itemLines(l, lineGross(l) - l.box.share, width, '  '));
+      out.push({ text: twoCols(box.name, fmt(box.price), width) });
+      for (const g of groupDishes(box.lines)) {
+        out.push(...itemLines({ ...g.lines[0], qty: g.qty }, g.lines.reduce((n, x) => n + lineGross(x) - x.box!.share, 0), width, '  '));
+        const adj = g.lines.reduce((n, x) => n + lineAdjustment(order, x), 0);
+        if (adj > 0) out.push({ text: twoCols('    Price adjusted', minus(adj), width) });
+      }
+      continue;
     } else {
       out.push(...itemLines(l, lineGross(l), width));
     }
@@ -209,8 +216,8 @@ const itemLines = (
 ): ReceiptLine[] => {
   const item = itemById(l.itemId);
   const size = item.variants?.find((v) => v.id === l.size)?.label;
-  // In a box (indented) a dish is always one, and has no price of its own unless something was added.
-  const name = `${indent ? '' : `${l.qty} x `}${lineItemName(l).replace(/½/g, '1/2')}${size ? ` ${size}` : ''}`; // the printer has no ½
+  // In a box (indented) a dish has no price of its own unless something was added, and says how many only past one.
+  const name = `${indent && l.qty === 1 ? '' : `${l.qty} x `}${lineItemName(l).replace(/½/g, '1/2')}${size ? ` ${size}` : ''}`; // the printer has no ½
   const [head, ...rest] = wrap(name, width - 12 - indent.length);
   const first = `${indent}${head}`;
   const out: ReceiptLine[] = [

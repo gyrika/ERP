@@ -13,7 +13,7 @@ import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../do
 import type { OrderType } from '../domain/types.ts';
 import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
-import { boxesIn, opensBox } from '../domain/combos.ts';
+import { boxesIn, groupDishes, opensBox, type DishGroup } from '../domain/combos.ts';
 import { PayPanel } from './PayPanel.tsx';
 import type { PaidEdit } from '../domain/paidEdits.ts';
 import type { RemovedLine } from '../domain/removedLines.ts';
@@ -315,16 +315,19 @@ export function OrderPanel({
   const boxes = boxesIn(shown.lines);
   const sel = Math.min(selected, shown.lines.length - 1);
 
-  /** One line of the table. `inBox`: a combo's dish, priced with its box. */
-  const row = (l: OrderLine, i: number, inBox: boolean) => {
+  /**
+   * One line of the table. `inBox`: a combo's dish, priced with its box. `group`: the same dishes
+   * in that box drawn as this one row (combos.ts `groupDishes`): their count, their extras summed.
+   */
+  const row = (l: OrderLine, i: number, inBox: boolean, group?: DishGroup) => {
     const name = lineItemName(l);
     const adj = lineAdjustment(shown, l);
-    const isSel = i === sel;
+    const isSel = group ? group.lines.some((x) => shown.lines.indexOf(x) === sel) : i === sel;
     // A line added to a paid order and not yet settled (SCRUM-253) is still unsent: − / + and ✕ work on it.
     const canStep = !l.sent && !inBox && !manage;
     const edit = editOf.get(l.id);
     const cook = l.sent ? lineCookState(tickets, l.id) : 'waiting';
-    const extra = inBox && l.box ? lineNet(shown, l) - l.box.share : 0;
+    const extra = inBox ? (group?.lines ?? [l]).reduce((n, x) => n + (x.box ? lineNet(shown, x) - x.box.share : 0), 0) : 0;
     return [
       <tr key={l.id} className={`bill__line${isSel ? ' bill__line--on' : ''}${l.sent ? ' bill__line--sent' : ''}${inBox ? ' bill__line--dish' : ''}`}
         // A paid bill (SCRUM-251): a tap anywhere on the row opens the item to change, not only its name.
@@ -339,7 +342,7 @@ export function OrderPanel({
           </button>
         </td>
         <td className="bill__qty">
-          {inBox ? <span className="num">{l.qty}</span> : (
+          {inBox ? <span className="num">{group?.qty ?? l.qty}</span> : (
             <span className="qty" role="group" aria-label={`How many ${name}`}>
               <button type="button" className="qty__key" disabled={!canStep} aria-label={l.qty > 1 ? `One fewer ${name}` : `Remove ${name}`}
                 onClick={(e) => { e.stopPropagation(); onStep(l, -1); }}>−</button>
@@ -435,8 +438,11 @@ export function OrderPanel({
                 groups.push(
                   <tbody key={`box-${box.id}`} className="bill__box" aria-label={box.name}>
                     <tr className="bill__boxhead">
-                      <td className="bill__item"><span className="line__name">{box.name}</span>
-                        {box.saved > 0 && <span className="line__sub num">Saves Rs {fmt(box.saved)} on separate prices</span>}</td>
+                      {/* The name, then the saving under it (one cell, two lines: never "familySaves…"). */}
+                      <td className="bill__item"><span className="bill__name">
+                        <span className="line__name">{box.name}</span>
+                        {box.saved > 0 && <span className="line__sub num">Saves Rs {fmt(box.saved)} on separate prices</span>}
+                      </span></td>
                       <td className="bill__qty"><span className="num">1</span></td>
                       <td className="bill__price num">{fmt(box.price)}</td>
                       <td className="bill__total num">{fmt(box.lines.reduce((n, x) => n + lineNet(shown, x), 0))}</td>
@@ -447,7 +453,7 @@ export function OrderPanel({
                         )}
                       </td>
                     </tr>
-                    {box.lines.map((x) => row(x, shown.lines.indexOf(x), true))}
+                    {groupDishes(box.lines).map((g) => row(g.lines[0], shown.lines.indexOf(g.lines[0]), true, g))}
                   </tbody>,
                 );
               });
