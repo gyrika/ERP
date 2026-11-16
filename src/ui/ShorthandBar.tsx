@@ -28,10 +28,21 @@ interface Props {
   initial: string;
   onSubmit: (specs: LineSpec[]) => void;
   onClose: () => void;
+  /**
+   * An order number typed on its own (SCRUM-247): one of today's bills, paid or not, opens on Enter.
+   * Answers whether there is such a bill; `open` true opens it.
+   */
+  onOrderNumber?: (n: number, open: boolean) => boolean;
 }
 
+/** "1042" or "#1042": what an order number typed on its own looks like (orders start at 1001). */
+const asOrderNumber = (text: string): number | null => {
+  const m = /^#?(\d{3,6})$/.exec(text.trim());
+  return m ? Number(m[1]) : null;
+};
+
 /** Appears the moment the cashier starts typing; one-glance preview before Enter. */
-export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
+export function ShorthandBar({ initial, onSubmit, onClose, onOrderNumber }: Props) {
   const menuVersion = useMenu();
   const [text, setText] = useState(initial);
   const [draft, setDraft] = useState<OrderDraft>({ lines: [], unresolved: [] });
@@ -64,7 +75,11 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
     appendEvent({ type: 'shorthand.missed', at: Date.now(), orderNumber: 0, actor: currentCashier(), ...miss, gaveUp });
   };
 
+  const number = asOrderNumber(text);
+  const bill = number !== null && onOrderNumber?.(number, false) ? number : null;
+
   const submit = () => {
+    if (bill !== null) { onOrderNumber?.(bill, true); onClose(); return; }
     if (!availableLines.length) return;
     onSubmit(availableLines);
     if (draft.unresolved.length) {
@@ -98,13 +113,17 @@ export function ShorthandBar({ initial, onSubmit, onClose }: Props) {
         />
       </div>
       <div className="typebar__preview" aria-live="polite">
-        {availableLines.map((l, i) => <span key={i}>{describe(l)}</span>)}
-        {unavailableLines.map((l, i) => (
-          <span key={`blocked${i}`} className="typebar__bad">
-            {itemById(l.itemId).name.en}: {itemById(l.itemId).hidden ? 'not on the menu' : 'sold out'}
-          </span>
-        ))}
-        {draft.unresolved.map((u, i) => <span key={`u${i}`} className="typebar__bad">? {u}</span>)}
+        {bill !== null ? <span>Enter opens bill {bill}</span> : (
+          <>
+            {availableLines.map((l, i) => <span key={i}>{describe(l)}</span>)}
+            {unavailableLines.map((l, i) => (
+              <span key={`blocked${i}`} className="typebar__bad">
+                {itemById(l.itemId).name.en}: {itemById(l.itemId).hidden ? 'not on the menu' : 'sold out'}
+              </span>
+            ))}
+            {draft.unresolved.map((u, i) => <span key={`u${i}`} className="typebar__bad">? {u}</span>)}
+          </>
+        )}
       </div>
     </div>
   );
