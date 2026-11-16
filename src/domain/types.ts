@@ -181,6 +181,8 @@ export interface Order {
    * until the last part, whose payment (`order.paid`) carries them all.
    */
   parts?: PaymentPart[];
+  /** Eaten in the shop; absent = take away (the counter's Order type toggle). Kept on this screen's order. */
+  dineIn?: true;
 }
 
 export interface OrderCustomer { id: string; name: string | null }

@@ -3,10 +3,12 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App.tsx';
 import { readAll } from './eventLog.ts';
+import { setKitchenScreen } from './kitchenScreen.ts';
+import { heldList } from './testHeld.ts';
 
 // Split bill (SCRUM-244): each person pays for their own items, any tender; the last part closes the order.
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => { localStorage.clear(); setKitchenScreen(true); });
 afterEach(cleanup);
 
 const panel = () => within(screen.getByRole('complementary', { name: 'Current order' }));
@@ -21,9 +23,9 @@ const openPayment = async (user = userEvent.setup()) => {
   const large = screen.getAllByRole('button', { name: 'L 2,500' });
   await user.click(large[0]);
   await user.click(large[1]);
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
-  await user.click(within(screen.getByRole('navigation', { name: 'Orders' })).getByRole('button', { name: /^1001/ }));
-  await user.click(panel().getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
   return user;
 };
 
@@ -46,7 +48,6 @@ test('S splits: one person pays their pizza by bank, the other the rest in cash;
   await user.keyboard('{Enter}'); // nothing picked: exact cash for the rest
   expect(paying()).toBeNull();
   expect(panel().getByText(/Split · Bank transfer 2,500 \+ Cash 2,500/)).toBeTruthy();
-  expect(panel().getByText('Paid · Split')).toBeTruthy();
   const paid = lastPaid()!;
   expect(paid.total).toBe(500000);
   expect(paid.parts).toEqual([

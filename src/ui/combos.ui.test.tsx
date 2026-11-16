@@ -7,6 +7,7 @@ import type { Combo } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
 import { appendEvent, readAll } from './eventLog.ts';
 import { Root } from './Root.tsx';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/'); setMenuState(EMPTY_MENU_STATE); });
 afterEach(() => { cleanup(); setMenuState(EMPTY_MENU_STATE); });
@@ -33,7 +34,7 @@ test('one tap sells a whole combo with its usual picks; it goes to the kitchen a
   await user.click(screen.getByRole('button', { name: 'Combos' }));
   await user.click(screen.getByRole('button', { name: 'Add Family Box, 3,600' }));
 
-  const box = within(panel().getByRole('region', { name: 'Family Box' }));
+  const box = within(panel().getByRole('rowgroup', { name: 'Family Box' }));
   expect(box.getByText('Devilled Chicken')).toBeTruthy();
   expect(box.getAllByText('Chicken Burger')).toHaveLength(2);
   expect(box.getByText('Italian Pasta')).toBeTruthy();
@@ -41,7 +42,7 @@ test('one tap sells a whole combo with its usual picks; it goes to the kitchen a
   expect(panel().getByText('3,600', { selector: '.total' })).toBeTruthy();
 
   // Send works straight away: nothing to pick first.
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
   const sent = readAll().find((e) => e.type === 'order.sent') as { lines: { itemId: string; box?: { name: string; share: number } }[] };
   expect(sent.lines.map((l) => l.itemId)).toEqual(['devilled-chicken', 'chicken-burger', 'chicken-burger', 'italian-pasta']);
   expect(sent.lines.every((l) => l.box?.name === 'Family Box')).toBe(true);
@@ -54,20 +55,20 @@ test('a dish in the box changes pick in its own sheet; the dearer pick adds its 
   render(<Root />);
   await user.click(screen.getByRole('button', { name: 'Combos' }));
   await user.click(screen.getByRole('button', { name: 'Add Family Box, 3,600' }));
-  await user.click(within(panel().getByRole('region', { name: 'Family Box' })).getByText('Devilled Chicken'));
+  await user.click(within(panel().getByRole('rowgroup', { name: 'Family Box' })).getByText('Devilled Chicken'));
 
   const sheet = within(screen.getByRole('region', { name: / extras$/ }));
   expect(sheet.queryByRole('button', { name: 'Increase quantity' })).toBeNull();
   await user.click(sheet.getByRole('button', { name: 'Seafood · +500' }));
   await user.click(sheet.getByRole('button', { name: /^Update/ }));
-  const box = within(panel().getByRole('region', { name: 'Family Box' }));
+  const box = within(panel().getByRole('rowgroup', { name: 'Family Box' }));
   expect(box.getByText('Seafood')).toBeTruthy();
   expect(box.getByText('+500')).toBeTruthy();
   expect(panel().getByText('4,100', { selector: '.total' })).toBeTruthy();
 
   await user.click(box.getByText('Seafood'));
   await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: 'Remove the box' }));
-  expect(panel().queryByRole('region', { name: 'Family Box' })).toBeNull();
+  expect(panel().queryByRole('rowgroup', { name: 'Family Box' })).toBeNull();
 });
 
 test('a manager or the owner builds a combo on Items › Finished; it is one audited event with Undo', async () => {
@@ -98,3 +99,6 @@ test('a manager or the owner builds a combo on Items › Finished; it is one aud
   expect(screen.getByRole('status').textContent).toContain('Saved Lunch One');
   expect(screen.getByText('Lunch One')).toBeTruthy();
 });
+
+// These tests send to the kitchen first: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

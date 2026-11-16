@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { appendEvent } from './eventLog.ts';
 import { Root } from './Root.tsx';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 beforeEach(() => {
   localStorage.clear();
@@ -10,17 +11,16 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const panel = () => within(screen.getByRole('complementary', { name: 'Current order' }));
 const kitchen = () => within(screen.getByRole('main', { name: 'Orders to make' }));
 
 const sendOne = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole('button', { name: /^Devilled Chicken/ }));
   await user.click(screen.getByRole('button', { name: /Large/ }));
   await user.click(screen.getByRole('button', { name: /^Add ·/ }));
-  await user.click(panel().getByRole('button', { name: 'Send to kitchen' }));
+  await user.click(screen.getByRole('button', { name: 'Send to kitchen' }));
 };
 
-test('one counter PC: F2 flips Register ⇄ Kitchen, the chip shows what is left to make, Space bumps the oldest', async () => {
+test('one counter PC: the Kitchen key opens the Kitchen, F2 goes back, the chip shows what is left to make, Space bumps the oldest', async () => {
   const user = userEvent.setup();
   render(<Root />);
   expect(screen.getByRole('button', { name: 'Kitchen: nothing to make' })).toBeTruthy();
@@ -28,7 +28,7 @@ test('one counter PC: F2 flips Register ⇄ Kitchen, the chip shows what is left
   await sendOne(user);
   expect(screen.getByRole('button', { name: 'Kitchen: 1 to make, oldest waiting 00:00' })).toBeTruthy();
 
-  await user.keyboard('{F2}');
+  await user.click(screen.getByRole('button', { name: /^Kitchen:/ }));
   expect(location.hash).toBe('#kitchen');
   expect(kitchen().getByRole('article', { name: 'Order 1001' })).toBeTruthy();
 
@@ -48,7 +48,8 @@ test('one counter PC: F2 flips Register ⇄ Kitchen, the chip shows what is left
   await user.click(screen.getByRole('button', { name: /^Kitchen: 1 to make/ }));
   await user.click(screen.getByRole('button', { name: /^Register/ }));
   expect(screen.getByRole('complementary', { name: 'Current order' })).toBeTruthy();
-  await user.keyboard('{F2}{Escape}');
+  await user.click(screen.getByRole('button', { name: /^Kitchen:/ }));
+  await user.keyboard('{Escape}');
   expect(screen.getByRole('complementary', { name: 'Current order' })).toBeTruthy();
 });
 
@@ -178,3 +179,5 @@ test('on a narrow screen the parts open as a drawer from the menu button', async
   expect(screen.getByRole('main', { name: 'Menu' })).toBeTruthy(); // Esc closed the drawer, not the Menu
 });
 
+// These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));
