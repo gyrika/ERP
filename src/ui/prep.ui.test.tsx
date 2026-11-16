@@ -6,6 +6,7 @@ import { Kitchen } from './Kitchen.tsx';
 import { appendEvent, readAll } from './eventLog.ts';
 import { Root } from './Root.tsx';
 import { startLocalScheduler } from '../services/inventoryStore.ts';
+import { setKitchenScreen } from './kitchenScreen.ts';
 
 // SCRUM-136: low stock goes to the kitchen as a PREP ticket; Start, then Done makes the batch.
 
@@ -191,3 +192,6 @@ test('the owner changes the ingredient chain in place: a yield, an amount, a new
   const last = readAll().at(-1) as unknown as { after: { lines: { name: string }[] } };
   expect(last.after.lines.map((l) => l.name)).not.toContain('Mozzarella Blend');
 });
+
+// These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).
+beforeEach(() => setKitchenScreen(true));

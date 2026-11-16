@@ -10,6 +10,7 @@ import { grnValueCents, pricesToCheck, purchasesFromEvents } from './purchaseOrd
 import { formatQuantity } from './quantity.ts';
 import { reasonLabel, reasonText } from './counting.ts';
 import type { SyncEvent } from './sync.ts';
+import type { PaidPart } from './events.ts';
 import type { Cents, OrderLine, Tender } from './types.ts';
 import { lineItemName } from './halves.ts';
 import { lineGross } from './totals.ts';
@@ -90,7 +91,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 // ----- facts from the events -----
 
-export interface Sale { orderNumber: number; total: Cents; at: number; by: string; tender: Tender }
+/** `parts`: a split bill's tenders (split.ts); they add up to the total as paid. */
+export interface Sale { orderNumber: number; total: Cents; at: number; by: string; tender: Tender; parts?: PaidPart[] }
 
 /**
  * Paid orders, as they stand: a payment undone later no longer counts.
@@ -103,7 +105,7 @@ export const salesFrom = (events: readonly SyncEvent[]): Sale[] => {
   for (const e of events) {
     if (e.type === 'order.paid') {
       open.set(e.orderNumber, [...(open.get(e.orderNumber) ?? []), sales.length]);
-      sales.push({ orderNumber: e.orderNumber, total: e.total, at: e.at, by: e.actor.name, tender: e.tender });
+      sales.push({ orderNumber: e.orderNumber, total: e.total, at: e.at, by: e.actor.name, tender: e.tender, ...(e.parts?.length ? { parts: e.parts } : {}) });
     } else if (e.type === 'order.payment_undone') {
       const i = open.get(e.orderNumber)?.pop();
       if (i !== undefined) sales[i] = null;

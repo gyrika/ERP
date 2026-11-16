@@ -118,7 +118,13 @@ export function receipt(
   if (d && t.orderDiscount > 0) out.push({ text: twoCols(discountLabel(d), minus(t.orderDiscount), width) });
   if (t.deliveryFee > 0) out.push({ text: twoCols('Delivery', fmt(t.deliveryFee), width) });
   out.push({ text: twoCols('TOTAL', `Rs ${fmt(paid.total)}`, width / 2), bold: true, big: true });
-  if (paid.tender === 'cash') {
+  if (paid.parts?.length) {
+    // A split bill: each part, how it was paid, and any change it got.
+    for (const p of paid.parts) {
+      out.push({ text: twoCols(`Paid ${TENDER_LABEL[p.tender]}`, fmt(p.amount), width) });
+      if (p.tender === 'cash' && p.tendered > p.amount) out.push({ text: twoCols('  Cash / change', `${fmt(p.tendered)} / ${fmt(p.tendered - p.amount)}`, width) });
+    }
+  } else if (paid.tender === 'cash') {
     out.push({ text: twoCols('Cash', fmt(paid.tendered), width) });
     out.push({ text: twoCols('Change', fmt(paid.change), width), bold: true });
   } else if (paid.tender !== 'comp') { // Free already has its own line above
@@ -308,4 +314,31 @@ export const escpos = (lines: ReceiptLine[], { openDrawer = false } = {}): Uint8
 };
 
 /** Cash in the drawer changes only for cash; everything else prints without opening it. */
-export const opensDrawer = (paid: PaidOrder): boolean => paid.tender === 'cash';
+export const opensDrawer = (paid: PaidOrder): boolean =>
+  paid.parts?.length ? paid.parts.at(-1)!.tender === 'cash' : paid.tender === 'cash'; // earlier parts opened it at their time
+
+/**
+ * One part of a split bill: a short slip for that person, printed with the drawer opening for cash.
+ * The full receipt prints when the last part is paid.
+ */
+export function partSlip(
+  o: { number: number; amount: Cents; tender: Tender; tendered: Cents; left: Cents; lines: string[] },
+  opts: { at: number; cashier: string; shop?: ShopHeader; width?: number },
+): ReceiptLine[] {
+  const { at, cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH } = opts;
+  const out: ReceiptLine[] = [
+    { text: shop.name, center: true, bold: true, big: true },
+    { text: 'PART PAYMENT', center: true, bold: true },
+    rule(width),
+    { text: twoCols(`Order ${o.number}`, receiptTime(at), width) },
+    { text: `Cashier ${cashier}` },
+    rule(width),
+    ...o.lines.map((text) => ({ text })),
+    rule(width),
+    { text: twoCols('PAID', `Rs ${fmt(o.amount)}`, width / 2), bold: true, big: true },
+    { text: twoCols(TENDER_LABEL[o.tender], fmt(o.tendered), width) },
+  ];
+  if (o.tender === 'cash' && o.tendered > o.amount) out.push({ text: twoCols('Change', fmt(o.tendered - o.amount), width), bold: true });
+  out.push({ text: twoCols('Still to pay on the order', fmt(o.left), width) }, rule(width), { text: shop.footer, center: true });
+  return out;
+}
