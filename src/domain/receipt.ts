@@ -57,6 +57,12 @@ export interface ReceiptLine {
  */
 export const OFFERS_URL = 'https://cheesybeez.com/#offers';
 
+/**
+ * The "get the app" QR (SCRUM-257): cheesybeez.com, opened at its install card (src/order/AppInstall.tsx).
+ * On every new bill while the CRM is off; with the CRM on, the offers QR takes its place (one QR a bill).
+ */
+export const APP_URL = 'https://cheesybeez.com/#app';
+
 const TENDER_LABEL: Record<Tender, string> = {
   cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats',
 };
@@ -154,6 +160,15 @@ export function receipt(
       ...(offers.line ? [{ text: offers.line, center: true }] : []),
       { text: OFFERS_URL.replace(/^https:\/\//, ''), center: true, qr: OFFERS_URL },
       { text: 'No app needed', center: true },
+      rule(width),
+    );
+  } else if (!copy) {
+    // The app on the customer's phone (SCRUM-257): the next order is one tap away.
+    out.push(
+      { text: 'Get the CheesyBeez app', center: true, bold: true },
+      { text: 'Order ahead, collect it hot', center: true },
+      { text: 'cheesybeez.com', center: true, qr: APP_URL },
+      { text: 'No app store needed', center: true },
       rule(width),
     );
   }

@@ -21,7 +21,7 @@ export const setUpOwnerApp = (): void => {
 
 interface InstallPrompt extends Event { prompt(): Promise<void> }
 
-const standalone = () =>
+export const standalone = () =>
   window.matchMedia?.('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 export const isAppleInstallDevice = (userAgent: string, platform: string, maxTouchPoints: number): boolean =>
   /iPhone|iPad|iPod/.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1);
