@@ -262,7 +262,14 @@ test('a paid bill: F4 is CHANGE ITEM and opens the selected item to change; rows
   expect(document.querySelectorAll('.bill__open')).toHaveLength(1);
   expect(document.querySelector('.bill__remove')).toBeNull();
   await user.keyboard('{F4}');
-  expect(screen.getByRole('button', { name: /Back to order/ })).toBeTruthy(); // the item's sheet, as a tap on the row opens
+  expect(screen.getByRole('button', { name: /Back to order/ })).toBeTruthy(); // the item's sheet
+  await user.keyboard('{Escape}');
+  // A tap anywhere on the row opens it too, not only on the name: the price, or the arrow.
+  await user.click(document.querySelector('.bill__line .bill__total')!);
+  expect(screen.getByRole('button', { name: /Back to order/ })).toBeTruthy();
+  await user.keyboard('{Escape}');
+  await user.click(panel().getByRole('button', { name: 'Change item Margherita' }));
+  expect(screen.getByRole('button', { name: /Back to order/ })).toBeTruthy();
 });
 
 test('order history on the left: held bills and paid today always in sight, one tap opens either', async () => {

@@ -2513,7 +2513,9 @@ button.glance__card:disabled { cursor: default; }
 .bill__remove { width: 44px; height: 48px; border-radius: 10px; color: var(--bad); font-size: 18px; font-weight: 700; }
 .bill__remove:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 12%, transparent); }
 .bill__remove:disabled { opacity: 0.25; }
-.bill__open { display: inline-block; width: 44px; height: 48px; line-height: 46px; text-align: center; font-size: 26px; color: var(--ink-3); }
+.bill__open { width: 44px; height: 48px; border-radius: 10px; font-size: 26px; color: var(--ink-2); }
+.bill--paid .bill__line { cursor: pointer; }
+.bill--paid .bill__line:not(.bill__line--on):hover { background: var(--chip); }
 .bill__line:hover .bill__open, .bill__line--on .bill__open { color: var(--ink); }
 .bill__manage td { background: color-mix(in srgb, var(--pay) 10%, transparent); padding: 8px; }
 
