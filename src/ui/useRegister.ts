@@ -6,7 +6,7 @@ import {
 } from '../domain/order.ts';
 import type { NewTicket } from '../domain/kitchen.ts';
 import {
-  applyManagerChange, isRefusal, undoManagerChange, type Applied, type Inverse,
+  applyManagerChange, counterReason, isRefusal,undoManagerChange, type Applied, type Inverse,
   type ManagerChange, type Refusal,
 } from '../domain/manager.ts';
 import { discountLabel } from '../domain/totals.ts';
@@ -559,7 +559,10 @@ export function useRegister() {
     const at = Date.now();
     // A paid order on screen (SCRUM-242): the change is to that sale; the difference is settled after.
     const onPaid = s.paid && s.paid.number === s.order.number ? s.paid : null;
-    const r = applyManagerChange(onPaid ?? s.order, { ...change, ...(made ? { made } : {}), ...(onPaid ? { afterPay: true } : {}) }, actor, at);
+    // The counter asks no reason of anyone, the owner or a manager signed in included: without one their
+    // change was refused, silently (a cashier's is always the counter's own). A reason given still counts.
+    const reason = change.reason?.trim() || counterReason(made, change.kind === 'edit' && Boolean(change.remake));
+    const r = applyManagerChange(onPaid ?? s.order, { ...change, reason, ...(made ? { made } : {}), ...(onPaid ? { afterPay: true } : {}) }, actor, at);
     if (isRefusal(r)) return r;
 
     seal(); // a send's Undo window ends here: it must not step back over this change
