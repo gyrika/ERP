@@ -33,21 +33,14 @@ export function BillHistory({ held, paidToday, sales, tickets, kitchenOn, curren
     <nav className="history" aria-label="Order history">
       <p className="history__sales"><span>Sales today</span> <b className="num">{fmt(sales)}</b></p>
       <section className="history__part">
-        <h2 className="history__head">{label('heldBills')} · <span className="num">{held.length}</span></h2>
+        <h2 className="history__head">{label('heldBills')} · <span className="num">{held.filter((r) => r.kitchen !== 'Given').length}</span></h2>
         {held.length === 0 && <p className="history__none">{label('noHeld')}</p>}
         <ul className="history__list" aria-label={label('heldBills')}>
           {held.map((r) => {
+            const done = r.kitchen === 'Given';
             const on = current.number === r.order.number && (current.paidAt === undefined || (r.paid && (r.order as PaidOrder).paidAt === current.paidAt));
             return (
-            <li key={r.order.number} className="history__held">
-              {/* Sent or paid: the food is on its way to this customer, so it can be ticked as taken. */}
-              {(r.paid || r.order.sentAt !== undefined) && (
-                <button type="button" className={`history__tick${r.kitchen === 'Given' ? ' history__tick--on' : ''}`}
-                  aria-label={`Order ${r.order.number} taken`} aria-pressed={r.kitchen === 'Given'}
-                  disabled={r.kitchen === 'Given'} onClick={() => onGive(r.order.number)}>
-                  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                </button>
-              )}
+            <li key={r.order.number} className={`history__held${done ? ' history__held--done' : ''}`}>
               <button type="button" className={`history__row${on ? ' history__row--on' : ''}${r.ready && r.ready.urgency !== 'ok' ? ` history__row--${r.ready.urgency}` : ''}`}
                 aria-current={on || undefined} data-rail-order={r.order.number} onClick={() => onOpen(r.order.number)}>
                 <span className="history__top">
@@ -56,13 +49,20 @@ export function BillHistory({ held, paidToday, sales, tickets, kitchenOn, curren
                 </span>
                 <span className="history__what">{r.order.customer?.name && <b>{r.order.customer.name} · </b>}{orderSummary(r.order.lines)}</span>
                 <span className="history__meta">
-                  {/* No Kitchen view: "Not sent" would mean nothing to the cashier. */}
-                  {(kitchenOn || r.order.sentAt !== undefined) && <span>{r.ready?.label ?? r.kitchen}</span>}
+                  {/* No Kitchen view: its words would mean nothing to the cashier; ticked: the tick says it. */}
+                  {kitchenOn && !done && <span>{r.ready?.label ?? r.kitchen}</span>}
                   <span className={r.paid ? 'held__paid' : 'held__unpaid'}>{r.paid ? 'Paid' : 'Not paid'}</span>
                   {r.order.dineIn && <span>{label('dineIn')}</span>}
                   <OnlineTag order={r.order} />
                 </span>
               </button>
+              {/* Inside the bill's box, on its left: tap when the customer takes it. It stays, ticked. */}
+              {(r.paid || r.order.sentAt !== undefined) && (
+                <button type="button" className="history__tick" aria-label={`Order ${r.order.number} taken`} aria-pressed={done}
+                  disabled={done} onClick={() => onGive(r.order.number)}>
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+              )}
             </li>
             );
           })}

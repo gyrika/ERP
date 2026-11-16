@@ -156,7 +156,7 @@ export function App({
   const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
     // Made and waiting: whoever pays for it is taking it (SCRUM-240). No kitchen screen: nothing to
     // wait for, so it goes with the payment and is handed over at once.
-    const paid = reg.pay(tender, tendered, customerId, unlinked, !kitchenOn || kitchenWord(reg.order, tickets) === 'Ready', !kitchenOn);
+    const paid = reg.pay(tender, tendered, customerId, unlinked, false, !kitchenOn);
     // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
     if (paid && !isPlatformId(tender)) print(paid);
   }, [reg, print, tickets, kitchenOn]);
@@ -680,7 +680,7 @@ export function App({
               closeSheet();
             },
             onPayPart: (tender, tendered, pick, customerId, unlinked) => {
-              const r = reg.payPart(tender, tendered, pick, customerId, unlinked, !kitchenOn || kitchenWord(reg.order, tickets) === 'Ready', !kitchenOn);
+              const r = reg.payPart(tender, tendered, pick, customerId, unlinked, false, !kitchenOn);
               if (r?.kind === 'paid') { print(r.paid); closeSheet(); return; }
               if (r && canPrint()) {
                 const lines = reg.order.lines.filter((l) => r.units[l.id]).map((l) => `${r.units[l.id]} x ${lineItemName(l)}`);
