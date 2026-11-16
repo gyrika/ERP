@@ -11,12 +11,13 @@ import {
 } from '../domain/manager.ts';
 import { discountLabel } from '../domain/totals.ts';
 import type { Cents, LineSpec, Order, OrderCustomer, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
-import { platformLabel, type PlatformMark } from '../domain/platforms.ts';
+import { isPlatformId, platformLabel, type PlatformMark } from '../domain/platforms.ts';
 import { demoSnapshot } from '../fake/demo.ts';
 import { currentCashier, shopId } from '../services/auth.ts';
 import { appendEvent } from './eventLog.ts';
 import { isDemo, storageKey } from './storage.ts';
 import { lineItemName } from '../domain/halves.ts';
+import { amountLeft, cleanPick, paidSoFar, pickAmount, picksAllLeft, unitsLeft, type Pick } from '../domain/split.ts';
 
 /**
  * Register state. Everything the cashier does is an instant, optimistic local
@@ -373,6 +374,10 @@ export function useRegister() {
    */
   const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked = false, ready = false, release = false): PaidOrder | undefined => {
     const total = orderTotal(ref.current.order);
+    // A split bill (split.ts): this payment is its last part, what is left; the event carries every part.
+    const earlier = ref.current.order.parts ?? [];
+    const lastAmount = total - paidSoFar(ref.current.order);
+    if (earlier.length && lastAmount < 0) return undefined;
     // A comped order (Free) closes at 0 with tender 'comp'; anything else needs something to pay.
     const comped = ref.current.order.adjust?.discount?.kind === 'comp';
     if (comped ? tender !== 'comp' || !ref.current.order.lines.length : total <= 0) return undefined;
@@ -391,8 +396,13 @@ export function useRegister() {
     }
     // A customer put on the order earlier is the one paying, unless Charge was given a number now.
     customerId ??= order.customer?.id;
+    const parts = earlier.length ? [...earlier, { tender, amount: lastAmount, tendered: Math.max(tendered, lastAmount), at, units: Object.fromEntries(order.lines.map((l) => [l.id, unitsLeft(order, l)]).filter(([, n]) => (n as number) > 0)) }] : null;
+    const main = parts ? parts.reduce((a, b) => (b.amount > a.amount ? b : a)) : null;
     const paid: PaidOrder = {
-      ...order, total, tender, tendered, change: Math.max(0, tendered - total), paidAt: at, ...(ready && !order.givenAt ? { givenAt: at } : {}),
+      ...order, total, tender: main?.tender ?? tender, tendered: main?.tendered ?? tendered,
+      // The change on screen is this customer's: the last part's when split.
+      change: parts ? Math.max(0, tendered - lastAmount) : Math.max(0, tendered - total),
+      paidAt: at, ...(parts ? { parts } : {}), ...(ready && !order.givenAt ? { givenAt: at } : {}),
     };
     commit(() => ({
       ...sent.s,
@@ -401,9 +411,13 @@ export function useRegister() {
       justPaid: true,
       open: sent.s.open.filter((o) => o.number !== order.number),
       sales: [...sent.s.sales, paid],
-    }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(total)}${unlinked ? ' · mobile not saved' : ''}`);
+    }), comped ? `Closed ${order.number} · Free` : `Paid ${fmt(parts ? lastAmount : total)}${parts ? ' · all paid' : ''}${unlinked ? ' · mobile not saved' : ''}`);
     if (sent.ticket) fireTicket(sent.ticket, !release);
-    appendEvent({ type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender, tendered, ...(customerId ? { customerId } : {}) });
+    appendEvent({
+      type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender: paid.tender, tendered: paid.tendered,
+      ...(customerId ? { customerId } : {}),
+      ...(parts ? { parts: parts.map((p) => ({ tender: p.tender, amount: p.amount, tendered: p.tendered })) } : {}),
+    });
     if (paid.givenAt === at) appendEvent({ type: 'order.given', at, actor: currentCashier(), orderNumber: paid.number });
     return paid;
   }, [commit]);
@@ -556,6 +570,31 @@ export function useRegister() {
   }, [seal, setHistory, setCounter, undoCounter]);
 
   /**
+   * Split bill (split.ts): one person pays for the units picked. Picking everything left is the
+   * order's last payment (`pay`). Otherwise the part stays on this screen with the order (nothing
+   * is written until the last part, whose payment carries them all); Undo takes the part back.
+   * Returns what the part was, for its slip.
+   */
+  const payPart = useCallback((tender: Tender, tendered: Cents, pick: Pick, customerId?: string, unlinked = false, ready = false, release = false):
+    { kind: 'part'; number: number; amount: Cents; tender: Tender; tendered: Cents; left: Cents; units: Pick } | { kind: 'paid'; paid: PaidOrder } | undefined => {
+    const s = ref.current;
+    if (s.paid || isPlatformId(tender) || tender === 'comp') return undefined;
+    const order = s.order;
+    if (picksAllLeft(order, pick)) {
+      const paid = pay(tender, tendered, customerId, unlinked, ready, release);
+      return paid && { kind: 'paid', paid };
+    }
+    const units = cleanPick(order, pick);
+    const amount = pickAmount(order, units);
+    if (amount <= 0) return undefined;
+    const part = { tender, amount, tendered: Math.max(tendered, amount), at: Date.now(), units };
+    const next = { ...order, parts: [...(order.parts ?? []), part] };
+    const left = amountLeft(next);
+    commit((cur) => ({ ...cur, order: next, open: cur.open.map((o) => (o.number === next.number ? next : o)) }), `Paid ${fmt(amount)} · ${fmt(left)} left`);
+    return { kind: 'part', number: order.number, amount, tender, tendered: part.tendered, left, units };
+  }, [commit, pay]);
+
+  /**
    * A paid order changed afterwards (SCRUM-242): the difference, settled in one step. More to pay:
    * `tender`/`tendered` as at Charge. Money back: always cash from the drawer. Final like a
    * payment that has left the screen: money has changed hands, so there is no Undo.
@@ -566,7 +605,8 @@ export function useRegister() {
     if (!p) return undefined;
     const amount = balanceDue(p);
     if (!amount) return undefined;
-    const how: Tender = amount < 0 ? 'cash' : tender;
+    // Money back: cash from the drawer, or by bank to a customer who paid by transfer.
+    const how: Tender = amount < 0 ? (tender === 'transfer' ? 'transfer' : 'cash') : tender;
     const given = amount < 0 ? -amount : Math.max(tendered, amount);
     seal();
     setHistory([]);
@@ -678,6 +718,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, clear, hold, setDineIn, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, clear, hold, setDineIn, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

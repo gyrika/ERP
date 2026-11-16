@@ -109,6 +109,13 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'order.paid' && e.customerId !== undefined && !isCustomerId(e.customerId)) {
       return { reason: `event ${e.id} has an invalid customer` };
     }
+    // A split bill (split.ts): its parts are whole cents and add up to the total.
+    if (e.type === 'order.paid' && e.parts !== undefined && (
+      !Array.isArray(e.parts) || e.parts.length < 1 || e.parts.length > 50
+      || !e.parts.every((p) => p && Number.isSafeInteger(p.amount) && p.amount >= 0 && Number.isSafeInteger(p.tendered) && shortString(p.tender, 16))
+      || e.parts.reduce((n, p) => n + p.amount, 0) !== e.total)) {
+      return { reason: `event ${e.id} has invalid payment parts` };
+    }
     // A paid order's difference (SCRUM-242): whole cents either way, and how it moved.
     if (e.type === 'order.settled' && (!Number.isSafeInteger(e.amount) || !Number.isSafeInteger(e.tendered) || !shortString(e.tender, 16))) {
       return { reason: `event ${e.id} has an invalid settlement` };

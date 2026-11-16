@@ -69,7 +69,7 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
                     <span className="history__meta">
                       {/* Paid, food still coming: the customer is still waiting, so the kitchen state stays. */}
                       {cook !== 'done' && <span className={`cookword cookword--${cook}`}>{COOK_LABEL[cook]}</span>}
-                      <span className="cookword cookword--paid">Paid · {TENDER[o.tender]}</span>
+                      <span className="cookword cookword--paid">Paid · {o.parts?.length ? 'Split' : TENDER[o.tender]}</span>
                       <OnlineTag order={o} />
                     </span>
                   </button>

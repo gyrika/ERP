@@ -40,7 +40,12 @@ export type OrderEvent =
    * `cus-…` id. Never the number or the name: those stay in the shop server's customer list, where
    * they can be erased; events never change.
    */
-  | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents; customerId?: string })
+  /**
+   * `parts`: a split bill, paid in parts (split.ts): each part's tender, amount and what was handed
+   * over. They add up to `total`; `tender`/`tendered` are then the part that took the most money,
+   * for readers that know one tender only.
+   */
+  | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents; customerId?: string; parts?: PaidPart[] })
   | (Base & { type: 'order.payment_undone' })
   /**
    * A paid order changed afterwards (SCRUM-242) and the difference settled: `amount` > 0 the
@@ -102,3 +107,6 @@ export type VisionEvent =
   | (FloorBase & { type: 'vision.camera_offline' | 'vision.camera_online'; cameraId: string })
   /** `slowed`: the CPU guard has the worker checking every 2 s, to protect the Register (SCRUM-170). */
   | (FloorBase & { type: 'vision.heartbeat'; cameras: { id: string; online: boolean; fps: number }[]; cpu: number; slowed?: boolean });
+
+/** One part of a split payment, as the payment event carries it. */
+export interface PaidPart { tender: Tender; amount: Cents; tendered: Cents }

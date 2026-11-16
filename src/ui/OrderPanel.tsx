@@ -7,6 +7,7 @@ import { DISCOUNT_CHIPS } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { balanceDue, orderTotal, unsentLines } from '../domain/order.ts';
+import { amountLeft, tenderParts, type Pick as UnitPick } from '../domain/split.ts';
 import { discountLabel, lineAdjustment, lineGross, lineNet, totals } from '../domain/totals.ts';
 import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
 import { platformLabel, platformName } from '../domain/platforms.ts';
@@ -189,6 +190,8 @@ interface Props {
   /** Takes the delivery app's mark off an order not yet sent (keyed in by mistake). */
   onClearPlatform: () => void;
   onUndo: () => void;
+  /** Money back by bank to a customer who paid by transfer (the bar's Give back is cash from the drawer). */
+  onGiveBack?: (how: Tender) => void;
   /** Take away / Dine in. */
   onDineIn: (dineIn: boolean) => void;
   /** The receipt of the paid order on screen; null when this device does not print. */
@@ -200,6 +203,8 @@ interface Props {
   /** Present while Pay is open: the panel becomes the payment, in place of a sheet. */
   paying?: {
     onPay: (tender: Tender, tendered: Cents, customerId?: string, unlinked?: boolean) => void;
+    /** Split bill: one person's part (split.ts). */
+    onPayPart?: (tender: Tender, tendered: Cents, pick: UnitPick, customerId?: string, unlinked?: boolean) => void;
     onClose: () => void;
     customers?: boolean;
   } | null;
@@ -218,7 +223,7 @@ const dateTime = (at: number) => new Date(at).toLocaleString([], { day: 'numeric
  */
 export function OrderPanel({
   order, tickets, paid, justPaid = false, onGive, now, manage, selected, onSelect, onEdit, onStep, onRemove, onClearPlatform,
-  onUndo, onDineIn, printState, onReprint, paying, extras, customerBar,
+  onUndo, onGiveBack, onDineIn, printState, onReprint, paying, extras, customerBar,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
@@ -238,7 +243,7 @@ export function OrderPanel({
   if (paying && !paid && order.lines.length > 0) {
     return (
       <aside className={`${panelClass} panel--paying`} aria-label="Current order">
-        <PayPanel number={order.number} total={orderTotal(order)} lines={<PayLines order={order} />} onPay={paying.onPay}
+        <PayPanel number={order.number} total={amountLeft(order)} lines={<PayLines order={order} />} order={order} onPayPart={paying.onPayPart} onPay={paying.onPay}
           onClose={paying.onClose} customers={paying.customers} customer={order.customer} />
       </aside>
     );
@@ -363,12 +368,18 @@ export function OrderPanel({
               <>
                 <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
                 <span className="paid__big num">{fmt(cashChange ? paid.change : paid.total)}</span>
-                <span className="paid__sub num">{paid.tender === 'cash' ? `Cash ${fmt(paid.tendered)} · ` : `${TENDER[paid.tender]} · `}Total {fmt(paid.total)}</span>
+                <span className="paid__sub num">{paid.parts?.length
+                  ? `Split · ${paid.parts.map((x) => `${TENDER[x.tender]} ${fmt(x.amount)}`).join(' + ')} · `
+                  : paid.tender === 'cash' ? `Cash ${fmt(paid.tendered)} · ` : `${TENDER[paid.tender]} · `}Total {fmt(paid.total)}</span>
               </>
             )}
             <span className="paid__links">
               {justPaid && <button type="button" className="linkbtn" onClick={onUndo}>Undo payment</button>}
               {onReprint && <button type="button" className="linkbtn" onClick={onReprint}>Print again</button>}
+              {/* Paid by transfer: the money can go back the same way, from the shop's bank. */}
+              {due < 0 && onGiveBack && tenderParts(paid).some((x) => x.tender === 'transfer') && (
+                <button type="button" className="linkbtn" onClick={() => onGiveBack('transfer')}>Give back by bank</button>
+              )}
             </span>
             {printState === 'failed' && <span className="paid__note">Receipt not printed</span>}
           </div>
