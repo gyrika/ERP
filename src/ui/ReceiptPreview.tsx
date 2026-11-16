@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { QrCode } from './QrCode.tsx';
 import { RECEIPT_WIDTH, changedBill, receipt, type ChangeBlock, type ReceiptLine } from '../domain/receipt.ts';
 import { RECEIPT_LOGO } from '../domain/receiptLogo.ts';
 import { COMB } from '../domain/receiptComb.ts';
@@ -55,8 +56,8 @@ function Paper({ lines, label }: { lines: ReceiptLine[]; label: string }) {
       {lines.map((l, i) => (
         <div key={i} className={`paper__line${l.big ? ' paper__line--big' : ''}${l.bold ? ' paper__line--bold' : ''}${l.invert ? ' paper__line--invert' : ''}`}
           style={{ textAlign: l.center ? 'center' : 'left' }}>
-          {/* The printer draws the QR code itself; here a square of its size says where it goes. */}
-          {l.qr && <span className="paper__qr" role="img" aria-label={`QR code: ${l.qr}`}>QR</span>}
+          {/* The printer draws the QR code itself; here the same code, so a phone can try it. */}
+          {l.qr && <span className="paper__qrcode"><QrCode text={l.qr} label={`QR code: ${l.qr}`} size={96} /></span>}
           {l.logo ? <PaperBits dots={RECEIPT_LOGO} label={`${l.text} logo`} className="paper__logo" />
             : l.comb ? <PaperBits dots={COMB} label="Honeycomb line" className="paper__comb" /> : (l.text || ' ')}
         </div>

@@ -8,6 +8,7 @@ import {
 import { SHOP_HEADER } from '../domain/receipt.ts';
 import type { Category, MenuItem, MenuTag, SizeId } from '../domain/types.ts';
 import { useInstall } from '../services/ownerApp.ts';
+import { AppInstall, fromBill } from './AppInstall.tsx';
 import { AccountButton, AccountSheet, useAccount, type AccountState } from './Account.tsx';
 import { Offers } from './Offers.tsx';
 import { OffersBell } from './OffersInbox.tsx';
@@ -775,6 +776,8 @@ export function OrderSite() {
         taking={taking} shop={shop} onRetry={retry} onSeeOrder={placed ? () => setSeeing(true) : undefined}
         account={account} onAccount={() => setAccountOpen(true)}
       />
+      {/* From the QR code on the bill: how to put the app on this phone, first thing (SCRUM-257). */}
+      <AppInstall />
       {/* Edge to edge; the headline stays in the centred container. */}
       <section className="o-hero">
         <picture>
@@ -784,10 +787,11 @@ export function OrderSite() {
         <div className="o-wrap o-hero__text">
           <h1>Order ahead.<br /><span>Collect it hot.</span></h1>
           <p>Order here, collect at the shop.</p>
-          {install.kind === 'button' && (
+          {/* From the bill (#app) the install card above says it already. */}
+          {install.kind === 'button' && !fromBill() && (
             <button type="button" className="o-install" onClick={install.install}>Install app</button>
           )}
-          {canInstall && install.kind === 'iphone' && (
+          {canInstall && install.kind === 'iphone' && !fromBill() && (
             <p className="o-install-help">Install: tap Share, then Add to Home Screen.</p>
           )}
         </div>

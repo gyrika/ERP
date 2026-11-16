@@ -1043,6 +1043,7 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .paper__line--big { font-size: 2em; line-height: 1.2; letter-spacing: 0; }
 .setup__billline { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 16px; border-top: 1px solid var(--line); }
 .setup__label { font-size: 14px; font-weight: 600; color: var(--ink); }
+.paper__qrcode { display: block; width: fit-content; margin: 0.5em auto 0.2em; }
 .paper__comb { display: block; width: 100%; height: auto; margin: 0.35em 0; image-rendering: pixelated; }
 .paper__line--invert { background: #111; color: #fff; margin: 0.25em 0; }
 .rpreview__papers { display: flex; flex-wrap: wrap; gap: 24px; justify-content: center; align-items: flex-start; width: 100%; }

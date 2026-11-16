@@ -1,5 +1,6 @@
 const CACHE_PREFIX = 'cheesybeez-order-';
-const CACHE = `${CACHE_PREFIX}v1`;
+// v2: the CheesyBeez logo replaced the hexagon icons (SCRUM-258); a new name drops the old cached ones.
+const CACHE = `${CACHE_PREFIX}v2`;
 const STATIC_PATHS = ['/assets/', '/icons/'];
 const APP_PATH = new URL(self.registration.scope).pathname.replace(/\/$/, '') || '/';
 

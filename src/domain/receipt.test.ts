@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CMD, OFFERS_URL, RECEIPT_WIDTH, SHOP_HEADER, deliveryBill, escpos, opensDrawer, qrBytes, rasterBytes, receipt, receiptText, twoCols, wrap } from './receipt.ts';
+import { CMD, OFFERS_URL, APP_URL, RECEIPT_WIDTH, SHOP_HEADER, deliveryBill, escpos, opensDrawer, qrBytes, rasterBytes, receipt, receiptText, twoCols, wrap } from './receipt.ts';
 import { RECEIPT_LOGO } from './receiptLogo.ts';
 import { fmt } from './money.ts';
 import { totals } from './totals.ts';
@@ -45,6 +45,11 @@ test('the receipt as it prints: items, adjustments, discount, cash and change', 
     'T O T A L                       R s   6 , 3 4 5',
     'Cash                                      10,000',
     'Change                                     3,655',
+    '------------------------------------------------',
+    '             Get the CheesyBeez app',
+    '          Order ahead, collect it hot',
+    '                 cheesybeez.com',
+    '              No app store needed',
     '------------------------------------------------',
     '                   Thank you!',
   ].join('\n'));
@@ -131,7 +136,11 @@ test('with the CRM on: the owner\'s words, the QR code with its link as text, "N
   // No second line: none printed.
   const one = receipt(pay(busy, 'cash'), { cashier: 'Nimal', offers: { ...offers, line: '' } });
   assert.equal(one[one.findIndex((l) => l.qr) - 1].text, 'Scan for offers on your phone');
-  assert.ok(!receipt(pay(busy, 'cash'), { cashier: 'Nimal' }).some((l) => l.qr), 'off: no QR');
+  // CRM off: the app QR instead (SCRUM-257); one QR a bill either way.
+  const off = receipt(pay(busy, 'cash'), { cashier: 'Nimal' }).filter((l) => l.qr);
+  assert.deepEqual(off.map((l) => [l.text, l.qr]), [['cheesybeez.com', APP_URL]], 'off: the app QR');
+  assert.equal(lines.filter((l) => l.qr).length, 1, 'on: the offers QR only');
+  assert.ok(!receipt(pay(busy, 'cash'), { cashier: 'Nimal', copy: true }).some((l) => l.qr), 'a reprint: no app QR either');
   assert.ok(!receipt(pay(busy, 'cash'), { cashier: 'Nimal', offers, copy: true }).some((l) => l.qr), 'a reprint: no QR');
 });
 
