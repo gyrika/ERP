@@ -174,6 +174,8 @@ export interface Order {
    * until then the order stays on the Register's list, "Not sent".
    */
   held?: string;
+  /** Items added after paying while the order still waits for Send (SCRUM-253): their tickets, released with it. */
+  heldMore?: string[];
   /** The customer has the food (SCRUM-240). An order leaves the Register's list once paid and given. */
   givenAt?: number;
   /**

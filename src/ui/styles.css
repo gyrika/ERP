@@ -18,6 +18,7 @@
   --ok: #30A46C;
   /* Green for small text: #30A46C is only 3.2:1 on white, this is 5.3:1. */
   --ok-ink: #1E7A4F;
+  --warn-ink: #9A5F0C;
   --warn: #E8A94B;
   --bad: #E5484D;
   /* Tables (SCRUM-168): reserved is the one blue; a table whose camera is off is grey. */
@@ -55,6 +56,7 @@
     --sheet-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06);
     --scrim: rgba(0, 0, 0, 0.55);
     --ok-ink: #30A46C;
+    --warn-ink: #E8A94B;
     --gold: #D4B26A;
     --lift-shadow: 0 0 0 1px var(--gold), 0 24px 56px rgba(0, 0, 0, 0.7);
     --lift-bg: #1C1C1E;
@@ -80,6 +82,7 @@
   --sheet-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06);
   --scrim: rgba(0, 0, 0, 0.55);
   --ok-ink: #30A46C;
+  --warn-ink: #E8A94B;
   --gold: #D4B26A;
   --lift-shadow: 0 0 0 1px var(--gold), 0 24px 56px rgba(0, 0, 0, 0.7);
   --lift-bg: #1C1C1E;
@@ -2522,6 +2525,17 @@ button.glance__card:disabled { cursor: default; }
 .sums__net { padding-top: 6px; color: var(--ink) !important; }
 .sums__net dt { font-size: var(--fs-b); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
 .sums__net .total { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -1px; }
+/* Changed after paying (SCRUM-253). */
+.sums__before { padding-top: 6px; border-top: 1px dashed var(--line); }
+.sums__due { color: var(--ink) !important; font-weight: 700; }
+.sums__due dd { font-size: var(--fs-xl); color: var(--warn-ink, #A86A12); }
+.paid--changed { padding-top: 6px; padding-bottom: 6px; }
+.paid--changed .paid__sub b { color: var(--warn-ink); font-weight: 600; }
+.cookword--due { color: var(--warn-ink); font-weight: 600; }
+.line__edit { display: block; font-size: 13px; font-weight: 500; color: var(--ink-3); letter-spacing: -0.1px; }
+.line__edit--due { color: var(--warn-ink, #A86A12); font-weight: 600; }
+.bill__line--gone .line__name, .bill__line--gone .bill__qty, .bill__line--gone .bill__price, .bill__line--gone .bill__total { text-decoration: line-through; color: var(--ink-3); }
+.bill__line--gone .line__edit { text-decoration: none; }
 .paid--bar { flex: none; padding: var(--sp-3) var(--sp-4) 0; }
 .paid--bar .paid__big { font-size: 48px; }
 
