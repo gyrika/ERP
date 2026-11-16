@@ -4,7 +4,8 @@ import { useLayoutEffect, useRef } from 'react';
  * The bill flies to the list (SCRUM-246): when an order leaves the right panel (Send, New order,
  * Next order, or another order opened) and stays on the left list, a copy of its black number
  * badge flies from the panel to its row there, and the row glows once as it lands. The cashier's
- * eye follows the order to where it now waits, so nothing seems to vanish.
+ * eye follows the order to where it now waits, so nothing seems to vanish. Only the first time a
+ * bill leaves the panel (SCRUM-250): opened again from the list and left, it just goes, no flight.
  *
  * Marks: the panel's badge carries `data-fly-badge`, each list row `data-rail-order="<number>"`.
  * The copy is plain DOM over everything, never clickable, gone in under half a second; with
@@ -58,11 +59,13 @@ const fly = (from: Seen, row: HTMLElement) => {
  */
 export function useFlyToRail(number: number, live: boolean): void {
   const last = useRef<Seen | null>(null);
+  const flown = useRef(new Set<number>());
   useLayoutEffect(() => {
     const prev = last.current;
     const badge = document.querySelector<HTMLElement>('[data-fly-badge]');
     last.current = live && badge ? { number, rect: badge.getBoundingClientRect(), node: badge.cloneNode(true) as HTMLElement } : null;
-    if (!prev || prev.number === number) return;
+    if (!prev || prev.number === number || flown.current.has(prev.number)) return;
+    flown.current.add(prev.number);
     const row = document.querySelector<HTMLElement>(`[data-rail-order="${prev.number}"]`);
     if (row) fly(prev, row);
   });
