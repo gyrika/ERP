@@ -185,7 +185,12 @@ export interface Order {
   parts?: PaymentPart[];
   /** Eaten in the shop; absent = take away (the counter's Order type toggle). Kept on this screen's order. */
   dineIn?: true;
+  /** The counter's Delivery choice on the same toggle: a mark only (no fee, no address). Never with `dineIn`. */
+  delivery?: true;
 }
+
+/** The counter's order type toggle (`Order.dineIn` / `Order.delivery`). */
+export type OrderType = 'takeAway' | 'dineIn' | 'delivery';
 
 export interface OrderCustomer { id: string; name: string | null }
 

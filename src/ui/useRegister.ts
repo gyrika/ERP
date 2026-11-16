@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Actor } from '../domain/auth.ts';
 import { fmt } from '../domain/money.ts';
 import {
-  addLine, addLines, balanceDue, emptyOrder, markSent, newLineId, orderTotal, removeLine, unsentLines, updateLine,
+  addLine, addLines, balanceDue, emptyOrder, markSent, newLineId, orderTotal, orderTypeOf, removeLine, unsentLines, updateLine,
 } from '../domain/order.ts';
 import type { NewTicket } from '../domain/kitchen.ts';
 import {
@@ -11,6 +11,7 @@ import {
 } from '../domain/manager.ts';
 import { discountLabel } from '../domain/totals.ts';
 import type { Cents, LineSpec, Order, OrderCustomer, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
+import type { OrderType } from '../domain/types.ts';
 import { isPlatformId, platformLabel, type PlatformMark } from '../domain/platforms.ts';
 import { demoSnapshot } from '../fake/demo.ts';
 import { currentCashier, shopId } from '../services/auth.ts';
@@ -688,12 +689,12 @@ export function useRegister() {
   }, [commit]);
 
 
-  /** Take away or dine in, on the order on screen (not yet paid). Kept on the order; no event of its own. */
-  const setDineIn = useCallback((dineIn: boolean) => {
+  /** Take away, dine in or delivery, on the order on screen (not yet paid). Kept on the order; no event of its own. */
+  const setOrderType = useCallback((type: OrderType) => {
     const s = ensureOpen(ref.current);
-    if (Boolean(s.order.dineIn) === dineIn) return;
-    const { dineIn: _d, ...rest } = s.order;
-    show(() => withOrder(s, dineIn ? { ...rest, dineIn: true } : rest));
+    if (orderTypeOf(s.order) === type) return;
+    const { dineIn: _d, delivery: _v, ...rest } = s.order;
+    show(() => withOrder(s, type === 'dineIn' ? { ...rest, dineIn: true } : type === 'delivery' ? { ...rest, delivery: true } : rest));
   }, [show]);
 
   /**
@@ -749,6 +750,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, clear, setDineIn, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, clear, setOrderType, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

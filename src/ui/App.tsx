@@ -668,7 +668,7 @@ export function App({
           onClearPlatform={() => reg.setPlatform(null)}
           onUndo={reg.undo}
           onGiveBack={(how) => settle(how, 0)}
-          onDineIn={reg.setDineIn}
+          onOrderType={reg.setOrderType}
           printState={canPrint() && reg.paid && printing?.number === reg.paid.number ? printing.state : null}
           onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
           customerBar={customerBar}

@@ -2,11 +2,15 @@ import { itemById } from './menu.ts';
 import { unitPrice } from './money.ts';
 import { totals } from './totals.ts';
 import { isPlatformId } from './platforms.ts';
-import type { Cents, LineSpec, Order, OrderLine, PaidOrder } from './types.ts';
+import type { Cents, LineSpec, Order, OrderLine, OrderType, PaidOrder } from './types.ts';
 
 let seq = 0;
 export const newLineId = (): string =>
   globalThis.crypto?.randomUUID?.() ?? `line-${Date.now()}-${seq++}`;
+
+/** Which of the counter's Take away | Dine in | Delivery an order is. */
+export const orderTypeOf = (o: Pick<Order, 'dineIn' | 'delivery'>): OrderType =>
+  (o.delivery ? 'delivery' : o.dineIn ? 'dineIn' : 'takeAway');
 
 export const emptyOrder = (number: number): Order => ({ number, lines: [] });
 
