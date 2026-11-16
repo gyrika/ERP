@@ -660,12 +660,6 @@ export function useRegister() {
     commit(() => withOrder(s, { ...rest, lines: [] }), `Cleared bill ${s.order.number}`);
   }, [commit]);
 
-  /** Hold: the bill waits on the Held bills list with its number; the screen is free. Undo brings it back. */
-  const hold = useCallback(() => {
-    const s = ref.current;
-    if (s.paid || !s.order.lines.length) return;
-    commit(park, `Held bill ${s.order.number}`);
-  }, [commit]);
 
   /** Take away or dine in, on the order on screen (not yet paid). Kept on the order; no event of its own. */
   const setDineIn = useCallback((dineIn: boolean) => {
@@ -675,10 +669,16 @@ export function useRegister() {
     show(() => withOrder(s, dineIn ? { ...rest, dineIn: true } : rest));
   }, [show]);
 
-  /** A new order; the one on screen, if it has anything on it, waits on the list with its number. */
+  /**
+   * NEW BILL (also Esc): a fresh bill. The one on screen, if it has anything on it, waits on Held
+   * bills with its number, and Undo brings it back (SCRUM-249: this was HOLD's job too). A paid
+   * bill just leaves the screen.
+   */
   const startNew = useCallback(() => {
-    show(park);
-  }, [show]);
+    const s = ref.current;
+    if (s.paid || !s.order.lines.length) show(park);
+    else commit(park, `Held bill ${s.order.number}`);
+  }, [show, commit]);
 
   const undo = useCallback(() => {
     if (undoCounter()) return; // the last thing done was a change to a sent line
@@ -720,6 +720,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, clear, hold, setDineIn, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, clear, setDineIn, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

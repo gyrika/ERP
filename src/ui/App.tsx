@@ -285,12 +285,11 @@ export function App({
     { id: 'void', run: () => voidLine(selectedLine), disabled: Boolean(reg.paid) || !selectedLine },
     { id: 'clear', run: reg.clear, disabled: Boolean(reg.paid) || listing || anySent },
     { id: 'new', run: reg.startNew, disabled: !reg.paid && listing },
-    { id: 'hold', run: reg.hold, disabled: Boolean(reg.paid) || listing },
     { id: 'print', run: () => { if (lastSale) print(lastSale, true); }, disabled: !canPrint() || !lastSale },
   ];
   /** F2 … F8: the bar's keys, doing exactly what its buttons do. */
   const fkey = (key: string): BarAction | undefined =>
-    barActions.find((a) => ({ F2: 'pay', F3: 'send', F4: 'void', F5: 'clear', F6: 'new', F7: 'hold', F8: 'print' } as Record<string, string>)[key] === a.id);
+    barActions.find((a) => ({ F2: 'pay', F3: 'send', F4: 'void', F5: 'clear', F6: 'new', F8: 'print' } as Record<string, string>)[key] === a.id);
 
   // ---------- keys ----------
   useEffect(() => {

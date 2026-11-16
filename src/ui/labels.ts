@@ -12,7 +12,6 @@ export const LABELS = {
   voidItem: { en: 'Void item', si: '', ta: '' },
   clearBill: { en: 'Clear bill', si: '', ta: '' },
   newBill: { en: 'New bill', si: '', ta: '' },
-  hold: { en: 'Hold', si: '', ta: '' },
   printLast: { en: 'Print last bill', si: '', ta: '' },
   billNo: { en: 'Bill No', si: '', ta: '' },
   takeAway: { en: 'Take away', si: '', ta: '' },
