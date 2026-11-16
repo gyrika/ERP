@@ -28,10 +28,12 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
         <h2 className="history__head">{label('heldBills')} · <span className="num">{held.length}</span></h2>
         {held.length === 0 && <p className="history__none">{label('noHeld')}</p>}
         <ul className="history__list" aria-label={label('heldBills')}>
-          {held.map((r) => (
+          {held.map((r) => {
+            const on = current.number === r.order.number && (current.paidAt === undefined || (r.paid && (r.order as PaidOrder).paidAt === current.paidAt));
+            return (
             <li key={r.order.number}>
-              <button type="button" className={`history__row${r.ready && r.ready.urgency !== 'ok' ? ` history__row--${r.ready.urgency}` : ''}`}
-                data-rail-order={r.order.number} onClick={() => onOpen(r.order.number)}>
+              <button type="button" className={`history__row${on ? ' history__row--on' : ''}${r.ready && r.ready.urgency !== 'ok' ? ` history__row--${r.ready.urgency}` : ''}`}
+                aria-current={on || undefined} data-rail-order={r.order.number} onClick={() => onOpen(r.order.number)}>
                 <span className="history__top">
                   <span className="history__no num">{r.order.number}</span>
                   <span className="history__total num">{fmt(orderTotal(r.order))}</span>
@@ -46,7 +48,8 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
                 </span>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </section>
       {paidToday.length > 0 && (
