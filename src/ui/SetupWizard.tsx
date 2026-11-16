@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { BILL_LINE_MAX, billLineOf, checkBillLine } from '../domain/billExtras.ts';
+import { addEvents, readStored, subscribeEvents } from './eventLog.ts';
 import { PIN_LENGTH, type Role } from '../domain/auth.ts';
 import { pairAsCounter } from '../services/pairing.ts';
 import { printReceipt } from '../services/printer.ts';
@@ -103,8 +105,43 @@ function PrinterStep({ state, ownerPin, onNext }: { state: SetupState; ownerPin?
         </p>
       )}
       {error && <p className="setup__error" role="alert">{error}</p>}
+      <BillLine ownerPin={ownerPin} />
       {onNext && <div className="setup__foot"><button type="button" className="cta" onClick={onNext}>Next</button></div>}
     </div>
+  );
+}
+
+/**
+ * The owner's line on every bill (SCRUM-256): under the money, two printed lines at most, in the
+ * letters the printer has. Saved with his PIN by the shop server; empty takes it off.
+ */
+export function BillLine({ ownerPin }: { ownerPin?: string }) {
+  const [saved, setSaved] = useState(() => billLineOf(readStored()));
+  useEffect(() => subscribeEvents(() => setSaved(billLineOf(readStored()))), []);
+  const [text, setText] = useState(saved);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    const why = checkBillLine(text.trim());
+    if (why) { setError(`${why[0].toUpperCase()}${why.slice(1)}.`); return; }
+    setError('');
+    setBusy(true);
+    try { addEvents((await setupClient.billLine(text.trim(), ownerPin)).events); }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    setBusy(false);
+  };
+  return (
+    <form className="setup__billline" onSubmit={(e) => void save(e)}>
+      <label className="setup__label" htmlFor="bill-line">Your line on every bill</label>
+      <input id="bill-line" className="note" value={text} maxLength={BILL_LINE_MAX} onChange={(e) => setText(e.target.value)}
+        placeholder="A thank-you, a pizza fact, today's offer" />
+      <p className="setup__row">
+        <button type="submit" className="chip chip--solid" disabled={busy || text.trim() === saved}>Save</button>
+        <span className="setup__hint num">{BILL_LINE_MAX - text.length} letters left · English letters only (the printer has no Sinhala or Tamil)</span>
+      </p>
+      {error && <p className="setup__error" role="alert">{error}</p>}
+    </form>
   );
 }
 

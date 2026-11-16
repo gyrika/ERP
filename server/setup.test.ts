@@ -438,6 +438,12 @@ test('Test data: the owner clears what happened before a time; numbering starts 
   assert.equal(events[0].type, 'shop.started_fresh');
   assert.equal('actor' in events[0] && events[0].actor.name, 'Nisal Vimukthi');
 
+  // The owner's line on the bill (SCRUM-256): his PIN, plain printer letters.
+  await assert.rejects(setup.billLine({ ownerPin: '2222', text: 'Hi' }), /owner's PIN/);
+  await assert.rejects(setup.billLine({ ownerPin: '1234', text: 'x'.repeat(97) }), /96/);
+  const line = await setup.billLine({ ownerPin: '1234', text: '  Fresh dough every morning  ' });
+  assert.deepEqual(line.events.map((e) => [e.type, 'text' in e && e.text]), [['shop.bill_line_set', 'Fresh dough every morning']]);
+
   clock += 60_000;
   await server.ingest(device, [po('real-po', clock)]);
   assert.deepEqual(await numbers(), ['PO-0001', 'PO-0001'], 'the first real order is PO-0001 again');

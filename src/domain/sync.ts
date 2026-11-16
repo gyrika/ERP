@@ -1,4 +1,5 @@
 import type { MoneyEvent } from './moneyOut.ts';
+import type { BillEvent } from './billExtras.ts';
 import type { ValueEvent } from './valuePlaces.ts';
 import type { Actor } from './auth.ts';
 import type { OrderEvent, TableEvent, VisionEvent } from './events.ts';
@@ -194,7 +195,7 @@ export interface GrnLine { itemId: string; ordered: number; received: number; ac
   warehouseId?: string }
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts; shorthand misses: shorthandMisses.ts; tables and cameras: tables.ts; starting fresh: freshStart.ts; modules: modules.ts. */
-export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent | ShorthandEvent | TableEvent | VisionEvent | MoneyEvent | ValueEvent | ShopEvent | ModuleEvent | CampaignEvent;
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent | ShorthandEvent | TableEvent | VisionEvent | MoneyEvent | ValueEvent | ShopEvent | ModuleEvent | CampaignEvent | BillEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;

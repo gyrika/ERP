@@ -158,6 +158,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
     if (e.type === 'prep.released') return 'only the shop server sends held batches to the kitchen';
     // Clearing test data: the owner's PIN in Settings on the shop PC, never a device's push.
     if (e.type === 'shop.started_fresh') return "test data is cleared in Settings on the shop PC";
+    // The owner's line on the bill: Settings › Printer on the shop PC, with his PIN.
+    if (e.type === 'shop.bill_line_set') return "the bill's line is set in Settings on the shop PC";
     // Modules are turned on and off with the developers' password on the shop PC (modules.ts), never by a device.
     if (e.type === 'shop.module_set') return "modules are changed with the developers' password on the shop PC";
     // Campaigns are sent by the shop server itself (server/crm/), which records them; never a device.
@@ -245,6 +247,7 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/cv/views/open': setup.cvViewsOpen, '/cv/views/frame': setup.cvViewsFrame, '/cv/views/close': setup.cvViewsClose, '/cv/views/perf': setup.cvViewsPerf,
           '/cv/test-video/stop': setup.cvTestVideoStop, '/cv/test-video': setup.cvTestVideos,
           '/fresh-start': setup.startFresh,
+          '/bill-line': setup.billLine,
           '/modules': () => setup.modules(), '/modules/unlock': setup.unlockModule,
         };
         const route = routes[step];

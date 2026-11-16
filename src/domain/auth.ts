@@ -115,6 +115,8 @@ export const mayRecord = (role: Role, type: string, remake = false): boolean => 
   if (type.startsWith('crm.')) return role === 'owner';
   // Clearing the test data before the first real day (freshStart.ts): the owner's.
   if (type === 'shop.started_fresh') return role === 'owner';
+  // The owner's line on the bill (SCRUM-256).
+  if (type === 'shop.bill_line_set') return role === 'owner';
   return false;
 };
 

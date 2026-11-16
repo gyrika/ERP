@@ -458,3 +458,12 @@ test('money out: whole cents above nothing, a known kind, and a name for who pai
   assert.equal(ok({ ...base, type: 'money.choices_set', what: 'gas', choices: [] }), false);
   assert.equal(ok({ ...base, type: 'money.choices_set', what: 'water', choices: [{ id: 'a', label: '5kg' }] }), false);
 });
+
+test("the owner's line on the bill (SCRUM-256): plain letters pass; too long, Sinhala or an order number do not", () => {
+  const line = (text: unknown, extra = {}) => ({ ...base, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'shop.bill_line_set', text, ...extra });
+  const ok = [line('Fresh dough every morning'), line('')];
+  assert.deepEqual(validatePush({ deviceId: 'device-1', events: ok }, 'shop-1'), { events: ok });
+  for (const bad of [line('x'.repeat(97)), line('ස්තූතියි'), line(7), line('hi', { orderNumber: 3 })]) {
+    assert.ok('reason' in validatePush({ deviceId: 'device-1', events: [bad] }, 'shop-1'), JSON.stringify(bad.text));
+  }
+});

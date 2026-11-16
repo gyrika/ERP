@@ -10,6 +10,7 @@ import { whatChanged } from './paidEdits.ts';
 import type { DeliveryPin } from './online.ts';
 import { lineItemName } from './halves.ts';
 import { RECEIPT_LOGO } from './receiptLogo.ts';
+import { COMB } from './receiptComb.ts';
 
 /**
  * The customer receipt for the Xprinter XP-80T (80 mm, ESC/POS), in two
@@ -46,6 +47,8 @@ export interface ReceiptLine {
   qr?: string;
   /** White on black, the whole line (the CHANGED BILL band, SCRUM-255). */
   invert?: boolean;
+  /** A rule: printed as the honeycomb strip (SCRUM-256); the dashes stay for plain-text views. */
+  comb?: boolean;
 }
 
 /**
@@ -88,7 +91,7 @@ export const wrap = (text: string, width: number): string[] => {
   return out;
 };
 
-const rule = (width: number): ReceiptLine => ({ text: '-'.repeat(width) });
+const rule = (width: number): ReceiptLine => ({ text: '-'.repeat(width), comb: true });
 
 /** The top of a bill (SCRUM-254): the logo, its tagline, then where the shop is. */
 const billTop = (shop: ShopHeader): ReceiptLine[] => [
@@ -99,9 +102,16 @@ const billTop = (shop: ShopHeader): ReceiptLine[] => [
 const minus = (cents: number) => `-${fmt(cents)}`;
 
 export function receipt(
-  paid: PaidOrder, opts: { cashier: string; shop?: ShopHeader; width?: number; copy?: boolean; offers?: ReceiptOffer | null },
+  paid: PaidOrder,
+  opts: {
+    cashier: string; shop?: ShopHeader; width?: number; copy?: boolean; offers?: ReceiptOffer | null;
+    /** Minutes the kitchen took (billExtras.ts madeInMinutes); absent when not made yet. */
+    madeIn?: number | null;
+    /** The owner's line of the day (Settings › Printer). */
+    billLine?: string;
+  },
 ): ReceiptLine[] {
-  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = null } = opts;
+  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = null, madeIn = null, billLine = '' } = opts;
   const boxes = boxesIn(paid.lines);
   const out: ReceiptLine[] = [
     ...billTop(shop),
@@ -132,6 +142,10 @@ export function receipt(
     if (box.saved > 0) out.push({ text: `You saved Rs ${fmt(box.saved)} with the ${box.name}` });
   }
   out.push(rule(width));
+  // What people talk about (SCRUM-256): how fast it was made, and the owner's line of the day.
+  if (madeIn) out.push({ text: `MADE FRESH IN ${madeIn} MIN`, center: true, bold: true, invert: true });
+  if (billLine) out.push(...wrap(billLine, width).map((text) => ({ text, center: true })));
+  if (madeIn || billLine) out.push(rule(width));
   // The CRM's way in (customers.ts): a scan signs the phone up for the shop's offers, in the browser,
   // no app. The owner's words say why to scan (campaigns.ts receiptOfferFromEvents). Never on a reprint.
   if (offers && !copy) {
@@ -412,6 +426,7 @@ export const escpos = (lines: ReceiptLine[], { openDrawer = false } = {}): Uint8
   for (const l of lines) {
     out.push(...(l.center ? CMD.center : CMD.left));
     if (l.logo) { out.push(...rasterBytes(RECEIPT_LOGO)); continue; }
+    if (l.comb) { out.push(...rasterBytes(COMB)); continue; }
     if (l.qr) out.push(...qrBytes(l.qr), 0x0a);
     if (l.bold) out.push(...CMD.boldOn);
     if (l.big) out.push(...CMD.big);
