@@ -396,7 +396,7 @@ export function OrderPanel({
               ? { label: `Charge ${fmt(due)} more`, short: `Charge ${fmt(due)}`, note: 'changed', run: onCharge }
               : due < 0
                 ? { label: `Give back ${fmt(-due)}`, note: 'cash from the drawer', run: onGiveBack && (() => onGiveBack()) }
-                : { label: paid.tender === 'cash' ? 'Paid · Cash' : `Paid · ${TENDER[paid.tender]}` }}
+                : { label: paid.parts?.length ? 'Paid · Split' : paid.tender === 'cash' ? 'Paid · Cash' : `Paid · ${TENDER[paid.tender]}` }}
           />
         </div>
       </aside>
@@ -527,7 +527,7 @@ export function OrderPanel({
                 <OrderRow o={o} total={o.total} quiet status={<>
                   {/* Paid, food still coming: the customer is still waiting, so the kitchen state stays. */}
                   {cookState(tickets, o.number) !== 'done' && <CookWord tickets={tickets} number={o.number} />}
-                  <span className="cookword cookword--paid">Paid · {TENDER[o.tender]}</span>
+                  <span className="cookword cookword--paid">Paid · {o.parts?.length ? 'Split' : TENDER[o.tender]}</span>
                   <OnlineTag order={o} />
                 </>} />
               </div>

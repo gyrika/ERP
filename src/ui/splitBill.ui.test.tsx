@@ -46,6 +46,7 @@ test('S splits: one person pays their pizza by bank, the other the rest in cash;
   await user.keyboard('{Enter}'); // nothing picked: exact cash for the rest
   expect(paying()).toBeNull();
   expect(panel().getByText(/Split · Bank transfer 2,500 \+ Cash 2,500/)).toBeTruthy();
+  expect(panel().getByText('Paid · Split')).toBeTruthy();
   const paid = lastPaid()!;
   expect(paid.total).toBe(500000);
   expect(paid.parts).toEqual([
