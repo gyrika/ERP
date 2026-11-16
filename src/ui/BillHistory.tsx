@@ -31,7 +31,7 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
           {held.map((r) => (
             <li key={r.order.number}>
               <button type="button" className={`history__row${r.ready && r.ready.urgency !== 'ok' ? ` history__row--${r.ready.urgency}` : ''}`}
-                onClick={() => onOpen(r.order.number)}>
+                data-rail-order={r.order.number} onClick={() => onOpen(r.order.number)}>
                 <span className="history__top">
                   <span className="history__no num">{r.order.number}</span>
                   <span className="history__total num">{fmt(orderTotal(r.order))}</span>
@@ -60,7 +60,7 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
               return (
                 <li key={`${o.number}-${o.paidAt}`}>
                   <button type="button" className={`history__row history__row--paid${on ? ' history__row--on' : ''}`}
-                    aria-current={on || undefined} onClick={() => onOpen(o.number)}>
+                    aria-current={on || undefined} data-rail-order={o.number} onClick={() => onOpen(o.number)}>
                     <span className="history__top">
                       <span className="history__no num">{o.number}</span>
                       <span className="history__total num">{fmt(o.total)}</span>

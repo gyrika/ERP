@@ -92,6 +92,7 @@ export function OrdersRail({ rows, current, selected, onNew, onOpen }: {
                 type="button"
                 className={`rail__row${r.order.number === current ? ' rail__row--on' : ''}${wait}${selected === i ? ' rail__row--selected' : ''}`}
                 aria-current={r.order.number === current || undefined}
+                data-rail-order={r.order.number}
                 onClick={() => onOpen(r.order.number)}
               >
                 <span className="rail__no num">{r.order.number}</span>

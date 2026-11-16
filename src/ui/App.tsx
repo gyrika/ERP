@@ -7,6 +7,7 @@ import { lineCookState } from '../domain/kitchen.ts';
 import { balanceDue, bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
+import { useFlyToRail } from './flyToRail.ts';
 import { KeyHints } from './KeyHints.tsx';
 import { canPrint, printChangeSlip, printDeliveryBill, printPartSlip, printReceipt } from '../services/printer.ts';
 import { deliveryBill } from '../domain/receipt.ts';
@@ -164,6 +165,8 @@ export function App({
   /** Every order still going, on the left (SCRUM-239); minutes for food waiting to be collected (SCRUM-240). */
   const now = useNow(30_000);
   const rows = railRows(reg.order, reg.paid, reg.open, reg.paidToday, tickets, now);
+  // The bill flies from the right panel to its row on the left as it leaves the panel (SCRUM-246).
+  useFlyToRail(reg.paid?.number ?? reg.order.number, Boolean(reg.paid) || reg.order.lines.length > 0);
 
   // ---------- manager mode ----------
   const [selected, setSelected] = useState(0);

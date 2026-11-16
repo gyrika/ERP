@@ -34,7 +34,7 @@ export const orderSummary = (lines: readonly Pick<OrderLine, 'itemId' | 'qty' | 
 /** The bill's number, as a badge nothing else on screen looks like (never mistaken for a price). */
 function OrderBadge({ number, quiet = false }: { number: number; quiet?: boolean }) {
   return (
-    <span className={`obadge${quiet ? ' obadge--quiet' : ''}`}>
+    <span className={`obadge${quiet ? ' obadge--quiet' : ''}`} data-fly-badge>
       <span className="obadge__label">{label('billNo')}</span>
       <span className="obadge__no num">{number}</span>
     </span>
