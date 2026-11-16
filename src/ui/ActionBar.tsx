@@ -5,6 +5,8 @@ export interface BarAction {
   id: 'pay' | 'send' | 'void' | 'clear' | 'new' | 'print';
   /** The button's words; PAY may say what it does instead ("Charge 500 more", "Close · Free"). */
   text?: string;
+  /** The button's look, when it does another job for now ("Change item" on a paid bill is not red). */
+  tone?: string;
   run: () => void;
   disabled: boolean;
 }
@@ -38,7 +40,7 @@ export function ActionBar({ actions }: { actions: BarAction[] }) {
           <button
             key={id}
             type="button"
-            className={`actbar__btn actbar__btn--${w.tone}`}
+            className={`actbar__btn actbar__btn--${a.tone ?? w.tone}`}
             aria-label={text}
             aria-keyshortcuts={w.f}
             disabled={a.disabled}

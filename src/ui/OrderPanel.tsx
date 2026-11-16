@@ -302,7 +302,8 @@ export function OrderPanel({
     const extra = inBox && l.box ? lineNet(shown, l) - l.box.share : 0;
     return [
       <tr key={l.id} className={`bill__line${isSel ? ' bill__line--on' : ''}${l.sent ? ' bill__line--sent' : ''}${inBox ? ' bill__line--dish' : ''}`}
-        aria-selected={isSel} onClick={() => onSelect(i)}>
+        // A paid bill (SCRUM-251): a tap anywhere on the row opens the item to change, not only its name.
+        aria-selected={isSel} onClick={() => { onSelect(i); if (paid && !manage) onEdit(l); }}>
         <td className="bill__item">
           <button type="button" className="bill__name" onClick={(e) => { e.stopPropagation(); onSelect(i); if (manage) manage.onEditLine(l); else onEdit(l); }}>
             <span className="line__name">{name}</span>
@@ -325,7 +326,11 @@ export function OrderPanel({
         <td className="bill__price num">{inBox ? '' : fmt(lineGross(l) / l.qty)}</td>
         <td className="bill__total num">{inBox ? (extra ? `${extra > 0 ? '+' : '−'}${fmt(Math.abs(extra))}` : '') : fmt(lineNet(shown, l))}</td>
         <td className="bill__x">
-          {!inBox && (
+          {/* Paid (SCRUM-251): the row opens to be changed, so it says so with an arrow, not a greyed ✕. */}
+          {paid ? (
+            <button type="button" className="bill__open" aria-label={`${label('changeItem')} ${name}`}
+              onClick={(e) => { e.stopPropagation(); onSelect(i); if (manage) manage.onEditLine(l); else onEdit(l); }}>›</button>
+          ) : !inBox && (
             <button type="button" className="bill__remove" disabled={Boolean(paid)} aria-label={`${label('void')} ${name}`}
               onClick={(e) => { e.stopPropagation(); onSelect(i); onRemove(l); }}>✕</button>
           )}
@@ -388,7 +393,7 @@ export function OrderPanel({
 
       <div className="panel__lines bill__lines">
         {empty ? <div className="empty"><b>{label('emptyBill')}</b><span>or type it: “2 L margherita, burger”</span></div> : (
-          <table className="bill">
+          <table className={`bill${paid ? " bill--paid" : ""}`}>
             <thead>
               <tr>
                 <th scope="col">{label('item')}</th>
@@ -416,8 +421,10 @@ export function OrderPanel({
                       <td className="bill__price num">{fmt(box.price)}</td>
                       <td className="bill__total num">{fmt(box.lines.reduce((n, x) => n + lineNet(shown, x), 0))}</td>
                       <td className="bill__x">
-                        <button type="button" className="bill__remove" disabled={Boolean(paid)} aria-label={`${label('void')} ${box.name}`}
-                          onClick={() => { onSelect(i); onRemove(l); }}>✕</button>
+                        {!paid && (
+                          <button type="button" className="bill__remove" aria-label={`${label('void')} ${box.name}`}
+                            onClick={() => { onSelect(i); onRemove(l); }}>✕</button>
+                        )}
                       </td>
                     </tr>
                     {box.lines.map((x) => row(x, shown.lines.indexOf(x), true))}

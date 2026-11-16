@@ -10,6 +10,7 @@ export const LABELS = {
   pay: { en: 'Pay', si: '', ta: '' },
   send: { en: 'Send to kitchen', si: '', ta: '' },
   voidItem: { en: 'Void item', si: '', ta: '' },
+  changeItem: { en: 'Change item', si: '', ta: '' },
   clearBill: { en: 'Clear bill', si: '', ta: '' },
   newBill: { en: 'New bill', si: '', ta: '' },
   printLast: { en: 'Print last bill', si: '', ta: '' },
