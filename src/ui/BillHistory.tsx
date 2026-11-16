@@ -12,18 +12,26 @@ import type { RailRow } from './OrdersRail.tsx';
  * today, newest first. A tap opens the bill on the right; the one on screen is marked.
  * `paidToday` is empty for a cashier who does not see the takings.
  */
-export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOpen }: {
+/** What today's paid bills come to, changes after paying included (SCRUM-247). */
+export const salesToday = (paid: PaidOrder[]): number => paid.reduce((sum, o) => sum + o.total + (o.settled ?? 0), 0);
+
+export function BillHistory({ held, paidToday, sales, tickets, kitchenOn, current, onOpen, onGive }: {
   held: RailRow[];
   paidToday: PaidOrder[];
+  /** Today's takings in cents, shown to everyone at the counter. */
+  sales: number;
   tickets: KitchenTicket[];
   /** The Kitchen view is on: held bills say how they stand with the kitchen. */
   kitchenOn: boolean;
   /** The bill on screen: its number, and its paid time when it is a paid bill. */
   current: { number: number; paidAt?: number };
   onOpen: (number: number) => void;
+  /** The tick: the customer has taken the order. */
+  onGive: (number: number) => void;
 }) {
   return (
     <nav className="history" aria-label="Order history">
+      <p className="history__sales"><span>Sales today</span> <b className="num">{fmt(sales)}</b></p>
       <section className="history__part">
         <h2 className="history__head">{label('heldBills')} · <span className="num">{held.length}</span></h2>
         {held.length === 0 && <p className="history__none">{label('noHeld')}</p>}
@@ -31,7 +39,15 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
           {held.map((r) => {
             const on = current.number === r.order.number && (current.paidAt === undefined || (r.paid && (r.order as PaidOrder).paidAt === current.paidAt));
             return (
-            <li key={r.order.number}>
+            <li key={r.order.number} className="history__held">
+              {/* Sent or paid: the food is on its way to this customer, so it can be ticked as taken. */}
+              {(r.paid || r.order.sentAt !== undefined) && (
+                <button type="button" className={`history__tick${r.kitchen === 'Given' ? ' history__tick--on' : ''}`}
+                  aria-label={`Order ${r.order.number} taken`} aria-pressed={r.kitchen === 'Given'}
+                  disabled={r.kitchen === 'Given'} onClick={() => onGive(r.order.number)}>
+                  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+              )}
               <button type="button" className={`history__row${on ? ' history__row--on' : ''}${r.ready && r.ready.urgency !== 'ok' ? ` history__row--${r.ready.urgency}` : ''}`}
                 aria-current={on || undefined} data-rail-order={r.order.number} onClick={() => onOpen(r.order.number)}>
                 <span className="history__top">

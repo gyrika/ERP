@@ -365,3 +365,25 @@ test('order history on the left: held bills and paid today always in sight, one 
   expect(heldList().getByRole('button', { name: /^1002/ }).getAttribute('aria-current')).toBe('true');
   expect(history.getByRole('heading', { name: 'Held bills · 1' })).toBeTruthy();
 });
+
+test('the tick left of a held bill: the customer took it, so it leaves once paid; Sales today shows to the cashier', async () => {
+  setKitchenScreen(true);
+  const user = userEvent.setup();
+  render(<App />);
+  const sales = () => screen.getByText('Sales today').parentElement!.textContent;
+  expect(sales()).toMatch(/0/);
+  await margherita(user);
+  await user.click(btn('Send to kitchen'));
+  // Sent, not paid: already tickable (eating in).
+  expect(screen.getByRole('button', { name: 'Order 1001 taken' })).toBeTruthy();
+  await user.click(heldList().getByRole('button', { name: /^1001/ }));
+  await user.keyboard('{F2}');
+  await user.click(screen.getByRole('button', { name: /Exact/ }));
+  expect(sales()).toMatch(/1,450/);
+  // Paid, food still coming: on the list with its tick.
+  await user.click(screen.getByRole('button', { name: 'Order 1001 taken' }));
+  expect(readEvents().at(-1)).toMatchObject({ type: 'order.given', orderNumber: 1001 });
+  expect(screen.queryByRole('button', { name: 'Order 1001 taken' })).toBeNull();
+  expect(heldCount(0)).toBeTruthy();
+  setKitchenScreen(false);
+});

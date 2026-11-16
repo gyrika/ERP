@@ -24,7 +24,7 @@ import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, orderSummary, type ManagePanel } from './OrderPanel.tsx';
 import { kitchenWord, railRows } from './OrdersRail.tsx';
-import { BillHistory } from './BillHistory.tsx';
+import { BillHistory, salesToday } from './BillHistory.tsx';
 import { ActionBar, type BarAction } from './ActionBar.tsx';
 import { kitchenScreenOn, setKitchenScreen } from './kitchenScreen.ts';
 import { label } from './labels.ts';
@@ -614,10 +614,12 @@ export function App({
           // A held bill opened on the right stays on the list, marked; only a new bill not yet held is left off.
           held={rows.filter((r) => reg.paid || reg.onList || r.order.number !== reg.order.number)}
           paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
+          sales={salesToday(reg.paidToday)}
           tickets={tickets}
           kitchenOn={kitchenOn}
           current={{ number: (reg.paid ?? reg.order).number, paidAt: reg.paid?.paidAt }}
           onOpen={reg.openOrder}
+          onGive={(n) => reg.give(n)}
         />
         <main className="menu" data-keyarea>
           {manager ? null : typed !== null ? (
