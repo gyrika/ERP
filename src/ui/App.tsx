@@ -7,7 +7,7 @@ import { lineCookState } from '../domain/kitchen.ts';
 import { balanceDue, bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
-import { canPrint, printChangeSlip, printDeliveryBill, printReceipt } from '../services/printer.ts';
+import { canPrint, printChangeSlip, printDeliveryBill, printPartSlip, printReceipt } from '../services/printer.ts';
 import { deliveryBill } from '../domain/receipt.ts';
 import { lineGross } from '../domain/totals.ts';
 import { CommandPalette, type Command } from './CommandPalette.tsx';
@@ -569,7 +569,7 @@ export function App({
           }}
           onSend={reg.send}
           onCharge={() => setSheet({ kind: 'pay' })}
-          onGiveBack={() => settle('cash', 0)}
+          onGiveBack={(how) => settle(how ?? 'cash', 0)}
           onCloseFree={() => pay('comp', 0)}
           onClosePlatform={() => { if (reg.order.platform) pay(reg.order.platform.id, total); }}
           onClearPlatform={() => reg.setPlatform(null)}
@@ -582,6 +582,14 @@ export function App({
             onPay: (tender, tendered, customerId, unlinked) => {
               if (reg.paid) settle(tender, tendered); else pay(tender, tendered, customerId, unlinked);
               closeSheet();
+            },
+            onPayPart: (tender, tendered, pick, customerId, unlinked) => {
+              const r = reg.payPart(tender, tendered, pick, customerId, unlinked, kitchenWord(reg.order, tickets) === 'Ready');
+              if (r?.kind === 'paid') { print(r.paid); closeSheet(); return; }
+              if (r && canPrint()) {
+                const lines = reg.order.lines.filter((l) => r.units[l.id]).map((l) => `${r.units[l.id]} x ${lineItemName(l)}`);
+                void printPartSlip({ number: r.number, amount: r.amount, tender: r.tender, tendered: r.tendered, left: r.left, lines }, currentCashier().name);
+              }
             },
             onClose: closeSheet,
             customers: crmOn,

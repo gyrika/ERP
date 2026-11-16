@@ -215,7 +215,13 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
   };
 
   const byTender = new Map<Tender, Cents>();
-  for (const s of todays) byTender.set(s.tender, (byTender.get(s.tender) ?? 0) + s.total);
+  for (const s of todays) {
+    // A split bill counts each tender for its own part; a difference settled later goes with the main one.
+    const parts = s.parts?.length ? s.parts : [{ tender: s.tender, amount: s.total }];
+    const rest = s.total - parts.reduce((n, p) => n + p.amount, 0);
+    for (const p of parts) byTender.set(p.tender, (byTender.get(p.tender) ?? 0) + p.amount);
+    if (rest) byTender.set(s.tender, (byTender.get(s.tender) ?? 0) + rest);
+  }
   const unpaid = unpaidDeliveries(events, today, now);
   const owed = unpaid.reduce((n, d) => n + d.due, 0);
   const overdue = unpaid.filter((d) => now - d.readyBy > OUT_TOO_LONG_MS);

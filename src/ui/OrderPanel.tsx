@@ -6,6 +6,7 @@ import { DISCOUNT_CHIPS } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
 import { balanceDue, orderTotal, unsentLines } from '../domain/order.ts';
+import { amountLeft, tenderParts, type Pick as UnitPick } from '../domain/split.ts';
 import { discountLabel, lineAdjustment, lineNet, totals } from '../domain/totals.ts';
 import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../domain/types.ts';
 import { platformLabel, platformName } from '../domain/platforms.ts';
@@ -156,7 +157,7 @@ interface Props {
   onSend: () => void;
   onCharge: () => void;
   /** A paid order changed so the customer gets money back (SCRUM-242): cash from the drawer, one tap. */
-  onGiveBack?: () => void;
+  onGiveBack?: (how?: Tender) => void;
   onCloseFree: () => void;
   /** Closes a delivery app's order (SCRUM-195): the app pays the shop, nothing is collected here. */
   onClosePlatform: () => void;
@@ -173,6 +174,8 @@ interface Props {
   /** Present while Charge is open: the panel becomes the payment, in place of a sheet. */
   paying?: {
     onPay: (tender: Tender, tendered: Cents, customerId?: string, unlinked?: boolean) => void;
+    /** Split bill: one person's part (split.ts). */
+    onPayPart?: (tender: Tender, tendered: Cents, pick: UnitPick, customerId?: string, unlinked?: boolean) => void;
     onClose: () => void;
     /** Customers (CRM) is on and reachable: the optional Mobile field. */
     customers?: boolean;
@@ -306,8 +309,10 @@ export function OrderPanel({
       <aside className={`${panelClass} panel--paying`} aria-label="Current order">
         <PayPanel
           number={order.number}
-          total={orderTotal(order)}
+          total={amountLeft(order)}
           lines={<PayLines order={order} />}
+          order={order}
+          onPayPart={paying.onPayPart}
           onPay={paying.onPay}
           onClose={paying.onClose}
           customers={paying.customers}
@@ -350,7 +355,9 @@ export function OrderPanel({
               <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
               <span className="paid__big num">{fmt(cashChange ? paid.change : paid.total)}</span>
               <span className="paid__sub num">
-                {paid.tender === 'cash' ? `Cash ${fmt(paid.tendered)} · ` : `${TENDER[paid.tender]} · `}
+                {paid.parts?.length
+                  ? `Split · ${paid.parts.map((x) => `${TENDER[x.tender]} ${fmt(x.amount)}`).join(' + ')} · `
+                  : paid.tender === 'cash' ? `Cash ${fmt(paid.tendered)} · ` : `${TENDER[paid.tender]} · `}
                 Total {fmt(paid.total)}
               </span>
             </>
@@ -358,6 +365,10 @@ export function OrderPanel({
           <span className="paid__links">
             {justPaid && <button type="button" className="linkbtn" onClick={onUndo}>Undo payment</button>}
             {onReprint && <button type="button" className="linkbtn" onClick={onReprint}>Print again</button>}
+            {/* Paid by transfer: the money can go back the same way, from the shop's bank. */}
+            {due < 0 && tenderParts(paid).some((x) => x.tender === 'transfer') && (
+              <button type="button" className="linkbtn" onClick={() => onGiveBack?.('transfer')}>Give back by bank</button>
+            )}
           </span>
           {printState === 'failed' && <span className="paid__note">Receipt not printed</span>}
         </div>
@@ -384,7 +395,7 @@ export function OrderPanel({
             money={due > 0
               ? { label: `Charge ${fmt(due)} more`, short: `Charge ${fmt(due)}`, note: 'changed', run: onCharge }
               : due < 0
-                ? { label: `Give back ${fmt(-due)}`, note: 'cash from the drawer', run: onGiveBack }
+                ? { label: `Give back ${fmt(-due)}`, note: 'cash from the drawer', run: onGiveBack && (() => onGiveBack()) }
                 : { label: paid.tender === 'cash' ? 'Paid · Cash' : `Paid · ${TENDER[paid.tender]}` }}
           />
         </div>

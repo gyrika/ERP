@@ -1,4 +1,5 @@
 import type { PlatformId, PlatformMark } from './platforms.ts';
+import type { PaymentPart } from './split.ts';
 /** Money is always integer LKR cents (1 LKR = 100). Never floats. */
 export type Cents = number;
 
@@ -175,6 +176,11 @@ export interface Order {
   held?: string;
   /** The customer has the food (SCRUM-240). An order leaves the Register's list once paid and given. */
   givenAt?: number;
+  /**
+   * Split bill: parts already paid, each person their own items (split.ts). Kept on this screen
+   * until the last part, whose payment (`order.paid`) carries them all.
+   */
+  parts?: PaymentPart[];
 }
 
 export interface OrderCustomer { id: string; name: string | null }

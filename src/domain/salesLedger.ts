@@ -2,6 +2,7 @@ import type { OrderEvent } from './events.ts';
 import { itemById } from './menu.ts';
 import type { Cents, OrderLine, Tender } from './types.ts';
 import { lineItemName } from './halves.ts';
+import { changeGiven } from './split.ts';
 
 /**
  * The sales ledger: each payment as one tidy row, with the items it paid for, for the
@@ -146,7 +147,7 @@ export const saleFrom = (
     total: paid.total,
     tender: paid.tender,
     tendered: paid.tendered,
-    changeGiven: paid.tender === 'cash' ? Math.max(0, paid.tendered - paid.total) : 0,
+    changeGiven: changeGiven(paid),
     cashier: paid.actor.name,
     online,
     items,
