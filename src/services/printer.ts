@@ -1,6 +1,7 @@
 import { changeBlocks, changedBill, escpos, partSlip, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
 import type { PaidOrder } from '../domain/types.ts';
 import { receiptOfferFromEvents, type ReceiptOffer } from '../domain/campaigns.ts';
+import { billLineOf, madeInMinutes } from '../domain/billExtras.ts';
 import { modulesHere, readAll } from '../ui/eventLog.ts';
 import { syncToken } from './pairing.ts';
 
@@ -29,7 +30,10 @@ const base64 = (bytes: Uint8Array): string => {
 export async function printReceipt(paid: PaidOrder, cashier: string, { reprint = false } = {}): Promise<PrintResult> {
   // Changed after paying (SCRUM-255): the bill as it stands now, a COPY of the changed bill.
   if (paid.settled !== undefined) return printChangedBill(paid, cashier, { reprint });
-  return send(escpos(receipt(paid, { cashier, copy: reprint, offers: receiptOffers() }), { openDrawer: !reprint && opensDrawer(paid) }));
+  const events = readAll();
+  // How fast the kitchen made it, when it has (SCRUM-256), and the owner's line of the day.
+  const extras = { madeIn: madeInMinutes(events, paid.number, Date.now()), billLine: billLineOf(events) };
+  return send(escpos(receipt(paid, { cashier, copy: reprint, offers: receiptOffers(), ...extras }), { openDrawer: !reprint && opensDrawer(paid) }));
 }
 
 /** While the CRM is on, the receipt carries the offers QR code under the owner's words (receipt.ts). */

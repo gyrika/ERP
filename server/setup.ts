@@ -1,4 +1,5 @@
 import { isStaffRole, managesRole, mayRecord } from '../src/domain/auth.ts';
+import { checkBillLine } from '../src/domain/billExtras.ts';
 import { createWriteStream, mkdirSync, rmSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
@@ -616,6 +617,15 @@ export function setupApi(ctx: SetupContext) {
       if (typeof before !== 'number' || !Number.isSafeInteger(before) || before < 0) throw new SetupError(400, 'invalid', 'pick a time');
       if (before > now()) throw new SetupError(400, 'invalid', 'that time has not come yet');
       return { events: await record(actor, { type: 'shop.started_fresh', before }) };
+    },
+
+    /** The owner's line on the bill (SCRUM-256, billExtras.ts); '' takes it off. */
+    async billLine(body: { ownerPin?: unknown; text?: unknown }) {
+      const actor = await owner(body.ownerPin);
+      const text = typeof body.text === 'string' ? body.text.trim() : body.text;
+      const why = checkBillLine(text);
+      if (why) throw new SetupError(400, 'invalid', why);
+      return { events: await record(actor, { type: 'shop.bill_line_set', text }) };
     },
 
     /** #unlock (modules.ts): which modules are on. The shop PC only (the setup router); it changes nothing. */

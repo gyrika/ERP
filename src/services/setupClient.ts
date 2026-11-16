@@ -57,6 +57,8 @@ export const setupClient = {
   cvActivate: (ownerPin: string) => call<CvStatus>('/cv/activate', { ownerPin }),
   /** Test data before `before` (ms) stops counting; 0 puts it back (freshStart.ts). */
   startFresh: (before: number, ownerPin?: string) => call<{ events: SyncEvent[] }>('/fresh-start', { before, ownerPin }),
+  /** The owner's line on the bill (SCRUM-256); '' takes it off. */
+  billLine: (text: string, ownerPin?: string) => call<{ events: SyncEvent[] }>('/bill-line', { text, ownerPin }),
   /** #unlock (modules.ts): the shop's id and which modules are on. */
   modules: () => call<ModulesState>('/modules', {}),
   /** The developers' password turns a module on or off. */

@@ -15,6 +15,7 @@ import { checkPrepLimit, checkPrepOrder } from '../src/domain/prep.ts';
 import { checkWarehouseName, isStockKey, isWarehouseId } from '../src/domain/warehouses.ts';
 import { checkTableEvent, TABLE_EVENT_TYPES, VISION_EVENT_TYPES } from '../src/domain/tables.ts';
 import { SHOP_EVENT_TYPES } from '../src/domain/freshStart.ts';
+import { BILL_EVENT_TYPES, checkBillLine } from '../src/domain/billExtras.ts';
 import { checkModuleEvent, MODULE_EVENT_TYPES } from '../src/domain/modules.ts';
 import { CAMPAIGN_EVENT_TYPES, checkCampaignEvent } from '../src/domain/campaigns.ts';
 import { isCustomerId } from '../src/domain/customers.ts';
@@ -29,7 +30,7 @@ import {
 
 const TYPES = new Set<string>([
   ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...PREP_EVENT_TYPES, ...MENU_EVENT_TYPES, ...RECIPE_EVENT_TYPES, ...SHORTHAND_EVENT_TYPES,
-  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES, ...MODULE_EVENT_TYPES, ...CAMPAIGN_EVENT_TYPES,
+  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES, ...MODULE_EVENT_TYPES, ...CAMPAIGN_EVENT_TYPES, ...BILL_EVENT_TYPES,
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -303,6 +304,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     )) return { reason: `event ${e.id} has an invalid recipe draft` };
     if (e.type.startsWith('value.') && checkValueEvent(e as { type: string }) !== null) return { reason: `event ${e.id} has an invalid value addition` };
     if ((e.type === 'money.grn_removed' || e.type === 'money.grn_restored') && (e.orderNumber !== 0 || !shortString(e.grnId))) return { reason: `event ${e.id} names no GRN` };
+    // The owner's line on the bill (SCRUM-256): plain letters the printer has, two lines at most.
+    if (e.type === 'shop.bill_line_set' && (e.orderNumber !== 0 || checkBillLine(e.text) !== null)) return { reason: `event ${e.id} has an invalid bill line` };
     if (e.type === 'money.choices_set' && (e.orderNumber !== 0 || checkChoices(e.what, e.choices) !== null)) return { reason: `event ${e.id} has an invalid list` };
     if (e.type === 'money.out' && (e.orderNumber !== 0 || checkMoneyOut(e) !== null)) return { reason: `event ${e.id} has an invalid money out` };
     if ((e.type === 'money.out_undone' || e.type === 'money.out_restored') && !shortString(e.outId)) return { reason: `event ${e.id} names no money out` };

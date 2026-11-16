@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { RECEIPT_WIDTH, changedBill, receipt, type ChangeBlock, type ReceiptLine } from '../domain/receipt.ts';
 import { RECEIPT_LOGO } from '../domain/receiptLogo.ts';
+import { COMB } from '../domain/receiptComb.ts';
+import { billLineOf } from '../domain/billExtras.ts';
+import { readAll } from './eventLog.ts';
 import { totals } from '../domain/totals.ts';
 import type { Order, PaidOrder } from '../domain/types.ts';
 import { canPrint, printReceipt, receiptOffers } from '../services/printer.ts';
@@ -54,20 +57,21 @@ function Paper({ lines, label }: { lines: ReceiptLine[]; label: string }) {
           style={{ textAlign: l.center ? 'center' : 'left' }}>
           {/* The printer draws the QR code itself; here a square of its size says where it goes. */}
           {l.qr && <span className="paper__qr" role="img" aria-label={`QR code: ${l.qr}`}>QR</span>}
-          {l.logo ? <PaperLogo name={l.text} /> : (l.text || ' ')}
+          {l.logo ? <PaperBits dots={RECEIPT_LOGO} label={`${l.text} logo`} className="paper__logo" />
+            : l.comb ? <PaperBits dots={COMB} label="Honeycomb line" className="paper__comb" /> : (l.text || ' ')}
         </div>
       ))}
     </figure>
   );
 }
 
-/** The logo drawn from the very dots the printer gets, so the preview shows the paper, not the artwork. */
-function PaperLogo({ name }: { name: string }) {
+/** A picture drawn from the very dots the printer gets (the logo, the honeycomb), so the preview shows the paper. */
+function PaperBits({ dots, label, className }: { dots: { width: number; height: number; bits: string }; label: string; className: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const ctx = ref.current?.getContext('2d');
     if (!ctx) return;
-    const { width, height, bits } = RECEIPT_LOGO;
+    const { width, height, bits } = dots;
     const raw = atob(bits);
     const row = Math.ceil(width / 8);
     const img = ctx.createImageData(width, height);
@@ -80,14 +84,16 @@ function PaperLogo({ name }: { name: string }) {
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, []);
-  return <canvas ref={ref} className="paper__logo" width={RECEIPT_LOGO.width} height={RECEIPT_LOGO.height} role="img" aria-label={`${name} logo`} />;
+  }, [dots]);
+  return <canvas ref={ref} className={className} width={dots.width} height={dots.height} role="img" aria-label={label} />;
 }
 
 export function ReceiptPreview() {
   const [paid] = useState(samplePaid);
   const [test, setTest] = useState<'idle' | 'printing' | 'printed' | 'failed'>('idle');
-  const lines = receipt(paid, { cashier: 'Nimal', offers: receiptOffers() });
+  // The sample as it was made in 9 minutes; the owner's line as he set it (or where it goes, until he does).
+  const billLine = billLineOf(readAll()) || "(the owner's line goes here: Settings > Printer)";
+  const lines = receipt(paid, { cashier: 'Nimal', offers: receiptOffers(), madeIn: 9, billLine });
   const [changed] = useState(sampleChanged);
   const changedLines = changedBill(changed.paid, changed.blocks, { cashier: 'Nimal' });
 
