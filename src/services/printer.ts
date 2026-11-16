@@ -1,4 +1,4 @@
-import { changeSlip, escpos, partSlip, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
+import { changeBlocks, changedBill, escpos, partSlip, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
 import type { PaidOrder } from '../domain/types.ts';
 import { receiptOfferFromEvents, type ReceiptOffer } from '../domain/campaigns.ts';
 import { modulesHere, readAll } from '../ui/eventLog.ts';
@@ -27,6 +27,8 @@ const base64 = (bytes: Uint8Array): string => {
  * never opens the drawer and is marked COPY.
  */
 export async function printReceipt(paid: PaidOrder, cashier: string, { reprint = false } = {}): Promise<PrintResult> {
+  // Changed after paying (SCRUM-255): the bill as it stands now, a COPY of the changed bill.
+  if (paid.settled !== undefined) return printChangedBill(paid, cashier, { reprint });
   return send(escpos(receipt(paid, { cashier, copy: reprint, offers: receiptOffers() }), { openDrawer: !reprint && opensDrawer(paid) }));
 }
 
@@ -52,9 +54,14 @@ async function send(bytes: Uint8Array): Promise<PrintResult> {
   }
 }
 
-/** A paid order's difference (SCRUM-242): the slip, and the drawer opens for cash either way. */
-export const printChangeSlip = (o: Parameters<typeof changeSlip>[0], cashier: string): Promise<PrintResult> =>
-  send(escpos(changeSlip(o, { at: Date.now(), cashier }), { openDrawer: o.tender === 'cash' }));
+/**
+ * A paid order's difference settled (SCRUM-242/255): the CHANGED BILL, the whole bill again with
+ * what changed and what was paid now. The drawer opens for cash (money in or out); a reprint never.
+ */
+export const printChangedBill = (paid: PaidOrder, cashier: string, { reprint = false } = {}): Promise<PrintResult> => {
+  const blocks = changeBlocks(readAll(), paid);
+  return send(escpos(changedBill(paid, blocks, { cashier, copy: reprint }), { openDrawer: !reprint && blocks.at(-1)?.tender === 'cash' }));
+};
 
 /** One part of a split bill: that person's slip, and the drawer opens for cash. */
 export const printPartSlip = (o: Parameters<typeof partSlip>[0], cashier: string): Promise<PrintResult> =>

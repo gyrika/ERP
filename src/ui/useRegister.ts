@@ -614,7 +614,7 @@ export function useRegister() {
    * `tender`/`tendered` as at Charge. Money back: always cash from the drawer. Final like a
    * payment that has left the screen: money has changed hands, so there is no Undo.
    */
-  const settle = useCallback((tender: Tender, tendered: Cents, release = false): { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents; changes: string[] } | undefined => {
+  const settle = useCallback((tender: Tender, tendered: Cents, release = false): { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents; changes: string[]; paid: PaidOrder } | undefined => {
     const s = ref.current;
     let p = s.paid;
     if (!p) return undefined;
@@ -642,7 +642,7 @@ export function useRegister() {
     setToast({ id: ++toastSeq.current, message: amount > 0 ? `Paid ${fmt(amount)} more` : `Gave back ${fmt(-amount)}` });
     const changes = paidChanges(readAll(), p.number, p.paidAt);
     appendEvent({ type: 'order.settled', at: Date.now(), actor: currentCashier(), orderNumber: p.number, amount, tender: how, tendered: given });
-    return { number: p.number, amount, tender: how, tendered: given, total: orderTotal(done), changes };
+    return { number: p.number, amount, tender: how, tendered: given, total: orderTotal(done), changes, paid: done };
   }, [seal, setHistory]);
 
   /** Ctrl+Z in manager mode: reverse the newest manager change of this session. */

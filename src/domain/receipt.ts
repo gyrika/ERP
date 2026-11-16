@@ -3,7 +3,10 @@ import { boxesIn, opensBox } from './combos.ts';
 import { itemById } from './menu.ts';
 import { fmt } from './money.ts';
 import { discountLabel, lineAdjustment, lineGross, totals } from './totals.ts';
-import type { Cents, LineSpec, PaidOrder, Tender } from './types.ts';
+import type { Cents, LineSpec, Order, OrderLine, PaidOrder, Tender } from './types.ts';
+import type { SyncEvent } from './sync.ts';
+import { orderTotal } from './order.ts';
+import { whatChanged } from './paidEdits.ts';
 import type { DeliveryPin } from './online.ts';
 import { lineItemName } from './halves.ts';
 import { RECEIPT_LOGO } from './receiptLogo.ts';
@@ -41,6 +44,8 @@ export interface ReceiptLine {
   big?: boolean;
   /** A QR code of this, printed above the line's text (the text stays, for whoever cannot scan). */
   qr?: string;
+  /** White on black, the whole line (the CHANGED BILL band, SCRUM-255). */
+  invert?: boolean;
 }
 
 /**
@@ -97,7 +102,7 @@ export function receipt(
   paid: PaidOrder, opts: { cashier: string; shop?: ShopHeader; width?: number; copy?: boolean; offers?: ReceiptOffer | null },
 ): ReceiptLine[] {
   const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = null } = opts;
-  const t = totals(paid);
+  const boxes = boxesIn(paid.lines);
   const out: ReceiptLine[] = [
     ...billTop(shop),
     // A reprint says so, so one sale can never look like two.
@@ -109,25 +114,7 @@ export function receipt(
     rule(width),
   ];
 
-  const boxes = boxesIn(paid.lines);
-  for (const [i, l] of paid.lines.entries()) {
-    if (l.box) {
-      // A combo box (SCRUM-231): its price once, its dishes under it, a price only where one was added.
-      const box = boxes.get(l.box.id)!;
-      if (opensBox(paid.lines, i)) out.push({ text: twoCols(box.name, fmt(box.price), width) });
-      out.push(...itemLines(l, lineGross(l) - l.box.share, width, '  '));
-    } else {
-      out.push(...itemLines(l, lineGross(l), width));
-    }
-    const adj = lineAdjustment(paid, l);
-    if (adj > 0) out.push({ text: twoCols('    Price adjusted', minus(adj), width) });
-  }
-
-  out.push(rule(width));
-  if (t.lineAdjust > 0 || t.orderDiscount > 0) out.push({ text: twoCols('Subtotal', fmt(t.subtotal - t.lineAdjust), width) });
-  const d = paid.adjust?.discount;
-  if (d && t.orderDiscount > 0) out.push({ text: twoCols(discountLabel(d), minus(t.orderDiscount), width) });
-  if (t.deliveryFee > 0) out.push({ text: twoCols('Delivery', fmt(t.deliveryFee), width) });
+  out.push(...billBody(paid, width));
   out.push({ text: twoCols('TOTAL', `Rs ${fmt(paid.total)}`, width / 2), bold: true, big: true });
   if (paid.parts?.length) {
     // A split bill: each part, how it was paid, and any change it got.
@@ -159,6 +146,35 @@ export function receipt(
   out.push({ text: shop.footer, center: true });
   return out;
 }
+
+/**
+ * What was bought, as it stands: each item and its price (a combo box once, its dishes under it),
+ * then a rule and whatever brought the items' prices down to the total (adjustments, a discount)
+ * and the delivery fee. The TOTAL line is the caller's: a changed bill totals differently.
+ */
+const billBody = (order: Order, width: number): ReceiptLine[] => {
+  const t = totals(order);
+  const out: ReceiptLine[] = [];
+  const boxes = boxesIn(order.lines);
+  for (const [i, l] of order.lines.entries()) {
+    if (l.box) {
+      // A combo box (SCRUM-231): its price once, its dishes under it, a price only where one was added.
+      const box = boxes.get(l.box.id)!;
+      if (opensBox(order.lines, i)) out.push({ text: twoCols(box.name, fmt(box.price), width) });
+      out.push(...itemLines(l, lineGross(l) - l.box.share, width, '  '));
+    } else {
+      out.push(...itemLines(l, lineGross(l), width));
+    }
+    const adj = lineAdjustment(order, l);
+    if (adj > 0) out.push({ text: twoCols('    Price adjusted', minus(adj), width) });
+  }
+  out.push(rule(width));
+  if (t.lineAdjust > 0 || t.orderDiscount > 0) out.push({ text: twoCols('Subtotal', fmt(t.subtotal - t.lineAdjust), width) });
+  const d = order.adjust?.discount;
+  if (d && t.orderDiscount > 0) out.push({ text: twoCols(discountLabel(d), minus(t.orderDiscount), width) });
+  if (t.deliveryFee > 0) out.push({ text: twoCols('Delivery', fmt(t.deliveryFee), width) });
+  return out;
+};
 
 /** One item on paper: "2 x Devilled Chicken Large" and its price, then its paid extras. */
 const itemLines = (
@@ -229,33 +245,94 @@ export function deliveryBill(
 }
 
 /**
- * A paid order changed afterwards (SCRUM-242): a short slip for the difference, printed with the
- * drawer opening. `amount` > 0 the customer paid more; < 0 the shop gave it back. `changes`
- * (paidChanges.ts): what came off and went on, so the customer sees why (SCRUM-247).
+ * The changes made to a paid order, grouped by the payment that settled them (SCRUM-255): each
+ * block is what changed before one `order.settled`, dated at it, with what the customer paid
+ * more (or got back) and how. Undone changes are left out. Changes not yet settled are not a block.
  */
-export function changeSlip(
-  o: { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents; changes?: string[] },
-  opts: { at: number; cashier: string; shop?: ShopHeader; width?: number },
-): ReceiptLine[] {
-  const { at, cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH } = opts;
-  const back = o.amount < 0;
-  const out: ReceiptLine[] = [
-    { text: shop.name, center: true, bold: true, big: true },
-    { text: 'ORDER CHANGED', center: true, bold: true },
-    rule(width),
-    { text: twoCols(`Order ${o.number}`, receiptTime(at), width) },
-    { text: `Cashier ${cashier}` },
-    rule(width),
-  ];
-  if (o.changes?.length) out.push(...o.changes.flatMap((c) => wrap(c, width).map((text) => ({ text }))), rule(width));
-  out.push({ text: twoCols(back ? 'GIVEN BACK' : 'PAID MORE', `Rs ${fmt(Math.abs(o.amount))}`, width / 2), bold: true, big: true });
-  if (back) {
-    out.push({ text: o.tender === 'transfer' ? 'By bank transfer' : 'Cash from the drawer' });
-  } else {
-    out.push({ text: twoCols(TENDER_LABEL[o.tender], fmt(o.tendered), width) });
-    if (o.tender === 'cash' && o.tendered > o.amount) out.push({ text: twoCols('Change', fmt(o.tendered - o.amount), width) });
+export interface ChangeBlock {
+  at: number;
+  entries: { text: string; amount: Cents }[];
+  amount: Cents;
+  tender: Tender;
+  tendered: Cents;
+}
+
+export const changeBlocks = (events: readonly SyncEvent[], paid: PaidOrder): ChangeBlock[] => {
+  const undone = new Set(events.flatMap((e) => (e.type === 'order.change_undone' ? [e.undoneEventId] : [])));
+  const blocks: ChangeBlock[] = [];
+  let entries: ChangeBlock['entries'] = [];
+  for (const e of events) {
+    if (e.orderNumber !== paid.number || e.at < paid.paidAt || undone.has(e.id)) continue;
+    if (e.type === 'order.sent' && e.addOn && e.at > paid.paidAt) {
+      for (const l of e.lines) entries.push({ text: `+ ${lineWords(l)}`, amount: lineGross(l) });
+    } else if (e.type === 'order.item_changed' && e.afterPay) {
+      entries.push({ text: `${lineItemName(e.after)}: ${whatChanged(e.before, e.after).join(', ') || 'changed'}`, amount: lineGross(e.after) - lineGross(e.before) });
+    } else if (e.type === 'order.item_cancelled' && e.afterPay) {
+      entries.push({ text: `- ${lineWords(e.before)}`, amount: -lineGross(e.before) });
+    } else if (e.type === 'order.settled') {
+      blocks.push({ at: e.at, entries, amount: e.amount, tender: e.tender, tendered: e.tendered });
+      entries = [];
+    }
   }
-  out.push({ text: twoCols('Order total now', fmt(o.total), width) }, rule(width), { text: shop.footer, center: true });
+  return blocks;
+};
+
+/** "1 x Margherita Medium", as on the bill. */
+const lineWords = (l: OrderLine): string => {
+  const size = itemById(l.itemId).variants?.find((v) => v.id === l.size)?.label;
+  return `${l.qty} x ${lineItemName(l).replace(/½/g, '1/2')}${size ? ` ${size}` : ''}`;
+};
+
+const signed = (c: Cents) => `${c < 0 ? '-' : '+'}${fmt(Math.abs(c))}`;
+
+/**
+ * The CHANGED BILL (SCRUM-255): the whole bill again, as it stands now, printed when a paid order's
+ * difference is settled (in place of the old short slip) and on a reprint of a changed order.
+ * Same number, a black CHANGED BILL band, the items now, TOTAL, what was paid before, then the
+ * money that moved now in large type, and a dated block for every time it was changed.
+ * The last block is the payment this bill is for.
+ */
+export function changedBill(
+  paid: PaidOrder, blocks: ChangeBlock[],
+  opts: { cashier: string; shop?: ShopHeader; width?: number; copy?: boolean },
+): ReceiptLine[] {
+  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false } = opts;
+  const now = blocks.at(-1);
+  const before = paid.total + blocks.slice(0, -1).reduce((n, b) => n + b.amount, 0);
+  const out: ReceiptLine[] = [
+    ...billTop(shop),
+    ...(copy ? [{ text: 'COPY', center: true, bold: true }] : []),
+    { text: 'CHANGED BILL', center: true, bold: true, big: true, invert: true },
+    rule(width),
+    { text: twoCols(`Order ${paid.number}`, receiptTime(now?.at ?? paid.paidAt), width) },
+    { text: `Cashier: ${cashier}` },
+    rule(width),
+    ...billBody(paid, width),
+    { text: twoCols('TOTAL', `Rs ${fmt(orderTotal(paid))}`, width / 2), bold: true, big: true },
+    { text: twoCols('Paid before', fmt(before), width) },
+    { text: `  ${paid.parts?.length ? 'Split' : TENDER_LABEL[paid.tender]} at ${receiptTime(paid.paidAt)}` },
+  ];
+  if (now) {
+    const back = now.amount < 0;
+    out.push({ text: twoCols(back ? 'GIVEN BACK' : 'PAID NOW', `Rs ${fmt(Math.abs(now.amount))}`, width / 2), bold: true, big: true });
+    if (back) out.push({ text: now.tender === 'transfer' ? 'By bank transfer' : 'Cash from the drawer' });
+    else {
+      out.push({ text: twoCols(TENDER_LABEL[now.tender], fmt(now.tendered), width) });
+      if (now.tender === 'cash' && now.tendered > now.amount) out.push({ text: twoCols('Change', fmt(now.tendered - now.amount), width), bold: true });
+    }
+  }
+  out.push(rule(width));
+  for (const [i, b] of blocks.entries()) {
+    out.push({ text: `Changed ${receiptTime(b.at)}`, bold: true });
+    for (const e of b.entries) {
+      const [head, ...rest] = wrap(e.text, width - 12);
+      out.push({ text: twoCols(`  ${head}`, signed(e.amount), width) }, ...rest.map((text) => ({ text: `    ${text}` })));
+    }
+    // An earlier change: how its money went (this one's is above, in large type).
+    if (i < blocks.length - 1) out.push({ text: `  ${b.amount < 0 ? `Gave back ${fmt(-b.amount)}` : `Paid ${fmt(b.amount)} more`}` });
+  }
+  if (blocks.length) out.push(rule(width));
+  out.push({ text: shop.footer, center: true });
   return out;
 }
 
@@ -280,6 +357,8 @@ export const CMD = {
   boldOff: [ESC, 0x45, 0x00],
   big: [GS, 0x21, 0x11],
   normal: [GS, 0x21, 0x00],
+  invertOn: [GS, 0x42, 0x01],
+  invertOff: [GS, 0x42, 0x00],
   /** Feed 4 lines past the tear bar, then a partial cut. */
   feedCut: [GS, 0x56, 0x42, 0x04],
 } as const;
@@ -336,7 +415,9 @@ export const escpos = (lines: ReceiptLine[], { openDrawer = false } = {}): Uint8
     if (l.qr) out.push(...qrBytes(l.qr), 0x0a);
     if (l.bold) out.push(...CMD.boldOn);
     if (l.big) out.push(...CMD.big);
+    if (l.invert) out.push(...CMD.invertOn);
     out.push(...ascii(l.text), 0x0a);
+    if (l.invert) out.push(...CMD.invertOff);
     if (l.big) out.push(...CMD.normal);
     if (l.bold) out.push(...CMD.boldOff);
   }
