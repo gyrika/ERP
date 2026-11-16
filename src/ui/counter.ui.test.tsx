@@ -17,7 +17,7 @@ import { heldCount, heldList } from './testHeld.ts';
 
 // A paired counter: printing goes through the (mocked) server.
 vi.mock('../services/printer.ts', () => ({
-  canPrint: () => true, printReceipt: vi.fn(), printChangeSlip: vi.fn(), printDeliveryBill: vi.fn(),
+  canPrint: () => true, printReceipt: vi.fn(), printChangeSlip: vi.fn(), printDeliveryBill: vi.fn(), printChangedBill: vi.fn(),
 }));
 const print = vi.mocked(printReceipt);
 
@@ -252,27 +252,62 @@ test('the counter starts in light mode unless a look was chosen', () => {
   expect(document.documentElement.dataset.theme).toBe('light');
 });
 
-test('a paid bill: F4 is CHANGE ITEM and opens the selected item to change; rows show an arrow, not a greyed ✕ (SCRUM-251)', async () => {
+test('a paid bill: VOID ITEM (F4), a row\'s ✕ and Delete take an item off, and the money side gives it back; a tap on the row still changes it', async () => {
   const user = userEvent.setup();
   render(<App />);
   await margherita(user);
-  expect(btn('Void item')).toBeTruthy();
+  await burger(user);
+  await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]); // Devilled Chicken L
   await user.click(btn('Pay'));
-  await user.click(screen.getByRole('button', { name: '2,000' }));
-  expect(bar().queryByRole('button', { name: 'Void item' })).toBeNull();
-  expect(btn('Change item').disabled).toBe(false);
-  expect(btn('Change item').getAttribute('aria-keyshortcuts')).toBe('F4');
-  expect(document.querySelectorAll('.bill__open')).toHaveLength(1);
-  expect(document.querySelector('.bill__remove')).toBeNull();
-  await user.keyboard('{F4}');
-  expect(screen.getByRole('button', { name: /Back to order/ })).toBeTruthy(); // the item's sheet
-  await user.keyboard('{Escape}');
-  // A tap anywhere on the row opens it too, not only on the name: the price, or the arrow.
+  await user.click(screen.getByRole('button', { name: /Exact cash/ }));
+  expect(btn('Void item').disabled).toBe(false);
+  expect(btn('Void item').getAttribute('aria-keyshortcuts')).toBe('F4');
+  expect(document.querySelectorAll('.bill__remove').length).toBeGreaterThan(0);
+  expect(document.querySelector('.bill__open')).toBeNull();
+
+  // A tap anywhere on the row opens it to be changed, as before (SCRUM-251).
   await user.click(document.querySelector('.bill__line .bill__total')!);
   expect(screen.getByRole('button', { name: /Back to order/ })).toBeTruthy();
   await user.keyboard('{Escape}');
-  await user.click(panel().getByRole('button', { name: 'Change item Margherita' }));
-  expect(screen.getByRole('button', { name: /Back to order/ })).toBeTruthy();
+
+  // ✕ on the Margherita: off, no PIN, and Give back its price.
+  await user.click(panel().getByRole('button', { name: 'Void Margherita' }));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(panel().queryByRole('button', { name: /^Margherita/ })).toBeNull();
+  const back = bar().getByRole('button', { name: /^Give back / });
+  const first = Number(back.textContent!.replace(/\D/g, ''));
+  expect(first).toBeGreaterThan(0);
+
+  // F4 on the selected item, then Delete on the one left: each adds to what is given back.
+  await user.keyboard('{F4}');
+  const second = Number(bar().getByRole('button', { name: /^Give back / }).textContent!.replace(/\D/g, ''));
+  expect(second).toBeGreaterThan(first);
+  await user.keyboard('{Delete}');
+  const third = Number(bar().getByRole('button', { name: /^Give back / }).textContent!.replace(/\D/g, ''));
+  expect(third).toBeGreaterThan(second);
+});
+
+test('the shop\'s counter (no Kitchen view): Full cheese on a paid pizza, reopened from Paid today, asks for 600 and takes it on the same order', async () => {
+  setKitchenScreen(false);
+  const user = userEvent.setup();
+  render(<App />);
+  await margherita(user);
+  await user.click(btn('Pay'));
+  await user.click(screen.getByRole('button', { name: /Exact cash/ }));
+  await user.click(btn('New bill'));
+  await user.click(within(screen.getByRole('navigation', { name: 'Order history' })).getByRole('button', { name: /^1001/ }));
+
+  await user.click(panel().getByRole('button', { name: /^Margherita/ }));
+  const sheet = within(screen.getByRole('region', { name: / extras$/ }));
+  await user.click(sheet.getByRole('button', { name: /Full cheese/ }));
+  await user.click(sheet.getByRole('button', { name: /^(Update|Make new)/ }));
+  expect(panel().getByText('To pay now')).toBeTruthy();
+  await user.click(bar().getByRole('button', { name: /^Pay 600 more/ }));
+  await user.click(screen.getByRole('button', { name: /Exact cash 600/ }));
+
+  expect(readEvents().filter((e) => e.type === 'order.settled').at(-1)).toMatchObject({ orderNumber: 1001, amount: 60000, tender: 'cash' });
+  expect(readEvents().filter((e) => e.type === 'order.paid')).toHaveLength(1); // the same sale, not a new one
+  expect(bar().queryByRole('button', { name: /more|Give back/ })).toBeNull();
 });
 
 test('order history on the left: held bills and paid today always in sight, one tap opens either', async () => {

@@ -346,12 +346,8 @@ export function OrderPanel({
         <td className="bill__price num">{inBox ? '' : fmt(lineGross(l) / l.qty)}</td>
         <td className="bill__total num">{inBox ? (extra ? `${extra > 0 ? '+' : '−'}${fmt(Math.abs(extra))}` : '') : fmt(lineNet(shown, l))}</td>
         <td className="bill__x">
-          {/* Paid (SCRUM-251): a sent row opens to be changed, so it says so with an arrow, not a greyed ✕.
-              An item added after paying and not yet settled (SCRUM-253) is unsent: its ✕ takes it off. */}
-          {paid && l.sent ? (
-            <button type="button" className="bill__open" aria-label={`${label('changeItem')} ${name}`}
-              onClick={(e) => { e.stopPropagation(); onSelect(i); if (manage) manage.onEditLine(l); else onEdit(l); }}>›</button>
-          ) : !inBox && (
+          {/* ✕ takes the item off, a paid bill's too (Give back follows); a tap on the row changes it (SCRUM-251). */}
+          {!inBox && (
             <button type="button" className="bill__remove" aria-label={`${label('void')} ${name}`}
               onClick={(e) => { e.stopPropagation(); onSelect(i); onRemove(l); }}>✕</button>
           )}

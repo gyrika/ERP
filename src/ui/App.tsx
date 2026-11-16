@@ -249,10 +249,12 @@ export function App({
   /**
    * VOID ITEM (F4, Delete, a row's ✕): a line not yet sent comes off at once, with Undo (a combo's
    * box comes off whole). A sent line is a manager's: the PIN first, then the reason, audited.
+   * On a paid order a sent line comes off as Remove in its sheet does (no PIN, `afterPay`), and the
+   * money side then shows Give back: staff from the old POS reach for VOID / ✕ / Delete first.
    */
   const voidLine = useCallback((line: OrderLine | undefined) => {
-    // On a paid order only a line added since and not yet settled (SCRUM-253) comes off this way.
-    if (!line || (reg.paid && line.sent)) return;
+    if (!line) return;
+    if (reg.paid && line.sent) { reg.changeSent({ kind: 'void', lineId: line.id }, lineCookState(tickets, line.id) !== 'waiting'); return; }
     const sent = line.box ? reg.order.lines.some((l) => l.box?.id === line.box!.id && l.sent) : Boolean(line.sent);
     if (sent) {
       if (manager) askVoid(line);
@@ -262,7 +264,7 @@ export function App({
     if (manager) { askVoid(line); return; }
     if (line.box) reg.dropBox(line.box.id, `Removed ${line.box.name}`);
     else reg.dropLine(line.id, `Removed ${lineItemName(line)}`);
-  }, [reg, manager, askVoid]);
+  }, [reg, manager, askVoid, tickets]);
 
   const stepLine = useCallback((line: OrderLine, by: 1 | -1) => {
     if (line.sent || line.box) return;
@@ -287,11 +289,9 @@ export function App({
   const barActions: BarAction[] = [
     payAction,
     ...(kitchenOn ? [{ id: 'send' as const, run: reg.send, disabled: !(reg.paid ? reg.paid.held : hasNew) }] : []),
-    // A paid bill (SCRUM-251): the same button changes the selected item, so nothing has to be known about tapping a row.
-    // An item added since and not yet settled (SCRUM-253) is still unsent: VOID ITEM takes it off.
-    reg.paid && selectedLine?.sent
-      ? { id: 'void', text: label('changeItem'), tone: 'plain', run: () => { if (selectedLine) setSheet({ kind: 'edit', line: selectedLine }); }, disabled: false }
-      : { id: 'void', run: () => voidLine(selectedLine), disabled: !selectedLine },
+    // VOID ITEM takes the selected item off, a paid bill's too (the money side then shows Give back);
+    // a tap on the row still opens it to be changed (SCRUM-251).
+    { id: 'void', run: () => voidLine(selectedLine), disabled: !selectedLine },
     { id: 'clear', run: reg.clear, disabled: Boolean(reg.paid) || listing || anySent },
     { id: 'new', run: reg.startNew, disabled: !reg.paid && listing },
     { id: 'print', run: () => { if (lastSale) print(lastSale, true); }, disabled: !canPrint() || !lastSale },
