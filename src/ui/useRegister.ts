@@ -104,7 +104,10 @@ const blank = (s: Snapshot): Order => emptyOrder(s.nextNumber);
 const isToday = (at: number): boolean => new Date(at).toDateString() === new Date().toDateString();
 
 /** After a sale, the next tap on the menu silently opens a new order. */
-const ensureOpen = (s: Snapshot): Snapshot => (s.paid ? { ...s, order: blank(s), paid: null, justPaid: false } : s);
+const ensureOpen = (s: Snapshot): Snapshot =>
+  (s.paid ? { ...s, order: blank(s), paid: null, justPaid: false }
+    // A sent bill whose every item was taken off (still on screen for its history): the next tap is a new bill.
+    : s.order.sentAt !== undefined && !s.order.lines.length ? { ...s, order: blank(s) } : s);
 
 /**
  * A paid order opened again from the list takes new items (SCRUM-253): the customer wants one more
@@ -131,7 +134,9 @@ const withOrder = (s: Snapshot, order: Order): Snapshot => {
     ...s,
     paid: null,
     justPaid: false,
-    order: emptied ? blank(s) : order,
+    // Its last sent item taken off: it leaves the list, but stays on screen with its struck-through
+    // lines (the history in sight, owner 2026-11-17) until the next tap starts a new bill.
+    order: emptied && order.sentAt === undefined ? blank(s) : order,
     open: onList && !emptied ? byNumber([...open, order]) : open,
   };
 };
@@ -432,6 +437,7 @@ export function useRegister() {
     appendEvent({
       type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender: paid.tender, tendered: paid.tendered,
       ...(customerId ? { customerId } : {}),
+      ...(order.delivery?.fee ? { deliveryFee: order.delivery.fee } : {}),
       ...(parts ? { parts: parts.map((p) => ({ tender: p.tender, amount: p.amount, tendered: p.tendered })) } : {}),
     });
     if (paid.givenAt === at) appendEvent({ type: 'order.given', at, actor: currentCashier(), orderNumber: paid.number });
@@ -504,10 +510,14 @@ export function useRegister() {
   const manage = useCallback((actor: Actor, change: ManagerChange): ManageResult => {
     const s = ref.current;
     const at = Date.now();
-    const r = applyManagerChange(s.order, change, actor, at);
+    // A paid bill on screen: an item changed or taken off in manager mode belongs to that sale, as the
+    // counter's own (`changeSent`): struck through on the bill, and the money then settled (SCRUM-242).
+    const onPaid = s.paid && s.paid.number === s.order.number && (change.kind === 'void' || change.kind === 'edit')
+      && s.paid.lines.find((l) => l.id === change.lineId)?.sent ? s.paid : null;
+    const r = applyManagerChange(onPaid ?? s.order, onPaid ? { ...change, afterPay: true } as ManagerChange : change, actor, at);
     if (isRefusal(r)) return r;
 
-    const next = withOrder(s, r.order);
+    const next = onPaid ? withPaid(s, r.order as PaidOrder) : withOrder(s, r.order);
     sendOpen.current = false;
     setHistory([]);
     ref.current = next;
@@ -517,6 +527,7 @@ export function useRegister() {
     const record: ManagerRecord = {
       orderNumber: s.order.number, orderAfter: r.order, inverse: r.inverse,
       eventId: event.id, eventType: event.type,
+      ...(onPaid ? { paidAt: onPaid.paidAt } : {}),
     };
     managerStack.current.push(record);
 
@@ -694,7 +705,14 @@ export function useRegister() {
     const s = ensureOpen(ref.current);
     if (orderTypeOf(s.order) === type) return;
     const { dineIn: _d, delivery: _v, ...rest } = s.order;
-    show(() => withOrder(s, type === 'dineIn' ? { ...rest, dineIn: true } : type === 'delivery' ? { ...rest, delivery: true } : rest));
+    show(() => withOrder(s, type === 'dineIn' ? { ...rest, dineIn: true } : type === 'delivery' ? { ...rest, delivery: { fee: 0 } } : rest));
+  }, [show]);
+
+  /** The fee the cashier typed for a counter delivery (not yet paid), in cents. */
+  const setDeliveryFee = useCallback((fee: Cents) => {
+    const s = ensureOpen(ref.current);
+    if (!s.order.delivery || s.order.delivery.fee === fee) return;
+    show(() => withOrder(s, { ...s.order, delivery: { fee: Math.max(0, Math.round(fee)) } }));
   }, [show]);
 
   /**
@@ -750,6 +768,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, clear, setOrderType, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, clear, setOrderType, setDeliveryFee, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

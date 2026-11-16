@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import { canManage, seesTakings } from '../domain/auth.ts';
 import { DISCOUNT_CHIPS, type ManagerChange } from '../domain/manager.ts';
 import { comboById, itemById, menuItems } from '../domain/menu.ts';
-import { boxLines } from '../domain/combos.ts';
+import { boxLines, nextShownLine } from '../domain/combos.ts';
 import { lineCookState } from '../domain/kitchen.ts';
 import { balanceDue, bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
@@ -32,6 +32,7 @@ import { useNow } from './Kitchen.tsx';
 import { crmClient, crmReachable } from '../services/crmClient.ts';
 import { modulesHere, readAll } from './eventLog.ts';
 import { paidEdits } from '../domain/paidEdits.ts';
+import { removedLines } from '../domain/removedLines.ts';
 import { CustomerBar } from './CustomerBar.tsx';
 import { customerOrders, visitsFromEvents } from '../domain/customers.ts';
 import { usualOrder } from '../domain/usualOrder.ts';
@@ -168,6 +169,11 @@ export function App({
   const now = useNow(30_000);
   // A paid order on screen: what changed after paying (SCRUM-253), from the log and the screen.
   const paidEditList = useMemo(() => (reg.paid ? paidEdits(readAll(), reg.paid) : []), [reg.paid]);
+  // Sent items taken off before paying: still on the bill, struck through. Read again only when the
+  // bill's lines change (a removal or its Undo), not on every tap elsewhere.
+  const billOnScreen = reg.paid ?? reg.order;
+  const removedKey = `${billOnScreen.number}|${billOnScreen.sentAt ?? ''}|${reg.paid?.paidAt ?? ''}|${billOnScreen.lines.map((l) => l.id).join()}`;
+  const removedList = useMemo(() => removedLines(readAll(), billOnScreen), [removedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = railRows(reg.order, reg.paid, reg.open, reg.paidToday, tickets, now);
   // The bill flies from the right panel to its row on the left as it leaves the panel (SCRUM-246).
   useFlyToRail(reg.paid?.number ?? reg.order.number, Boolean(reg.paid) || reg.order.lines.length > 0);
@@ -369,7 +375,8 @@ export function App({
       // The selected line: arrows move it, + and − change how many, Delete voids it.
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        setSelected((x) => (e.key === 'ArrowDown' ? Math.min(x + 1, Math.max(0, lines.length - 1)) : Math.max(x - 1, 0)));
+        // A combo's same dishes are one row on the bill: the arrows step over the rest of them.
+        setSelected((x) => nextShownLine(lines, Math.min(x, Math.max(0, lines.length - 1)), e.key === 'ArrowDown' ? 1 : -1));
         return;
       }
       if ((e.key === '+' || e.key === '-') && selectedLine) { e.preventDefault(); stepLine(selectedLine, e.key === '+' ? 1 : -1); return; }
@@ -655,6 +662,7 @@ export function App({
 
         <OrderPanel
           edits={paidEditList}
+          removed={removedList}
           order={reg.order}
           tickets={tickets}
           paid={reg.paid}
@@ -671,6 +679,7 @@ export function App({
           onUndo={reg.undo}
           onGiveBack={(how) => settle(how, 0)}
           onOrderType={reg.setOrderType}
+          onDeliveryFee={reg.setDeliveryFee}
           printState={canPrint() && reg.paid && printing?.number === reg.paid.number ? printing.state : null}
           onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
           customerBar={customerBar}

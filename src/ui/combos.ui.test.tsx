@@ -36,9 +36,14 @@ test('one tap sells a whole combo with its usual picks; it goes to the kitchen a
 
   const box = within(panel().getByRole('rowgroup', { name: 'Family Box' }));
   expect(box.getByText('Devilled Chicken')).toBeTruthy();
-  expect(box.getAllByText('Chicken Burger')).toHaveLength(2);
+  // The same dish once, with how many (the kitchen still gets two burgers, below).
+  expect(box.getAllByText('Chicken Burger')).toHaveLength(1);
+  expect(box.getByText('Chicken Burger').closest('tr')!.querySelector('.bill__qty')!.textContent).toBe('2');
   expect(box.getByText('Italian Pasta')).toBeTruthy();
-  expect(box.getByText('Saves Rs 799 on separate prices')).toBeTruthy();
+  // The name, and the saving on its own line under it.
+  const head = box.getByText('Family Box');
+  expect(head.nextElementSibling!.textContent).toBe('Saves Rs 799 on separate prices');
+  expect(head.parentElement!.className).toContain('bill__name');
   expect(panel().getByText('3,600', { selector: '.total' })).toBeTruthy();
 
   // Send works straight away: nothing to pick first.
@@ -102,3 +107,19 @@ test('a manager or the owner builds a combo on Items › Finished; it is one aud
 
 // These tests send to the kitchen first: the Kitchen view on (it is off on a new counter).
 beforeEach(() => setKitchenScreen(true));
+
+test('one of the two burgers changed to fish: its own row; the other stays, one', async () => {
+  const user = userEvent.setup();
+  addFamilyBox();
+  render(<Root />);
+  await user.click(screen.getByRole('button', { name: 'Combos' }));
+  await user.click(screen.getByRole('button', { name: 'Add Family Box, 3,600' }));
+  await user.click(within(panel().getByRole('rowgroup', { name: 'Family Box' })).getByText('Chicken Burger'));
+  const sheet = within(screen.getByRole('region', { name: / extras$/ }));
+  await user.click(sheet.getByRole('button', { name: /^Fish Burger/ }));
+  await user.click(sheet.getByRole('button', { name: /^Update/ }));
+  const box = within(panel().getByRole('rowgroup', { name: 'Family Box' }));
+  const qty = (name: string) => box.getByText(name).closest('tr')!.querySelector('.bill__qty')!.textContent;
+  expect(qty('Chicken Burger')).toBe('1');
+  expect(qty('Fish Burger')).toBe('1');
+});

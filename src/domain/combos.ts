@@ -150,6 +150,43 @@ export const boxesIn = (lines: readonly OrderLine[]): Map<string, BoxView> => {
   return out;
 };
 
+/** A box's dish as the bill and the receipt show it: the same dish once, with how many. */
+export interface DishGroup {
+  /** The lines it stands for (each one dish, qty 1), in order; the first is the one a tap opens. */
+  lines: OrderLine[];
+  qty: number;
+}
+
+/** Same dish, same pick: item, size, halves, extras, leave-outs, note and what the pick adds. */
+const dishKey = (l: OrderLine): string =>
+  JSON.stringify([l.box?.id, l.itemId, l.size ?? '', l.half ?? null, [...l.adds].sort(), [...l.outs].sort(), l.note ?? '', l.box?.extra ?? 0, l.unit ?? null]);
+
+/**
+ * A box's dishes grouped for the eye (a Family Box's 4 Chicken Burgers are one row, "4"): only
+ * the bill on screen and the receipt group them. Each dish stays its own qty-1 line underneath,
+ * for the kitchen, stock and waste. A dish changed (another pick, an extra) gets its own row.
+ */
+export const groupDishes = (lines: readonly OrderLine[]): DishGroup[] => {
+  const out = new Map<string, DishGroup>();
+  for (const l of lines) {
+    const k = dishKey(l);
+    const g = out.get(k);
+    if (g) { g.lines.push(l); g.qty += l.qty; } else out.set(k, { lines: [l], qty: l.qty });
+  }
+  return [...out.values()];
+};
+
+/**
+ * The next line the arrows land on: a box's grouped dishes are one row, so the arrows skip the
+ * lines behind the first of each group. `by`: +1 down, −1 up; stays put at either end.
+ */
+export const nextShownLine = (lines: readonly OrderLine[], i: number, by: 1 | -1): number => {
+  const hidden = new Set<string>();
+  for (const box of boxesIn(lines).values()) for (const g of groupDishes(box.lines)) for (const l of g.lines.slice(1)) hidden.add(l.id);
+  for (let j = i + by; j >= 0 && j < lines.length; j += by) if (!hidden.has(lines[j].id)) return j;
+  return i;
+};
+
 /** Is a line the first dish of its box (where the box's heading goes)? */
 export const opensBox = (lines: readonly Pick<OrderLine, 'box'>[], i: number): boolean =>
   Boolean(lines[i].box) && lines.findIndex((l) => l.box?.id === lines[i].box!.id) === i;

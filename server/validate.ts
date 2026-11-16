@@ -110,6 +110,10 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (e.type === 'order.paid' && e.customerId !== undefined && !isCustomerId(e.customerId)) {
       return { reason: `event ${e.id} has an invalid customer` };
     }
+    // A counter delivery's fee (Order.delivery): whole cents, never below zero.
+    if (e.type === 'order.paid' && e.deliveryFee !== undefined && (!Number.isSafeInteger(e.deliveryFee) || (e.deliveryFee as number) < 0)) {
+      return { reason: `event ${e.id} has an invalid delivery fee` };
+    }
     // A split bill (split.ts): its parts are whole cents and add up to the total.
     if (e.type === 'order.paid' && e.parts !== undefined && (
       !Array.isArray(e.parts) || e.parts.length < 1 || e.parts.length > 50

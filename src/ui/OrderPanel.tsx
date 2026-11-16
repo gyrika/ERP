@@ -13,9 +13,10 @@ import type { Cents, Discount, Order, OrderLine, PaidOrder, Tender } from '../do
 import type { OrderType } from '../domain/types.ts';
 import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
-import { boxesIn, opensBox } from '../domain/combos.ts';
+import { boxesIn, groupDishes, opensBox, type DishGroup } from '../domain/combos.ts';
 import { PayPanel } from './PayPanel.tsx';
 import type { PaidEdit } from '../domain/paidEdits.ts';
+import type { RemovedLine } from '../domain/removedLines.ts';
 import { kitchenWord, readyFor } from './OrdersRail.tsx';
 
 const sub = (l: OrderLine): string => {
@@ -196,6 +197,8 @@ interface Props {
   onGiveBack?: (how: Tender) => void;
   /** Take away / Dine in / Delivery. */
   onOrderType: (type: OrderType) => void;
+  /** The fee for a counter delivery, as the cashier types it (cents). */
+  onDeliveryFee: (fee: Cents) => void;
   /** The receipt of the paid order on screen; null when this device does not print. */
   printState?: 'printing' | 'printed' | 'failed' | null;
   /** Prints a COPY, without opening the drawer. Absent when this device does not print. */
@@ -214,6 +217,8 @@ interface Props {
   extras?: ReactNode;
   /** A paid order on screen: what was changed after paying (paidEdits.ts), marked on its lines (SCRUM-253). */
   edits?: PaidEdit[];
+  /** Sent items taken off before paying (removedLines.ts): still drawn, struck through. */
+  removed?: RemovedLine[];
 }
 
 const signed = (c: Cents) => `${c >= 0 ? '+' : '−'}${fmt(Math.abs(c))}`;
@@ -240,7 +245,7 @@ const dateTime = (at: number) => new Date(at).toLocaleString([], { day: 'numeric
  */
 export function OrderPanel({
   order, tickets, paid, justPaid = false, onGive, now, manage, selected, onSelect, onEdit, onStep, onRemove, onClearPlatform,
-  onUndo, onGiveBack, onOrderType, printState, onReprint, paying, extras, customerBar, edits = [],
+  onUndo, onGiveBack, onOrderType, onDeliveryFee, printState, onReprint, paying, extras, customerBar, edits = [], removed = [],
 }: Props) {
   const editOf = new Map(edits.map((e) => [e.lineId, e]));
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
@@ -310,16 +315,19 @@ export function OrderPanel({
   const boxes = boxesIn(shown.lines);
   const sel = Math.min(selected, shown.lines.length - 1);
 
-  /** One line of the table. `inBox`: a combo's dish, priced with its box. */
-  const row = (l: OrderLine, i: number, inBox: boolean) => {
+  /**
+   * One line of the table. `inBox`: a combo's dish, priced with its box. `group`: the same dishes
+   * in that box drawn as this one row (combos.ts `groupDishes`): their count, their extras summed.
+   */
+  const row = (l: OrderLine, i: number, inBox: boolean, group?: DishGroup) => {
     const name = lineItemName(l);
     const adj = lineAdjustment(shown, l);
-    const isSel = i === sel;
+    const isSel = group ? group.lines.some((x) => shown.lines.indexOf(x) === sel) : i === sel;
     // A line added to a paid order and not yet settled (SCRUM-253) is still unsent: − / + and ✕ work on it.
     const canStep = !l.sent && !inBox && !manage;
     const edit = editOf.get(l.id);
     const cook = l.sent ? lineCookState(tickets, l.id) : 'waiting';
-    const extra = inBox && l.box ? lineNet(shown, l) - l.box.share : 0;
+    const extra = inBox ? (group?.lines ?? [l]).reduce((n, x) => n + (x.box ? lineNet(shown, x) - x.box.share : 0), 0) : 0;
     return [
       <tr key={l.id} className={`bill__line${isSel ? ' bill__line--on' : ''}${l.sent ? ' bill__line--sent' : ''}${inBox ? ' bill__line--dish' : ''}`}
         // A paid bill (SCRUM-251): a tap anywhere on the row opens the item to change, not only its name.
@@ -334,7 +342,7 @@ export function OrderPanel({
           </button>
         </td>
         <td className="bill__qty">
-          {inBox ? <span className="num">{l.qty}</span> : (
+          {inBox ? <span className="num">{group?.qty ?? l.qty}</span> : (
             <span className="qty" role="group" aria-label={`How many ${name}`}>
               <button type="button" className="qty__key" disabled={!canStep} aria-label={l.qty > 1 ? `One fewer ${name}` : `Remove ${name}`}
                 onClick={(e) => { e.stopPropagation(); onStep(l, -1); }}>−</button>
@@ -407,7 +415,7 @@ export function OrderPanel({
       })()}
 
       <div className="panel__lines bill__lines">
-        {empty ? <div className="empty"><b>{label('emptyBill')}</b><span>or type it: “2 L margherita, burger”</span></div> : (
+        {empty && !removed.length && !edits.some((e) => e.kind === 'removed') ? <div className="empty"><b>{label('emptyBill')}</b><span>or type it: “2 L margherita, burger”</span></div> : (
           <table className={`bill${paid ? " bill--paid" : ""}`}>
             <thead>
               <tr>
@@ -430,8 +438,11 @@ export function OrderPanel({
                 groups.push(
                   <tbody key={`box-${box.id}`} className="bill__box" aria-label={box.name}>
                     <tr className="bill__boxhead">
-                      <td className="bill__item"><span className="line__name">{box.name}</span>
-                        {box.saved > 0 && <span className="line__sub num">Saves Rs {fmt(box.saved)} on separate prices</span>}</td>
+                      {/* The name, then the saving under it (one cell, two lines: never "familySaves…"). */}
+                      <td className="bill__item"><span className="bill__name">
+                        <span className="line__name">{box.name}</span>
+                        {box.saved > 0 && <span className="line__sub num">Saves Rs {fmt(box.saved)} on separate prices</span>}
+                      </span></td>
                       <td className="bill__qty"><span className="num">1</span></td>
                       <td className="bill__price num">{fmt(box.price)}</td>
                       <td className="bill__total num">{fmt(box.lines.reduce((n, x) => n + lineNet(shown, x), 0))}</td>
@@ -442,16 +453,29 @@ export function OrderPanel({
                         )}
                       </td>
                     </tr>
-                    {box.lines.map((x) => row(x, shown.lines.indexOf(x), true))}
+                    {groupDishes(box.lines).map((g) => row(g.lines[0], shown.lines.indexOf(g.lines[0]), true, g))}
                   </tbody>,
                 );
               });
               flush();
-              // Taken off after paying (SCRUM-253): still on the bill, struck through, so the money makes sense.
+              // Sent items taken off stay on the bill, struck through, so the history stays in sight (owner,
+              // 2026-11-17): before paying with who and why; after paying (SCRUM-253) with the money back.
               const gone = edits.filter((e) => e.kind === 'removed' && e.before);
-              if (gone.length) {
+              if (gone.length || removed.length) {
                 groups.push(
-                  <tbody key="gone" aria-label="Taken off after paying">
+                  <tbody key="gone" aria-label="Taken off">
+                    {removed.map((r) => (
+                      <tr key={`gone-${r.lineId}`} className="bill__line bill__line--gone">
+                        <td className="bill__item"><span className="bill__name">
+                          <span className="line__name">{lineItemName(r.before)}</span>
+                          <span className="line__edit num">Removed {clock(r.at)} · {r.by}{r.reason ? ` · ${r.reason}` : ''}</span>
+                        </span></td>
+                        <td className="bill__qty"><span className="num">{r.before.qty}</span></td>
+                        <td className="bill__price num">{fmt(lineGross(r.before) / r.before.qty)}</td>
+                        <td className="bill__total num">{fmt(lineGross(r.before))}</td>
+                        <td className="bill__x" />
+                      </tr>
+                    ))}
                     {gone.map((e) => (
                       <tr key={`gone-${e.lineId}`} className="bill__line bill__line--gone">
                         <td className="bill__item"><span className="bill__name">
@@ -491,7 +515,19 @@ export function OrderPanel({
       <dl className="sums num">
         <div><dt>{label('subtotal')}</dt><dd>{fmt(t.subtotal)}</dd></div>
         <div><dt>{label('discount')}{discount && t.orderDiscount > 0 ? ` · ${discountLabel(discount)}` : ''}</dt><dd>{off > 0 ? `−${fmt(off)}` : fmt(0)}</dd></div>
-        {t.deliveryFee > 0 && <div><dt>{label('delivery')}</dt><dd>+{fmt(t.deliveryFee)}</dd></div>}
+        {order.delivery && !paid
+          ? (
+            <div className="sums__fee">
+              <dt><label htmlFor="delivery-fee">{label('deliveryFee')}</label></dt>
+              <dd>
+                <input id="delivery-fee" className="sums__feein num" inputMode="numeric" autoComplete="off" placeholder="0"
+                  value={order.delivery.fee ? String(order.delivery.fee / 100) : ''}
+                  onChange={(e) => onDeliveryFee(Number(e.target.value.replace(/\D/g, '').slice(0, 6) || 0) * 100)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur(); }} />
+              </dd>
+            </div>
+          )
+          : t.deliveryFee > 0 && <div><dt>{label('delivery')}</dt><dd>+{fmt(t.deliveryFee)}</dd></div>}
         <div className="sums__net"><dt>{label('netAmount')}</dt><dd className="total">{fmt(orderTotal(shown))}</dd></div>
         {/* Changed after paying (SCRUM-253): what was paid, and what is left either way. */}
         {paid && (due !== 0 || paid.settled !== undefined) && (

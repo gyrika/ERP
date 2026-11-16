@@ -185,8 +185,11 @@ export interface Order {
   parts?: PaymentPart[];
   /** Eaten in the shop; absent = take away (the counter's Order type toggle). Kept on this screen's order. */
   dineIn?: true;
-  /** The counter's Delivery choice on the same toggle: a mark only (no fee, no address). Never with `dineIn`. */
-  delivery?: true;
+  /**
+   * The counter's Delivery choice on the same toggle, with the fee the cashier typed (0 until then).
+   * The fee is in the total (totals.ts) and on the payment (`order.paid.deliveryFee`). Never with `dineIn`.
+   */
+  delivery?: { fee: Cents };
 }
 
 /** The counter's order type toggle (`Order.dineIn` / `Order.delivery`). */
