@@ -105,6 +105,18 @@ const isToday = (at: number): boolean => new Date(at).toDateString() === new Dat
 /** After a sale, the next tap on the menu silently opens a new order. */
 const ensureOpen = (s: Snapshot): Snapshot => (s.paid ? { ...s, order: blank(s), paid: null, justPaid: false } : s);
 
+/**
+ * A paid order opened again from the list takes new items (SCRUM-253): the customer wants one more
+ * thing, on the same bill, and pays only for that. Not right after the payment (that screen is
+ * still the last customer's: a tap there starts the next bill), not a free or delivery-app order.
+ */
+export const takesItems = (s: { paid: PaidOrder | null; justPaid?: boolean }): boolean =>
+  Boolean(s.paid && !s.justPaid && isToday(s.paid.paidAt) && s.paid.tender !== 'comp' && !isPlatformId(s.paid.tender));
+
+/** The order new items go on: the paid one opened from the list, or the open bill. */
+const adding = (s: Snapshot, fn: (o: Order) => Order): Snapshot =>
+  takesItems(s) ? withPaid(s, { ...s.paid!, ...fn(s.paid!) } as PaidOrder) : (() => { const o = ensureOpen(s); return { ...o, order: fn(o.order) }; })();
+
 const byNumber = (list: Order[]): Order[] => [...list].sort((a, b) => a.number - b.number);
 /** On the list already: sent, or left there with its number. */
 const listed = (s: Snapshot, order: Order): boolean => order.sentAt !== undefined || s.open.some((o) => o.number === order.number);
@@ -251,11 +263,11 @@ export function useRegister() {
   }, [seal]);
 
   const addSpecs = useCallback((specs: LineSpec[], message: string) => {
-    if (specs.length) commit((s) => ({ ...ensureOpen(s), order: addLines(ensureOpen(s).order, specs) }), message);
+    if (specs.length) commit((s) => adding(s, (o) => addLines(o, specs)), message);
   }, [commit]);
 
   const addSpec = useCallback((spec: LineSpec, message: string) => {
-    commit((s) => { const o = ensureOpen(s); return { ...o, order: addLine(o.order, spec) }; }, message);
+    commit((s) => adding(s, (o) => addLine(o, spec)), message);
   }, [commit]);
 
   /**
@@ -284,18 +296,20 @@ export function useRegister() {
   /** Cashier edits of unsent lines. A sent line goes through `changeSent` (audited, the kitchen told). */
   const editLine = useCallback((line: OrderLine, message: string) => {
     if (ref.current.order.lines.find((l) => l.id === line.id)?.sent) return;
-    commit((s) => ({ ...s, order: updateLine(s.order, line) }), message);
+    // A line added to a paid order and not yet settled (SCRUM-253) is still the cashier's to change.
+    commit((s) => (s.paid ? withPaid(s, updateLine(s.paid, line) as PaidOrder) : { ...s, order: updateLine(s.order, line) }), message);
   }, [commit]);
 
   const dropLine = useCallback((id: string, message: string) => {
     if (ref.current.order.lines.find((l) => l.id === id)?.sent) return;
-    commit((s) => ({ ...s, order: removeLine(s.order, id) }), message);
+    commit((s) => (s.paid ? withPaid(s, removeLine(s.paid, id) as PaidOrder) : { ...s, order: removeLine(s.order, id) }), message);
   }, [commit]);
 
   /** A combo box (SCRUM-231) comes off whole: its price is shared by all its dishes. Unsent boxes only. */
   const dropBox = useCallback((boxId: string, message: string) => {
     if (ref.current.order.lines.some((l) => l.box?.id === boxId && l.sent)) return;
-    commit((s) => ({ ...s, order: { ...s.order, lines: s.order.lines.filter((l) => l.box?.id !== boxId) } }), message);
+    const drop = <O extends Order>(o: O): O => ({ ...o, lines: o.lines.filter((l) => l.box?.id !== boxId) });
+    commit((s) => (s.paid ? withPaid(s, drop(s.paid)) : { ...s, order: drop(s.order) }), message);
   }, [commit]);
 
   /**
@@ -307,7 +321,7 @@ export function useRegister() {
     const p = s.paid;
     if (!p?.held) return;
     const at = Date.now();
-    const { held: ticketId, ...rest } = p;
+    const { held: ticketId, heldMore = [], ...rest } = p;
     const done: PaidOrder = { ...rest, sentAt: p.sentAt ?? at };
     commit(() => ({
       ...s, order: blank(s), paid: null, justPaid: false,
@@ -315,7 +329,7 @@ export function useRegister() {
     }), `Sent ${p.number} to kitchen`);
     sendOpen.current = false;
     setHistory([]);
-    appendEvent({ type: 'order.released', at, actor: currentCashier(), orderNumber: p.number, ticketId });
+    for (const id of [ticketId, ...heldMore]) appendEvent({ type: 'order.released', at, actor: currentCashier(), orderNumber: p.number, ticketId: id });
   }, [commit, setHistory]);
 
   /** Sends the new lines to the kitchen and frees the register for the next customer. */
@@ -600,12 +614,22 @@ export function useRegister() {
    * `tender`/`tendered` as at Charge. Money back: always cash from the drawer. Final like a
    * payment that has left the screen: money has changed hands, so there is no Undo.
    */
-  const settle = useCallback((tender: Tender, tendered: Cents): { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents; changes: string[] } | undefined => {
+  const settle = useCallback((tender: Tender, tendered: Cents, release = false): { number: number; amount: Cents; tender: Tender; tendered: Cents; total: Cents; changes: string[] } | undefined => {
     const s = ref.current;
-    const p = s.paid;
+    let p = s.paid;
     if (!p) return undefined;
     const amount = balanceDue(p);
     if (!amount) return undefined;
+    // Items added after paying (SCRUM-253) go to the kitchen with their money, as one add-on ticket.
+    // Still waiting for Send itself (paid first, Kitchen view on): they wait with it.
+    const added = unsentLines(p);
+    if (added.length) {
+      const at = Date.now();
+      const holds = Boolean(p.held) && !release;
+      const ticket: NewTicket = { id: newLineId(), shopId: shopId(), number: p.number, lines: added.map((l) => ({ ...l, sent: true })), firedAt: at, addOn: true };
+      p = { ...p, lines: markSent(p, at).lines, ...(holds ? { heldMore: [...(p.heldMore ?? []), ticket.id] } : { sentAt: p.sentAt ?? at }) };
+      fireTicket(ticket, holds);
+    }
     // Money back: cash from the drawer, or by bank to a customer who paid by transfer.
     const how: Tender = amount < 0 ? (tender === 'transfer' ? 'transfer' : 'cash') : tender;
     const given = amount < 0 ? -amount : Math.max(tendered, amount);

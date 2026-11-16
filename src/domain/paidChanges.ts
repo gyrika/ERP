@@ -14,6 +14,8 @@ export function paidChanges(events: readonly SyncEvent[], orderNumber: number, p
   for (const e of events) {
     if (e.orderNumber !== orderNumber || e.at < paidAt || undone.has(e.id)) continue;
     if (e.type === 'order.settled') out.length = 0; // already on an earlier slip
+    // Items added after paying (SCRUM-253): an add-on send after the payment.
+    if (e.type === 'order.sent' && e.addOn && e.at > paidAt) out.push(...e.lines.map((l) => `+ ${lineText(l)}`));
     if (e.type === 'order.item_cancelled' && e.afterPay) out.push(`- ${lineText(e.before)}`);
     if (e.type === 'order.item_changed' && e.afterPay) out.push(`- ${lineText(e.before)}`, `+ ${lineText(e.after)}`);
   }

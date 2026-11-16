@@ -14,6 +14,7 @@ import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 import { boxesIn, opensBox } from '../domain/combos.ts';
 import { PayPanel } from './PayPanel.tsx';
+import type { PaidEdit } from '../domain/paidEdits.ts';
 import { kitchenWord, readyFor } from './OrdersRail.tsx';
 
 const sub = (l: OrderLine): string => {
@@ -210,6 +211,21 @@ interface Props {
   } | null;
   /** Present while an item's extras are open (adding or changing a line): they take the panel, in place of a pop-up. */
   extras?: ReactNode;
+  /** A paid order on screen: what was changed after paying (paidEdits.ts), marked on its lines (SCRUM-253). */
+  edits?: PaidEdit[];
+}
+
+const signed = (c: Cents) => `${c >= 0 ? '+' : '−'}${fmt(Math.abs(c))}`;
+
+/** Under a line changed after paying: what, when, and the money, amber until it is paid. */
+function EditMark({ edit }: { edit: PaidEdit }) {
+  const when = edit.at === undefined ? 'now' : clock(edit.at);
+  const words = edit.kind === 'added' ? `Added ${when}` : edit.kind === 'removed' ? `Removed ${when}` : `${edit.what.join(', ') || 'Changed'} · ${when}`;
+  return (
+    <span className={`line__edit${edit.settled ? '' : ' line__edit--due'} num`}>
+      {words}{edit.amount ? ` · ${signed(edit.amount)}` : ''}
+    </span>
+  );
 }
 
 const dateTime = (at: number) => new Date(at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
@@ -223,8 +239,9 @@ const dateTime = (at: number) => new Date(at).toLocaleString([], { day: 'numeric
  */
 export function OrderPanel({
   order, tickets, paid, justPaid = false, onGive, now, manage, selected, onSelect, onEdit, onStep, onRemove, onClearPlatform,
-  onUndo, onGiveBack, onDineIn, printState, onReprint, paying, extras, customerBar,
+  onUndo, onGiveBack, onDineIn, printState, onReprint, paying, extras, customerBar, edits = [],
 }: Props) {
+  const editOf = new Map(edits.map((e) => [e.lineId, e]));
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
   if (extras) {
@@ -297,7 +314,9 @@ export function OrderPanel({
     const name = lineItemName(l);
     const adj = lineAdjustment(shown, l);
     const isSel = i === sel;
-    const canStep = !paid && !l.sent && !inBox && !manage;
+    // A line added to a paid order and not yet settled (SCRUM-253) is still unsent: − / + and ✕ work on it.
+    const canStep = !l.sent && !inBox && !manage;
+    const edit = editOf.get(l.id);
     const cook = l.sent ? lineCookState(tickets, l.id) : 'waiting';
     const extra = inBox && l.box ? lineNet(shown, l) - l.box.share : 0;
     return [
@@ -310,6 +329,7 @@ export function OrderPanel({
             {sub(l) && <span className="line__sub">{sub(l)}</span>}
             {adj > 0 && <span className="line__adj num">−{fmt(adj)} off this line</span>}
             {cook !== 'waiting' && <span className={`status status--${cook}`}>{cook === 'done' ? 'Made' : 'Cooking'}</span>}
+            {edit && <EditMark edit={edit} />}
           </button>
         </td>
         <td className="bill__qty">
@@ -326,12 +346,13 @@ export function OrderPanel({
         <td className="bill__price num">{inBox ? '' : fmt(lineGross(l) / l.qty)}</td>
         <td className="bill__total num">{inBox ? (extra ? `${extra > 0 ? '+' : '−'}${fmt(Math.abs(extra))}` : '') : fmt(lineNet(shown, l))}</td>
         <td className="bill__x">
-          {/* Paid (SCRUM-251): the row opens to be changed, so it says so with an arrow, not a greyed ✕. */}
-          {paid ? (
+          {/* Paid (SCRUM-251): a sent row opens to be changed, so it says so with an arrow, not a greyed ✕.
+              An item added after paying and not yet settled (SCRUM-253) is unsent: its ✕ takes it off. */}
+          {paid && l.sent ? (
             <button type="button" className="bill__open" aria-label={`${label('changeItem')} ${name}`}
               onClick={(e) => { e.stopPropagation(); onSelect(i); if (manage) manage.onEditLine(l); else onEdit(l); }}>›</button>
           ) : !inBox && (
-            <button type="button" className="bill__remove" disabled={Boolean(paid)} aria-label={`${label('void')} ${name}`}
+            <button type="button" className="bill__remove" aria-label={`${label('void')} ${name}`}
               onClick={(e) => { e.stopPropagation(); onSelect(i); onRemove(l); }}>✕</button>
           )}
         </td>
@@ -356,19 +377,16 @@ export function OrderPanel({
     <aside className={panelClass} aria-label="Current order">
       {header}
       {!manage && !paid && customerBar}
-      {shown.edited && <div className="panel__stamp num">Edited by {shown.edited.by}, {clock(shown.edited.at)}</div>}
+      {shown.edited && !paid && <div className="panel__stamp num">Edited by {shown.edited.by}, {clock(shown.edited.at)}</div>}
 
       {paid && (() => {
         const changed = paid.settled !== undefined || due !== 0;
         const cashChange = !changed && paid.tender === 'cash' && paid.change > 0;
         return (
-          <div className="paid paid--bar" role="status">
+          <div className={`paid paid--bar${changed ? ' paid--changed' : ''}`} role="status">
             {changed ? (
-              <>
-                <span className="paid__label">Paid</span>
-                <span className="paid__big num">{fmt(paid.total + (paid.settled ?? 0))}</span>
-                <span className="paid__sub num">Changed after paying · total now {fmt(orderTotal(paid))}</span>
-              </>
+              // Changed after paying (SCRUM-253): one quiet line; the money is in the totals (Paid before, To pay now).
+              <span className="paid__sub num"><b>Changed after paying</b> · first paid {fmt(paid.total)} at {clock(paid.paidAt)}</span>
             ) : (
               <>
                 <span className="paid__label">{cashChange ? 'Change' : paid.tender === 'comp' ? 'Closed · Free' : 'Paid'}</span>
@@ -432,6 +450,26 @@ export function OrderPanel({
                 );
               });
               flush();
+              // Taken off after paying (SCRUM-253): still on the bill, struck through, so the money makes sense.
+              const gone = edits.filter((e) => e.kind === 'removed' && e.before);
+              if (gone.length) {
+                groups.push(
+                  <tbody key="gone" aria-label="Taken off after paying">
+                    {gone.map((e) => (
+                      <tr key={`gone-${e.lineId}`} className="bill__line bill__line--gone">
+                        <td className="bill__item"><span className="bill__name">
+                          <span className="line__name">{lineItemName(e.before!)}</span>
+                          <EditMark edit={e} />
+                        </span></td>
+                        <td className="bill__qty"><span className="num">{e.before!.qty}</span></td>
+                        <td className="bill__price num">{fmt(lineGross(e.before!) / e.before!.qty)}</td>
+                        <td className="bill__total num">{fmt(lineGross(e.before!))}</td>
+                        <td className="bill__x" />
+                      </tr>
+                    ))}
+                  </tbody>,
+                );
+              }
               return groups;
             })()}
           </table>
@@ -458,6 +496,13 @@ export function OrderPanel({
         <div><dt>{label('discount')}{discount && t.orderDiscount > 0 ? ` · ${discountLabel(discount)}` : ''}</dt><dd>{off > 0 ? `−${fmt(off)}` : fmt(0)}</dd></div>
         {t.deliveryFee > 0 && <div><dt>{label('delivery')}</dt><dd>+{fmt(t.deliveryFee)}</dd></div>}
         <div className="sums__net"><dt>{label('netAmount')}</dt><dd className="total">{fmt(orderTotal(shown))}</dd></div>
+        {/* Changed after paying (SCRUM-253): what was paid, and what is left either way. */}
+        {paid && (due !== 0 || paid.settled !== undefined) && (
+          <>
+            <div className="sums__before"><dt>{due !== 0 ? 'Paid before' : 'Paid'}</dt><dd>{fmt(paid.total + (paid.settled ?? 0))}</dd></div>
+            {due !== 0 && <div className="sums__due"><dt>{due > 0 ? 'To pay now' : 'To give back'}</dt><dd>{fmt(Math.abs(due))}</dd></div>}
+          </>
+        )}
       </dl>
     </aside>
   );

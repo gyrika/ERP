@@ -1,6 +1,6 @@
 import { cookState, type KitchenTicket } from '../domain/kitchen.ts';
 import { fmt } from '../domain/money.ts';
-import { orderTotal } from '../domain/order.ts';
+import { balanceDue, orderTotal } from '../domain/order.ts';
 import type { PaidOrder } from '../domain/types.ts';
 import { label } from './labels.ts';
 import { COOK_LABEL, OnlineTag, TENDER, orderSummary } from './OrderPanel.tsx';
@@ -75,6 +75,8 @@ export function BillHistory({ held, paidToday, tickets, kitchenOn, current, onOp
                       {cook !== 'done' && <span className={`cookword cookword--${cook}`}>{COOK_LABEL[cook]}</span>}
                       <span className="cookword cookword--paid">Paid · {o.parts?.length ? 'Split' : TENDER[o.tender]}</span>
                       {o.settled ? <span className="cookword num">{o.settled < 0 ? `Gave back ${fmt(-o.settled)}` : `Paid ${fmt(o.settled)} more`}</span> : null}
+                      {/* Changed after paying, money not yet taken or given (SCRUM-253). */}
+                      {balanceDue(o) !== 0 && <span className="cookword cookword--due num">{balanceDue(o) > 0 ? `To pay ${fmt(balanceDue(o))}` : `To give back ${fmt(-balanceDue(o))}`}</span>}
                       <OnlineTag order={o} />
                     </span>
                   </button>

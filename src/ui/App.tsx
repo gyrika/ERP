@@ -31,6 +31,7 @@ import { label } from './labels.ts';
 import { useNow } from './Kitchen.tsx';
 import { crmClient, crmReachable } from '../services/crmClient.ts';
 import { modulesHere, readAll } from './eventLog.ts';
+import { paidEdits } from '../domain/paidEdits.ts';
 import { CustomerBar } from './CustomerBar.tsx';
 import { customerOrders, visitsFromEvents } from '../domain/customers.ts';
 import { usualOrder } from '../domain/usualOrder.ts';
@@ -148,9 +149,10 @@ export function App({
   }, []);
   /** A paid order changed afterwards (SCRUM-242): the difference, with its slip and the drawer. */
   const settle = useCallback((tender: Tender, tendered: number) => {
-    const done = reg.settle(tender, tendered);
+    // No kitchen screen: items added after paying go out with their money, never held for Send.
+    const done = reg.settle(tender, tendered, !kitchenOn);
     if (done && canPrint()) void printChangeSlip(done, currentCashier().name);
-  }, [reg]);
+  }, [reg, kitchenOn]);
   const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
     // Made and waiting: whoever pays for it is taking it (SCRUM-240). No kitchen screen: nothing to
     // wait for, so it goes with the payment and is handed over at once.
@@ -164,6 +166,8 @@ export function App({
   const canCharge = !reg.paid && reg.order.lines.length > 0;
   /** Every order still going, on the left (SCRUM-239); minutes for food waiting to be collected (SCRUM-240). */
   const now = useNow(30_000);
+  // A paid order on screen: what changed after paying (SCRUM-253), from the log and the screen.
+  const paidEditList = useMemo(() => (reg.paid ? paidEdits(readAll(), reg.paid) : []), [reg.paid]);
   const rows = railRows(reg.order, reg.paid, reg.open, reg.paidToday, tickets, now);
   // The bill flies from the right panel to its row on the left as it leaves the panel (SCRUM-246).
   useFlyToRail(reg.paid?.number ?? reg.order.number, Boolean(reg.paid) || reg.order.lines.length > 0);
@@ -247,7 +251,8 @@ export function App({
    * box comes off whole). A sent line is a manager's: the PIN first, then the reason, audited.
    */
   const voidLine = useCallback((line: OrderLine | undefined) => {
-    if (!line || reg.paid) return;
+    // On a paid order only a line added since and not yet settled (SCRUM-253) comes off this way.
+    if (!line || (reg.paid && line.sent)) return;
     const sent = line.box ? reg.order.lines.some((l) => l.box?.id === line.box!.id && l.sent) : Boolean(line.sent);
     if (sent) {
       if (manager) askVoid(line);
@@ -260,7 +265,7 @@ export function App({
   }, [reg, manager, askVoid]);
 
   const stepLine = useCallback((line: OrderLine, by: 1 | -1) => {
-    if (line.sent || line.box || reg.paid) return;
+    if (line.sent || line.box) return;
     const qty = line.qty + by;
     if (qty < 1) reg.dropLine(line.id, `Removed ${lineItemName(line)}`);
     else reg.editLine({ ...line, qty }, `${qty} × ${lineItemName(line)}`);
@@ -283,8 +288,9 @@ export function App({
     payAction,
     ...(kitchenOn ? [{ id: 'send' as const, run: reg.send, disabled: !(reg.paid ? reg.paid.held : hasNew) }] : []),
     // A paid bill (SCRUM-251): the same button changes the selected item, so nothing has to be known about tapping a row.
-    reg.paid
-      ? { id: 'void', text: label('changeItem'), tone: 'plain', run: () => { if (selectedLine) setSheet({ kind: 'edit', line: selectedLine }); }, disabled: !selectedLine }
+    // An item added since and not yet settled (SCRUM-253) is still unsent: VOID ITEM takes it off.
+    reg.paid && selectedLine?.sent
+      ? { id: 'void', text: label('changeItem'), tone: 'plain', run: () => { if (selectedLine) setSheet({ kind: 'edit', line: selectedLine }); }, disabled: false }
       : { id: 'void', run: () => voidLine(selectedLine), disabled: !selectedLine },
     { id: 'clear', run: reg.clear, disabled: Boolean(reg.paid) || listing || anySent },
     { id: 'new', run: reg.startNew, disabled: !reg.paid && listing },
@@ -646,6 +652,7 @@ export function App({
         </main>
 
         <OrderPanel
+          edits={paidEditList}
           order={reg.order}
           tickets={tickets}
           paid={reg.paid}
