@@ -1,6 +1,7 @@
 // The owner's phone app (cloud site only). Keeps the app itself on the phone so it opens instantly,
 // even with weak signal; the shop's figures always come fresh from the network (/api is never cached).
-const CACHE = 'cheesybeez-owner-v1';
+// v2: the CheesyBeez logo replaced the hexagon icons (SCRUM-258).
+const CACHE = 'cheesybeez-owner-v2';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(
   caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith('cheesybeez-owner-') && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
