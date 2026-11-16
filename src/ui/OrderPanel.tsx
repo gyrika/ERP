@@ -16,6 +16,7 @@ import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 import { boxesIn, opensBox } from '../domain/combos.ts';
 import { PayPanel } from './PayPanel.tsx';
 import type { PaidEdit } from '../domain/paidEdits.ts';
+import type { RemovedLine } from '../domain/removedLines.ts';
 import { kitchenWord, readyFor } from './OrdersRail.tsx';
 
 const sub = (l: OrderLine): string => {
@@ -216,6 +217,8 @@ interface Props {
   extras?: ReactNode;
   /** A paid order on screen: what was changed after paying (paidEdits.ts), marked on its lines (SCRUM-253). */
   edits?: PaidEdit[];
+  /** Sent items taken off before paying (removedLines.ts): still drawn, struck through. */
+  removed?: RemovedLine[];
 }
 
 const signed = (c: Cents) => `${c >= 0 ? '+' : '−'}${fmt(Math.abs(c))}`;
@@ -242,7 +245,7 @@ const dateTime = (at: number) => new Date(at).toLocaleString([], { day: 'numeric
  */
 export function OrderPanel({
   order, tickets, paid, justPaid = false, onGive, now, manage, selected, onSelect, onEdit, onStep, onRemove, onClearPlatform,
-  onUndo, onGiveBack, onOrderType, onDeliveryFee, printState, onReprint, paying, extras, customerBar, edits = [],
+  onUndo, onGiveBack, onOrderType, onDeliveryFee, printState, onReprint, paying, extras, customerBar, edits = [], removed = [],
 }: Props) {
   const editOf = new Map(edits.map((e) => [e.lineId, e]));
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
@@ -409,7 +412,7 @@ export function OrderPanel({
       })()}
 
       <div className="panel__lines bill__lines">
-        {empty ? <div className="empty"><b>{label('emptyBill')}</b><span>or type it: “2 L margherita, burger”</span></div> : (
+        {empty && !removed.length && !edits.some((e) => e.kind === 'removed') ? <div className="empty"><b>{label('emptyBill')}</b><span>or type it: “2 L margherita, burger”</span></div> : (
           <table className={`bill${paid ? " bill--paid" : ""}`}>
             <thead>
               <tr>
@@ -449,11 +452,24 @@ export function OrderPanel({
                 );
               });
               flush();
-              // Taken off after paying (SCRUM-253): still on the bill, struck through, so the money makes sense.
+              // Sent items taken off stay on the bill, struck through, so the history stays in sight (owner,
+              // 2026-11-17): before paying with who and why; after paying (SCRUM-253) with the money back.
               const gone = edits.filter((e) => e.kind === 'removed' && e.before);
-              if (gone.length) {
+              if (gone.length || removed.length) {
                 groups.push(
-                  <tbody key="gone" aria-label="Taken off after paying">
+                  <tbody key="gone" aria-label="Taken off">
+                    {removed.map((r) => (
+                      <tr key={`gone-${r.lineId}`} className="bill__line bill__line--gone">
+                        <td className="bill__item"><span className="bill__name">
+                          <span className="line__name">{lineItemName(r.before)}</span>
+                          <span className="line__edit num">Removed {clock(r.at)} · {r.by}{r.reason ? ` · ${r.reason}` : ''}</span>
+                        </span></td>
+                        <td className="bill__qty"><span className="num">{r.before.qty}</span></td>
+                        <td className="bill__price num">{fmt(lineGross(r.before) / r.before.qty)}</td>
+                        <td className="bill__total num">{fmt(lineGross(r.before))}</td>
+                        <td className="bill__x" />
+                      </tr>
+                    ))}
                     {gone.map((e) => (
                       <tr key={`gone-${e.lineId}`} className="bill__line bill__line--gone">
                         <td className="bill__item"><span className="bill__name">

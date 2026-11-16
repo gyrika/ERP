@@ -83,7 +83,7 @@ test('an item taken off after paying stays on the bill struck through, money bac
   await user.click(paidList().getByRole('button', { name: /^1001/ }));
   await user.click(panel().getByRole('button', { name: /^Chicken Burger/ }));
   await user.click(within(screen.getByRole('region', { name: / extras$/ })).getByRole('button', { name: 'Remove' }));
-  const gone = within(panel().getByRole('rowgroup', { name: 'Taken off after paying' }));
+  const gone = within(panel().getByRole('rowgroup', { name: 'Taken off' }));
   expect(gone.getByText('Chicken Burger')).toBeTruthy();
   expect(gone.getByText(/Removed .* · −450/)).toBeTruthy();
   expect(panel().getByText('To give back').nextSibling!.textContent).toBe('450');

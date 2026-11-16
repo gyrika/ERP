@@ -90,7 +90,8 @@ test('void a sent line (reason required) then Undo restores it in its original p
   expect(panel().getByRole('group', { name: 'Why void this item?' })).toBeTruthy(); // reason first, inline
   expect(panel().getByText('Chicken Burger')).toBeTruthy(); // nothing voided yet
   await user.keyboard('2'); // "Wrong item entered"
-  expect(panel().queryByText('Chicken Burger')).toBeNull();
+  expect(panel().queryByRole('button', { name: /^Chicken Burger/ })).toBeNull(); // off the order…
+  expect(within(panel().getByRole('rowgroup', { name: 'Taken off' })).getByText('Chicken Burger')).toBeTruthy(); // …still on the bill, struck through
   expect(kitchen().getByText('Cancelled')).toBeTruthy();
   expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Wrong item entered', index: 1 });
 
@@ -382,3 +383,21 @@ test('changed after paying, already cooking (SCRUM-242): throw away + make new s
 
 // These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).
 beforeEach(() => setKitchenScreen(true));
+
+test('manager mode on a paid bill: Void takes the item off that sale, struck through, and the money side gives it back', async () => {
+  setKitchenScreen(false); // the shop's counter: paying sends the order
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
+  await user.click(screen.getAllByRole('button', { name: '450' })[0]);
+  await user.click(screen.getByRole('button', { name: 'Pay' }));
+  await user.click(screen.getByRole('button', { name: /Exact cash/ }));
+  await unlock(user);
+
+  await user.keyboard('{Delete}'); // the burger, selected last
+  await user.keyboard('2'); // "Wrong item entered"
+  expect(auditEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', afterPay: true, reason: 'Wrong item entered' });
+  const gone = within(panel().getByRole('rowgroup', { name: 'Taken off' }));
+  expect(gone.getByText(/Removed .* · −450/)).toBeTruthy();
+  expect(panel().getByText('To give back').nextSibling!.textContent).toBe('450');
+});

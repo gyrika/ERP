@@ -32,6 +32,7 @@ import { useNow } from './Kitchen.tsx';
 import { crmClient, crmReachable } from '../services/crmClient.ts';
 import { modulesHere, readAll } from './eventLog.ts';
 import { paidEdits } from '../domain/paidEdits.ts';
+import { removedLines } from '../domain/removedLines.ts';
 import { CustomerBar } from './CustomerBar.tsx';
 import { customerOrders, visitsFromEvents } from '../domain/customers.ts';
 import { usualOrder } from '../domain/usualOrder.ts';
@@ -168,6 +169,11 @@ export function App({
   const now = useNow(30_000);
   // A paid order on screen: what changed after paying (SCRUM-253), from the log and the screen.
   const paidEditList = useMemo(() => (reg.paid ? paidEdits(readAll(), reg.paid) : []), [reg.paid]);
+  // Sent items taken off before paying: still on the bill, struck through. Read again only when the
+  // bill's lines change (a removal or its Undo), not on every tap elsewhere.
+  const billOnScreen = reg.paid ?? reg.order;
+  const removedKey = `${billOnScreen.number}|${billOnScreen.sentAt ?? ''}|${reg.paid?.paidAt ?? ''}|${billOnScreen.lines.map((l) => l.id).join()}`;
+  const removedList = useMemo(() => removedLines(readAll(), billOnScreen), [removedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = railRows(reg.order, reg.paid, reg.open, reg.paidToday, tickets, now);
   // The bill flies from the right panel to its row on the left as it leaves the panel (SCRUM-246).
   useFlyToRail(reg.paid?.number ?? reg.order.number, Boolean(reg.paid) || reg.order.lines.length > 0);
@@ -655,6 +661,7 @@ export function App({
 
         <OrderPanel
           edits={paidEditList}
+          removed={removedList}
           order={reg.order}
           tickets={tickets}
           paid={reg.paid}

@@ -104,7 +104,10 @@ const blank = (s: Snapshot): Order => emptyOrder(s.nextNumber);
 const isToday = (at: number): boolean => new Date(at).toDateString() === new Date().toDateString();
 
 /** After a sale, the next tap on the menu silently opens a new order. */
-const ensureOpen = (s: Snapshot): Snapshot => (s.paid ? { ...s, order: blank(s), paid: null, justPaid: false } : s);
+const ensureOpen = (s: Snapshot): Snapshot =>
+  (s.paid ? { ...s, order: blank(s), paid: null, justPaid: false }
+    // A sent bill whose every item was taken off (still on screen for its history): the next tap is a new bill.
+    : s.order.sentAt !== undefined && !s.order.lines.length ? { ...s, order: blank(s) } : s);
 
 /**
  * A paid order opened again from the list takes new items (SCRUM-253): the customer wants one more
@@ -131,7 +134,9 @@ const withOrder = (s: Snapshot, order: Order): Snapshot => {
     ...s,
     paid: null,
     justPaid: false,
-    order: emptied ? blank(s) : order,
+    // Its last sent item taken off: it leaves the list, but stays on screen with its struck-through
+    // lines (the history in sight, owner 2026-11-17) until the next tap starts a new bill.
+    order: emptied && order.sentAt === undefined ? blank(s) : order,
     open: onList && !emptied ? byNumber([...open, order]) : open,
   };
 };
@@ -505,10 +510,14 @@ export function useRegister() {
   const manage = useCallback((actor: Actor, change: ManagerChange): ManageResult => {
     const s = ref.current;
     const at = Date.now();
-    const r = applyManagerChange(s.order, change, actor, at);
+    // A paid bill on screen: an item changed or taken off in manager mode belongs to that sale, as the
+    // counter's own (`changeSent`): struck through on the bill, and the money then settled (SCRUM-242).
+    const onPaid = s.paid && s.paid.number === s.order.number && (change.kind === 'void' || change.kind === 'edit')
+      && s.paid.lines.find((l) => l.id === change.lineId)?.sent ? s.paid : null;
+    const r = applyManagerChange(onPaid ?? s.order, onPaid ? { ...change, afterPay: true } as ManagerChange : change, actor, at);
     if (isRefusal(r)) return r;
 
-    const next = withOrder(s, r.order);
+    const next = onPaid ? withPaid(s, r.order as PaidOrder) : withOrder(s, r.order);
     sendOpen.current = false;
     setHistory([]);
     ref.current = next;
@@ -518,6 +527,7 @@ export function useRegister() {
     const record: ManagerRecord = {
       orderNumber: s.order.number, orderAfter: r.order, inverse: r.inverse,
       eventId: event.id, eventType: event.type,
+      ...(onPaid ? { paidAt: onPaid.paidAt } : {}),
     };
     managerStack.current.push(record);
 

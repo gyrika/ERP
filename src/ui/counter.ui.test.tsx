@@ -230,8 +230,15 @@ test('VOID on a line already sent to the kitchen asks for a manager PIN, then th
   expect(screen.queryByRole('dialog')).toBeNull();
 
   await user.click(panel().getByRole('button', { name: /Wrong item entered/ }));
-  expect(panel().queryByText('Margherita')).toBeNull();
   expect(readEvents().at(-1)).toMatchObject({ type: 'order.item_cancelled', reason: 'Wrong item entered' });
+  // Off the order, still on the bill: struck through, with who and why (owner, 2026-11-17).
+  expect(panel().queryByRole('button', { name: /^Margherita/ })).toBeNull();
+  const gone = within(panel().getByRole('rowgroup', { name: 'Taken off' }));
+  expect(gone.getByText('Margherita').closest('tr')!.className).toContain('bill__line--gone');
+  expect(gone.getByText(/^Removed .* · .* · Wrong item entered$/)).toBeTruthy();
+  expect(panel().getByText('Bill No').parentElement!.textContent).toContain('1001'); // the same bill stays, for its history
+  await burger(user); // the next tap is the next customer's bill
+  expect(panel().getByText('Bill No').parentElement!.textContent).toContain('1002');
 });
 
 test('the row ✕ on a sent line asks for the PIN too; on a new line it just goes', async () => {
