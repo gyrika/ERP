@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RECEIPT_WIDTH, receipt } from '../domain/receipt.ts';
+import { RECEIPT_LOGO } from '../domain/receiptLogo.ts';
 import { totals } from '../domain/totals.ts';
 import type { Order, PaidOrder } from '../domain/types.ts';
 import { canPrint, printReceipt, receiptOffers } from '../services/printer.ts';
@@ -24,6 +25,29 @@ export const samplePaid = (): PaidOrder => {
   const total = totals(SAMPLE).total;
   return { ...SAMPLE, total, tender: 'cash', tendered: 1000000, change: 1000000 - total, paidAt: Date.now() };
 };
+
+/** The logo drawn from the very dots the printer gets, so the preview shows the paper, not the artwork. */
+function PaperLogo({ name }: { name: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const ctx = ref.current?.getContext('2d');
+    if (!ctx) return;
+    const { width, height, bits } = RECEIPT_LOGO;
+    const raw = atob(bits);
+    const row = Math.ceil(width / 8);
+    const img = ctx.createImageData(width, height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const on = (raw.charCodeAt(y * row + (x >> 3)) >> (7 - (x & 7))) & 1;
+        const p = (y * width + x) * 4;
+        img.data[p] = img.data[p + 1] = img.data[p + 2] = on ? 17 : 255;
+        img.data[p + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }, []);
+  return <canvas ref={ref} className="paper__logo" width={RECEIPT_LOGO.width} height={RECEIPT_LOGO.height} role="img" aria-label={`${name} logo`} />;
+}
 
 export function ReceiptPreview() {
   const [paid] = useState(samplePaid);
@@ -60,7 +84,7 @@ export function ReceiptPreview() {
             style={{ textAlign: l.center ? 'center' : 'left' }}>
             {/* The printer draws the QR code itself; here a square of its size says where it goes. */}
             {l.qr && <span className="paper__qr" role="img" aria-label={`QR code: ${l.qr}`}>QR</span>}
-            {l.text || ' '}
+            {l.logo ? <PaperLogo name={l.text} /> : (l.text || ' ')}
           </div>
         ))}
       </figure>

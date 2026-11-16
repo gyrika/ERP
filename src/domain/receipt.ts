@@ -6,6 +6,7 @@ import { discountLabel, lineAdjustment, lineGross, totals } from './totals.ts';
 import type { Cents, LineSpec, PaidOrder, Tender } from './types.ts';
 import type { DeliveryPin } from './online.ts';
 import { lineItemName } from './halves.ts';
+import { RECEIPT_LOGO } from './receiptLogo.ts';
 
 /**
  * The customer receipt for the Xprinter XP-80T (80 mm, ESC/POS), in two
@@ -21,17 +22,21 @@ export const RECEIPT_WIDTH = 48;
 
 export interface ShopHeader {
   name: string;
+  /** The logo's tagline, printed as text under the logo (SCRUM-254) so it stays sharp. */
+  tagline?: string;
   /** Lines under the name. Only what the owner has confirmed; phone etc. come from the owner. */
   lines: string[];
   footer: string;
 }
 
-export const SHOP_HEADER: ShopHeader = { name: 'CheesyBeez', lines: ['Thalwila'], footer: 'Thank you!' };
+export const SHOP_HEADER: ShopHeader = { name: 'CheesyBeez', tagline: 'A taste worth finding', lines: ['Thalwila'], footer: 'Thank you!' };
 
 export interface ReceiptLine {
   text: string;
   center?: boolean;
   bold?: boolean;
+  /** Print the shop's logo (receiptLogo.ts) instead of the text; the text stays for plain-text views. */
+  logo?: boolean;
   /** Double width and height: the shop name and the total. Half as many characters fit. */
   big?: boolean;
   /** A QR code of this, printed above the line's text (the text stays, for whoever cannot scan). */
@@ -79,6 +84,13 @@ export const wrap = (text: string, width: number): string[] => {
 };
 
 const rule = (width: number): ReceiptLine => ({ text: '-'.repeat(width) });
+
+/** The top of a bill (SCRUM-254): the logo, its tagline, then where the shop is. */
+const billTop = (shop: ShopHeader): ReceiptLine[] => [
+  { text: shop.name, center: true, logo: true },
+  ...(shop.tagline ? [{ text: shop.tagline, center: true }] : []),
+  ...shop.lines.map((text) => ({ text, center: true })),
+];
 const minus = (cents: number) => `-${fmt(cents)}`;
 
 export function receipt(
@@ -87,8 +99,7 @@ export function receipt(
   const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = null } = opts;
   const t = totals(paid);
   const out: ReceiptLine[] = [
-    { text: shop.name, center: true, bold: true, big: true },
-    ...shop.lines.map((text) => ({ text, center: true })),
+    ...billTop(shop),
     // A reprint says so, so one sale can never look like two.
     ...(copy ? [{ text: 'COPY', center: true, bold: true }] : []),
     rule(width),
@@ -194,8 +205,7 @@ export function deliveryBill(
 ): ReceiptLine[] {
   const { at, shop = SHOP_HEADER, width = RECEIPT_WIDTH } = opts;
   const out: ReceiptLine[] = [
-    { text: shop.name, center: true, bold: true, big: true },
-    ...shop.lines.map((text) => ({ text, center: true })),
+    ...billTop(shop),
     { text: 'DELIVERY', center: true, bold: true },
     rule(width),
     { text: twoCols(`Order ${o.orderNumber ?? ''}`, receiptTime(at), width) },
@@ -292,6 +302,22 @@ export const qrBytes = (data: string): number[] => {
   ];
 };
 
+/**
+ * A picture (GS v 0, raster bit image), sent in bands of at most 64 rows so no printer's buffer
+ * overflows. `bits`: base64, 1 bit a dot, rows top to bottom, 1 = black, high bit leftmost.
+ */
+export const rasterBytes = ({ width, height, bits }: { width: number; height: number; bits: string }): number[] => {
+  const raw = atob(bits);
+  const row = Math.ceil(width / 8);
+  const out: number[] = [];
+  for (let y = 0; y < height; y += 64) {
+    const h = Math.min(64, height - y);
+    out.push(GS, 0x76, 0x30, 0x00, row & 0xff, row >> 8, h & 0xff, h >> 8);
+    for (let i = y * row; i < (y + h) * row; i++) out.push(raw.charCodeAt(i));
+  }
+  return out;
+};
+
 /** The printer's default code page is ASCII-safe; anything else becomes '?' rather than garbage. */
 const ascii = (s: string): number[] =>
   [...s.replace(/×/g, 'x').replace(/[·•]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"')]
@@ -306,6 +332,7 @@ export const escpos = (lines: ReceiptLine[], { openDrawer = false } = {}): Uint8
   if (openDrawer) out.push(...CMD.kick);
   for (const l of lines) {
     out.push(...(l.center ? CMD.center : CMD.left));
+    if (l.logo) { out.push(...rasterBytes(RECEIPT_LOGO)); continue; }
     if (l.qr) out.push(...qrBytes(l.qr), 0x0a);
     if (l.bold) out.push(...CMD.boldOn);
     if (l.big) out.push(...CMD.big);
