@@ -155,9 +155,9 @@ button:active:not(:disabled) { transform: scale(0.97); transition: transform 60m
 /* The rarer keys sit behind More (•••) on every screen; the menu shows each one's key on the right. */
 .corner { position: relative; }
 .corner__rest { display: none; }
-.corner__rest--open { display: flex; flex-direction: column; align-items: stretch; position: absolute; top: calc(100% + 4px); right: 0; z-index: 6;
+.corner__rest--open, :root[data-keys='on'] .corner__rest { display: flex; flex-direction: column; align-items: stretch; position: absolute; top: calc(100% + 4px); right: 0; z-index: 6;
   min-width: 260px; padding: 6px; border-radius: 16px; background: var(--surface); box-shadow: var(--sheet-shadow); animation: rise 150ms var(--ease); }
-.corner__rest--open .corner__key { justify-content: space-between; color: var(--ink); }
+.corner__rest--open .corner__key, :root[data-keys='on'] .corner__rest .corner__key { justify-content: space-between; color: var(--ink); }
 .corner__rest--open .cashier { min-height: 48px; display: flex; align-items: center; padding: 0 12px; color: var(--ink); }
 .corner__more { display: inline-flex; min-width: 48px; min-height: 48px; padding: 0 12px; border-radius: 12px; font-size: 13px; letter-spacing: 1px; color: var(--ink-2); align-items: center; justify-content: center; }
 .corner__more:hover, .corner__more[aria-expanded='true'] { background: var(--chip); color: var(--ink); }
@@ -2412,3 +2412,21 @@ button.glance__card:disabled { cursor: default; }
   .rail__row { min-width: 120px; }
   .rail__none { display: none; }
 }
+
+/* Hold Alt (SCRUM-245): every key shows while it is held, nothing else changes. */
+:root[data-keys='on'] kbd { display: inline-block !important; }
+.keylegend {
+  position: absolute; top: 72px; left: 16px; right: 16px; display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2) var(--sp-4);
+  padding: 10px 16px; border-radius: 14px; background: var(--primary); color: var(--on-primary);
+  font-size: var(--fs-s); animation: keys-fade 150ms var(--ease);
+}
+.keylegend__item { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.keylegend kbd { color: inherit; border-color: currentColor; opacity: 0.85; }
+.keyhints { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+.keyhints__badge {
+  position: absolute; background: var(--primary); color: var(--on-primary); border-color: var(--primary);
+  font-size: 12px; padding: 3px 7px; animation: keys-in 150ms var(--ease);
+}
+@keyframes keys-in { from { opacity: 0; transform: translateY(2px); } }
+@keyframes keys-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .keylegend, .keyhints__badge { animation: none; } }

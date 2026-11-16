@@ -7,6 +7,7 @@ import { lineCookState } from '../domain/kitchen.ts';
 import { balanceDue, bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { currentCashier } from '../services/auth.ts';
+import { KeyHints } from './KeyHints.tsx';
 import { canPrint, printChangeSlip, printDeliveryBill, printReceipt } from '../services/printer.ts';
 import { deliveryBill } from '../domain/receipt.ts';
 import { lineGross } from '../domain/totals.ts';
@@ -67,6 +68,11 @@ const isTypingTarget = (el: EventTarget | null): boolean =>
  * `onKitchen`: flips the counter screen to the Kitchen view (see Root).
  * `onSwitch`: locks the screen for the next person (real logins only).
  */
+/** Keys with no button of their own, shown while Alt is held (SCRUM-245). */
+const CASHIER_KEYS = [['A–Z', 'Type an order'], ['Ctrl Enter', 'Send / Pay'], ['Ctrl Z', 'Undo'], ['Esc', 'New order'], ['Alt 1–9', 'Menu tabs']] as const;
+const PAYING_KEYS = [['0–9', 'Cash given'], ['Enter', 'Take'], ['Esc', 'Back to order']] as const;
+const MANAGER_KEYS = [['↑ ↓', 'Pick a line'], ['Enter', 'Change'], ['Del', 'Void'], ['P', 'Price'], ['1–4', 'Discount'], ['Ctrl Z', 'Undo']] as const;
+
 export function App({
   onKitchen,
   onTables,
@@ -471,6 +477,8 @@ export function App({
 
   return (
     <div className={`register${manager ? ' register--managing' : ''}${paying ? ' register--paying' : ''}${inExtras ? ' register--extras' : ''}`}>
+      {/* Hold Alt: every key shows (SCRUM-245); these are the ones with no button of their own. */}
+      <KeyHints legend={manager ? MANAGER_KEYS : paying ? PAYING_KEYS : CASHIER_KEYS} />
       <header className="register__head">
         {/* The shop's places, as one bar of words with their keys (SCRUM-239): learnable, and out of the cashier's way. */}
         <nav className="tabs" aria-label="Places">
@@ -533,7 +541,7 @@ export function App({
           onNew={reg.startNew}
           onOpen={reg.openOrder}
         />
-        <main className="menu">
+        <main className="menu" data-keyarea>
           {typed !== null && !manager && (
             <ShorthandBar
               initial={typed}

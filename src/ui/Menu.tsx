@@ -94,7 +94,7 @@ export function Menu({ category, onCategory, onQuickAdd, onCustomise, onAddCombo
       <nav className="cats" aria-label="Menu">
         {tabs.map((c, i) => (
           <button key={c.id} type="button" className="pill" aria-pressed={showing === c.id} onClick={() => onCategory(c.id)}
-            title={i < 9 ? `Alt+${i + 1}` : undefined}>
+            title={i < 9 ? `Alt+${i + 1}` : undefined} data-keyhint={i < 9 ? String(i + 1) : undefined}>
             {c.label}
           </button>
         ))}
