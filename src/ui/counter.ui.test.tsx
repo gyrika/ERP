@@ -7,7 +7,7 @@ import { App } from './App.tsx';
 import { Root } from './Root.tsx';
 import { readEvents } from './eventLog.ts';
 import { setKitchenScreen } from './kitchenScreen.ts';
-import { heldList } from './testHeld.ts';
+import { heldCount, heldList } from './testHeld.ts';
 
 /**
  * The counter redesigned for recognition over recall (2026-11-16): every daily action is a
@@ -80,7 +80,7 @@ test('PAY (F2): the payment opens in the bill; exact cash pays; with no Kitchen 
   expect(sent && 'held' in sent).toBe(false); // nothing waits for a Send that has no button
   expect(events.map((e) => e.type)).toEqual(['order.sent', 'order.paid', 'order.given']);
   expect(btn('Pay').disabled).toBe(true); // paid: nothing left to pay
-  expect(screen.getByRole('button', { name: 'Held bills: 0' })).toBeTruthy(); // paid and given: not left on the list
+  expect(heldCount(0)).toBeTruthy(); // paid and given: not left on the list
 });
 
 test('VOID ITEM (F4 or Delete) removes the selected line at once, with Undo', async () => {
@@ -125,13 +125,13 @@ test('HOLD (F7) puts the bill on Held bills with its number and order type; one 
   await user.click(panel().getByRole('radio', { name: 'Dine in' }));
   await user.click(btn('Hold'));
   expect(panel().queryByText('Margherita')).toBeNull();
-  expect(screen.getByRole('button', { name: 'Held bills: 1' })).toBeTruthy();
+  expect(heldCount(1)).toBeTruthy();
   expect(panel().getByRole('radio', { name: 'Take away' }).getAttribute('aria-checked')).toBe('true'); // the next bill starts as take away
   await user.click(heldList().getByRole('button', { name: /^1001.*Dine in/ }));
   expect(panel().getByText('Margherita')).toBeTruthy();
   expect(panel().getByRole('radio', { name: 'Dine in' }).getAttribute('aria-checked')).toBe('true');
   await user.keyboard('{F7}');
-  expect(screen.getByRole('button', { name: 'Held bills: 1' })).toBeTruthy();
+  expect(heldCount(1)).toBeTruthy();
 });
 
 test('NEW BILL (F6) after a sale starts the next number; with items on the bill it holds them, nothing is lost', async () => {
@@ -247,4 +247,25 @@ test('a new counter shows no Kitchen view: no Kitchen key, and /#kitchen opens t
 test('the counter starts in light mode unless a look was chosen', () => {
   render(<App />);
   expect(document.documentElement.dataset.theme).toBe('light');
+});
+
+test('order history on the left: held bills and paid today always in sight, one tap opens either', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  const history = within(screen.getByRole('navigation', { name: 'Order history' }));
+  expect(history.getByRole('heading', { name: 'Held bills · 0' })).toBeTruthy(); // there before any bill, no button to find it
+  await margherita(user);
+  await user.click(btn('Pay'));
+  await user.click(screen.getByRole('button', { name: '2,000' })); // 1001 paid, change 550
+  await burger(user);
+  await user.click(btn('Hold')); // 1002 held
+  expect(history.getByRole('heading', { name: 'Held bills · 1' })).toBeTruthy();
+  const paidToday = within(history.getByRole('region', { name: 'Paid today' }));
+  expect(paidToday.getByRole('button', { name: /^1001.*Margherita.*Paid · Cash/ })).toBeTruthy();
+
+  await user.click(paidToday.getByRole('button', { name: /^1001/ }));
+  expect(within(panel().getByRole('status')).getByText(/Cash 2,000/)).toBeTruthy();
+  expect(paidToday.getByRole('button', { name: /^1001/ }).getAttribute('aria-current')).toBe('true');
+  await user.click(heldList().getByRole('button', { name: /^1002/ }));
+  expect(panel().getByText('Chicken Burger')).toBeTruthy();
 });

@@ -96,12 +96,12 @@ test('a cashier does not see the day’s takings; a manager does', async () => {
   await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   await user.click(screen.getByRole('button', { name: 'New bill' }));
-  expect((heldList(), panel().queryByRole('region', { name: 'Paid today' }))).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Paid today' })).toBeNull();
 
   await user.click(screen.getByRole('button', { name: /switch user/ }));
   await user.keyboard('2580');
   await screen.findByRole('button', { name: 'Ravi: switch user' });
-  expect((heldList(), panel().getByRole('region', { name: 'Paid today' }))).toBeTruthy();
+  expect(screen.getByRole('region', { name: 'Paid today' })).toBeTruthy();
 });
 
 test('locking while the Kitchen view shows keeps the kitchen visible; the Register needs a PIN', async () => {

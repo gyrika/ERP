@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { label } from './labels.ts';
 import { NumberInput } from './NumberInput.tsx';
 import type { Actor } from '../domain/auth.ts';
-import { cookState, lineCookState, type KitchenTicket } from '../domain/kitchen.ts';
+import { lineCookState, type KitchenTicket } from '../domain/kitchen.ts';
 import { DISCOUNT_CHIPS } from '../domain/manager.ts';
 import { itemById } from '../domain/menu.ts';
 import { fmt } from '../domain/money.ts';
@@ -13,7 +13,7 @@ import { platformLabel, platformName } from '../domain/platforms.ts';
 import { leaveOutsOf, lineItemName, secondHalf } from '../domain/halves.ts';
 import { boxesIn, opensBox } from '../domain/combos.ts';
 import { PayPanel } from './PayPanel.tsx';
-import { kitchenWord, readyFor, type RailRow } from './OrdersRail.tsx';
+import { kitchenWord, readyFor } from './OrdersRail.tsx';
 
 const sub = (l: OrderLine): string => {
   const item = itemById(l.itemId);
@@ -40,8 +40,8 @@ function OrderBadge({ number, quiet = false }: { number: number; quiet?: boolean
   );
 }
 
-const COOK_LABEL = { waiting: 'Waiting', cooking: 'Cooking', done: 'Done' } as const;
-const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats' };
+export const COOK_LABEL = { waiting: 'Waiting', cooking: 'Cooking', done: 'Done' } as const;
+export const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats' };
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** Void reasons for a sent line (owner rule: a reason is required). Keys 1-3 pick them. */
@@ -54,7 +54,7 @@ export const parseRupees = (raw: string): Cents | null => {
 };
 
 /** An order from cheesybeez.com, and when the customer comes for it (or the rider takes it); or from a delivery app, with its code there. */
-function OnlineTag({ order, time = true }: { order: Order; time?: boolean }) {
+export function OnlineTag({ order, time = true }: { order: Order; time?: boolean }) {
   if (order.platform) return <span className="status status--online" title="Rider collects it; the app pays">{platformLabel(order.platform)}</span>;
   if (!order.online) return null;
   const label = order.online.delivery ? 'Delivery' : 'Online';
@@ -167,8 +167,6 @@ function AdjustField({ line, order, onAdjust }: { line: OrderLine; order: Order;
 
 interface Props {
   order: Order;
-  /** Paid today, newest first: listed under Held bills. */
-  paidToday: PaidOrder[];
   /** Live kitchen tickets, to show Cooking / Made on sent lines. */
   tickets: KitchenTicket[];
   paid: PaidOrder | null;
@@ -193,13 +191,6 @@ interface Props {
   onUndo: () => void;
   /** Take away / Dine in. */
   onDineIn: (dineIn: boolean) => void;
-  /** The Kitchen view is on (kitchenScreen.ts): held bills say how they stand with the kitchen. */
-  kitchenOn: boolean;
-  /** Held bills: every other bill still going (not paid, or paid and not yet given). */
-  held: RailRow[];
-  showHeld: boolean;
-  onShowHeld: (show: boolean) => void;
-  onOpenHeld: (number: number) => void;
   /** The receipt of the paid order on screen; null when this device does not print. */
   printState?: 'printing' | 'printed' | 'failed' | null;
   /** Prints a COPY, without opening the drawer. Absent when this device does not print. */
@@ -218,69 +209,16 @@ interface Props {
 
 const dateTime = (at: number) => new Date(at).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
-/** One held bill: number, how it stands, what it is, its total. A tap opens it. */
-function HeldList({ rows, paidToday, tickets, kitchenOn, onOpen, onBack }: {
-  rows: RailRow[]; paidToday: PaidOrder[]; tickets: KitchenTicket[]; kitchenOn: boolean; onOpen: (n: number) => void; onBack: () => void;
-}) {
-  return (
-    <div className="held">
-      <button type="button" className="held__back" onClick={onBack}>← {label('backToBill')}</button>
-      {rows.length === 0 && <p className="held__none">{label('noHeld')}</p>}
-      <ul className="held__list" aria-label={label('heldBills')}>
-        {rows.map((r) => (
-          <li key={r.order.number}>
-            <button type="button" className={`held__row${r.ready && r.ready.urgency !== 'ok' ? ` held__row--${r.ready.urgency}` : ''}`}
-              onClick={() => onOpen(r.order.number)}>
-              <span className="waiting__no num">{r.order.number}</span>
-              <span className="waiting__main">
-                <span className="waiting__what">{r.order.customer?.name && <b>{r.order.customer.name} · </b>}{orderSummary(r.order.lines)}</span>
-                <span className="waiting__meta">
-                  {/* No Kitchen view: "Not sent" would mean nothing to the cashier. */}
-                  {(kitchenOn || r.order.sentAt !== undefined) && <span>{r.ready?.label ?? r.kitchen}</span>}
-                  <span className={r.paid ? 'held__paid' : 'held__unpaid'}>{r.paid ? 'Paid' : 'Not paid'}</span>
-                  {r.order.dineIn && <span>{label('dineIn')}</span>}
-                  <OnlineTag order={r.order} />
-                </span>
-              </span>
-              <span className="waiting__total num">{fmt(orderTotal(r.order))}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {paidToday.length > 0 && (
-        <section className="waiting waiting--paid" aria-label="Paid today">
-          <h2>Paid today · {paidToday.length}</h2>
-          {paidToday.map((o) => (
-            <div key={`${o.number}-${o.paidAt}`} className="waiting__row">
-              <span className="waiting__no num waiting__no--quiet">{o.number}</span>
-              <span className="waiting__main">
-                <span className="waiting__what">{orderSummary(o.lines)}</span>
-                <span className="waiting__meta">
-                  {/* Paid, food still coming: the customer is still waiting, so the kitchen state stays. */}
-                  {o.sentAt !== undefined && cookState(tickets, o.number) !== 'done' && (
-                    <span className={`cookword cookword--${cookState(tickets, o.number)}`}>{COOK_LABEL[cookState(tickets, o.number)]}</span>
-                  )}
-                  <span className="cookword cookword--paid">Paid · {TENDER[o.tender]}</span><OnlineTag order={o} /></span>
-              </span>
-              <span className="waiting__total num">{fmt(o.total)}</span>
-            </div>
-          ))}
-        </section>
-      )}
-    </div>
-  );
-}
-
 /**
  * The bill, in the layout staff know from their old POS: a header (Bill No, date and time, Take
- * away | Dine in, the customer's mobile, Held bills), a table of lines (Item, Qty − +, Price,
+ * away | Dine in, the customer's mobile), a table of lines (Item, Qty − +, Price,
  * Total, ✕) with the selected line highlighted, and the totals with NET AMOUNT large. The actions
  * live in the bar along the bottom (ActionBar). Manager mode: the same table, with the selected
  * line's Edit / Adjust price / Void and the discount chips. No dialogs.
  */
 export function OrderPanel({
-  order, paidToday, tickets, paid, justPaid = false, onGive, now, manage, selected, onSelect, onEdit, onStep, onRemove, onClearPlatform,
-  onUndo, onDineIn, kitchenOn, held, showHeld, onShowHeld, onOpenHeld, printState, onReprint, paying, extras, customerBar,
+  order, tickets, paid, justPaid = false, onGive, now, manage, selected, onSelect, onEdit, onStep, onRemove, onClearPlatform,
+  onUndo, onDineIn, printState, onReprint, paying, extras, customerBar,
 }: Props) {
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
 
@@ -324,11 +262,6 @@ export function OrderPanel({
           {shown.customer?.name && paid && <span className="panel__cust">{shown.customer.name}</span>}
         </span>
         <span className="bill__when num">{dateTime(paid?.paidAt ?? now)}</span>
-        <button type="button" className="bill__held" aria-pressed={showHeld} onClick={() => onShowHeld(!showHeld)}
-          aria-label={`${label('heldBills')}: ${held.length}`}>
-          {label('heldBills')}
-          <span className={`bill__badge num${held.length ? '' : ' bill__badge--none'}`} aria-hidden="true">{held.length}</span>
-        </button>
       </div>
       <div className="bill__row">
         <div className="seg" role="radiogroup" aria-label={label('orderType')}>
@@ -347,15 +280,6 @@ export function OrderPanel({
       </div>
     </div>
   );
-
-  if (showHeld) {
-    return (
-      <aside className={panelClass} aria-label="Current order">
-        {header}
-        <HeldList rows={held} paidToday={paidToday} tickets={tickets} kitchenOn={kitchenOn} onOpen={(n) => { onShowHeld(false); onOpenHeld(n); }} onBack={() => onShowHeld(false)} />
-      </aside>
-    );
-  }
 
   const t = totals(shown);
   const discount = shown.adjust?.discount;

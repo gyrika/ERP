@@ -121,7 +121,7 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
   await user.click(screen.getByRole('button', { name: 'Pay' }));
   await user.click(screen.getByRole('button', { name: /Exact/ }));
   await user.click(screen.getByRole('button', { name: 'New bill' }));
-  const paid = within((heldList(), panel().getByRole('region', { name: 'Paid today' })));
+  const paid = within(screen.getByRole('region', { name: 'Paid today' }));
   expect(paid.getByText('Cooking')).toBeTruthy();
   expect(paid.getByText('Paid · Cash')).toBeTruthy();
   // Paid, food still coming: it stays on the list. Made, it is Ready and still stays: the customer

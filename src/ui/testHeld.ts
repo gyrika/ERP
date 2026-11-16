@@ -1,8 +1,7 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 
-/** The Held bills list in the bill panel (opened if it is not), for tests that open another bill. */
-export const heldList = () => {
-  const btn = screen.getByRole('button', { name: /^Held bills/ });
-  if (btn.getAttribute('aria-pressed') !== 'true') fireEvent.click(btn);
-  return within(screen.getByRole('list', { name: 'Held bills' }));
-};
+/** The Held bills list in the order history on the left, for tests that open another bill. */
+export const heldList = () => within(screen.getByRole('list', { name: 'Held bills' }));
+
+/** "Held bills · N", the history's count. */
+export const heldCount = (n: number) => screen.getByRole('heading', { name: `Held bills · ${n}` });

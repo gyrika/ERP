@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { heldList } from './testHeld.ts';
+import { heldCount, heldList } from './testHeld.ts';
 import { App } from './App.tsx';
 import { readAll } from './eventLog.ts';
 import { setKitchenScreen } from './kitchenScreen.ts';
@@ -228,10 +228,12 @@ test('the order list labels unpaid and paid orders clearly', async () => {
   expect(waiting.getByRole('button', { name: /^1002.*Waiting.*Not paid/ })).toBeTruthy();
   expect(waiting.getByRole('button', { name: /^1001.*Waiting.*Paid/ })).toBeTruthy(); // paid, not made yet: still listed
 
-  const paid = within((heldList(), panel().getByRole('region', { name: 'Paid today' })));
+  const paid = within(screen.getByRole('region', { name: 'Paid today' }));
   expect(paid.getByText('1001')).toBeTruthy();
   expect(paid.getByText('Paid · Cash')).toBeTruthy();
-  expect(paid.queryByRole('button')).toBeNull(); // nothing left to do on a paid order
+  // A tap opens the paid bill on the right, to see it or print it again.
+  await user.click(paid.getByRole('button', { name: /^1001/ }));
+  expect(within(panel().getByRole('status')).getByText(/Cash 2,000/)).toBeTruthy();
 });
 
 test('bank transfer pays the full total in one tap', async () => {
@@ -241,7 +243,7 @@ test('bank transfer pays the full total in one tap', async () => {
   await sendThenOpen(user, 1001);
   await user.click(screen.getByRole('button', { name: 'Bank transfer' }));
   await user.click(screen.getByRole('button', { name: 'New bill' }));
-  const paid = within((heldList(), panel().getByRole('region', { name: 'Paid today' })));
+  const paid = within(screen.getByRole('region', { name: 'Paid today' }));
   expect(paid.getByText('Paid · Bank transfer')).toBeTruthy();
 });
 
@@ -357,11 +359,11 @@ test('every line not yet sent has − / +; a sent line keeps them greyed', async
 test('Held bills counts the other bills still going', async () => {
   const user = userEvent.setup();
   render(<App />);
-  expect(screen.getByRole('button', { name: 'Held bills: 0' })).toBeTruthy();
+  expect(heldCount(0)).toBeTruthy();
   await user.click(screen.getAllByRole('button', { name: 'M 1,450' })[0]);
-  expect(screen.getByRole('button', { name: 'Held bills: 0' })).toBeTruthy(); // the bill on screen is not held
+  expect(heldCount(0)).toBeTruthy(); // the bill on screen is not held
   await user.click(sendBtn());
-  expect(screen.getByRole('button', { name: 'Held bills: 1' })).toBeTruthy();
+  expect(heldCount(1)).toBeTruthy();
 });
 
 test('the always-visible "Type or search" field opens typed shorthand', async () => {

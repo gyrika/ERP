@@ -214,7 +214,7 @@ test('a comped order closes with "Close · Free" and shows as Paid · Free', asy
   await user.keyboard('4{Escape}');
   await user.click(screen.getByRole('button', { name: 'Close · Free' }));
   await user.click(screen.getByRole('button', { name: 'New bill' }));
-  expect(within((heldList(), panel().getByRole('region', { name: 'Paid today' }))).getByText('Paid · Free')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'Paid today' })).getByText('Paid · Free')).toBeTruthy();
   expect(readEvents().at(-1)).toMatchObject({ type: 'order.paid', total: 0, tender: 'comp' });
 });
 

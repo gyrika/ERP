@@ -22,6 +22,7 @@ import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, orderSummary, type ManagePanel } from './OrderPanel.tsx';
 import { kitchenWord, railRows } from './OrdersRail.tsx';
+import { BillHistory } from './BillHistory.tsx';
 import { ActionBar, type BarAction } from './ActionBar.tsx';
 import { kitchenScreenOn, setKitchenScreen } from './kitchenScreen.ts';
 import { label } from './labels.ts';
@@ -163,8 +164,6 @@ export function App({
   const [pendingVoid, setPendingVoid] = useState<string | null>(null);
   const [adjusting, setAdjusting] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
-  /** Held bills open in the bill panel, in place of the lines. */
-  const [showHeld, setShowHeld] = useState(false);
   const [sound, setSound] = useState(soundOn);
   /** The last waste or money out, for its Undo (toast and Ctrl+Z) while the toast shows. */
   const [noted, setNoted] = useState<{ id: number; message: string; undo: () => void } | null>(null);
@@ -187,18 +186,17 @@ export function App({
   }, [endManagerSession]));
   const manager = mode.manager;
 
-  // Another bill on screen: its last line selected, nothing half-done, the bill (not the held list) showing.
+  // Another bill on screen: its last line selected, nothing half-done.
   const lines = (reg.paid ?? reg.order).lines;
   useEffect(() => {
     setSelected(Math.max(0, lines.length - 1));
     setPendingVoid(null);
     setAdjusting(null);
-    setShowHeld(false);
   }, [reg.order.number, reg.paid?.paidAt]); // eslint-disable-line react-hooks/exhaustive-deps
   // A line added: the selection follows it, so +, − and VOID act on what was just tapped.
   const [seenLines, setSeenLines] = useState(lines.length);
   if (seenLines !== lines.length) {
-    if (lines.length > seenLines) { setSelected(lines.length - 1); setShowHeld(false); }
+    if (lines.length > seenLines) setSelected(lines.length - 1);
     setSeenLines(lines.length);
   }
 
@@ -593,6 +591,14 @@ export function App({
       </header>
 
       <div className="register__body">
+        <BillHistory
+          held={rows.filter((r) => r.order.number !== (reg.paid ?? reg.order).number)}
+          paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
+          tickets={tickets}
+          kitchenOn={kitchenOn}
+          current={{ number: (reg.paid ?? reg.order).number, paidAt: reg.paid?.paidAt }}
+          onOpen={reg.openOrder}
+        />
         <main className="menu">
           {manager ? null : typed !== null ? (
             <ShorthandBar
@@ -621,7 +627,6 @@ export function App({
 
         <OrderPanel
           order={reg.order}
-          paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
           tickets={tickets}
           paid={reg.paid}
           justPaid={reg.justPaid}
@@ -636,11 +641,6 @@ export function App({
           onClearPlatform={() => reg.setPlatform(null)}
           onUndo={reg.undo}
           onDineIn={reg.setDineIn}
-          kitchenOn={kitchenOn}
-          held={rows.filter((r) => r.order.number !== (reg.paid ?? reg.order).number)}
-          showHeld={showHeld}
-          onShowHeld={setShowHeld}
-          onOpenHeld={reg.openOrder}
           printState={canPrint() && reg.paid && printing?.number === reg.paid.number ? printing.state : null}
           onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
           customerBar={customerBar}

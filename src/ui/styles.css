@@ -2414,9 +2414,9 @@ button.glance__card:disabled { cursor: default; }
 }
 
 /* ---------- counter, recognition over recall (2026-11-16) ----------
-   The layout staff know from their old POS: menu on the left (60%), the bill on the right (40%),
+   The layout staff know from their old POS: the day's bills on the left, the menu, the bill on the right,
    and every day's action as a labelled button in one bar along the bottom, its key printed on it. */
-.register { --panel-w: 40vw; --bar-h: clamp(60px, 9vh, 72px); --pay: #E8A94B; --on-pay: #1C1C1E; }
+.register { --panel-w: clamp(420px, 36vw, 640px); --bar-h: clamp(60px, 9vh, 72px); --pay: #E8A94B; --on-pay: #1C1C1E; }
 .register .panel, .register .panel--paying { flex: 0 0 var(--panel-w); width: var(--panel-w); }
 .register .menu { padding-top: var(--sp-3); }
 .register .typebar__field input[readonly] { cursor: text; }
@@ -2502,19 +2502,30 @@ button.glance__card:disabled { cursor: default; }
 .paid--bar { flex: none; padding: var(--sp-3) var(--sp-4) 0; }
 .paid--bar .paid__big { font-size: 48px; }
 
-/* Held bills: in the panel, in place of the lines. */
-.held { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); }
-.held__back { align-self: flex-start; min-height: 48px; padding: 0 var(--sp-3); border-radius: 12px; background: var(--chip); font-weight: 600; color: var(--ink); }
-.held__none { color: var(--ink-2); }
-.held__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.held__row { width: 100%; min-height: 64px; padding: 8px 10px; border-radius: 12px; display: flex; align-items: center; gap: var(--sp-3); text-align: left; background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--line); }
-.held__row:hover { background: var(--chip); }
-.held__row--warn { box-shadow: inset 4px 0 0 var(--warn), inset 0 0 0 1px var(--line); }
-.held__row--bad { box-shadow: inset 4px 0 0 var(--bad), inset 0 0 0 1px var(--line); }
+/* Order history: the left column, every bill of the day in sight (held, then paid today). */
+.register { --history-w: clamp(184px, 14.5vw, 260px); }
+.history { flex: 0 0 var(--history-w); width: var(--history-w); min-height: 0; overflow-y: auto; scrollbar-width: thin; box-sizing: border-box;
+  padding: var(--sp-3) var(--sp-2) var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-4); border-right: 1px solid var(--line); }
+.history__part { display: flex; flex-direction: column; gap: 6px; }
+.history__head { margin: 0 4px; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--ink-2); }
+.history__none { margin: 0 4px; font-size: var(--fs-xs); color: var(--ink-3); }
+.history__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.history__row { width: 100%; min-height: 56px; padding: 6px 10px; box-sizing: border-box; border-radius: 12px; display: flex; flex-direction: column; gap: 2px; text-align: left;
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
+.history__row:hover { background: var(--chip); }
+.history__row--paid { background: none; }
+.history__row--on { background: var(--surface); box-shadow: inset 0 0 0 2px var(--ink); }
+.history__row--warn { box-shadow: inset 4px 0 0 var(--warn), inset 0 0 0 1px var(--line); }
+.history__row--bad { box-shadow: inset 4px 0 0 var(--bad), inset 0 0 0 1px var(--line); }
+.history__top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.history__no { font-size: var(--fs-l); font-weight: 700; letter-spacing: -0.3px; }
+.history__total { font-size: var(--fs-s); font-weight: 600; }
+.history__what { font-size: var(--fs-xs); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history__meta { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: var(--fs-xs); color: var(--ink-2); }
+.history__meta .cookword { padding: 0; background: none; font-size: inherit; }
 .held__paid { color: var(--ok-ink); font-weight: 600; }
 .held__unpaid { color: var(--ink); font-weight: 600; }
-.held .waiting__meta { font-size: var(--fs-s); color: var(--ink-2); gap: 8px; }
+@media (max-width: 560px) { .history { display: none; } }
 
 /* The places bar holds every place by name now: it scrolls sideways before it would wrap. */
 .register__head .tabs .corner__key:disabled { opacity: 0.4; }

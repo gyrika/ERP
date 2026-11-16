@@ -7,9 +7,11 @@ change, whole-cent money and the offline save all work as before.
 
 ## Layout (1366x768 and up, no scrolling for actions)
 
-- **Left, 60%:** "Type or search… e.g. 2 L pepperoni" field (always visible), the section tabs, the item tiles.
-- **Right, 40%, the bill:** Bill No, date and time, Take away | Dine in, the customer's mobile (Customers on),
-  Held bills with a count; a table of lines (Item + extras, Qty − / +, Price, Total, ✕) with the selected
+- **Left, always in sight: order history.** Held bills (count, number, what, total, Paid / Not paid, Dine in), then
+  Paid today, newest first. A tap opens the bill on the right (a paid one to see or print again).
+- **Middle, the menu:** "Type or search… e.g. 2 L pepperoni" field (always visible), the section tabs, the item tiles.
+- **Right, about 36%, the bill:** Bill No, date and time, Take away | Dine in, the customer's mobile (Customers on);
+  a table of lines (Item + extras, Qty − / +, Price, Total, ✕) with the selected
   line highlighted; Subtotal, Discount, NET AMOUNT.
 - **Bottom bar, always visible:** PAY F2 · SEND TO KITCHEN F3 · VOID ITEM F4 · CLEAR BILL F5 · NEW BILL F6 ·
   HOLD F7 · PRINT LAST BILL F8. A button that cannot be used now is greyed, never hidden.
@@ -18,7 +20,7 @@ change, whole-cent money and the offline save all work as before.
 
 | Before | Now |
 |---|---|
-| Orders list on the left | **Held bills (N)** in the bill header; the list opens in the bill panel, with Paid today under it |
+| Orders list on the left | Still on the left, as **order history**: Held bills · N, then Paid today (now tappable) |
 | + New order (Esc) | **NEW BILL** (F6); Esc still works |
 | Send / Pay pair under the order (Ctrl+Enter) | **SEND TO KITCHEN** (F3) and **PAY** (F2) in the bottom bar; Ctrl+Enter still does the likelier one |
 | Charge X more / Give back X / Close · Free / Close · Uber Eats | The PAY button says it |
