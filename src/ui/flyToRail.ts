@@ -5,7 +5,8 @@ import { useLayoutEffect, useRef } from 'react';
  * Next order, or another order opened) and stays on the left list, a copy of its black number
  * badge flies from the panel to its row there, and the row glows once as it lands. The cashier's
  * eye follows the order to where it now waits, so nothing seems to vanish. Only the first time a
- * bill leaves the panel (SCRUM-250): opened again from the list and left, it just goes, no flight.
+ * bill leaves the panel (SCRUM-250): only a new bill flies, never one opened from the list (already
+ * on it when it came to the panel, even if it never flew), so going from row to row is still.
  *
  * Marks: the panel's badge carries `data-fly-badge`, each list row `data-rail-order="<number>"`.
  * The copy is plain DOM over everything, never clickable, gone in under half a second; with
@@ -60,8 +61,12 @@ const fly = (from: Seen, row: HTMLElement) => {
 export function useFlyToRail(number: number, live: boolean): void {
   const last = useRef<Seen | null>(null);
   const flown = useRef(new Set<number>());
+  const listed = useRef(new Set<number>());
   useLayoutEffect(() => {
     const prev = last.current;
+    // Already a row before it came to the panel: opened from the list, so it never flies.
+    if (prev?.number !== number && listed.current.has(number)) flown.current.add(number);
+    listed.current = new Set([...document.querySelectorAll<HTMLElement>('[data-rail-order]')].map((r) => Number(r.dataset.railOrder)));
     const badge = document.querySelector<HTMLElement>('[data-fly-badge]');
     last.current = live && badge ? { number, rect: badge.getBoundingClientRect(), node: badge.cloneNode(true) as HTMLElement } : null;
     if (!prev || prev.number === number || flown.current.has(prev.number)) return;
