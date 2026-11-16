@@ -711,6 +711,8 @@ export function useRegister() {
     order: snap.order,
     /** Waiting to pay, oldest first; excludes the order on screen. */
     open: snap.open.filter((o) => o.number !== snap.order.number),
+    /** The order on screen is a held bill (it waits on the list), not a new one being typed. */
+    onList: snap.open.some((o) => o.number === snap.order.number),
     paidToday: snap.sales.filter((o) => isToday(o.paidAt)).reverse(),
     paid: snap.paid,
     /** The paid order on screen was paid by the last step: its Undo is the payment's. */

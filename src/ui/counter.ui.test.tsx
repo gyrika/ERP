@@ -268,4 +268,7 @@ test('order history on the left: held bills and paid today always in sight, one 
   expect(paidToday.getByRole('button', { name: /^1001/ }).getAttribute('aria-current')).toBe('true');
   await user.click(heldList().getByRole('button', { name: /^1002/ }));
   expect(panel().getByText('Chicken Burger')).toBeTruthy();
+  // Opened on the right, it stays on the left list, marked as the one on screen.
+  expect(heldList().getByRole('button', { name: /^1002/ }).getAttribute('aria-current')).toBe('true');
+  expect(history.getByRole('heading', { name: 'Held bills · 1' })).toBeTruthy();
 });

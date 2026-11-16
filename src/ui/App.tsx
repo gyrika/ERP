@@ -603,7 +603,8 @@ export function App({
 
       <div className="register__body">
         <BillHistory
-          held={rows.filter((r) => r.order.number !== (reg.paid ?? reg.order).number)}
+          // A held bill opened on the right stays on the list, marked; only a new bill not yet held is left off.
+          held={rows.filter((r) => reg.paid || reg.onList || r.order.number !== reg.order.number)}
           paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
           tickets={tickets}
           kitchenOn={kitchenOn}
