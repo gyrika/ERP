@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FAKE_STAFF } from '../fake/data.ts';
+import { fakeAuth } from '../fake/fakeAuth.ts';
 import { printReceipt } from '../services/printer.ts';
 import { App } from './App.tsx';
 import { Root } from './Root.tsx';
@@ -285,6 +286,37 @@ test('a paid bill: VOID ITEM (F4), a row\'s ✕ and Delete take an item off, and
   await user.keyboard('{Delete}');
   const third = Number(bar().getByRole('button', { name: /^Give back / }).textContent!.replace(/\D/g, ''));
   expect(third).toBeGreaterThan(second);
+});
+
+test('a paid bill with the owner or a manager signed in: ✕, VOID ITEM and Delete take items off too, no reason asked', async () => {
+  for (const role of ['owner', 'manager']) {
+    localStorage.clear();
+    const signedIn = vi.spyOn(fakeAuth, 'currentCashier').mockReturnValue(FAKE_STAFF.find((s) => s.actor.role === role)!.actor);
+    const user = userEvent.setup();
+    const { unmount } = render(<App />);
+    await margherita(user);
+    await burger(user);
+    await user.click(screen.getAllByRole('button', { name: 'L 2,500' })[0]); // Devilled Chicken L
+    await user.click(btn('Pay'));
+    await user.click(screen.getByRole('button', { name: /Exact cash/ }));
+
+    await user.click(panel().getByRole('button', { name: 'Void Margherita' }));
+    expect(panel().queryByRole('button', { name: /^Margherita/ }), role).toBeNull();
+    const first = Number(bar().getByRole('button', { name: /^Give back / }).textContent!.replace(/\D/g, ''));
+    expect(first).toBeGreaterThan(0);
+    await user.keyboard('{F4}');
+    const second = Number(bar().getByRole('button', { name: /^Give back / }).textContent!.replace(/\D/g, ''));
+    expect(second).toBeGreaterThan(first);
+    await user.keyboard('{Delete}');
+    expect(Number(bar().getByRole('button', { name: /^Give back / }).textContent!.replace(/\D/g, ''))).toBeGreaterThan(second);
+
+    // Recorded like the counter's own change: who did it, and whether food was wasted.
+    const cancelled = readEvents().filter((e) => e.type === 'order.item_cancelled');
+    expect(cancelled).toHaveLength(3);
+    for (const e of cancelled) expect(e).toMatchObject({ reason: 'Before it was made', afterPay: true, actor: { role } });
+    signedIn.mockRestore();
+    unmount();
+  }
 });
 
 test('the shop\'s counter (no Kitchen view): Full cheese on a paid pizza, reopened from Paid today, asks for 600 and takes it on the same order', async () => {
