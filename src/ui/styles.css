@@ -507,6 +507,53 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .extras__foot { flex-direction: row; align-items: center; gap: var(--sp-3); }
 .extras__foot .cta { flex: 1; width: auto; }
 
+/* The extras page (SCRUM-252): photo and name on top, sizes as one segmented control, add-ons as
+   priced tiles, leave-outs that look like taking away, and what the kitchen gets above the button. */
+.extras__top { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3) var(--sp-4) 0; min-height: 56px; }
+.extras__back { margin: 0; display: inline-flex; align-items: center; gap: 8px; }
+.extras__back span { font-size: 18px; }
+.extras__remove { min-height: 44px; padding: 0 14px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--bad); }
+.extras__remove:hover { background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.extras__body { gap: 22px; padding-top: var(--sp-2); }
+.extras__title { flex-wrap: nowrap; align-items: center; gap: 16px; }
+.extras__photo { width: 76px; height: 76px; flex: none; border-radius: 16px; object-fit: cover; background: var(--chip); }
+.extras__title > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.extras__mode { font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; color: var(--ink-3); }
+.extras__title h1 { line-height: 1.15; }
+.extras__base { font-size: var(--fs-b); color: var(--ink-2); }
+.extras .group { gap: 10px; }
+.extras .group h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; color: var(--ink-2); }
+
+.sizes { display: grid; gap: 4px; padding: 4px; border-radius: 14px; background: var(--chip); }
+.size { min-height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-radius: 11px; color: var(--ink-2); transition: background 150ms var(--ease), box-shadow 150ms var(--ease), color 150ms; }
+.size b { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
+.size__hint { font-weight: 500; color: var(--ink-3); }
+.size > span { font-size: 14px; }
+.size[aria-pressed='true'] { background: var(--pill-on); color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink), 0 2px 8px rgba(0, 0, 0, 0.06); }
+
+.addons { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.addon { min-height: 56px; display: flex; align-items: center; gap: 12px; padding: 0 16px 0 12px; border-radius: 14px; background: var(--chip); color: var(--ink); text-align: left; transition: background 150ms var(--ease), color 150ms; }
+.addon__tick { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--surface); color: var(--ink-2); font-size: 16px; font-weight: 600; }
+.addon__name { flex: 1; font-size: 15px; font-weight: 500; letter-spacing: -0.2px; }
+.addon__price { font-size: 14px; color: var(--ink-2); }
+.addon__price::before { content: '+'; }
+.addon[aria-pressed='true'] { background: var(--primary); color: var(--on-primary); }
+.addon[aria-pressed='true'] .addon__tick { background: var(--ok); color: #fff; }
+.addon[aria-pressed='true'] .addon__price { color: inherit; opacity: 0.75; }
+
+.extras .chip { border-color: transparent; background: var(--chip); color: var(--ink); }
+.extras .chip[aria-pressed='true'] { background: var(--primary); color: var(--on-primary); }
+.chip__price { margin-left: 8px; color: var(--ink-2); font-weight: 500; }
+.chip[aria-pressed='true'] .chip__price { color: inherit; opacity: 0.75; }
+/* A leave-out takes something away: red once picked, never the same black as an add-on. */
+.extras .chip--out[aria-pressed='true'] { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); font-weight: 600; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--bad) 45%, transparent); }
+.extras .chip--note { background: none; box-shadow: inset 0 0 0 1.5px var(--line); border-style: dashed; color: var(--ink-2); }
+.extras .chip--note::before { content: '+ '; }
+.extras .chip--note[aria-pressed='true'] { background: var(--chip); color: var(--ink); box-shadow: none; }
+
+.extras__sum { margin: 0; padding: 10px var(--sp-5) 0; border-top: 1px solid var(--line); font-size: 14px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.extras__sum + .extras__foot { padding-top: 10px; }
+
 /* ---------- Charge, inside the order panel (PayPanel) ---------- */
 /* The menu stays live behind it, only quieter: a tap adds the item and brings the order back. */
 .register--paying .menu { opacity: 0.5; transition: opacity 200ms var(--ease); }

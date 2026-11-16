@@ -5,6 +5,7 @@ import { fmt, unitPrice } from '../domain/money.ts';
 import { alonePrice, pickable } from '../domain/combos.ts';
 import type { Combo, LineSpec, MenuItem, OrderLine, SizeId } from '../domain/types.ts';
 import type { CookState } from '../domain/kitchen.ts';
+import { photoUrl, shopHasPhotos } from '../services/menuPhotos.ts';
 
 interface Props {
   item: MenuItem;
@@ -94,6 +95,13 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, c
   const total = unit * qty;
   const variant = item.variants?.find((v) => v.id === sz);
   const editing = Boolean(line);
+  const photo = shopHasPhotos() ? photoUrl(item.id) : null;
+  /** What the kitchen will get beyond the plain item, in one line above the button. */
+  const picked = [
+    ...item.adds.filter((o) => adds.includes(o.id)).map((o) => `+ ${o.label}`),
+    ...leaveOut.filter((o) => outs.includes(o.id)).map((o) => o.label),
+    ...(note.trim() ? [`“${note.trim()}”`] : []),
+  ];
 
   useEffect(() => { submitRef.current?.focus(); }, []);
   useEffect(() => {
@@ -125,26 +133,29 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, c
 
   return (
     <section className="extras" aria-label={`${item.name.en} extras`}>
-      <div className="panel__no">
-        <span className="status status--paying">{line?.sent ? 'Change sent item' : editing ? 'Change' : 'Add'}</span>
-        <button type="button" className="panel__back" onClick={onClose}>Back to order <kbd>Esc</kbd></button>
-      </div>
-      <div className="extras__body">
-        <div className="extras__title">
-          <h1>{title}</h1>
-          <span className="num">
-            {box ? `${variant ? `${variant.label} · ` : ''}in the ${box.name}${boxMark!.extra ? ` · +${fmt(boxMark!.extra)}` : ''}`
-              : `${variant ? `${variant.label} · ` : ''}${fmt(unitPrice(item, { size: sz, adds: [], half }))}`}
-          </span>
-          {editing && onRemove && (
+      <div className="extras__top">
+        <button type="button" className="panel__back extras__back" onClick={onClose}><span aria-hidden="true">←</span> Back to order <kbd>Esc</kbd></button>
+        {editing && onRemove && (
             <button
               type="button"
-              className={`linkbtn${manager ? ' linkbtn--danger' : ''}`}
+              className={`extras__remove${manager ? ' extras__remove--manager' : ''}`}
               onClick={() => withReason(() => onRemove(reason))}
             >
               {manager ? 'Cancel item' : box ? 'Remove the box' : 'Remove'}
             </button>
           )}
+      </div>
+      <div className="extras__body">
+        <div className="extras__title">
+          {photo && <img className="extras__photo" src={photo} alt="" draggable={false} />}
+          <div>
+            {editing && <span className="extras__mode">{line?.sent ? 'Change sent item' : 'Change'}</span>}
+            <h1>{title}</h1>
+            <span className="extras__base num">
+              {box ? `${variant ? `${variant.label} · ` : ''}in the ${box.name}${boxMark!.extra ? ` · +${fmt(boxMark!.extra)}` : ''}`
+                : `${variant ? `${variant.label} · ` : ''}${fmt(unitPrice(item, { size: sz, adds: [], half }))}`}
+            </span>
+          </div>
         </div>
 
         {ways && (
@@ -192,8 +203,9 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, c
             <h2>Pick</h2>
             <div className="chips">
               {picks.map((m) => (
-                <button key={m.id} type="button" className="chip num" aria-pressed={item.id === m.id} onClick={() => choose(m)}>
-                  {m.name.en}{slot!.options[m.id] ? ` · +${fmt(slot!.options[m.id])}` : ''}
+                <button key={m.id} type="button" className="chip num" aria-pressed={item.id === m.id} onClick={() => choose(m)}
+                  aria-label={`${m.name.en}${slot!.options[m.id] ? ` · +${fmt(slot!.options[m.id])}` : ''}`}>
+                  {m.name.en}{slot!.options[m.id] ? <span className="chip__price">+{fmt(slot!.options[m.id])}</span> : null}
                 </button>
               ))}
             </div>
@@ -203,10 +215,12 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, c
         {!box && item.variants && item.variants.length > 1 && (
           <section className="group">
             <h2>Size</h2>
-            <div className="chips">
+            <div className="sizes" style={{ gridTemplateColumns: `repeat(${item.variants.length}, 1fr)` }}>
               {item.variants.map((v) => (
-                <button key={v.id} type="button" className="chip num" aria-pressed={sz === v.id} onClick={() => setSz(v.id)}>
-                  {v.label}{v.hint ? ` ${v.hint}` : ''} · {fmt(unitPrice(item, { size: v.id, adds: [], half }))}
+                <button key={v.id} type="button" className="size num" aria-pressed={sz === v.id} onClick={() => setSz(v.id)}
+                  aria-label={`${v.label}${v.hint ? ` ${v.hint}` : ''} · ${fmt(unitPrice(item, { size: v.id, adds: [], half }))}`}>
+                  <b>{v.label}{v.hint ? <span className="size__hint"> {v.hint}</span> : null}</b>
+                  <span>{fmt(unitPrice(item, { size: v.id, adds: [], half }))}</span>
                 </button>
               ))}
             </div>
@@ -236,10 +250,13 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, c
         {item.adds.length > 0 && (
           <section className="group">
             <h2>Add</h2>
-            <div className="chips">
+            <div className="addons">
               {item.adds.map((o) => (
-                <button key={o.id} type="button" className="chip num" aria-pressed={adds.includes(o.id)} onClick={() => setAdds(toggle(adds, o.id))}>
-                  {o.label} · {fmt(o.price)}
+                <button key={o.id} type="button" className="addon num" aria-pressed={adds.includes(o.id)} onClick={() => setAdds(toggle(adds, o.id))}
+                  aria-label={`${o.label} · ${fmt(o.price)}`}>
+                  <span className="addon__tick" aria-hidden="true">{adds.includes(o.id) ? '✓' : '+'}</span>
+                  <span className="addon__name">{o.label}</span>
+                  <span className="addon__price">{fmt(o.price)}</span>
                 </button>
               ))}
             </div>
@@ -250,11 +267,11 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, c
           <h2>Leave out</h2>
           <div className="chips">
             {leaveOut.map((o) => (
-              <button key={o.id} type="button" className="chip" aria-pressed={outs.includes(o.id)} onClick={() => setOuts(toggle(outs, o.id))}>
+              <button key={o.id} type="button" className="chip chip--out" aria-pressed={outs.includes(o.id)} onClick={() => setOuts(toggle(outs, o.id))}>
                 {o.label}
               </button>
             ))}
-            <button type="button" className="chip" aria-pressed={noteOpen} onClick={() => setNoteOpen(!noteOpen)}>Note</button>
+            <button type="button" className="chip chip--note" aria-pressed={noteOpen} onClick={() => setNoteOpen(!noteOpen)}>Note</button>
           </div>
           {noteOpen && (
             <input
@@ -270,6 +287,7 @@ export function ExtrasPanel({ item: start, line, size, manager = false, combo, c
         </section>
       </div>
 
+      {picked.length > 0 && <p className="extras__sum" aria-live="polite">{picked.join(' · ')}</p>}
       <div className="panel__foot extras__foot">
         {!box && <div className="stepper">
           <button type="button" aria-label="Decrease quantity" onClick={() => setQty(Math.max(1, qty - 1))}>−</button>
