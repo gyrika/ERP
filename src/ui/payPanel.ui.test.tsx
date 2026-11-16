@@ -6,7 +6,7 @@ import { setKitchenScreen } from './kitchenScreen.ts';
 
 // Charge opens inside the order panel (PayPanel), and the optional Mobile at Charge (CRM) never holds the sale up.
 
-const crm = vi.hoisted(() => ({ lookup: vi.fn(), ensure: vi.fn() }));
+const crm = vi.hoisted(() => ({ lookup: vi.fn(), ensure: vi.fn(), search: vi.fn() }));
 vi.mock('../services/crmClient.ts', async (real) => ({
   ...(await real<typeof import('../services/crmClient.ts')>()),
   crmClient: crm,
@@ -44,6 +44,36 @@ test('no number: Enter pays exact cash at once, nothing asked', async () => {
   expect(onPay).toHaveBeenCalledWith('cash', 290000);
   expect(crm.lookup).not.toHaveBeenCalled();
   expect(crm.ensure).not.toHaveBeenCalled();
+});
+
+test('a name instead of the number: the list suggests, ↓ and Enter pick one, Enter pays for them; nobody is made', async () => {
+  crm.search.mockResolvedValue({ matches: [{ ...KASUN, ends: '001' }, { id: 'cus-00000000000000a2', name: 'Kasuni', ends: '333' }] });
+  const onPay = vi.fn();
+  const user = userEvent.setup();
+  alone(onPay, true);
+  await user.click(screen.getByLabelText(/Mobile or name/));
+  await user.keyboard('kas'); // B, C, Q, S are letters of a name here, not keys
+  expect(await screen.findByRole('button', { name: 'Kasuni, mobile ending 333' })).toBeTruthy();
+  expect(crm.search).toHaveBeenLastCalledWith('kas');
+  expect(crm.lookup).not.toHaveBeenCalled();
+  await user.keyboard('{ArrowDown}{Enter}');
+  expect(screen.getByText('Kasuni · on the list')).toBeTruthy();
+  expect(screen.queryByRole('list', { name: 'Customers by that name' })).toBeNull();
+  await user.keyboard('{Enter}');
+  expect(onPay).toHaveBeenCalledWith('cash', 290000, 'cus-00000000000000a2');
+  expect(crm.ensure).not.toHaveBeenCalled();
+});
+
+test('a name nobody has: told so, and the sale still goes in without a customer', async () => {
+  crm.search.mockResolvedValue({ matches: [] });
+  const onPay = vi.fn();
+  const user = userEvent.setup();
+  alone(onPay, true);
+  await user.click(screen.getByLabelText(/Mobile or name/));
+  await user.keyboard('zz');
+  expect(await screen.findByText('No one by that name: type their mobile')).toBeTruthy();
+  await user.keyboard('{Enter}{Enter}');
+  expect(onPay).toHaveBeenCalledWith('cash', 290000);
 });
 
 test('a known number: typed straight away (it starts 0), the name shown, Enter twice pays for that customer', async () => {

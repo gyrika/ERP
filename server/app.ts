@@ -351,9 +351,11 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
         const posts: Record<string, (b: Record<string, unknown>) => Promise<unknown>> = {
           '/customers/opt-out': (b) => crm.optOut(device, staffId, b),
           '/customers/add': (b) => crm.add(device, staffId, b),
+          '/customers/edit': (b) => crm.edit(device, staffId, b),
           '/customers/remove': (b) => crm.remove(device, staffId, b),
           '/customers/restore': (b) => crm.restore(device, staffId, b),
           '/lookup': (b) => crm.lookup(device, staffId, b),
+          '/search': (b) => crm.search(device, staffId, b),
           '/ensure': (b) => crm.ensure(device, staffId, b),
           '/campaigns/reach': (b) => crm.reach(device, staffId, b),
           '/campaigns/send': (b) => crm.send(device, staffId, b),

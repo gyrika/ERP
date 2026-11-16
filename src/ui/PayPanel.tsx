@@ -5,7 +5,8 @@ import { lineItemName } from '../domain/halves.ts';
 import { cleanPick, paidSoFar, pickAmount, picksAllLeft, unitsLeft, type Pick } from '../domain/split.ts';
 import { lineNet } from '../domain/totals.ts';
 import type { Cents, Order, OrderCustomer, OrderLine, Tender } from '../domain/types.ts';
-import { crmClient, type Greeting } from '../services/crmClient.ts';
+import { crmClient, rememberName, type Greeting } from '../services/crmClient.ts';
+import { NameMatches, useNameSearch } from './useNameSearch.tsx';
 
 interface Props {
   number: number;
@@ -78,8 +79,13 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
     setPick((p) => { const n = (p[l.id] ?? 0) + 1; return { ...p, [l.id]: n > left ? 0 : n }; });
   };
 
+  // Letters: a name, so the list is searched by name and a match is picked (by id), never made.
+  const search = useNameSearch(phoneTyped, customers);
+  const [chosen, setChosen] = useState<Greeting | null>(null);
+  const typePhone = (t: string) => { setPhoneTyped(t); setChosen(null); };
+  const pickByName = (m: Greeting) => { rememberName(m); setChosen({ id: m.id, name: m.name }); field.current?.focus(); };
   // Who this number is, looked up as soon as it is a whole mobile number. Nothing is made yet.
-  const check = customers ? toLkMobile(phoneTyped) : null;
+  const check = customers && !search.byName ? toLkMobile(phoneTyped) : null;
   const phone = check && 'phone' in check ? check.phone : null;
   useEffect(() => {
     setNameTyped(''); // a name belongs to the number it was typed for
@@ -101,6 +107,7 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
       ? (t, given, id, unlinked) => { onPayPart(t, given, picked, id, unlinked); setPick({}); setTyped(''); setPad(false); field.current?.focus(); }
       : onPay;
     if (customer) { done(tender, tendered, customer.id); return; }
+    if (chosen) { done(tender, tendered, chosen.id); return; }
     if (!phone) { done(tender, tendered); return; }
     if (who.at === 'known' && who.phone === phone) { done(tender, tendered, who.customer.id); return; }
     const name = isNew ? nameTyped.trim() : '';
@@ -129,7 +136,7 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
         if (!typed && !pad && !phoneTyped) { onClose(); return; }
         setTyped('');
         setPad(false);
-        setPhoneTyped('');
+        typePhone('');
         setNameTyped('');
         field.current?.focus();
         return;
@@ -142,10 +149,13 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
         // Enter in Mobile goes to Name for a new number, else back to the amount; Enter in Name goes
         // to the amount. Either way the next Enter pays.
         if (inMobile && !inName && isNew) { nameField.current?.focus(); return; }
+        // A name: Enter takes the highlighted customer.
+        if (inMobile && !inName && search.byName && !chosen && search.matches.length) { pickByName(search.matches[search.sel]); return; }
         if (inMobile) { field.current?.focus(); return; }
         take();
         return;
       }
+      if (inMobile && !inName && !chosen && search.move(e.key)) { e.preventDefault(); return; }
       if (inMobile) return; // Mobile and Name type their own keys (B, C, Q are letters of a name too)
       if (e.key.toLowerCase() === 's' && canSplit) { e.preventDefault(); toggleSplit(); return; }
       // Picking: the arrows walk the items, Space picks one (the button answers itself); Enter still takes the money.
@@ -163,7 +173,7 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
       if (customers && !typed && /^[0+]$/.test(e.key)) {
         e.preventDefault();
         mobile.current?.focus();
-        setPhoneTyped((t) => t + e.key);
+        typePhone(phoneTyped + e.key);
         return;
       }
       // Digits go straight to the amount: the cashier just starts typing what the customer gave.
@@ -200,6 +210,10 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
     : enough ? { label: 'Change', big: fmt(change), tone: ' payfoot__note--change' }
     : { label: 'Short', big: fmt(due - amount), tone: ' payfoot__note--short' };
   const hint = !customers || !phoneTyped.trim() ? null
+    : search.byName ? (chosen ? `${chosen.name ?? 'Customer'} · on the list`
+      : search.found.at === 'found' ? (search.matches.length ? null : 'No one by that name: type their mobile')
+        : search.found.at === 'away' ? 'The list is not answering: the sale still goes in'
+          : search.found.at === 'looking' ? 'Looking…' : 'Keep typing the name')
     : !phone ? (check && 'reason' in check && phoneTyped.replace(/\D/g, '').length >= 9 ? check.reason : 'like 077 123 4567')
       : who.at === 'known' ? (who.customer.name ? `${who.customer.name} · on the list` : 'On the list')
         : who.at === 'new' ? (nameTyped.trim() ? `New customer: ${nameTyped.trim()}, added as they pay` : 'New customer: added as they pay')
@@ -252,10 +266,10 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
           {customers && !pad && (
             <div className="paymobile">
               <label className="payfield">
-                <span className="payfield__label">Mobile <span className="payfield__optional">optional</span></span>
+                <span className="payfield__label">Mobile or name <span className="payfield__optional">optional</span></span>
                 <input
-                  ref={mobile} className="payfield__input num" inputMode="tel" autoComplete="off" value={phoneTyped}
-                  placeholder="077 123 4567" onChange={(e) => setPhoneTyped(e.target.value)}
+                  ref={mobile} className="payfield__input num" autoComplete="off" value={phoneTyped}
+                  placeholder="077 123 4567 or a name" onChange={(e) => typePhone(e.target.value)}
                 />
               </label>
               {/* A number the list does not know: its name, if they give it (Enter from Mobile lands here). */}
@@ -268,7 +282,8 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
                   />
                 </label>
               )}
-              {hint && <span className={`paymobile__who${who.at === 'known' ? ' paymobile__who--known' : ''}`} aria-live="polite">{hint}</span>}
+              {search.byName && !chosen && <NameMatches matches={search.matches} sel={search.sel} onPick={pickByName} />}
+              {hint && <span className={`paymobile__who${who.at === 'known' || chosen ? ' paymobile__who--known' : ''}`} aria-live="polite">{hint}</span>}
             </div>
           )}
 

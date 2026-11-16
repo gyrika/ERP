@@ -89,6 +89,9 @@ test('at Charge: anyone at the counter finds a customer by number; a new number 
   // Only the first name at the counter.
   await s.customers.importRows(SHOP, [{ row: 2, kind: 'fill_name', phone: '+94770000001', name: 'Kasun Perera', id, notes: [] }], { id: 'x', name: 'x', role: 'owner' }, T0);
   assert.deepEqual((await s.post('/lookup', s.cashier.id, { phone: '0770000001' })).body, { customer: { id, name: 'Kasun' } });
+  // A name typed instead of the number: first names and the last 3 digits only.
+  assert.deepEqual((await s.post('/search', s.cashier.id, { q: 'kas per' })).body, { matches: [{ id, name: 'Kasun', ends: '001' }] });
+  assert.deepEqual((await s.post('/search', s.cashier.id, { q: 'k' })).body, { matches: [] });
   // A name given at the counter is kept for someone new, never over a name the list already has.
   const named = await s.post('/ensure', s.cashier.id, { phone: '0770000002', name: '  Dilani   Silva ' });
   assert.deepEqual((named.body.customer as { name: string }).name, 'Dilani');

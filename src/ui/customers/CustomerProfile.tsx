@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { DEFAULT_SEGMENT_RULES, purchaseHistory, segmentsOf, statsOf, visitsFromEvents, type CustomerSource } from '../../domain/customers.ts';
+import { DEFAULT_SEGMENT_RULES, purchaseHistory, segmentsOf, statsOf, visitsFromEvents, type Customer, type CustomerSource } from '../../domain/customers.ts';
 import { fmt } from '../../domain/money.ts';
 import { formatLkMobile } from '../../domain/phone.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
@@ -14,12 +14,48 @@ import type { CrmData, Notice } from './CustomersView.tsx';
  */
 const SOURCE: Record<CustomerSource, string> = { pos: 'Given at the counter', import: 'From the imported list', manual: 'Added by hand', app: 'Signed up for offers' };
 
-export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onRemoved }: {
+/**
+ * The name and mobile, corrected in place (a manager or the owner): Save or Enter, Esc to leave.
+ * The id stays, so their sales stay theirs; Undo on the notice puts them back.
+ */
+function EditForm({ c, onDone, onSaved }: { c: Customer; onDone: () => void; onSaved: (n: Notice) => Promise<void> }) {
+  const [phone, setPhone] = useState(formatLkMobile(c.phone));
+  const [name, setName] = useState(c.name ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const { customer, before } = await crmClient.edit(c.id, phone, name);
+      onDone();
+      await onSaved({
+        message: `Saved ${customer.name ?? formatLkMobile(customer.phone)}.`,
+        undo: async () => { await crmClient.edit(before.id, before.phone, before.name ?? ''); },
+      });
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+  };
+  return (
+    <form className="crm-add" aria-label="Change customer" onSubmit={(e) => { e.preventDefault(); void save(); }}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onDone(); } }}>
+      <label className="setup__field"><span>Name</span>
+        <input autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="No name" /></label>
+      <label className="setup__field"><span>Mobile</span>
+        <input className="num" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="077 123 4567" /></label>
+      <button type="submit" className="inv-page__primary" disabled={busy || !phone.trim()}>Save</button>
+      <button type="button" className="linkbtn" onClick={onDone}>Cancel</button>
+      {error && <p className="setup__error" role="alert">{error}</p>}
+    </form>
+  );
+}
+
+export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onRemoved, onEdited }: {
   id: string; data: CrmData | null; events: readonly SyncEvent[]; now: number; isOwner: boolean;
-  onChanged: () => Promise<void>; onRemoved: (n: Notice) => Promise<void>;
+  onChanged: () => Promise<void>; onRemoved: (n: Notice) => Promise<void>; onEdited: (n: Notice) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
   const c = data?.customers.find((x) => x.id === id) ?? null;
   const visits = useMemo(() => visitsFromEvents(events), [events]);
   const history = useMemo(() => purchaseHistory(events, id), [events, id]);
@@ -50,11 +86,15 @@ export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onR
     <article className="crm-profile" aria-label={c.name ?? formatLkMobile(c.phone)}>
       <p><a href="#customers">← All customers</a></p>
       <header className="crm-profile__head">
-        <div>
-          <h2>{c.name ?? 'No name'}</h2>
-          <p className="num crm-profile__phone">{formatLkMobile(c.phone)}</p>
-          <p className="crm__muted">{SOURCE[c.source]} · since {shortDate(c.createdAt)}</p>
-        </div>
+        {editing ? <EditForm key={c.id} c={c} onDone={() => setEditing(false)} onSaved={onEdited} /> : (
+          <div>
+            <h2>{c.name ?? 'No name'}</h2>
+            <p className="num crm-profile__phone">{formatLkMobile(c.phone)}</p>
+            <p className="crm__muted">
+              {SOURCE[c.source]} · since {shortDate(c.createdAt)} · <button type="button" className="linkbtn" onClick={() => setEditing(true)}>Change name or mobile</button>
+            </p>
+          </div>
+        )}
         <span className={`crm-seg crm-seg--${segment}`}>{SEGMENT_LABEL[segment]}</span>
       </header>
 
