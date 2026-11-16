@@ -1,7 +1,7 @@
 import type { CampaignResult } from '../domain/campaignResults.ts';
 import type { Audience } from '../domain/campaigns.ts';
 import type { ImportPlan } from '../domain/customerImport.ts';
-import type { Customer } from '../domain/customers.ts';
+import type { Customer, NameMatch } from '../domain/customers.ts';
 import type { SyncEvent } from '../domain/sync.ts';
 import { syncToken } from './pairing.ts';
 import { signedIn } from './serverAuth.ts';
@@ -39,20 +39,33 @@ const upload = (step: 'preview' | 'save', file: File, rename: boolean) => {
 /** What the counter is told about a customer: the first name to greet them by. */
 export interface Greeting { id: string; name: string | null }
 
+/**
+ * The first names this screen was told (lookup, ensure), by id, for this session only: so an order
+ * paid by a customer given at Charge shows who it was on the list and the bill. Never stored.
+ */
+const told = new Map<string, string | null>();
+export const rememberName = (c: Greeting | null | undefined): void => { if (c) told.set(c.id, c.name); };
+export const toldName = (id: string): string | null => told.get(id) ?? null;
+const remembering = <T extends { customer: Greeting | null }>(r: T): T => { rememberName(r.customer); return r; };
+
 export const crmClient = {
   count: () => call<{ customers: number }>('/count'),
   /** The list, and which customers have the app (for campaigns). */
   list: () => call<{ customers: Customer[]; withApp: string[] }>('/customers'),
   optOut: (id: string, optedOut: boolean) => post<{ optedOut: boolean }>('/customers/opt-out', { id, optedOut }),
   add: (phone: string, name: string) => post<{ customer: Customer }>('/customers/add', { phone, name }),
+  /** A manager's or the owner's correction of the mobile and name (`before` is for Undo). */
+  edit: (id: string, phone: string, name: string) => post<{ customer: Customer; before: Customer }>('/customers/edit', { id, phone, name }),
   /** The owner's: erased from the list (returned for Undo). */
   remove: (id: string) => post<{ removed: Customer }>('/customers/remove', { id }),
   restore: (customer: Customer) => post<{ customer: Customer }>('/customers/restore', { customer }),
   /** At Charge, while typing: quick, and it never waits long (the sale never waits on it). */
-  lookup: (phone: string) => post<{ customer: Greeting | null }>('/lookup', { phone }, 2_000),
+  lookup: (phone: string) => post<{ customer: Greeting | null }>('/lookup', { phone }, 2_000).then(remembering),
+  /** A name typed instead of a mobile: who it may be (up to 5, first names and the last 3 digits). */
+  search: (q: string) => post<{ matches: NameMatch[] }>('/search', { q }, 2_000),
   /** The customer, made if new; `name` is kept only for someone the list has no name for. */
   ensure: (phone: string, name?: string, source?: 'app') =>
-    post<{ customer: Greeting; created: boolean }>('/ensure', { phone, ...(name ? { name } : {}), ...(source ? { source } : {}) }, 2_000),
+    post<{ customer: Greeting; created: boolean }>('/ensure', { phone, ...(name ? { name } : {}), ...(source ? { source } : {}) }, 2_000).then(remembering),
   preview: (file: File, rename: boolean) => {
     const u = upload('preview', file, rename);
     return call<{ plan: ImportPlan }>(u.path, u.init);

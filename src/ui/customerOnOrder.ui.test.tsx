@@ -7,7 +7,7 @@ import { setKitchenScreen } from './kitchenScreen.ts';
 // The customer on the order (CRM): put on from the Register in a few keys, found or made on the
 // shop PC's list, greeted by name, offered "the usual", and named on the payment by id only.
 
-const crm = vi.hoisted(() => ({ lookup: vi.fn(), ensure: vi.fn() }));
+const crm = vi.hoisted(() => ({ lookup: vi.fn(), ensure: vi.fn(), search: vi.fn() }));
 vi.mock('../services/crmClient.ts', async (real) => ({
   ...(await real<typeof import('../services/crmClient.ts')>()),
   crmClient: crm,
@@ -103,6 +103,19 @@ test('the next visit: "Same as last time" is offered and takes Enter; it says wh
 
   expect(panel().getByText('Margherita')).toBeTruthy();
   expect(panel().queryByRole('button', { name: /Same as last time/ })).toBeNull(); // offered on an empty order only
+});
+
+test('a name instead of the mobile: 0, then the name, Enter puts the suggested customer on the order', async () => {
+  crm.search.mockResolvedValue({ matches: [{ ...DILANI, ends: '567' }] });
+  const user = userEvent.setup();
+  render(<App />);
+  await user.keyboard('0dil');
+  expect(await panel().findByRole('button', { name: 'Dilani, mobile ending 567' })).toBeTruthy();
+  expect(crm.search).toHaveBeenLastCalledWith('dil'); // the 0 that opened the field is not part of the name
+  await user.keyboard('{Enter}');
+  expect(panel().getByRole('button', { name: 'Customer Dilani: change' })).toBeTruthy();
+  expect(crm.lookup).not.toHaveBeenCalled();
+  expect(crm.ensure).not.toHaveBeenCalled();
 });
 
 test('Esc: no customer, and Charge still offers Mobile; × takes a customer off again', async () => {

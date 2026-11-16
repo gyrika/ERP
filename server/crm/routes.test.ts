@@ -49,8 +49,15 @@ async function shop() {
     });
     return { status: r.status, body: await r.json() as Record<string, unknown> };
   };
+  const post = async (path: string, staff: string, body: unknown) => {
+    const r = await fetch(`${base}${path}`, {
+      method: 'POST', body: JSON.stringify(body),
+      headers: { authorization: `Bearer ${counter.token}`, 'x-staff-id': staff, 'content-type': 'application/json' },
+    });
+    return { status: r.status, body: await r.json() as Record<string, unknown> };
+  };
   const stop = () => new Promise<void>((r) => server.close(() => r()));
-  return { call, setModule, stop, clock, owner, manager, cashier, kitchen, customers, SHOP };
+  return { call, post, setModule, stop, clock, owner, manager, cashier, kitchen, customers, SHOP };
 }
 
 test('off by default: every CRM route is "no such page", whoever asks', async () => {
@@ -108,5 +115,26 @@ test('on: a manager or the owner signed in on the counter imports; everyone else
   s.clock.now = T0 + 120_000;
   await s.setModule(true);
   assert.deepEqual((await s.call('/count', { staff: s.owner.id })).body, { customers: 36 });
+  await s.stop();
+});
+
+test('edit: a manager corrects the name and mobile, same id; a number someone else has is refused; a cashier cannot', async () => {
+  const s = await shop();
+  await s.setModule(true);
+  const a = (await s.post('/customers/add', s.manager.id, { phone: '077 000 0001', name: 'Kasun' })).body.customer as { id: string };
+  await s.post('/customers/add', s.manager.id, { phone: '077 000 0002', name: 'Nimali' });
+
+  assert.equal((await s.post('/customers/edit', s.cashier.id, { id: a.id, phone: '077 555 1234', name: 'Kasun Silva' })).status, 403);
+  const taken = await s.post('/customers/edit', s.manager.id, { id: a.id, phone: '0770000002', name: 'Kasun' });
+  assert.equal(taken.status, 409);
+  assert.match(String(taken.body.message), /as Nimali/);
+
+  const ok = await s.post('/customers/edit', s.manager.id, { id: a.id, phone: '077 555 1234', name: '  Kasun   Silva ' });
+  assert.equal(ok.status, 200);
+  assert.deepEqual([(ok.body.customer as { id: string }).id, (ok.body.customer as { phone: string }).phone, (ok.body.customer as { name: string }).name], [a.id, '+94775551234', 'Kasun Silva']);
+  assert.equal((ok.body.before as { phone: string }).phone, '+94770000001');
+  assert.equal((await s.customers.byPhone(s.SHOP, '+94770000001')), null, 'the old number is free again');
+  assert.equal((await s.customers.byPhone(s.SHOP, '+94775551234'))?.id, a.id);
+  assert.equal((await s.post('/customers/edit', s.manager.id, { id: 'cus-0000000000000099', phone: '077 555 0000', name: '' })).status, 404);
   await s.stop();
 });

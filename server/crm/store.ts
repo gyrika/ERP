@@ -31,6 +31,11 @@ export interface CustomerStore {
   remove(tenantId: string, id: string): Promise<Customer | null>;
   /** Undo of a remove: the customer back as they were, same id (the phones must sign up again). False: the number is on the list again already. */
   restore(tenantId: string, customer: Customer, by: string, at: number): Promise<boolean>;
+  /**
+   * A manager or the owner corrects a customer's mobile and name (null: no name). 'taken': another
+   * customer has that mobile; 'missing': no such customer. Their id, and so their sales, stay.
+   */
+  update(tenantId: string, id: string, phone: string, name: string | null, by: string, at: number): Promise<'ok' | 'taken' | 'missing'>;
   /** Asked for no messages (or changed their mind). False: no such customer. */
   setOptOut(tenantId: string, id: string, optedOut: boolean, by: string, at: number): Promise<boolean>;
 
@@ -100,6 +105,14 @@ export function memoryCustomers(): CustomerStore {
       if (rows.has(customer.id) || find(tenantId, customer.phone)) return false;
       rows.set(customer.id, { ...customer, tenantId });
       return true;
+    },
+    async update(tenantId, id, phone, name) {
+      const c = rows.get(id);
+      if (!c || c.tenantId !== tenantId) return 'missing';
+      const other = find(tenantId, phone);
+      if (other && other.id !== id) return 'taken';
+      rows.set(id, { ...c, phone, name });
+      return 'ok';
     },
     async setOptOut(tenantId, id, optedOut) {
       const c = rows.get(id);

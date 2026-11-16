@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { toLkMobile } from '../domain/phone.ts';
 import type { OrderCustomer } from '../domain/types.ts';
 import type { Usual } from '../domain/usualOrder.ts';
-import { crmClient, type Greeting } from '../services/crmClient.ts';
+import { crmClient, rememberName, type Greeting } from '../services/crmClient.ts';
+import { NameMatches, useNameSearch } from './useNameSearch.tsx';
 
 interface Props {
   customer?: OrderCustomer;
@@ -44,7 +45,9 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
   const [failed, setFailed] = useState(false);
 
   const text = typing ?? '';
-  const check = typing !== null ? toLkMobile(text) : null;
+  // Letters: a name, so the list is searched by name and Enter (or a tap) puts the match on.
+  const search = useNameSearch(text, typing !== null);
+  const check = typing !== null && !search.byName ? toLkMobile(text) : null;
   const phone = check && 'phone' in check ? check.phone : null;
 
   useEffect(() => {
@@ -80,13 +83,24 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
     }
   };
 
+  const pickByName = (m: Greeting) => { rememberName(m); onAttach({ id: m.id, name: m.name }); onTyping(null); };
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onTyping(null); return; }
+    if (search.byName && search.move(e.key)) { e.preventDefault(); e.stopPropagation(); return; }
+    if (e.key === 'Enter' && search.byName) {
+      e.preventDefault(); e.stopPropagation();
+      if (search.matches.length) pickByName(search.matches[search.sel]);
+      return;
+    }
     if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void attach(); }
   };
 
   if (typing !== null) {
-    const hint = !text.trim() ? 'Their mobile, like 077 123 4567'
+    const hint = !text.trim() ? 'Their mobile, like 077 123 4567, or their name'
+      : search.byName ? (search.found.at === 'found' ? (search.matches.length ? null : 'No one by that name: type their mobile')
+        : search.found.at === 'away' ? 'The customer list is not answering. Esc to go on without'
+          : search.found.at === 'looking' ? 'Looking…' : 'Keep typing the name')
       : !phone ? (check && 'reason' in check && text.replace(/\D/g, '').length >= 9 ? check.reason : 'Keep typing the mobile')
         : who.at === 'checking' ? 'Looking…'
           : who.at === 'away' ? 'The customer list is not answering. Esc to go on without'
@@ -96,10 +110,11 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
       <div className="cust cust--open" onKeyDown={onKeyDown}>
         <label className="cust__label" htmlFor="cust-phone">Customer</label>
         <input
-          id="cust-phone" ref={phoneRef} className="cust__phone num" inputMode="tel" autoComplete="off" autoFocus
-          value={text} placeholder="077 123 4567" onChange={(e) => onTyping(e.target.value)}
+          id="cust-phone" ref={phoneRef} className="cust__phone num" autoComplete="off" autoFocus
+          value={text} placeholder="077 123 4567 or a name" onChange={(e) => onTyping(e.target.value)}
         />
         {hint && <span className="cust__hint" aria-live="polite">{hint}</span>}
+        {search.byName && <NameMatches matches={search.matches} sel={search.sel} onPick={pickByName} />}
         {who.at === 'known' && (
           <button type="button" className="cust__pick" onClick={() => void attach()}>
             <span className="cust__who">

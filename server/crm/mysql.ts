@@ -87,6 +87,21 @@ export function mysqlCustomers(pool: Pool, crypto: CrmCrypto): CustomerStore {
       return res.affectedRows > 0;
     },
 
+    async update(tenantId, id, phone, name, by, at) {
+      const [found] = await pool.query<Row[]>(`SELECT ${COLUMNS} FROM crm_customers WHERE tenant_id = ? AND id = ?`, [tenantId, id]);
+      if (!found[0]) return 'missing';
+      const other = await byPhone(tenantId, phone);
+      if (other && other.id !== id) return 'taken';
+      try {
+        await pool.query(`UPDATE crm_customers SET phone_hash = ?, phone_enc = ?, name_enc = ?, updated_by = ?, updated_at = ?
+          WHERE tenant_id = ? AND id = ?`, [crypto.phoneHash(phone), crypto.seal(phone), name === null ? null : crypto.seal(name), by, at, tenantId, id]);
+      } catch (e) {
+        if ((e as { code?: string }).code === 'ER_DUP_ENTRY') return 'taken'; // the same number given elsewhere a moment ago
+        throw e;
+      }
+      return 'ok';
+    },
+
     async setOptOut(tenantId, id, optedOut, by, at) {
       const [res] = await pool.query<ResultSetHeader>(`UPDATE crm_customers SET opted_out = ?, opted_out_at = ?, updated_by = ?, updated_at = ?
         WHERE tenant_id = ? AND id = ?`, [optedOut ? 1 : 0, optedOut ? at : null, by, at, tenantId, id]);

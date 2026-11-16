@@ -20,7 +20,7 @@ vi.mock('../services/serverAuth.ts', async (real) => ({
   ...(await real<typeof import('../services/serverAuth.ts')>()),
   signedIn: () => ({ id: 'o', name: 'Owner', role: shop.role }),
 }));
-const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn(), setReceipt: vi.fn() }));
+const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn(), setReceipt: vi.fn(), edit: vi.fn() }));
 vi.mock('../services/crmClient.ts', () => ({ crmClient: crm, CrmFailed: Error }));
 
 const { default: CustomersView } = await import('./customers/CustomersView.tsx');
@@ -250,4 +250,39 @@ test('Undo after Remove puts the customer back', async () => {
   await user.click(within(notice).getByRole('button', { name: 'Undo' }));
   expect(crm.restore).toHaveBeenCalledWith(KASUN);
   await vi.waitFor(() => expect(within(screen.getByRole('table')).getByRole('link', { name: 'Kasun Perera' })).toBeTruthy());
+});
+
+test('Change name or mobile: saved in place, a number someone else has says whose it is, and Undo puts it back', async () => {
+  shop.role = 'manager';
+  crm.edit.mockImplementation(async (id: string, phone: string, name: string) => {
+    if (phone.replace(/\D/g, '').endsWith('770000002')) throw new Error('that number is on the list already as Nimali');
+    const before = list.find((c) => c.id === id)!;
+    const digits = phone.replace(/\D/g, '');
+    const customer = { ...before, phone: digits.startsWith('94') ? `+${digits}` : `+94${digits.replace(/^0/, '')}`, name: name.trim() || null };
+    list = list.map((c) => (c.id === id ? customer : c));
+    return { customer, before };
+  });
+  const user = userEvent.setup();
+  render(<CustomersView hash={`#customers/c/${KASUN.id}`} onRegister={() => {}} />);
+  await user.click(await screen.findByRole('button', { name: 'Change name or mobile' }));
+  const form = within(screen.getByRole('form', { name: 'Change customer' }));
+  expect((form.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe('Kasun Perera');
+  await user.clear(form.getByRole('textbox', { name: 'Mobile' }));
+  await user.type(form.getByRole('textbox', { name: 'Mobile' }), '077 000 0002');
+  await user.click(form.getByRole('button', { name: 'Save' }));
+  expect((await form.findByRole('alert')).textContent).toBe('that number is on the list already as Nimali');
+
+  await user.clear(form.getByRole('textbox', { name: 'Mobile' }));
+  await user.type(form.getByRole('textbox', { name: 'Mobile' }), '077 555 1234');
+  await user.clear(form.getByRole('textbox', { name: 'Name' }));
+  await user.type(form.getByRole('textbox', { name: 'Name' }), 'Kasun Silva{Enter}');
+  expect(crm.edit).toHaveBeenLastCalledWith(KASUN.id, '077 555 1234', 'Kasun Silva');
+  const notice = await screen.findByRole('status');
+  expect(notice.textContent).toMatch(/^Saved Kasun Silva\./);
+  expect(screen.getByRole('heading', { name: 'Kasun Silva' })).toBeTruthy();
+  expect(screen.getByText('077 555 1234')).toBeTruthy();
+
+  await user.click(within(notice).getByRole('button', { name: 'Undo' }));
+  expect(crm.edit).toHaveBeenLastCalledWith(KASUN.id, KASUN.phone, 'Kasun Perera');
+  expect(await screen.findByRole('heading', { name: 'Kasun Perera' })).toBeTruthy();
 });

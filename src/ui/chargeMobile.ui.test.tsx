@@ -7,7 +7,7 @@ import { setKitchenScreen } from './kitchenScreen.ts';
 // Mobile at Charge (CRM): the sale never waits on the customer list, and the cashier is told when a
 // number given could not be saved.
 
-const crm = vi.hoisted(() => ({ lookup: vi.fn(), ensure: vi.fn() }));
+const crm = vi.hoisted(() => ({ lookup: vi.fn(), ensure: vi.fn(), search: vi.fn() }));
 vi.mock('../services/crmClient.ts', async (real) => ({
   ...(await real<typeof import('../services/crmClient.ts')>()),
   crmClient: crm,
@@ -64,3 +64,20 @@ test('a number the shop PC saves: the payment names the customer, and the toast 
 
 // These tests send to the kitchen first: the Kitchen view on (it is off on a new counter).
 beforeEach(() => setKitchenScreen(true));
+
+test('a customer given at Charge stays on the order: the bill and the order list show who it was', async () => {
+  const { rememberName } = await import('../services/crmClient.ts');
+  crm.ensure.mockImplementation(async () => {
+    const r = { customer: { id: 'cus-0000000000000002', name: 'Ruwan' }, created: true };
+    rememberName(r.customer); // what the real client does with every answer
+    return r;
+  });
+  const user = userEvent.setup();
+  render(<App />);
+  await charge(user);
+  await user.click(screen.getByRole('button', { name: /Exact cash/ }));
+
+  expect(paidEvent()?.customerId).toBe('cus-0000000000000002');
+  expect(panel().getByText('Ruwan')).toBeTruthy();
+  expect(document.querySelector('.history')?.textContent ?? '').toContain('Ruwan ·');
+});

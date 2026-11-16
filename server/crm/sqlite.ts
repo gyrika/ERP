@@ -89,6 +89,16 @@ export function sqliteCustomers(db: DatabaseSync, crypto: CrmCrypto): CustomerSt
         c.name === null ? null : crypto.seal(c.name), c.source, c.optedOut ? 1 : 0, c.optedOut ? at : null, by, c.createdAt, by, at).changes) > 0;
     },
 
+    async update(tenantId, id, phone, name, by, at) {
+      return tx(() => {
+        const other = byHash(tenantId, phone);
+        if (other && other.id !== id) return 'taken' as const;
+        const changed = Number(db.prepare(`UPDATE crm_customers SET phone_hash = ?, phone_enc = ?, name_enc = ?, updated_by = ?, updated_at = ?
+          WHERE tenant_id = ? AND id = ?`).run(crypto.phoneHash(phone), crypto.seal(phone), name === null ? null : crypto.seal(name), by, at, tenantId, id).changes);
+        return changed ? 'ok' as const : 'missing' as const;
+      });
+    },
+
     async setOptOut(tenantId, id, optedOut, by, at) {
       return Number(db.prepare(`UPDATE crm_customers SET opted_out = ?, opted_out_at = ?, updated_by = ?, updated_at = ?
         WHERE tenant_id = ? AND id = ?`).run(optedOut ? 1 : 0, optedOut ? at : null, by, at, tenantId, id).changes) > 0;

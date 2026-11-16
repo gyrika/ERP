@@ -225,3 +225,25 @@ export const crmSummary = (
     top: [...stats].sort((a, b) => b.spent - a.spent || b.orders - a.orders).slice(0, topCount),
   };
 };
+
+/** A customer found by name at the counter: the first name to greet them by, and the end of their number to tell two apart. */
+export interface NameMatch { id: string; name: string; ends: string }
+
+/**
+ * Typed a name instead of a mobile (at Charge, or on the order): who on the list it may be. Every
+ * word typed starts a word of their name ("kas per" finds Kasun Perera); names that start with what
+ * was typed come first, then A to Z. Two letters at least, and letters, not a number. The counter is
+ * told the first name only, as for a number (server/crm/routes.ts), and the last 3 digits.
+ */
+export const searchCustomers = (list: readonly Customer[], q: string, limit = 5): NameMatch[] => {
+  const typed = q.trim().toLowerCase();
+  if (typed.length < 2 || !/\p{L}/u.test(typed)) return [];
+  const words = typed.split(/\s+/);
+  return list
+    .filter((c): c is Customer & { name: string } => Boolean(c.name?.trim()))
+    .map((c) => ({ c, n: c.name.trim().toLowerCase() }))
+    .filter(({ n }) => { const parts = n.split(/\s+/); return words.every((w) => parts.some((p) => p.startsWith(w))); })
+    .sort((a, b) => Number(b.n.startsWith(typed)) - Number(a.n.startsWith(typed)) || a.n.localeCompare(b.n))
+    .slice(0, limit)
+    .map(({ c }) => ({ id: c.id, name: c.name.trim().split(/\s+/)[0], ends: c.phone.slice(-3) }));
+};

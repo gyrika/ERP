@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { managesRole, type Actor } from '../../src/domain/auth.ts';
 import { checkMessage, checkReceiptOffer, isAudience, type CampaignEvent } from '../../src/domain/campaigns.ts';
 import { cleanName, planImport, type ImportPlan, type KnownCustomer } from '../../src/domain/customerImport.ts';
-import { isCustomerId, type Customer } from '../../src/domain/customers.ts';
+import { isCustomerId, searchCustomers, type Customer } from '../../src/domain/customers.ts';
 import { modulesFromEvents } from '../../src/domain/modules.ts';
 import { toLkMobile } from '../../src/domain/phone.ts';
 import { PULL_LIMIT, type ApiError, type SyncEvent } from '../../src/domain/sync.ts';
@@ -138,6 +138,26 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       return { customer: { ...customer, name } };
     },
 
+    /**
+     * A manager or the owner corrects a customer's mobile and name. Their id stays, so their sales
+     * and offers stay theirs. Returns how they were, so the screen can offer Undo.
+     */
+    async edit(device: Device, staffId: unknown, body: { id?: unknown; phone?: unknown; name?: unknown }) {
+      const actor = await who(device, staffId, 'manager');
+      if (!isCustomerId(body.id)) throw new CrmError(400, 'invalid_event', 'which customer?');
+      const phone = mobile(body.phone);
+      const { name } = cleanName(typeof body.name === 'string' ? body.name : null);
+      const before = (await customers.list(device.tenantId)).find((c) => c.id === body.id);
+      if (!before) throw new CrmError(404, 'server', 'no such customer');
+      const r = await customers.update(device.tenantId, before.id, phone, name, actor.id, now());
+      if (r === 'missing') throw new CrmError(404, 'server', 'no such customer');
+      if (r === 'taken') {
+        const other = await customers.byPhone(device.tenantId, phone);
+        throw new CrmError(409, 'invalid_event', `that number is on the list already${other?.name ? ` as ${other.name}` : ''}`);
+      }
+      return { customer: { ...before, phone, name }, before };
+    },
+
     /** Erased (the owner's, PDPA): gone from the list; returned so the screen can offer Undo. */
     async remove(device: Device, staffId: unknown, body: { id?: unknown }) {
       await who(device, staffId, 'owner');
@@ -166,6 +186,13 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       await who(device, staffId, 'counter');
       const c = await customers.byPhone(device.tenantId, mobile(body.phone));
       return { customer: c ? greeting(c) : null };
+    },
+
+    /** At Charge or on the order, a name typed instead of a mobile: who it may be (first names, last 3 digits). */
+    async search(device: Device, staffId: unknown, body: { q?: unknown }) {
+      await who(device, staffId, 'counter');
+      const q = typeof body.q === 'string' ? body.q.slice(0, 60) : '';
+      return { matches: searchCustomers(await customers.list(device.tenantId), q) };
     },
 
     /**

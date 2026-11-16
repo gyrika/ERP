@@ -15,6 +15,7 @@ import type { OrderType } from '../domain/types.ts';
 import { isPlatformId, platformLabel, type PlatformMark } from '../domain/platforms.ts';
 import { demoSnapshot } from '../fake/demo.ts';
 import { currentCashier, shopId } from '../services/auth.ts';
+import { toldName } from '../services/crmClient.ts';
 import { appendEvent, readAll } from './eventLog.ts';
 import { paidChanges } from '../domain/paidChanges.ts';
 import { isDemo, storageKey } from './storage.ts';
@@ -417,6 +418,8 @@ export function useRegister() {
     }
     // A customer put on the order earlier is the one paying, unless Charge was given a number now.
     customerId ??= order.customer?.id;
+    // Given at Charge: the order carries who it was (the first name this screen was told), for the list and the bill.
+    if (customerId && order.customer?.id !== customerId) order = { ...order, customer: { id: customerId, name: toldName(customerId) } };
     const parts = earlier.length ? [...earlier, { tender, amount: lastAmount, tendered: Math.max(tendered, lastAmount), at, units: Object.fromEntries(order.lines.map((l) => [l.id, unitsLeft(order, l)]).filter(([, n]) => (n as number) > 0)) }] : null;
     const main = parts ? parts.reduce((a, b) => (b.amount > a.amount ? b : a)) : null;
     const paid: PaidOrder = {

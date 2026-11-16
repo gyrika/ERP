@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   checkSegmentRules, crmSummary, customerStatsFromEvents, DEFAULT_SEGMENT_RULES, isCustomerId, purchaseHistory, segmentsOf,
-  visitsFromEvents, type SegmentRules, type Visit,
+  searchCustomers, visitsFromEvents, type SegmentRules, type Visit,
 } from './customers.ts';
 import type { SyncEvent } from './sync.ts';
 import type { OrderLine } from './types.ts';
@@ -154,4 +154,20 @@ test('summary: totals, new this month by first purchase, repeat rate, top spende
   assert.deepEqual(s.bySegment, { new: 1, regular: 1, vip: 0, inactive: 2 });
   assert.deepEqual(s.top.map((t) => [t.customerId, t.spent]), [[RUWAN, 900000], [KASUN, 580000]]);
   assert.equal(crmSummary([], new Map(), DEFAULT_SEGMENT_RULES, NOW).repeatRate, null);
+});
+
+test('a name finds customers: every word starts a word of the name, starts-with first, first name and last 3 digits only', () => {
+  const c = (id: string, name: string | null, phone: string) => ({ id, name, phone, source: 'pos' as const, optedOut: false, createdAt: 0 });
+  const list = [
+    c('cus-1', 'Nimal Kasun', '+94770000001'), c('cus-2', 'Kasun Perera', '+94771234567'), c('cus-3', 'Kasuni Silva', '+94770000333'),
+    c('cus-4', null, '+94770000004'), c('cus-5', 'Dilani', '+94770000005'),
+  ];
+  assert.deepEqual(searchCustomers(list, 'kas'), [
+    { id: 'cus-2', name: 'Kasun', ends: '567' }, { id: 'cus-3', name: 'Kasuni', ends: '333' }, { id: 'cus-1', name: 'Nimal', ends: '001' },
+  ]);
+  assert.deepEqual(searchCustomers(list, ' kas per ').map((m) => m.id), ['cus-2']);
+  assert.deepEqual(searchCustomers(list, 'k'), [], 'one letter is too few');
+  assert.deepEqual(searchCustomers(list, '0770'), [], 'a number is not a name');
+  assert.deepEqual(searchCustomers(list, 'zz'), []);
+  assert.equal(searchCustomers(list, 'kas', 2).length, 2);
 });
