@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { QrCode } from './QrCode.tsx';
 import { RECEIPT_WIDTH, changedBill, receipt, type ChangeBlock, type ReceiptLine } from '../domain/receipt.ts';
 import { RECEIPT_LOGO } from '../domain/receiptLogo.ts';
-import { COMB } from '../domain/receiptComb.ts';
 import { billLineOf } from '../domain/billExtras.ts';
 import { readAll } from './eventLog.ts';
 import { totals } from '../domain/totals.ts';
@@ -59,14 +58,14 @@ function Paper({ lines, label }: { lines: ReceiptLine[]; label: string }) {
           {/* The printer draws the QR code itself; here the same code, so a phone can try it. */}
           {l.qr && <span className="paper__qrcode"><QrCode text={l.qr} label={`QR code: ${l.qr}`} size={96} /></span>}
           {l.logo ? <PaperBits dots={RECEIPT_LOGO} label={`${l.text} logo`} className="paper__logo" />
-            : l.comb ? <PaperBits dots={COMB} label="Honeycomb line" className="paper__comb" /> : (l.text || ' ')}
+            : (l.text || ' ')}
         </div>
       ))}
     </figure>
   );
 }
 
-/** A picture drawn from the very dots the printer gets (the logo, the honeycomb), so the preview shows the paper. */
+/** A picture drawn from the very dots the printer gets (the logo), so the preview shows the paper. */
 function PaperBits({ dots, label, className }: { dots: { width: number; height: number; bits: string }; label: string; className: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {

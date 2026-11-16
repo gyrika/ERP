@@ -4,7 +4,7 @@ import type { SyncEvent } from './sync.ts';
 
 /**
  * What makes the bill worth keeping (SCRUM-256): the owner's line of the day, how fast the kitchen
- * made this order, and the honeycomb strip that stands in for the dashed rules.
+ * made this order.
  */
 
 /**

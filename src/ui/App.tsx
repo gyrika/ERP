@@ -24,7 +24,7 @@ import type { OnlineOrder } from '../domain/online.ts';
 import { Menu, menuTabs, type CategoryId } from './Menu.tsx';
 import { OrderPanel, VOID_REASONS, orderSummary, type ManagePanel } from './OrderPanel.tsx';
 import { kitchenWord, railRows } from './OrdersRail.tsx';
-import { BillHistory } from './BillHistory.tsx';
+import { BillHistory, salesToday } from './BillHistory.tsx';
 import { ActionBar, type BarAction } from './ActionBar.tsx';
 import { kitchenScreenOn, setKitchenScreen } from './kitchenScreen.ts';
 import { label } from './labels.ts';
@@ -156,7 +156,7 @@ export function App({
   const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
     // Made and waiting: whoever pays for it is taking it (SCRUM-240). No kitchen screen: nothing to
     // wait for, so it goes with the payment and is handed over at once.
-    const paid = reg.pay(tender, tendered, customerId, unlinked, !kitchenOn || kitchenWord(reg.order, tickets) === 'Ready', !kitchenOn);
+    const paid = reg.pay(tender, tendered, customerId, unlinked, false, !kitchenOn);
     // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
     if (paid && !isPlatformId(tender)) print(paid);
   }, [reg, print, tickets, kitchenOn]);
@@ -614,10 +614,12 @@ export function App({
           // A held bill opened on the right stays on the list, marked; only a new bill not yet held is left off.
           held={rows.filter((r) => reg.paid || reg.onList || r.order.number !== reg.order.number)}
           paidToday={seesTakings(currentCashier().role) || !onSwitch ? reg.paidToday : []}
+          sales={salesToday(reg.paidToday)}
           tickets={tickets}
           kitchenOn={kitchenOn}
           current={{ number: (reg.paid ?? reg.order).number, paidAt: reg.paid?.paidAt }}
           onOpen={reg.openOrder}
+          onGive={(n) => reg.give(n)}
         />
         <main className="menu" data-keyarea>
           {manager ? null : typed !== null ? (
@@ -679,7 +681,7 @@ export function App({
               closeSheet();
             },
             onPayPart: (tender, tendered, pick, customerId, unlinked) => {
-              const r = reg.payPart(tender, tendered, pick, customerId, unlinked, !kitchenOn || kitchenWord(reg.order, tickets) === 'Ready', !kitchenOn);
+              const r = reg.payPart(tender, tendered, pick, customerId, unlinked, false, !kitchenOn);
               if (r?.kind === 'paid') { print(r.paid); closeSheet(); return; }
               if (r && canPrint()) {
                 const lines = reg.order.lines.filter((l) => r.units[l.id]).map((l) => `${r.units[l.id]} x ${lineItemName(l)}`);

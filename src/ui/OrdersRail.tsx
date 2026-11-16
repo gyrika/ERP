@@ -34,7 +34,7 @@ export const readyFor = (o: Order, tickets: KitchenTicket[], now: number): RailR
 /**
  * Every order still going (SCRUM-239), by number so a row never moves: the one on screen, every
  * order not paid (sent or not), and every order paid today that the customer does not have yet.
- * An order leaves once paid and given (SCRUM-240).
+ * A paid order stays, ticked once given (SCRUM-258).
  */
 export const railRows = (
   onScreen: Order, paidOnScreen: PaidOrder | null, open: Order[], paidToday: PaidOrder[], tickets: KitchenTicket[], now: number,
@@ -44,8 +44,8 @@ export const railRows = (
     const kitchen = kitchenWord(order, tickets);
     return { order, paid, kitchen, ...(kitchen === 'Ready' ? { ready: readyFor(order, tickets, now) } : {}) };
   };
-  // Paid: listed until the customer has it (SCRUM-240).
-  for (const p of paidToday) if (p.givenAt === undefined && !rows.has(p.number)) rows.set(p.number, row(p, true));
+  // Paid: listed all day; the cashier ticks it once the customer has it, and it stays, ticked (SCRUM-258).
+  for (const p of paidToday) if (!rows.has(p.number)) rows.set(p.number, row(p, true));
   for (const o of open) rows.set(o.number, row(o, false));
   if (!paidOnScreen && onScreen.lines.length) rows.set(onScreen.number, row(onScreen, false));
   return [...rows.values()].sort((a, b) => a.order.number - b.order.number);
