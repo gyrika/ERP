@@ -432,6 +432,7 @@ export function useRegister() {
     appendEvent({
       type: 'order.paid', at: paid.paidAt, actor: currentCashier(), orderNumber: paid.number, total, tender: paid.tender, tendered: paid.tendered,
       ...(customerId ? { customerId } : {}),
+      ...(order.delivery?.fee ? { deliveryFee: order.delivery.fee } : {}),
       ...(parts ? { parts: parts.map((p) => ({ tender: p.tender, amount: p.amount, tendered: p.tendered })) } : {}),
     });
     if (paid.givenAt === at) appendEvent({ type: 'order.given', at, actor: currentCashier(), orderNumber: paid.number });
@@ -694,7 +695,14 @@ export function useRegister() {
     const s = ensureOpen(ref.current);
     if (orderTypeOf(s.order) === type) return;
     const { dineIn: _d, delivery: _v, ...rest } = s.order;
-    show(() => withOrder(s, type === 'dineIn' ? { ...rest, dineIn: true } : type === 'delivery' ? { ...rest, delivery: true } : rest));
+    show(() => withOrder(s, type === 'dineIn' ? { ...rest, dineIn: true } : type === 'delivery' ? { ...rest, delivery: { fee: 0 } } : rest));
+  }, [show]);
+
+  /** The fee the cashier typed for a counter delivery (not yet paid), in cents. */
+  const setDeliveryFee = useCallback((fee: Cents) => {
+    const s = ensureOpen(ref.current);
+    if (!s.order.delivery || s.order.delivery.fee === fee) return;
+    show(() => withOrder(s, { ...s.order, delivery: { fee: Math.max(0, Math.round(fee)) } }));
   }, [show]);
 
   /**
@@ -750,6 +758,6 @@ export function useRegister() {
     canUndoManager: () => managerStack.current.length > 0,
     /** The number the next order (or accepted online order) gets. */
     nextNumber: snap.nextNumber,
-    addSpec, addSpecs, editLine, dropLine, dropBox, clear, setOrderType, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
+    addSpec, addSpecs, editLine, dropLine, dropBox, clear, setOrderType, setDeliveryFee, changeSent, settle, send, give, acceptOnline, setPlatform, setCustomer, pay, payPart, manage, undoManager, endManagerSession, openOrder, startNew, undo,
   };
 }

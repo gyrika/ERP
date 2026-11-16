@@ -45,7 +45,7 @@ export type OrderEvent =
    * over. They add up to `total`; `tender`/`tendered` are then the part that took the most money,
    * for readers that know one tender only.
    */
-  | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents; customerId?: string; parts?: PaidPart[] })
+  | (Base & { type: 'order.paid'; total: Cents; tender: Tender; tendered: Cents; customerId?: string; parts?: PaidPart[]; deliveryFee?: Cents })
   | (Base & { type: 'order.payment_undone' })
   /**
    * A paid order changed afterwards (SCRUM-242) and the difference settled: `amount` > 0 the

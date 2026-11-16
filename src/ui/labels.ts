@@ -18,6 +18,7 @@ export const LABELS = {
   takeAway: { en: 'Take away', si: '', ta: '' },
   dineIn: { en: 'Dine in', si: '', ta: '' },
   orderType: { en: 'Order type', si: '', ta: '' },
+  deliveryFee: { en: 'Delivery fee', si: '', ta: '' },
   heldBills: { en: 'Held bills', si: '', ta: '' },
   item: { en: 'Item', si: '', ta: '' },
   qty: { en: 'Qty', si: '', ta: '' },

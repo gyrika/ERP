@@ -196,6 +196,8 @@ interface Props {
   onGiveBack?: (how: Tender) => void;
   /** Take away / Dine in / Delivery. */
   onOrderType: (type: OrderType) => void;
+  /** The fee for a counter delivery, as the cashier types it (cents). */
+  onDeliveryFee: (fee: Cents) => void;
   /** The receipt of the paid order on screen; null when this device does not print. */
   printState?: 'printing' | 'printed' | 'failed' | null;
   /** Prints a COPY, without opening the drawer. Absent when this device does not print. */
@@ -240,7 +242,7 @@ const dateTime = (at: number) => new Date(at).toLocaleString([], { day: 'numeric
  */
 export function OrderPanel({
   order, tickets, paid, justPaid = false, onGive, now, manage, selected, onSelect, onEdit, onStep, onRemove, onClearPlatform,
-  onUndo, onGiveBack, onOrderType, printState, onReprint, paying, extras, customerBar, edits = [],
+  onUndo, onGiveBack, onOrderType, onDeliveryFee, printState, onReprint, paying, extras, customerBar, edits = [],
 }: Props) {
   const editOf = new Map(edits.map((e) => [e.lineId, e]));
   const panelClass = `panel${manage ? ' panel--managing' : ''}`;
@@ -491,7 +493,19 @@ export function OrderPanel({
       <dl className="sums num">
         <div><dt>{label('subtotal')}</dt><dd>{fmt(t.subtotal)}</dd></div>
         <div><dt>{label('discount')}{discount && t.orderDiscount > 0 ? ` · ${discountLabel(discount)}` : ''}</dt><dd>{off > 0 ? `−${fmt(off)}` : fmt(0)}</dd></div>
-        {t.deliveryFee > 0 && <div><dt>{label('delivery')}</dt><dd>+{fmt(t.deliveryFee)}</dd></div>}
+        {order.delivery && !paid
+          ? (
+            <div className="sums__fee">
+              <dt><label htmlFor="delivery-fee">{label('deliveryFee')}</label></dt>
+              <dd>
+                <input id="delivery-fee" className="sums__feein num" inputMode="numeric" autoComplete="off" placeholder="0"
+                  value={order.delivery.fee ? String(order.delivery.fee / 100) : ''}
+                  onChange={(e) => onDeliveryFee(Number(e.target.value.replace(/\D/g, '').slice(0, 6) || 0) * 100)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur(); }} />
+              </dd>
+            </div>
+          )
+          : t.deliveryFee > 0 && <div><dt>{label('delivery')}</dt><dd>+{fmt(t.deliveryFee)}</dd></div>}
         <div className="sums__net"><dt>{label('netAmount')}</dt><dd className="total">{fmt(orderTotal(shown))}</dd></div>
         {/* Changed after paying (SCRUM-253): what was paid, and what is left either way. */}
         {paid && (due !== 0 || paid.settled !== undefined) && (

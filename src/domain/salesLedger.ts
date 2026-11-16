@@ -117,7 +117,8 @@ export const saleFrom = (
   paid: Extract<OrderEvent, { type: 'order.paid' }>,
   orderEvents: readonly OrderEvent[],
 ): SaleRow => {
-  const { lines, online, deliveryFee } = orderLinesFrom(orderEvents);
+  const { lines, online, deliveryFee: onlineFee } = orderLinesFrom(orderEvents);
+  const deliveryFee = paid.deliveryFee ?? onlineFee; // a counter delivery's fee rides on its payment
   const items = lines.map((l, i): SaleItemRow => {
     const n = nameOf(l.itemId);
     const unitPrice = l.unit ?? 0;

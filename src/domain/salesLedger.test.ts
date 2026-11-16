@@ -50,6 +50,14 @@ test('a sale: one row per payment, its items named, the discount is what the tot
   assert.equal(sale.items.reduce((s, i) => s + i.lineTotal, 0) - sale.discount, sale.total, 'items less discount = total, to the cent');
 });
 
+test("a counter delivery's fee rides on its payment: in the total, not counted as a discount", () => {
+  const sale = saleFrom({ ...base('p1'), type: 'order.paid', total: 120000, tender: 'cash', tendered: 120000, deliveryFee: 25000 }, [sent('e1', 't1', [burger])]);
+  assert.equal(sale.subtotal, 95000);
+  assert.equal(sale.discount, 0);
+  assert.equal(sale.total, 120000);
+  assert.equal(sale.online, false);
+});
+
 test('an online order is marked; a transfer gives no change', () => {
   const online: OrderEvent = { ...base('e1'), type: 'order.sent', ticketId: 't1', lines: [burger], addOn: false, online: { pickupBy: 2000 } };
   const sale = saleFrom({ ...base('p1'), type: 'order.paid', total: 95000, tender: 'transfer', tendered: 95000 }, [online]);

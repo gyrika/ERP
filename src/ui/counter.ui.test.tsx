@@ -153,6 +153,19 @@ test('Delivery is the third order type: shown on Held bills, kept when reopened,
   expect(panel().getByRole('radio', { name: 'Take away' }).getAttribute('aria-checked')).toBe('true');
 });
 
+test('Delivery asks for its fee in the bill: typed rupees go into NET AMOUNT; Take away takes it off', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await margherita(user);
+  expect(panel().queryByLabelText('Delivery fee')).toBeNull();
+  await user.click(panel().getByRole('radio', { name: 'Delivery' }));
+  await user.type(panel().getByLabelText('Delivery fee'), '250');
+  expect(net()).toBe('1,700');
+  await user.click(panel().getByRole('radio', { name: 'Take away' }));
+  expect(panel().queryByLabelText('Delivery fee')).toBeNull();
+  expect(net()).toBe('1,450');
+});
+
 test('NEW BILL (F6) after a sale starts the next number; with items on the bill it holds them, nothing is lost', async () => {
   const user = userEvent.setup();
   render(<App />);

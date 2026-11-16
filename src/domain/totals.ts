@@ -38,7 +38,7 @@ export const totals = (order: Order): Totals => {
   const subtotal = order.lines.reduce((s, l) => s + lineGross(l), 0);
   const lineAdjust = order.lines.reduce((s, l) => s + lineAdjustment(order, l), 0);
   const orderDiscount = discountAmount(subtotal - lineAdjust, order.adjust?.discount);
-  const deliveryFee = order.adjust?.discount?.kind === 'comp' ? 0 : (order.online?.delivery?.fee ?? 0);
+  const deliveryFee = order.adjust?.discount?.kind === 'comp' ? 0 : (order.online?.delivery?.fee ?? order.delivery?.fee ?? 0);
   return { subtotal, lineAdjust, orderDiscount, deliveryFee, total: subtotal - lineAdjust - orderDiscount + deliveryFee };
 };
 
