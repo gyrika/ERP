@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { billLineOf, checkBillLine, madeInMinutes } from './billExtras.ts';
-import { COMB, combBitmap } from './receiptComb.ts';
 import { escpos, receipt, receiptText } from './receipt.ts';
 import type { SyncEvent } from './sync.ts';
 import type { PaidOrder } from './types.ts';
@@ -37,20 +36,12 @@ test('made in: Send to Done of the order, rounded up, the slowest ticket; none w
   assert.equal(madeInMinutes([sent('t1', at - 7 * 60 * MIN), done('t1', at - 7 * 60 * MIN + 5 * MIN)], 1001, at), null, 'an earlier day with the same number');
 });
 
-test('the honeycomb strip: the full 72 mm, some dots black, printed where the dashes were', () => {
-  const { width, height, bits } = combBitmap();
-  assert.equal(width, 576);
-  assert.equal(height, 18);
-  const raw = atob(bits);
-  assert.equal(raw.length, (width / 8) * height);
-  assert.ok([...raw].some((c) => c.charCodeAt(0) !== 0));
+test('the rules print as dashes, not a picture (SCRUM-259)', () => {
   const paid = { number: 1001, lines: [{ id: 'a', itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] }], total: 145000, tender: 'cash', tendered: 145000, change: 0, paidAt: 0 } as PaidOrder;
   const lines = receipt(paid, { cashier: 'Kasun' });
-  assert.ok(lines.filter((l) => l.comb).length >= 3);
+  assert.ok(lines.filter((l) => /^-{20,}$/.test(l.text)).length >= 3);
   const bytes = Buffer.from(escpos(lines));
-  // GS v 0 with the strip's row width (72 bytes) and height (18).
-  assert.ok(bytes.includes(Buffer.from([0x1d, 0x76, 0x30, 0x00, 72, 0, 18, 0])));
-  assert.equal(COMB.width, 576);
+  assert.ok(bytes.includes(Buffer.from('-'.repeat(20))));
 });
 
 test('the bill: MADE FRESH IN 9 MIN in a black band, then the owner\'s line; neither when absent', () => {
