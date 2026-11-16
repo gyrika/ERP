@@ -41,7 +41,7 @@ const net = () => screen.getByRole('complementary', { name: 'Current order' }).q
 test('every action is on the bar with its words and its key; Send to kitchen only with the Kitchen view on', () => {
   const { unmount } = render(<App />);
   const keys: [string, string][] = [
-    ['Pay', 'F2'], ['Void item', 'F4'], ['Clear bill', 'F5'], ['New bill', 'F6'], ['Hold', 'F7'], ['Print last bill', 'F8'],
+    ['Pay', 'F2'], ['Void item', 'F4'], ['Clear bill', 'F5'], ['New bill', 'F6'], ['Print last bill', 'F8'],
   ];
   for (const [name, key] of keys) {
     expect(btn(name).tagName).toBe('BUTTON');
@@ -56,14 +56,14 @@ test('every action is on the bar with its words and its key; Send to kitchen onl
   expect(btn('Send to kitchen').getAttribute('aria-keyshortcuts')).toBe('F3');
 });
 
-test('an empty bill: PAY, Void, Clear, Hold and New bill are greyed, not hidden', async () => {
+test('an empty bill: PAY, Void, Clear and New bill are greyed, not hidden', async () => {
   const user = userEvent.setup();
   render(<App />);
-  for (const name of ['Pay', 'Void item', 'Clear bill', 'Hold', 'New bill', 'Print last bill']) expect(btn(name).disabled).toBe(true);
+  for (const name of ['Pay', 'Void item', 'Clear bill', 'New bill', 'Print last bill']) expect(btn(name).disabled).toBe(true);
   await user.keyboard('{F2}'); // the key does nothing either
   expect(screen.queryByText('Paying')).toBeNull();
   await margherita(user);
-  for (const name of ['Pay', 'Void item', 'Clear bill', 'Hold', 'New bill']) expect(btn(name).disabled).toBe(false);
+  for (const name of ['Pay', 'Void item', 'Clear bill', 'New bill']) expect(btn(name).disabled).toBe(false);
 });
 
 test('PAY (F2): the payment opens in the bill; exact cash pays; with no Kitchen view the order goes out with it and is handed over', async () => {
@@ -118,20 +118,23 @@ test('CLEAR BILL (F5) empties the bill at once, with Undo; no dialog', async () 
   expect(panel().queryByText('Chicken Burger')).toBeNull();
 });
 
-test('HOLD (F7) puts the bill on Held bills with its number and order type; one tap brings it back', async () => {
+test('NEW BILL puts the bill on Held bills with its number and order type, with Undo; one tap brings it back', async () => {
   const user = userEvent.setup();
   render(<App />);
+  expect(screen.queryByRole('button', { name: /^Hold/ })).toBeNull(); // one button for it (SCRUM-249)
   await margherita(user);
   await user.click(panel().getByRole('radio', { name: 'Dine in' }));
-  await user.click(btn('Hold'));
+  await user.click(btn('New bill'));
   expect(panel().queryByText('Margherita')).toBeNull();
   expect(heldCount(1)).toBeTruthy();
   expect(panel().getByRole('radio', { name: 'Take away' }).getAttribute('aria-checked')).toBe('true'); // the next bill starts as take away
   await user.click(heldList().getByRole('button', { name: /^1001.*Dine in/ }));
   expect(panel().getByText('Margherita')).toBeTruthy();
   expect(panel().getByRole('radio', { name: 'Dine in' }).getAttribute('aria-checked')).toBe('true');
-  await user.keyboard('{F7}');
+  await user.keyboard('{F6}');
   expect(heldCount(1)).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(panel().getByText('Margherita')).toBeTruthy();
 });
 
 test('NEW BILL (F6) after a sale starts the next number; with items on the bill it holds them, nothing is lost', async () => {
@@ -258,7 +261,7 @@ test('order history on the left: held bills and paid today always in sight, one 
   await user.click(btn('Pay'));
   await user.click(screen.getByRole('button', { name: '2,000' })); // 1001 paid, change 550
   await burger(user);
-  await user.click(btn('Hold')); // 1002 held
+  await user.click(btn('New bill')); // 1002 held
   expect(history.getByRole('heading', { name: 'Held bills · 1' })).toBeTruthy();
   const paidToday = within(history.getByRole('region', { name: 'Paid today' }));
   expect(paidToday.getByRole('button', { name: /^1001.*Margherita.*Paid · Cash/ })).toBeTruthy();

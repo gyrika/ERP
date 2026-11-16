@@ -14,7 +14,7 @@ change, whole-cent money and the offline save all work as before.
   a table of lines (Item + extras, Qty − / +, Price, Total, ✕) with the selected
   line highlighted; Subtotal, Discount, NET AMOUNT.
 - **Bottom bar, always visible:** PAY F2 · SEND TO KITCHEN F3 · VOID ITEM F4 · CLEAR BILL F5 · NEW BILL F6 ·
-  HOLD F7 · PRINT LAST BILL F8. A button that cannot be used now is greyed, never hidden.
+  PRINT LAST BILL F8. A button that cannot be used now is greyed, never hidden.
 
 ## What moved where
 
@@ -27,7 +27,7 @@ change, whole-cent money and the offline save all work as before.
 | Given (made order waiting) | **Given** button in the bill header |
 | Remove a line: tap it, then Remove; − / + only on the last line | **✕** on every row, **VOID ITEM** (F4) or Delete on the selected line; − / + on every unsent line; + / − keys |
 | Clear the order: remove lines one by one | **CLEAR BILL** (F5), instant, with Undo |
-| Leave an order for later: Esc | **HOLD** (F7), with Undo |
+| Leave an order for later: Esc | **NEW BILL** (F6, or Esc): the bill goes to Held bills, with Undo. HOLD (F7) was removed as the same thing (SCRUM-249) |
 | Print again: only on the paid bill | **PRINT LAST BILL** (F8), from any bill |
 | "Type an order…" button, or just start typing | The search field is always there; typing anywhere still opens it |
 | ••• More: Receive, Manager, Uber Eats, Voice | All on the top bar by name |
