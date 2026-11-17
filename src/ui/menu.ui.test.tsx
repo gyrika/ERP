@@ -245,9 +245,9 @@ test('the owner renames Burgers and moves it first; Undo puts the printed name b
   await user.click(await screen.findByRole('button', { name: 'Burgers' }));
   await user.click(screen.getByRole('button', { name: 'Change the Burgers section' }));
   const sheet = within(screen.getByRole('dialog', { name: 'Section Burgers' }));
-  expect(sheet.queryByRole('checkbox', { name: /Hide this section/ })).toBeNull(); // printed sections stay
+  expect(sheet.getByRole('checkbox', { name: /Hide this section/ })).toBeTruthy(); // printed sections hide too
   await user.click(sheet.getByRole('button', { name: 'Move earlier' }));
-  expect(sheet.getByText('1 of 3')).toBeTruthy();
+  expect(sheet.getByText('1 of 4')).toBeTruthy();
   await user.type(sheet.getByLabelText('English'), 'Burgers & Subs');
   await user.click(sheet.getByRole('button', { name: 'Save' }));
   const tabs = within(screen.getByRole('navigation', { name: 'Menu sections' })).getAllByRole('button').map((b) => b.textContent);
@@ -256,6 +256,37 @@ test('the owner renames Burgers and moves it first; Undo puts the printed name b
   // Undo the rename: back to as printed.
   await user.click(within(screen.getByRole('status')).getByRole('button', { name: 'Undo' }));
   expect(screen.getByRole('button', { name: 'Burgers' })).toBeTruthy();
+});
+
+test('the owner moves a dish to another section, then deletes the section it left; Undo brings it back', async () => {
+  const user = userEvent.setup();
+  history.replaceState(null, '', '/#menu');
+  render(<Root />);
+  const tabs = () => within(screen.getByRole('navigation', { name: 'Menu sections' })).getAllByRole('button').map((b) => b.textContent);
+
+  // Italian Pasta goes to Drinks (an odd place, but his to choose).
+  await user.click(await screen.findByRole('button', { name: 'Pasta' }));
+  await user.click(screen.getByRole('button', { name: 'Change Italian Pasta' }));
+  const sheet = within(screen.getByRole('dialog', { name: 'Change Italian Pasta' }));
+  await user.click(sheet.getByRole('radio', { name: 'Drinks' }));
+  expect(sheet.getByText(/the kitchen times it as Drinks/)).toBeTruthy();
+  await user.click(sheet.getByRole('button', { name: 'Save' }));
+  expect(screen.getByRole('status').textContent).toContain('Moved Italian Pasta to Drinks');
+  expect(readAll().find((x) => x.type === 'menu.item_set')).toMatchObject({ itemId: 'italian-pasta', after: { category: 'drinks' } });
+  expect(screen.getByText('Nothing in Pasta yet. Add its first dish.')).toBeTruthy();
+
+  // Pasta is empty now: delete it.
+  await user.click(screen.getByRole('button', { name: 'Change the Pasta section' }));
+  const pasta = within(screen.getByRole('dialog', { name: 'Section Pasta' }));
+  expect(pasta.getByText('It has no dishes on offer.')).toBeTruthy();
+  await user.click(pasta.getByRole('button', { name: 'Delete section' }));
+  expect(screen.getByRole('status').textContent).toContain('Deleted Pasta');
+  expect(tabs()).not.toContain('Pasta');
+  await user.click(screen.getByRole('button', { name: 'Drinks' }));
+  expect(screen.getByRole('button', { name: 'Change Italian Pasta' })).toBeTruthy();
+
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(tabs()).toContain('Pasta');
 });
 
 // These tests are about the kitchen flow: the Kitchen view on (it is off on a new counter).

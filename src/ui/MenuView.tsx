@@ -425,6 +425,7 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
     Object.fromEntries(item.variants ? item.variants.map((v) => [v.id, String(v.price / 100)]) : [['one', String((item.price ?? 0) / 100)]]));
   const [adds, setAdds] = useState<Record<string, string>>(() => Object.fromEntries(item.adds.map((a) => [a.id, String(a.price / 100)])));
   const [hidden, setHidden] = useState(Boolean(item.hidden));
+  const [category, setCategory] = useState<Category>(item.category);
   const [error, setError] = useState('');
   /** A photo change is made at once (not on Save), with its own Undo. */
   const [photoNote, setPhotoNote] = useState<{ message: string; undo: string | null } | null>(null);
@@ -459,7 +460,9 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
     }
     if (Object.keys(a).length) o.adds = a;
     if (hidden) o.hidden = true;
-    return checkOverride(base, o) ?? o;
+    if (category !== base.category) o.category = category;
+    const bad = checkOverride(base, o, menuSections());
+    return bad ? `${bad[0].toUpperCase()}${bad.slice(1)}.` : o;
   };
 
   const save = (e: FormEvent) => {
@@ -467,7 +470,9 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
     const o = build();
     if (typeof o === 'string') { setError(o); return; }
     const before = record(item.id, o);
-    onSaved(`Saved ${en.trim() || base.name.en}`, () => record(item.id, before));
+    const name = en.trim() || base.name.en;
+    const to = category !== item.category ? sectionById(category)?.label : undefined;
+    onSaved(to ? `Moved ${name} to ${to}` : `Saved ${name}`, () => record(item.id, before));
   };
 
   return (
@@ -544,6 +549,21 @@ function Editor({ item, onSaved, onClose }: { item: MenuItem; onSaved: (message:
           )}
 
           <section className="group">
+            <h2>Section</h2>
+            <div className="cats" role="radiogroup" aria-label="Section">
+              {menuSections().filter((s) => !s.removed || s.id === category).map((s) => (
+                <button key={s.id} type="button" role="radio" className="pill" aria-checked={category === s.id} aria-pressed={category === s.id}
+                  onClick={() => { setCategory(s.id); setError(''); }}>
+                  {s.label}{s.hidden ? ' (hidden)' : ''}
+                </button>
+              ))}
+            </div>
+            {category !== item.category && (
+              <p className="menued__note">Its sizes and extras go with it; the kitchen times it as {sectionById(category)?.label}.</p>
+            )}
+          </section>
+
+          <section className="group">
             <label className="menued__check">
               <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
               Hide from the menu <span>(the counter and cheesybeez.com stop offering it; old orders keep it)</span>
@@ -566,15 +586,17 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
   /** His own sections (SCRUM-241): new (null) or one to change. */
   const [sectionEdit, setSectionEdit] = useState<{ section: Section | null } | null>(null);
   // Managers see the sections on offer; the owner sees his hidden ones too, to bring them back.
-  const sections = menuSections().filter((s) => owner || !s.hidden);
+  // A deleted section is gone from here (its Undo is on the toast).
+  const sections = menuSections().filter((s) => !s.removed && (owner || !s.hidden));
   /** Combo packs (SCRUM-231): managers and the owner make them. */
   const mayCombos = owner || managesRole(currentCashier().role);
   const [comboEdit, setComboEdit] = useState<{ id: string | null; combo: Combo | null } | null>(null);
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<{ id: number; message: string; undo: () => void } | null>(null);
-  const items = menuItems().filter((m) => m.category === section && !m.removed);
-  const here = sectionById(section) ?? sections[0];
+  /** The section shown: the one picked, or the first one left when it was deleted. */
+  const here: Section | undefined = sections.find((s) => s.id === section) ?? sections[0];
+  const items = here ? menuItems().filter((m) => m.category === here.id && !m.removed) : [];
   const costs = useCostContext();
   const [writing, setWriting] = useState<MenuItem | null>(null);
 
@@ -599,7 +621,7 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
         </p>
         <nav className="cats" aria-label="Menu sections">
           {sections.map((s) => (
-            <button key={s.id} type="button" className={`pill${s.hidden ? ' pill--hidden' : ''}`} aria-pressed={section === s.id} onClick={() => setSection(s.id)}>
+            <button key={s.id} type="button" className={`pill${s.hidden ? ' pill--hidden' : ''}`} aria-pressed={section !== 'combos' && here?.id === s.id} onClick={() => setSection(s.id)}>
               {s.label}{s.hidden ? ' (hidden)' : ''}
             </button>
           ))}
@@ -680,17 +702,20 @@ export function MenuView({ owner, onBack }: { owner: boolean; onBack: () => void
             </li>
           ))}
         </ul>}
-        {section !== 'combos' && items.length === 0 && (
+        {section !== 'combos' && here && items.length === 0 && (
           <p className="menuv__lead">Nothing in {here.label} yet.{owner ? ' Add its first dish.' : ''}</p>
         )}
-        {owner && section !== 'combos' && (
+        {section !== 'combos' && !here && (
+          <p className="menuv__lead">No sections.{owner ? ' Add one with + Section.' : ''}</p>
+        )}
+        {owner && section !== 'combos' && here && (
           <div className="menuv__actions">
             <button type="button" className="chip menuv__add" onClick={() => setAdding(true)}>+ {addWords(here)}</button>
             <button type="button" className="chip menuv__add" onClick={() => setSectionEdit({ section: here })} aria-label={`Change the ${here.label} section`}>Change section</button>
           </div>
         )}
       </main>
-      {adding && <AddDish section={here} ctx={costs} onClose={() => setAdding(false)} onSaved={(msg, undo) => { setAdding(false); said(msg, undo); }} />}
+      {adding && here && <AddDish section={here} ctx={costs} onClose={() => setAdding(false)} onSaved={(msg, undo) => { setAdding(false); said(msg, undo); }} />}
       {writing && <WriteRecipe item={writing} ctx={costs} onClose={() => setWriting(null)} onSaved={(msg, undo) => { setWriting(null); said(msg, undo); }} />}
       {editing && <Editor item={editing} onClose={() => setEditing(null)} onSaved={(msg, undo) => { setEditing(null); said(msg, undo); }} />}
       {comboEdit && (

@@ -21,7 +21,7 @@ test('a quiet shop: every part says what is there, nothing has a badge', () => {
   const parts = ownerParts([], NOW);
   assert.equal(parts.owner.preview, 'No sales yet today');
   assert.equal(parts.count.preview, 'Nothing counted today');
-  assert.equal(parts.items.preview, '3 dishes without a recipe'); // Sausages, BBQ Pork, Italian Pasta
+  assert.equal(parts.items.preview, '8 dishes without a recipe'); // Sausages, BBQ Pork, Italian Pasta, the five drinks
   assert.equal(parts.order.preview, 'Nothing to order');
   assert.equal(parts.receive.preview, 'No deliveries expected');
   assert.equal(parts.sell.preview, 'The register');

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { menuSections, menuState } from '../domain/menu.ts';
+import { menuItems, menuSections, menuState } from '../domain/menu.ts';
 import {
   checkSection, CUSTOM_SIZE_IDS, moveSection, NEW_SECTION_MINUTES, newSectionId, PRINTED_COOK_MINUTES, PRINTED_SECTIONS,
   type Section, type SectionSetting,
@@ -13,7 +13,8 @@ import { NumberInput } from './NumberInput.tsx';
  * A menu section, new or his own or printed (SCRUM-241). Serves the owner: he knows what he sells
  * and wants a place for it on the counter. The single next thing: name it, say how it is priced,
  * save. Every change is one `menu.section_set` (Undo on the Menu screen); moving is one
- * `menu.sections_ordered`, made at once with its own Undo, so he can step it along.
+ * `menu.sections_ordered`, made at once with its own Undo, so he can step it along. Any section can
+ * be hidden or deleted, printed ones too; a dish he wants to keep is moved first (its Change sheet).
  */
 
 export const saveSection = (id: string, after: SectionSetting | null): SectionSetting | null => {
@@ -79,7 +80,7 @@ export function SectionSheet({ section, onSaved, onClose }: {
       if (m !== PRINTED_COOK_MINUTES[printed.id]) s.cookMinutes = m;
     } else s.cookMinutes = m;
     if (!section?.printed && sized) s.sizes = sizes.map((label, i) => ({ id: CUSTOM_SIZE_IDS[i], label: clean(label) }));
-    if (!section?.printed && hidden) s.hidden = true;
+    if (hidden) s.hidden = true;
     const id = section?.id ?? 'sec-new';
     const bad = checkSection(id, s, was);
     if (bad) return `${bad[0].toUpperCase()}${bad.slice(1)}.`;
@@ -103,6 +104,13 @@ export function SectionSheet({ section, onSaved, onClose }: {
   };
 
   const title = section ? section.label : 'New section';
+  /** Its dishes on offer: they go off the menu with it. */
+  const dishes = section ? menuItems().filter((m) => m.category === section.id && !m.removed && !m.hidden).length : 0;
+  const remove = () => {
+    if (!section) return;
+    const before = saveSection(section.id, { ...(was ?? {}), removed: true });
+    onSaved(`Deleted ${section.label}`, () => saveSection(section.id, before));
+  };
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -189,12 +197,18 @@ export function SectionSheet({ section, onSaved, onClose }: {
             </section>
           )}
 
-          {section && !section.printed && (
+          {section && (
             <section className="group">
               <label className="menued__check">
                 <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
                 Hide this section <span>(the counter and cheesybeez.com stop offering its dishes; old orders keep them)</span>
               </label>
+              <div className="cats">
+                <button type="button" className="chip" onClick={remove}>Delete section</button>
+                <span className="menued__was">
+                  {dishes ? `Its ${dishes === 1 ? 'dish goes' : `${dishes} dishes go`} off the menu with it. To keep one, open it and pick another section first.` : 'It has no dishes on offer.'}
+                </span>
+              </div>
             </section>
           )}
           {error && <p className="reason-msg" role="alert">{error}</p>}

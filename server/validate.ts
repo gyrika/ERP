@@ -19,7 +19,7 @@ import { BILL_EVENT_TYPES, checkBillLine } from '../src/domain/billExtras.ts';
 import { checkModuleEvent, MODULE_EVENT_TYPES } from '../src/domain/modules.ts';
 import { CAMPAIGN_EVENT_TYPES, checkCampaignEvent } from '../src/domain/campaigns.ts';
 import { isCustomerId } from '../src/domain/customers.ts';
-import { checkSection, checkSectionOrder, isCustomSection, SECTION_ID } from '../src/domain/sections.ts';
+import { checkSection, checkSectionOrder, isCustomSection, PRINTED_SECTIONS, SECTION_ID } from '../src/domain/sections.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
 import { checkCombo, COMBO_ID } from '../src/domain/combos.ts';
 import { validPhotoChoice } from '../src/domain/menuPhotos.ts';
@@ -339,7 +339,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     }
     // Sections (SCRUM-241): a printed section's id or one of his own; the whole setting, before and after.
     if (e.type === 'menu.section_set' && (
-      typeof e.itemId !== 'string' || !(['pizza', 'burger', 'pasta'].includes(e.itemId) || SECTION_ID.test(e.itemId)) ||
+      typeof e.itemId !== 'string' || !(PRINTED_SECTIONS.some((p) => p.id === e.itemId) || SECTION_ID.test(e.itemId)) ||
       !validSection(e.itemId, e.before, null) || !validSection(e.itemId, e.after, e.before) ||
       (isCustomSection(e.itemId) && e.before === null && e.after === null)
     )) return { reason: `event ${e.id} has an invalid menu section` };

@@ -1,9 +1,11 @@
 import type { Category, CustomSizeId } from './types.ts';
 
 /**
- * Menu sections (SCRUM-241). The printed menu has three: Pizza, Burgers, Pasta. The owner adds his
+ * Menu sections (SCRUM-241). The printed menu has four: Pizza, Burgers, Pasta, Drinks. The owner adds his
  * own (kottu, rice, drinks...), each with one price or up to three sizes he names, and a cook time
- * for the kitchen's amber and red. He can rename and reorder every section, and hide his own.
+ * for the kitchen's amber and red. He can rename, reorder, hide and delete every section, the
+ * printed ones too, and move a dish from one section to another (menuEdits.ts `category`).
+ * A deleted section is only marked (`removed`): old orders still name it, and Undo brings it back.
  *
  * Each change is one `menu.section_set` event (whole setting for one section, before/after, so it
  * is audited and undone like an item change); the order is one `menu.sections_ordered` event.
@@ -17,15 +19,16 @@ export const isCustomSection = (id: string): id is `sec-${string}` => SECTION_ID
 export const CUSTOM_SIZE_IDS = ['x1', 'x2', 'x3'] as const satisfies readonly CustomSizeId[];
 export const isCustomSize = (id: string): id is CustomSizeId => (CUSTOM_SIZE_IDS as readonly string[]).includes(id);
 
-/** Cook times from the owner (2026-10-12): pizza 10 min, burger 3 min, pasta 20 min. */
-export const PRINTED_COOK_MINUTES = { pizza: 10, burger: 3, pasta: 20 } as const;
+/** Cook times from the owner (2026-10-12): pizza 10 min, burger 3 min, pasta 20 min. Drinks are poured, not cooked: 1 min, the least a section takes. */
+export const PRINTED_COOK_MINUTES = { pizza: 10, burger: 3, pasta: 20, drinks: 1 } as const;
 /** A new section's cook time until he says otherwise. */
 export const NEW_SECTION_MINUTES = 10;
 
-export const PRINTED_SECTIONS: readonly { id: 'pizza' | 'burger' | 'pasta'; label: string; one: string }[] = [
+export const PRINTED_SECTIONS: readonly { id: 'pizza' | 'burger' | 'pasta' | 'drinks'; label: string; one: string }[] = [
   { id: 'pizza', label: 'Pizza', one: 'Pizza' },
   { id: 'burger', label: 'Burgers', one: 'Burger' },
   { id: 'pasta', label: 'Pasta', one: 'Pasta' },
+  { id: 'drinks', label: 'Drinks', one: 'Drink' },
 ];
 
 /**
@@ -37,8 +40,10 @@ export interface SectionSetting {
   cookMinutes?: number;
   /** His own sections: the sizes, in order (ids x1..x3). Absent = one price. */
   sizes?: { id: CustomSizeId; label: string }[];
-  /** His own sections: off the counter and cheesybeez.com, items kept for old orders. */
+  /** Off the counter and cheesybeez.com, items kept for old orders; still on the Menu screen. */
   hidden?: boolean;
+  /** Deleted: gone from the Menu screen too, its dishes hidden with it. Undo takes it back. */
+  removed?: true;
 }
 
 /** A section as every screen shows it. */
@@ -53,7 +58,10 @@ export interface Section {
   sizes: { id: CustomSizeId; label: string }[] | null;
   cookMinutes: number;
   printed: boolean;
+  /** Off the counter and cheesybeez.com (a deleted section is hidden too). */
   hidden: boolean;
+  /** Deleted: the Menu screen leaves it out. */
+  removed: boolean;
 }
 
 export interface SectionsState {
@@ -74,7 +82,8 @@ export const sectionsOf = (state: SectionsState): Section[] => {
         id: p.id,
         name: { en: en ?? p.label, ...(clean(s?.name?.si) ? { si: clean(s?.name?.si) } : {}), ...(clean(s?.name?.ta) ? { ta: clean(s?.name?.ta) } : {}) },
         label: en ?? p.label, one: en ?? p.one, sizes: null,
-        cookMinutes: s?.cookMinutes ?? PRINTED_COOK_MINUTES[p.id], printed: true, hidden: false,
+        cookMinutes: s?.cookMinutes ?? PRINTED_COOK_MINUTES[p.id], printed: true,
+        hidden: Boolean(s?.hidden || s?.removed), removed: Boolean(s?.removed),
       };
     }),
     ...Object.entries(settings).filter(([id]) => isCustomSection(id)).map(([id, s]): Section => {
@@ -83,7 +92,8 @@ export const sectionsOf = (state: SectionsState): Section[] => {
         id: id as Category,
         name: { en, ...(clean(s.name?.si) ? { si: clean(s.name?.si) } : {}), ...(clean(s.name?.ta) ? { ta: clean(s.name?.ta) } : {}) },
         label: en, one: en, sizes: s.sizes?.length ? s.sizes : null,
-        cookMinutes: s.cookMinutes ?? NEW_SECTION_MINUTES, printed: false, hidden: Boolean(s.hidden),
+        cookMinutes: s.cookMinutes ?? NEW_SECTION_MINUTES, printed: false,
+        hidden: Boolean(s.hidden || s.removed), removed: Boolean(s.removed),
       };
     }),
   ];
@@ -110,7 +120,7 @@ export const checkSection = (id: string, s: SectionSetting, before: SectionSetti
   const printed = PRINTED_SECTIONS.some((p) => p.id === id);
   if (!printed && !isCustomSection(id)) return 'that is not a menu section';
   if (typeof s !== 'object' || s === null) return 'that is not a section';
-  if (Object.keys(s).some((k) => !['name', 'cookMinutes', 'sizes', 'hidden'].includes(k))) return 'that is not a section';
+  if (Object.keys(s).some((k) => !['name', 'cookMinutes', 'sizes', 'hidden', 'removed'].includes(k))) return 'that is not a section';
   if (s.name !== undefined) {
     if (typeof s.name !== 'object' || s.name === null || Object.keys(s.name).some((k) => !['en', 'si', 'ta'].includes(k))) return 'that is not a name';
     if (!isText(s.name.en, 30) || !isText(s.name.si, 40) || !isText(s.name.ta, 40)) return 'a section name is too long';
@@ -119,8 +129,9 @@ export const checkSection = (id: string, s: SectionSetting, before: SectionSetti
   if (s.cookMinutes !== undefined && (!Number.isInteger(s.cookMinutes) || s.cookMinutes < 1 || s.cookMinutes > 120)) {
     return 'the cook time is whole minutes, 1 to 120';
   }
-  if (printed && (s.sizes !== undefined || s.hidden !== undefined)) return 'Pizza, Burgers and Pasta keep their sizes and stay on the menu';
+  if (printed && s.sizes !== undefined) return 'Pizza, Burgers, Pasta and Drinks keep their sizes';
   if (s.hidden !== undefined && typeof s.hidden !== 'boolean') return 'that is not a section';
+  if (s.removed !== undefined && s.removed !== true) return 'that is not a section';
   if (s.sizes !== undefined) {
     if (!Array.isArray(s.sizes) || s.sizes.length < 2 || s.sizes.length > CUSTOM_SIZE_IDS.length) return 'a section has one price, or 2 or 3 sizes';
     if (s.sizes.some((z, i) => typeof z !== 'object' || z === null || z.id !== CUSTOM_SIZE_IDS[i] || Object.keys(z).some((k) => k !== 'id' && k !== 'label'))) return 'that is not a size';

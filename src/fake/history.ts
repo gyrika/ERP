@@ -65,7 +65,10 @@ export function demoHistory(now: number, shopId = FAKE_SHOP_ID): SyncEvent[] {
     let orders = Math.round((weekend ? 44 : 30) * (0.9 + rand() * 0.2));
     if (isToday) orders = Math.round(orders * 0.7); // a slow day
 
-    const menu = MENU.filter((m) => !(m.id === FORGOTTEN && back <= 21));
+    // Drinks come from their own random stream, so the food orders (and the figures tests lock) stay as drawn.
+    const menu = MENU.filter((m) => m.category !== 'drinks' && !(m.id === FORGOTTEN && back <= 21));
+    const drinks = MENU.filter((m) => m.category === 'drinks');
+    const drinkRand = seeded(dayStart / DAY + 1_000_003);
     const weights = menu.map((m) => POPULAR[m.id] ?? 1);
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     const chooseItem = () => {
@@ -88,6 +91,10 @@ export function demoHistory(now: number, shopId = FAKE_SHOP_ID): SyncEvent[] {
           adds: item.adds.length && rand() < 0.2 ? [item.adds[0].id] : [], outs: [], sent: true,
         };
       });
+      if (drinks.length && drinkRand() < 0.4) {
+        const drink = drinks[Math.floor(drinkRand() * drinks.length)];
+        lines.push({ id: id('line'), itemId: drink.id, qty: drinkRand() < 0.7 ? 1 : 2, adds: [], outs: [], sent: true });
+      }
       const ticketId = id('ticket');
       events.push({ type: 'order.sent', id: id('sent'), shopId, at: sentAt, actor: nimal, orderNumber: number, ticketId, lines, addOn: false });
 

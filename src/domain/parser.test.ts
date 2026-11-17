@@ -124,6 +124,12 @@ test('menu matches the printed prices', () => {
   assert.equal(price('italian-pasta', 'S'), 999);
   assert.equal(price('italian-pasta', 'M'), 1899);
   assert.equal(price('italian-pasta', 'L'), 2650);
+  // Drinks (prices from the team, 2026-11-17).
+  assert.equal(itemById('coca-cola-1l').price, 30000);
+  assert.equal(itemById('coca-cola-400ml').price, 20000);
+  assert.equal(itemById('sprite-1l').price, 30000);
+  assert.equal(itemById('sprite-400ml').price, 20000);
+  assert.equal(itemById('water-1l').price, 12000);
   const bullseye = itemById('chicken-burger').adds.find((o) => o.id === 'bullseye');
   assert.equal(bullseye?.price, 7000);
 });
@@ -140,4 +146,13 @@ test('burger extras and pasta sizes parse', () => {
   assert.deepEqual(d.lines[0].adds, ['bullseye', 'cheese-slice']);
   assert.equal(d.lines[1].itemId, 'italian-pasta');
   assert.equal(d.lines[1].size, 'L');
+});
+
+test('drinks parse with their volume, and a size letter after a number still means a size', () => {
+  const d = p.interpret('2 coke 1l, sprite 400 ml, coca cola 400ml, water, 2l margherita');
+  assert.deepEqual(d.unresolved, []);
+  assert.deepEqual(d.lines.map((l) => [l.itemId, l.qty]), [
+    ['coca-cola-1l', 2], ['sprite-400ml', 1], ['coca-cola-400ml', 1], ['water-1l', 1], ['margherita', 2],
+  ]);
+  assert.equal(d.lines[4].size, 'L');
 });

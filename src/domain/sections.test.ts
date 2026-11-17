@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mayRecord } from './auth.ts';
 import { cookTimeMs } from './kitchen.ts';
 import { MENU, cookMinutesOf, itemById, menuSections, setMenuState } from './menu.ts';
-import { checkNewItem, EMPTY_MENU_STATE, effectiveMenu, menuStateFromEvents, type NewItem } from './menuEdits.ts';
+import { checkNewItem, checkOverride, EMPTY_MENU_STATE, effectiveMenu, menuStateFromEvents, type NewItem } from './menuEdits.ts';
 import { checkSection, checkSectionOrder, moveSection, newSectionId, sectionsOf } from './sections.ts';
 
 const owner = { id: 'o', name: 'Nisal', role: 'owner' as const };
@@ -14,21 +14,21 @@ const kottu = { name: { en: 'Kottu' }, sizes: [{ id: 'x1', label: 'Full' }, { id
 const drinks = { name: { en: 'Drinks' }, cookMinutes: 1 };
 
 test('the printed sections first, then his own as he made them; his order wins; renames show', () => {
-  assert.deepEqual(sectionsOf(EMPTY_MENU_STATE).map((s) => s.label), ['Pizza', 'Burgers', 'Pasta']);
+  assert.deepEqual(sectionsOf(EMPTY_MENU_STATE).map((s) => s.label), ['Pizza', 'Burgers', 'Pasta', 'Drinks']);
   const state = menuStateFromEvents([
     section('sec-kottu', kottu), section('sec-drinks', drinks),
     section('burger', { name: { en: 'Burgers & Subs' }, cookMinutes: 5 }),
     ev('menu.sections_ordered', 'sections', { before: [], after: ['sec-kottu', 'pizza'] }),
   ]);
   const s = sectionsOf(state);
-  assert.deepEqual(s.map((x) => x.id), ['sec-kottu', 'pizza', 'burger', 'pasta', 'sec-drinks']);
+  assert.deepEqual(s.map((x) => x.id), ['sec-kottu', 'pizza', 'burger', 'pasta', 'drinks', 'sec-drinks']);
   assert.equal(s[2].label, 'Burgers & Subs');
   assert.equal(s[2].cookMinutes, 5);
   assert.deepEqual(s[0].sizes, kottu.sizes);
-  assert.equal(s[4].sizes, null);
+  assert.equal(s[5].sizes, null);
   // Back to as printed, and a new section taken back.
   const back = sectionsOf(menuStateFromEvents([section('burger', { name: { en: 'X' } }), section('burger', null), section('sec-drinks', drinks), section('sec-drinks', null)]));
-  assert.deepEqual(back.map((x) => x.label), ['Pizza', 'Burgers', 'Pasta']);
+  assert.deepEqual(back.map((x) => x.label), ['Pizza', 'Burgers', 'Pasta', 'Drinks']);
 });
 
 test('a dish in his own section takes its sizes, no extras; hiding the section hides its dishes', () => {
@@ -56,7 +56,7 @@ test('the kitchen times a dish of his section by its cook time', () => {
     assert.equal(cookMinutesOf('pizza'), 10);
     assert.equal(itemById('new-chicken-kottu').category, 'sec-kottu');
     assert.equal(cookTimeMs({ lines: [{ itemId: 'new-chicken-kottu', qty: 1, size: 'x1', adds: [], outs: [] } as never] }), 8 * 60_000);
-    assert.equal(menuSections().length, 4);
+    assert.equal(menuSections().length, 5);
   } finally { setMenuState(EMPTY_MENU_STATE); }
 });
 
@@ -80,17 +80,21 @@ test('a section setting: a name, 2 or 3 named sizes or one price, a cook time; p
   assert.equal(checkSection('sec-drinks', drinks), null);
   assert.equal(checkSection('pizza', { name: { en: 'Pizzas' }, cookMinutes: 12 }), null);
   assert.match(checkSection('sec-x', { cookMinutes: 5 })!, /English name/);
-  assert.match(checkSection('pizza', { hidden: true })!, /stay on the menu/);
+  assert.equal(checkSection('pizza', { hidden: true }), null);
+  assert.equal(checkSection('pizza', { removed: true }), null);
+  assert.match(checkSection('pizza', { sizes: kottu.sizes } as never)!, /keep their sizes/);
   assert.match(checkSection('sec-x', { name: { en: 'X' }, sizes: [{ id: 'x1', label: 'Big' }] })!, /2 or 3/);
   assert.match(checkSection('sec-x', { name: { en: 'X' }, sizes: [{ id: 'x1', label: 'Big' }, { id: 'x2', label: 'big' }] })!, /same name/);
   assert.match(checkSection('sec-x', { name: { en: 'X' }, cookMinutes: 0 })!, /1 to 120/);
-  assert.match(checkSection('drinks', { name: { en: 'X' } })!, /not a menu section/);
+  assert.equal(checkSection('drinks', { name: { en: 'Soft drinks' } }), null);
+  assert.match(checkSection('cakes', { name: { en: 'X' } })!, /not a menu section/);
   // Sizes keep their count once made; their names change.
   assert.match(checkSection('sec-kottu', drinks, kottu as never)!, /keeps the sizes/);
   assert.equal(checkSection('sec-kottu', { ...kottu, sizes: [{ id: 'x1', label: 'Large' }, { id: 'x2', label: 'Small' }] } as never, kottu as never), null);
   assert.equal(checkSectionOrder(['pizza', 'sec-kottu']), null);
   assert.ok(checkSectionOrder(['pizza', 'pizza']));
-  assert.ok(checkSectionOrder(['drinks']));
+  assert.equal(checkSectionOrder(['drinks', 'pizza']), null);
+  assert.ok(checkSectionOrder(['cakes']));
 });
 
 test('ids, moving, and only the owner changes sections', () => {
@@ -101,4 +105,37 @@ test('ids, moving, and only the owner changes sections', () => {
   assert.equal(mayRecord('owner', 'menu.section_set'), true);
   assert.equal(mayRecord('manager', 'menu.section_set'), false);
   assert.equal(mayRecord('manager', 'menu.sections_ordered'), false);
+});
+
+test('any section can be hidden or deleted, printed ones too; a dish moved out first stays on the menu', () => {
+  const moved = ev('menu.item_set', 'margherita', { before: {}, after: { category: 'burger' } });
+  const state = menuStateFromEvents([moved, section('pizza', { removed: true }), section('pasta', { hidden: true })]);
+  const s = sectionsOf(state);
+  assert.deepEqual(s.filter((x) => x.removed).map((x) => x.id), ['pizza']);
+  assert.deepEqual(s.filter((x) => x.hidden).map((x) => x.id), ['pizza', 'pasta']);
+  const menu = effectiveMenu(MENU, state, 0);
+  const of = (id: string) => menu.find((m) => m.id === id)!;
+  assert.equal(of('devilled-chicken').hidden, true);
+  assert.equal(of('italian-pasta').hidden, true);
+  // Moved: in Burgers now, still a pizza's sizes and extras, timed as a burger.
+  assert.equal(of('margherita').category, 'burger');
+  assert.equal(of('margherita').hidden, undefined);
+  assert.deepEqual(of('margherita').variants?.map((v) => v.id), ['M', 'L']);
+  setMenuState(state);
+  try {
+    assert.equal(cookTimeMs({ lines: [{ itemId: 'margherita', qty: 1, size: 'M', adds: [], outs: [] } as never] }), 3 * 60_000);
+  } finally { setMenuState(EMPTY_MENU_STATE); }
+  // Undo of a delete brings the section and its dishes back.
+  const back = effectiveMenu(MENU, menuStateFromEvents([section('pizza', { removed: true }), section('pizza', null, { removed: true })]), 0);
+  assert.equal(back.find((m) => m.id === 'devilled-chicken')!.hidden, undefined);
+});
+
+test('a dish moves only to a section the menu has', () => {
+  const item = itemById('margherita');
+  assert.equal(checkOverride(item, { category: 'drinks' }), null);
+  assert.equal(checkOverride(item, { category: 'sec-kottu' }), null); // the server does not know his sections
+  assert.match(checkOverride(item, { category: 'sec-kottu' }, sectionsOf(EMPTY_MENU_STATE))!, /not a menu section/);
+  assert.match(checkOverride(item, { category: 'cakes' as never })!, /not a menu section/);
+  const deleted = sectionsOf(menuStateFromEvents([section('pasta', { removed: true })]));
+  assert.match(checkOverride(item, { category: 'pasta' }, deleted)!, /not a menu section/);
 });

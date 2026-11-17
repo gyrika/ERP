@@ -46,8 +46,8 @@ test('bumping twice keeps the first done time', () => {
   assert.equal(t[0].doneAt, 10);
 });
 
-test("cook times are the owner's: pizza 10, burger 3, pasta 20 minutes", () => {
-  assert.deepEqual(COOK_MINUTES, { pizza: 10, burger: 3, pasta: 20 });
+test("cook times are the owner's: pizza 10, burger 3, pasta 20 minutes; drinks 1", () => {
+  assert.deepEqual(COOK_MINUTES, { pizza: 10, burger: 3, pasta: 20, drinks: 1 });
 });
 
 test("a ticket is late after its slowest item's cook time, very late at one and a half times it", () => {
