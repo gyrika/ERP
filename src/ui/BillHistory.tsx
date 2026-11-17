@@ -57,7 +57,7 @@ export function BillHistory({ held, paidToday, sales, tickets, kitchenOn, curren
                   <OnlineTag order={r.order} />
                 </span>
               </button>
-              {/* Inside the bill's box, on its left: tap when the customer takes it. It stays, ticked. */}
+              {/* Inside the bill's box, on its left: tap when the customer takes it. A paid bill then leaves; an unpaid one stays, ticked, still owing. */}
               {(r.paid || r.order.sentAt !== undefined) && (
                 <button type="button" className="history__tick" aria-label={`Order ${r.order.number} taken`} aria-pressed={done}
                   disabled={done} onClick={() => onGive(r.order.number)}>

@@ -132,7 +132,7 @@ test('the register shows Waiting until Start, Cooking until Done, and keeps it o
   expect(row().getByText('Ready')).toBeTruthy();
   await user.click(heldList().getByRole('button', { name: /^1001/ }));
   await user.keyboard('{Control>}{Enter}{/Control}');
-  expect(ticked(1001)).toBe(true); // stays, ticked (SCRUM-258)
+  expect(heldList().queryByRole('button', { name: /^1001/ })).toBeNull();
   expect(readAll().filter((e) => e.type === 'order.given')).toMatchObject([{ orderNumber: 1001 }]);
 });
 
@@ -150,7 +150,7 @@ test('paid first, cooked, waiting to be collected: Ready stays on the list until
 
   await user.click(rail().getByRole('button', { name: /^1001/ }));
   await user.click(panel().getByRole('button', { name: 'Given' }));
-  expect(ticked(1001)).toBe(true);
+  expect(heldList().queryByRole('button', { name: /^1001/ })).toBeNull();
   const toast = screen.getByText('Given 1001').closest('.toast') as HTMLElement;
   await user.click(within(toast).getByRole('button', { name: 'Undo' }));
   await user.click(screen.getByRole('button', { name: 'New bill' })); // Undo put it back on screen; held bills are the others
@@ -173,7 +173,7 @@ test('paying for a ready order does not hand it over: the cashier ticks it when 
   expect(ticked(1001)).toBe(false);
   expect(readAll().map((e) => e.type).at(-1)).toBe('order.paid');
   await user.click(tick(1001));
-  expect(ticked(1001)).toBe(true);
+  expect(heldList().queryByRole('button', { name: /^1001/ })).toBeNull();
   expect(readAll().map((e) => e.type).at(-1)).toBe('order.given');
 });
 
