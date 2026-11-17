@@ -1,6 +1,6 @@
 import type { Actor } from './auth.ts';
 import type { Category, Cents, Combo, MenuItem, SizeId } from './types.ts';
-import { CUSTOM_SIZE_IDS, isCustomSection, isCustomSize, sectionsOf, type SectionSetting, type SectionsState } from './sections.ts';
+import { CUSTOM_SIZE_IDS, isCustomSection, isCustomSize, PRINTED_SECTIONS, sectionsOf, type SectionSetting, type SectionsState } from './sections.ts';
 
 /**
  * The owner's own menu changes, on top of the printed menu (menu.ts stays the starting point,
@@ -18,6 +18,8 @@ export interface ItemOverride {
   /** Extras' prices, by option id. */
   adds?: Record<string, Cents>;
   hidden?: boolean;
+  /** Moved to another section (its sizes and extras go with it; its cook time is the new section's). */
+  category?: Category;
 }
 
 /**
@@ -38,7 +40,7 @@ export const NEW_ITEM_ID = /^new-[a-z0-9-]{1,48}$/;
 
 interface MenuBase { id: string; shopId: string; at: number; orderNumber: 0; actor: Actor; itemId: string }
 export type MenuEvent =
-  /** Owner only: names, description, prices, hidden. `after: {}` = back to the printed menu. */
+  /** Owner only: names, description, prices, hidden, section. `after: {}` = back to the printed menu. */
   | (MenuBase & { type: 'menu.item_set'; before: ItemOverride; after: ItemOverride })
   /** Owners and managers: sold out until `until` (the next morning), or back (`null`). */
   | (MenuBase & { type: 'menu.sold_out'; until: number | null })
@@ -138,6 +140,7 @@ export const applyOverride = (item: MenuItem, o: ItemOverride | undefined, soldO
   const price = (id: SizeId | 'one', fallback: Cents) => o?.prices?.[id] ?? fallback;
   return {
     ...item,
+    ...(o?.category ? { category: o.category } : {}),
     name: {
       en: clean(o?.name?.en) ?? item.name.en,
       ...(clean(o?.name?.si) ?? item.name.si ? { si: clean(o?.name?.si) ?? item.name.si } : {}),
@@ -203,7 +206,8 @@ export const newMenuItem = (id: string, n: NewItem & { removed?: true }, printed
 
 /**
  * The menu every screen shows: the printed one, then the owner's own items, with the shop's changes.
- * An item in a section he hid is hidden with it (kept for old orders), and back when the section is.
+ * An item in a section he hid or deleted is hidden with it (kept for old orders), and back when the
+ * section is; one he moved out first stays on the menu.
  */
 export const effectiveMenu = (printed: readonly MenuItem[], state: MenuState, now: number): MenuItem[] => {
   const off = new Set(sectionsOf(state).filter((s) => s.hidden).map((s) => s.id as string));
@@ -260,10 +264,17 @@ export const checkNewItem = (n: NewItem, printed: readonly MenuItem[], sections?
   return null;
 };
 
-/** Is this a change the shop can take? (Prices in whole rupees, names of a sensible length.) */
-export const checkOverride = (item: MenuItem, o: ItemOverride): string | null => {
+/**
+ * Is this a change the shop can take? (Prices in whole rupees, names of a sensible length, a section
+ * the menu has.) Without `sections` (the server, one event at a time) any section id passes.
+ */
+export const checkOverride = (item: MenuItem, o: ItemOverride, sections?: readonly { id: string; removed?: boolean }[]): string | null => {
   const badName = o.name ? checkName(o.name) : null;
   if (badName) return badName;
+  if (o.category !== undefined) {
+    if (typeof o.category !== 'string' || !(PRINTED_SECTIONS.some((p) => p.id === o.category) || isCustomSection(o.category))) return 'that is not a menu section';
+    if (sections && !sections.some((s) => s.id === o.category && !s.removed)) return 'that is not a menu section';
+  }
   if (!isText(o.description, 160)) return 'the description is too long';
   for (const [k, v] of Object.entries(o.prices ?? {})) {
     const known = k === 'one' ? item.price !== undefined : item.variants?.some((x) => x.id === k);

@@ -14,6 +14,8 @@
  * chicken-burger 1615297928064-24977384d0da · fish-burger 1627587780063-1655815c958b ·
  * egg-burger 1601894087104-0c18bc34dbd6 · crispy-chicken-burger 1637710847214-f91d99669e18 ·
  * bacon-egg-burger 1700835880369-467ebff9d324 · italian-pasta 1662197480393-2a82030b7b83 ·
+ * coca-cola-1l + coca-cola-400ml 1571771952021-0244a32c245a · sprite-1l + sprite-400ml 1592860893757-84536a1c9b82 ·
+ * water-1l 1616118132534-381148898bb4 ·
  * hero (wood-fired oven) 1622880833523-7cf1c0bd4296: hero.webp 2400 × 800 for the banner, hero-sm.webp 800 × 600 for phones.
  * A new menu item without a file here shows the neutral placeholder.
  *

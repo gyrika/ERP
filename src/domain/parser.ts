@@ -22,6 +22,8 @@ export class ShorthandInterpreter implements OrderInterpreter {
   /** Menu names containing "and" ("bacon and onion") must survive splitting on "and". */
   private readonly protectedNames: RegExp[];
   private readonly byId: Map<string, MenuItem>;
+  /** Names ending in a volume ("coke 1l", "sprite 400ml"), matched however the volume is typed. */
+  private readonly volumeNames: { re: RegExp; alias: string }[];
 
   constructor(menu: MenuItem[]) {
     // Longest alias first so "crispy chicken burger" wins over "burger".
@@ -33,14 +35,23 @@ export class ShorthandInterpreter implements OrderInterpreter {
     this.protectedNames = this.aliasIndex
       .filter(({ alias }) => alias.includes(' and '))
       .map(({ alias }) => new RegExp(`\\b${alias}\\b`, 'g'));
+    const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    this.volumeNames = this.aliasIndex.flatMap(({ alias }) => {
+      const v = alias.match(/^(.+?)\s+(\d+)(ml|l)$/);
+      if (!v) return [];
+      const unit = v[3] === 'ml' ? 'ml' : '(?:l|ltr|litre|liter)';
+      return [{ re: new RegExp(`\\b${esc(v[1])}\\s+${v[2]}\\s*${unit}\\b`, 'g'), alias }];
+    });
   }
 
   interpret(input: string): OrderDraft {
     const lines: LineSpec[] = [];
     const unresolved: string[] = [];
 
-    // "2l" = "2 l": a size letter may touch the number before it.
+    // "2l" = "2 l": a size letter may touch the number before it. A drink's volume is part of
+    // its name, so "coke 1l" / "coke 1 litre" / "sprite 400 ml" go back to the name afterwards.
     let protectedInput = input.toLowerCase().replace(/\b(\d+)([sml])\b/g, '$1 $2');
+    for (const { re, alias } of this.volumeNames) protectedInput = protectedInput.replace(re, alias);
     for (const re of this.protectedNames) protectedInput = protectedInput.replace(re, (m) => m.replace(/ and /g, ' & '));
     for (const raw of protectedInput.split(/,|;|\+|\band\b|\n/)) {
       const segment = raw.trim().replace(/ & /g, ' and ');

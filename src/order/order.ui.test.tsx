@@ -267,7 +267,7 @@ test('section chips: the section under the chips is highlighted, the last one at
   expect(chip('Burgers').getAttribute('aria-current')).toBe('true');
   expect(chip('Pizza').getAttribute('aria-current')).toBeNull();
   cross(document.querySelector('.o-foot')!);
-  expect(chip('Pasta').getAttribute('aria-current')).toBe('true');
+  expect(chip('Drinks').getAttribute('aria-current')).toBe('true');
   cross(document.querySelector('.o-foot')!, false);
   expect(chip('Burgers').getAttribute('aria-current')).toBe('true');
 

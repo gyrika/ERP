@@ -153,7 +153,7 @@ test("the owner's new items are accepted only with an added-item id and a full, 
   assert.ok('reason' in notAdded);
 });
 
-test('menu sections (SCRUM-241): his own with sizes, a printed rename, the order; bad ids, sizes or fields are refused', () => {
+test('menu sections (SCRUM-241): his own with sizes, a printed rename, the order, hide, delete, a dish moved; bad ids, sizes or fields are refused', () => {
   const owner = { ...base, actor: { id: 'owner-1', name: 'Nisal', role: 'owner' } };
   const kottu = { name: { en: 'Kottu' }, sizes: [{ id: 'x1', label: 'Full' }, { id: 'x2', label: 'Normal' }], cookMinutes: 8 };
   const valid = [
@@ -163,13 +163,18 @@ test('menu sections (SCRUM-241): his own with sizes, a printed rename, the order
     { ...owner, id: 'event-4', type: 'menu.item_added', itemId: 'new-egg-kottu', item: { category: 'sec-kottu', name: { en: 'Egg Kottu' }, description: '', prices: { x1: 100000, x2: 80000 } } },
     { ...owner, id: 'event-5', type: 'menu.item_set', itemId: 'new-egg-kottu', before: {}, after: { prices: { x1: 110000 } } },
     { ...owner, id: 'event-6', type: 'menu.section_set', itemId: 'sec-kottu', before: kottu, after: null },
+    { ...owner, id: 'event-7', type: 'menu.section_set', itemId: 'pizza', before: null, after: { hidden: true } },
+    { ...owner, id: 'event-8', type: 'menu.section_set', itemId: 'pasta', before: null, after: { removed: true } },
+    { ...owner, id: 'event-9', type: 'menu.item_set', itemId: 'italian-pasta', before: {}, after: { category: 'sec-kottu' } },
   ];
   assert.deepEqual(validatePush({ events: valid }, 'shop-1'), { events: valid });
   for (const bad of [
     { type: 'menu.section_set', itemId: 'drinks', before: null, after: kottu },
     { type: 'menu.section_set', itemId: 'sec-x', before: null, after: { cookMinutes: 5 } },
     { type: 'menu.section_set', itemId: 'sec-x', before: null, after: null },
-    { type: 'menu.section_set', itemId: 'pizza', before: null, after: { hidden: true } },
+    { type: 'menu.section_set', itemId: 'pizza', before: null, after: { sizes: kottu.sizes } },
+    { type: 'menu.section_set', itemId: 'pizza', before: null, after: { removed: false } },
+    { type: 'menu.item_set', itemId: 'italian-pasta', before: {}, after: { category: 'cakes' } },
     { type: 'menu.section_set', itemId: 'sec-kottu', before: kottu, after: { name: { en: 'Kottu' } } },
     { type: 'menu.section_set', itemId: 'sec-x', before: null, after: { name: { en: 'X' }, secret: 1 } },
     { type: 'menu.sections_ordered', itemId: 'sections', before: [], after: ['pizza', 'pizza'] },

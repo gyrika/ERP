@@ -7,7 +7,7 @@ export type Cents = number;
 export type CustomSizeId = 'x1' | 'x2' | 'x3';
 export type SizeId = 'S' | 'M' | 'L' | CustomSizeId;
 /** The printed menu's sections, and the owner's own (`sec-kottu`, sections.ts SCRUM-241). */
-export type Category = 'pizza' | 'burger' | 'pasta' | `sec-${string}`;
+export type Category = 'pizza' | 'burger' | 'pasta' | 'drinks' | `sec-${string}`;
 /** Small labels on cheesybeez.com's cards. Each must come from the owner: never inferred. */
 export type MenuTag = 'popular' | 'veg';
 

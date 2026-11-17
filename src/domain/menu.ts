@@ -8,7 +8,8 @@ const rs = (n: number) => n * 100;
 const opt = (id: string, label: string, price = 0): Option => ({ id, label, price });
 
 /**
- * The real CheesyBeez printed menus (Pizza p1–2, Burger, Pasta). Names,
+ * The real CheesyBeez printed menus (Pizza p1–2, Burger, Pasta), and the shop's drinks
+ * (prices from the team, 2026-11-17). Names,
  * descriptions and prices are copied from them; item numbers are the
  * numbers staff and customers use. Sinhala/Tamil labels are not filled in
  * yet: they must come from the owner, not be guessed.
@@ -64,6 +65,12 @@ const burger = (
   price: rs(price), adds: BURGER_ADDS, leaveOut,
 });
 
+/** A bottled drink: one price, no extras, one tap on the Register. "1L" stays in the name (receipt, kitchen). */
+const drink = (id: string, name: string, aliases: string[], price: number): MenuItem => ({
+  id, category: 'drinks', name: { en: name }, description: '', aliases,
+  price: rs(price), adds: [], leaveOut: [],
+});
+
 const PRINTED: MenuItem[] = [
   // ----- Pizza · Classic -----
   pizza(1, 'margherita', 'Margherita', 'Mozzarella cheese & rich tomato sauce', ['margherita', 'margarita', 'marg'], 1450, 1990, []),
@@ -108,6 +115,13 @@ const PRINTED: MenuItem[] = [
     ],
     adds: [], leaveOut: [],
   },
+
+  // ----- Drinks -----
+  drink('coca-cola-1l', 'Coca-Cola 1L', ['coca cola 1l', 'coca-cola 1l', 'coke 1l'], 300),
+  drink('coca-cola-400ml', 'Coca-Cola 400ml', ['coca cola 400ml', 'coca-cola 400ml', 'coke 400ml'], 200),
+  drink('sprite-1l', 'Sprite 1L', ['sprite 1l'], 300),
+  drink('sprite-400ml', 'Sprite 400ml', ['sprite 400ml'], 200),
+  drink('water-1l', 'Water 1L', ['water 1l', 'water'], 120),
 ];
 
 /**
@@ -121,11 +135,12 @@ const TAGS: Readonly<Record<string, MenuTag[]>> = {
 
 export const MENU: MenuItem[] = PRINTED.map((m) => (TAGS[m.id] ? { ...m, tags: TAGS[m.id] } : m));
 
-export const CATEGORIES: { id: 'popular' | 'pizza' | 'burger' | 'pasta'; label: string }[] = [
+export const CATEGORIES: { id: 'popular' | 'pizza' | 'burger' | 'pasta' | 'drinks'; label: string }[] = [
   { id: 'popular', label: 'Popular' },
   { id: 'pizza', label: 'Pizza' },
   { id: 'burger', label: 'Burgers' },
   { id: 'pasta', label: 'Pasta' },
+  { id: 'drinks', label: 'Drinks' },
 ];
 
 /**

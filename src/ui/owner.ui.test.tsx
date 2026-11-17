@@ -29,7 +29,7 @@ test('the demo Today: the shop at a glance, each part explained on the black scr
     expect.stringMatching(/^Kitchen slow/),
     '3 items running low',
     expect.stringMatching(/sold \d+ times this week; its stock isn't counted$|^\d+ dishes sold this week without a recipe$/),
-    'Food costs: 22 answers to go',
+    'Food costs: 27 answers to go',
     expect.stringMatching(/^Guests staying \d+ min longer than usual$/),
     'Table 4 busiest, table 6 quietest',
     "BBQ Pork hasn't sold in 2 weeks",
@@ -63,6 +63,6 @@ test('no history yet: a calm screen, not an empty error; only the food-cost ques
   history.replaceState(null, '', '/#owner');
   render(<Root />);
   const feed = within(await screen.findByRole('region', { name: 'Needs your attention' }));
-  expect((await feed.findAllByRole('article')).map((c) => c.getAttribute('aria-label'))).toEqual(['Food costs: 22 answers to go']);
+  expect((await feed.findAllByRole('article')).map((c) => c.getAttribute('aria-label'))).toEqual(['Food costs: 27 answers to go']);
   expect(screen.getByRole('button', { name: 'Sales today Rs 0' })).toBeTruthy(); // no history: no ring yet
 });
