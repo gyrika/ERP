@@ -85,7 +85,7 @@ test('PAY (F2): the payment opens in the bill; exact cash pays; with no Kitchen 
   await user.click(tick(1001));
   expect(readEvents().at(-1)).toMatchObject({ type: 'order.given', orderNumber: 1001 });
   expect(heldCount(0)).toBeTruthy();
-  expect(ticked(1001)).toBe(true); // stays on the list, ticked
+  expect(heldList().queryByRole('button', { name: /^1001/ })).toBeNull(); // paid and taken: it leaves Held bills (SCRUM-240)
 });
 
 test('VOID ITEM (F4 or Delete) removes the selected line at once, with Undo', async () => {
@@ -405,7 +405,7 @@ test('order history on the left: held bills and paid today always in sight, one 
   expect(history.getByRole('heading', { name: 'Held bills · 2' })).toBeTruthy();
 });
 
-test('the tick in a held bill\'s box: the customer took it; it stays, ticked, and leaves the count; Sales today shows to the cashier', async () => {
+test('the tick in a held bill\'s box: the customer took it; a paid bill leaves Held bills; Sales today shows to the cashier', async () => {
   setKitchenScreen(true);
   const user = userEvent.setup();
   render(<App />);
@@ -423,9 +423,8 @@ test('the tick in a held bill\'s box: the customer took it; it stays, ticked, an
   expect(ticked(1001)).toBe(false);
   await user.click(tick(1001));
   expect(readEvents().at(-1)).toMatchObject({ type: 'order.given', orderNumber: 1001 });
-  expect(ticked(1001)).toBe(true);
-  expect(tick(1001).disabled).toBe(true); // once: Undo takes it back
-  expect(heldList().getByRole('button', { name: /^1001/ })).toBeTruthy(); // still in sight
+  expect(heldList().queryByRole('button', { name: /^1001/ })).toBeNull(); // paid and taken: it leaves (SCRUM-240); Undo brings it back
+  expect(screen.getByRole('region', { name: 'Paid today' })).toBeTruthy(); // the day's record keeps it
   expect(heldCount(0)).toBeTruthy();
   setKitchenScreen(false);
 });
