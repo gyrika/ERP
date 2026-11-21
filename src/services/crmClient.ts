@@ -75,6 +75,10 @@ export const crmClient = {
     return call<{ plan: ImportPlan; saved: { added: number; updated: number }; customers: number }>(u.path, u.init);
   },
   reach: (audience: Audience) => post<{ customers: number; reachable: number }>('/campaigns/reach', { audience }),
+  /** Every audience's reach at once (the Campaigns chips). */
+  reachAll: () => post<{ reach: Record<Exclude<Audience, 'test'>, { customers: number; reachable: number }> }>('/campaigns/reach-all', {}),
+  /** The last campaign that reached this customer, and when they came in after (their page). */
+  messages: (id: string) => post<{ last: { title: string; at: number; cameAt: number | null } | null }>('/customers/messages', { id }),
   send: (audience: Audience, title: string, body: string, testPhone?: string) =>
     post<{ events: SyncEvent[] }>('/campaigns/send', { audience, title, body, testPhone }, 5 * 60_000),
   setAuto: (on: boolean, title: string, body: string) => post<{ events: SyncEvent[] }>('/campaigns/auto', { on, title, body }),

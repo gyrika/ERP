@@ -94,7 +94,7 @@ export const orderLinesFrom = (events: readonly OrderEvent[]): { lines: OrderLin
   return { lines, online, deliveryFee };
 };
 
-const nameOf = (itemId: string): { name: string; size: (id?: string) => string | null; option: (id: string) => string } => {
+export const nameOf = (itemId: string): { name: string; size: (id?: string) => string | null; option: (id: string) => string } => {
   try {
     const item = itemById(itemId);
     const options = [...item.adds, ...item.leaveOut];

@@ -14,9 +14,12 @@ import type { SyncEvent } from './sync.ts';
 export const MAX_TITLE = 60;
 export const MAX_BODY = 180;
 
-/** Who a campaign goes to: a segment, everyone, or (a test) the one number the owner typed. */
-export type Audience = Segment | 'all' | 'test';
-export const AUDIENCES: readonly Audience[] = ['all', ...SEGMENTS, 'test'];
+/**
+ * Who a campaign goes to: a segment, everyone, regulars gone quiet (customerInsights.ts isGoneQuiet:
+ * away twice their usual gap, not yet Inactive), or (a test) the one number the owner typed.
+ */
+export type Audience = Segment | 'all' | 'quiet' | 'test';
+export const AUDIENCES: readonly Audience[] = ['all', ...SEGMENTS, 'quiet', 'test'];
 export const isAudience = (v: unknown): v is Audience => AUDIENCES.includes(v as never);
 
 export interface Message { title: string; body: string }
@@ -122,7 +125,7 @@ export const campaignsFromEvents = (events: readonly SyncEvent[], withTests = fa
   events.filter((e): e is SentCampaign => e.type === 'crm.campaign_sent' && (withTests || e.audience !== 'test')).reverse();
 
 export const AUDIENCE_LABEL: Record<Audience, string> = {
-  all: 'Everyone', new: 'New', regular: 'Regular', vip: 'VIP', inactive: 'Inactive', test: 'Test to my number',
+  all: 'Everyone', new: 'New', regular: 'Regular', vip: 'VIP', inactive: 'Inactive', quiet: 'Gone quiet', test: 'Test to my number',
 };
 
 /** A phone that allowed notifications: the browser's PushSubscription as JSON (endpoint and two keys). */

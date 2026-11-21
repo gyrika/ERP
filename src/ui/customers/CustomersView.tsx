@@ -104,7 +104,7 @@ export default function CustomersView({ hash, onRegister }: { hash: string; onRe
           )}
           {place.at === 'list' && <CustomerList key={place.show ?? 'all'} show={place.show} data={data} events={events ?? []} now={at} onAdded={async (n) => { await load(); setNotice(n); }} />}
           {place.at === 'customer' && (
-            <CustomerProfile id={place.id} data={data} events={events ?? []} now={at} isOwner={role === 'owner'} onChanged={load}
+            <CustomerProfile id={place.id} onRegister={onRegister} data={data} events={events ?? []} now={at} isOwner={role === 'owner'} onChanged={load}
               onRemoved={async (n) => { await load(); setNotice(n); location.hash = '#customers'; }}
               onEdited={async (n) => { await load(); setNotice(n); }} onCredit={setNotice} />
           )}

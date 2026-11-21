@@ -20,7 +20,7 @@ vi.mock('../services/serverAuth.ts', async (real) => ({
   ...(await real<typeof import('../services/serverAuth.ts')>()),
   signedIn: () => ({ id: 'o', name: 'Owner', role: shop.role }),
 }));
-const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn(), setReceipt: vi.fn(), edit: vi.fn() }));
+const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn(), setReceipt: vi.fn(), edit: vi.fn(), messages: vi.fn(), reachAll: vi.fn() }));
 vi.mock('../services/crmClient.ts', () => ({ crmClient: crm, CrmFailed: Error }));
 
 const { default: CustomersView } = await import('./customers/CustomersView.tsx');
@@ -69,6 +69,11 @@ beforeEach(() => {
     audience, kind: 'campaign', title, body, customers: 1, reachable: 1, delivered: 1, failed: 0,
   }] }));
   crm.results.mockResolvedValue({ results: {} });
+  crm.messages.mockResolvedValue({ last: { title: 'Weekend offer', at: NOW - 7 * DAY, cameAt: NOW - 2 * DAY } });
+  crm.reachAll.mockResolvedValue({ reach: {
+    all: { customers: 3, reachable: 1 }, new: { customers: 0, reachable: 0 }, regular: { customers: 0, reachable: 0 },
+    vip: { customers: 1, reachable: 1 }, inactive: { customers: 3, reachable: 1 }, quiet: { customers: 0, reachable: 0 },
+  } });
   crm.setAuto.mockImplementation(async (on: boolean, title: string, body: string) => ({ events: [{
     id: 'a1', shopId: 's', at: NOW, orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'crm.auto_set', on, title, body,
   }] }));
@@ -126,11 +131,24 @@ test('a customer: what they bought, and no messages with one tap', async () => {
   const page = within(await screen.findByRole('article', { name: 'Kasun Perera' }));
   expect(page.getByText('077 000 0001')).toBeTruthy();
   expect(page.getByText('VIP')).toBeTruthy();
-  expect(within(page.getByRole('list', { name: 'This customer' })).getAllByRole('listitem').map((li) => li.textContent))
-    .toEqual(['2orders', 'Rs 21,900spent', '22 Sept 2026first visit', '9 Nov 2026last visit']);
+  expect(page.getByText('Gets offers')).toBeTruthy();
+  expect(within(page.getByRole('list', { name: 'This customer' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+    'Orders2since 22 Sept 2026', 'SpentRs 21,900Rs 19,000 this month', 'Average billRs 10,950shop average Rs 7,800', 'Usually–no usual time yet',
+  ]);
+  // Two visits: no rhythm yet; the timeline still shows them.
+  const rhythm = within(page.getByRole('region', { name: 'Rhythm' }));
+  expect(rhythm.getByText('Too early to tell')).toBeTruthy();
+  expect(rhythm.getByRole('img', { name: '2 visits in the last 26 weeks' })).toBeTruthy();
+  const buys = within(page.getByRole('region', { name: 'What they buy' }));
+  expect(buys.getByText('What Kasun buys')).toBeTruthy();
+  expect(buys.getByRole('listitem').textContent).toBe('Devilled Chicken, Large2');
   const bought = within(page.getByRole('table')).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
-  expect(bought.map((r) => [r[1], r[2], r[3]])).toEqual([['1002', '1 × Devilled Chicken Large', 'Rs 19,000'], ['1001', '1 × Devilled Chicken Large', 'Rs 2,900']]);
+  expect(bought.map((r) => r.slice(1))).toEqual([
+    ['ORDER 1002', '1 × Devilled Chicken Large', 'Cash', 'Rs 19,000'],
+    ['ORDER 1001', '1 × Devilled Chicken Large', 'Cash', 'Rs 2,900'],
+  ]);
   expect(page.getByText('Signed up for offers: campaigns can reach them.')).toBeTruthy();
+  expect(await page.findByText(/Last: “Weekend offer” on 4 Nov, came in 5 days later\./)).toBeTruthy();
 
   await user.click(page.getByRole('button', { name: 'No messages for this customer' }));
   expect(crm.optOut).toHaveBeenCalledWith(KASUN.id, true);
@@ -298,4 +316,22 @@ test('Change name or mobile: saved in place, a number someone else has says whos
   await user.click(within(notice).getByRole('button', { name: 'Undo' }));
   expect(crm.edit).toHaveBeenLastCalledWith(KASUN.id, KASUN.phone, 'Kasun Perera');
   expect(await screen.findByRole('heading', { name: 'Kasun Perera' })).toBeTruthy();
+});
+
+test('Start an order: back to the Register with the customer handed over for a new bill', async () => {
+  const user = userEvent.setup();
+  const onRegister = vi.fn();
+  render(<CustomersView hash={`#customers/c/${KASUN.id}`} onRegister={onRegister} />);
+  await user.click(await screen.findByRole('button', { name: 'Start an order →' }));
+  expect(onRegister).toHaveBeenCalledOnce();
+  const { takeOrderFor } = await import('../services/orderFor.ts');
+  expect(takeOrderFor()).toEqual({ id: KASUN.id, name: 'Kasun Perera' });
+  expect(takeOrderFor(), 'handed over once').toBeNull();
+});
+
+test('a card opens the list at its filter: New, Gone quiet, Owes', async () => {
+  render(<CustomersView hash="#customers?show=inactive" onRegister={() => {}} />);
+  const show = within(await screen.findByRole('group', { name: 'Show' }));
+  expect(show.getByRole('button', { name: /^Inactive/ }).getAttribute('aria-pressed')).toBe('true');
+  expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3);
 });

@@ -234,6 +234,19 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       return pushing().reach(device.tenantId, body.audience);
     },
 
+    /** Every audience's reach at once, for the Campaigns page's chips (the owner). */
+    async reachAll(device: Device, staffId: unknown) {
+      await who(device, staffId, 'owner');
+      return { reach: await pushing().reachAll(device.tenantId) };
+    },
+
+    /** The last campaign that reached one customer, and when they came in after (managers and the owner). */
+    async messages(device: Device, staffId: unknown, body: { id?: unknown }) {
+      await who(device, staffId, 'manager');
+      if (!isCustomerId(body.id)) throw new CrmError(400, 'invalid_event', 'which customer?');
+      return { last: await pushing().lastReached(device.tenantId, body.id) };
+    },
+
     /** The owner's campaign: sent now; one record with the counts comes back. */
     async send(device: Device, staffId: unknown, body: { audience?: unknown; title?: unknown; body?: unknown; testPhone?: unknown }) {
       const actor = await who(device, staffId, 'owner');

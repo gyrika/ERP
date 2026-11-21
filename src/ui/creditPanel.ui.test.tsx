@@ -28,7 +28,8 @@ test('the owner changes the default limit; Undo puts the default back', async ()
   open(true, onSaved);
   // Every customer starts with the shop's default: Rs 100,000.
   expect(screen.getByRole('radio', { name: 'With a limit' }).getAttribute('aria-checked')).toBe('true');
-  expect(screen.getByText('limit · the shop default')).toBeTruthy();
+  expect(screen.getByText(/the shop default/).textContent).toBe(' · the shop default');
+  expect(screen.getByText(/of a Rs 100,000 limit/)).toBeTruthy();
   expect(screen.getByLabelText('Limit, Rs')).toHaveProperty('value', '100000');
   await user.clear(screen.getByLabelText('Limit, Rs'));
   await user.type(screen.getByLabelText('Limit, Rs'), '20,000');

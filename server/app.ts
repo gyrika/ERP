@@ -358,6 +358,8 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
           '/search': (b) => crm.search(device, staffId, b),
           '/ensure': (b) => crm.ensure(device, staffId, b),
           '/campaigns/reach': (b) => crm.reach(device, staffId, b),
+          '/campaigns/reach-all': () => crm.reachAll(device, staffId),
+          '/customers/messages': (b) => crm.messages(device, staffId, b),
           '/campaigns/send': (b) => crm.send(device, staffId, b),
           '/campaigns/auto': (b) => crm.setAuto(device, staffId, b),
           '/campaigns/results': () => crm.results(device, staffId),
