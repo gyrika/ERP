@@ -6,7 +6,7 @@ import { boxLines, nextShownLine } from '../domain/combos.ts';
 import { lineCookState } from '../domain/kitchen.ts';
 import { balanceDue, bareLine, orderTotal, unsentLines } from '../domain/order.ts';
 import type { MenuItem, OrderCustomer, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
-import { creditFromEvents, type CreditTender } from '../domain/credit.ts';
+import { creditFromEvents, DEFAULT_CREDIT, type CreditTender } from '../domain/credit.ts';
 import { payCreditBack } from '../services/creditStore.ts';
 import { PayPanel } from './PayPanel.tsx';
 import { currentCashier } from '../services/auth.ts';
@@ -431,7 +431,7 @@ export function App({
     () => (crmOn ? creditFromEvents(readAll()) : null),
     [crmOn, custTyping !== null, customer?.id, reg.paidToday.length, sheet?.kind, noted?.id], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const creditOf = useCallback((id: string) => credit?.get(id) ?? { setting: null, owes: 0 }, [credit]);
+  const creditOf = useCallback((id: string) => credit?.get(id) ?? { setting: DEFAULT_CREDIT, owes: 0 }, [credit]);
   const usual = useMemo(() => {
     if (!crmOn || !customer || reg.order.lines.length || reg.order.sentAt !== undefined) return null;
     return usualOrder(customerOrders(readAll(), customer.id), (id) => menuItems().find((m) => m.id === id));

@@ -78,6 +78,19 @@ test('a split bill counts only its credit parts', () => {
   assert.equal(creditOf([split], KASUN).owes, 100_000);
 });
 
+test('every customer has Rs 100,000 credit until the owner says otherwise; his Off is off', () => {
+  const fresh = creditOf([], KASUN);
+  assert.deepEqual(fresh.setting, { limit: 10_000_000 });
+  assert.equal(fresh.isDefault, true);
+  assert.deepEqual(canTakeCredit(fresh, 10_000_000), { ok: true });
+  assert.deepEqual(canTakeCredit(fresh, 10_000_100), { ok: false, why: 'over', over: 100 });
+  const billOnly = creditOf([bill(KASUN, 400_000, NOW - DAY)], KASUN);
+  assert.equal(billOnly.isDefault, true, 'a bill alone does not change the setting');
+  const off = creditOf([setCredit(KASUN, null)], KASUN);
+  assert.equal(off.setting, null);
+  assert.equal(off.isDefault, false);
+});
+
 test('the limit: off, no limit, within it, and by how much a bill would pass it', () => {
   assert.deepEqual(canTakeCredit({ setting: null, owes: 0 }, 1), { ok: false, why: 'off' });
   assert.deepEqual(canTakeCredit({ setting: { limit: null }, owes: 9_999_999 }, 500_000), { ok: true });

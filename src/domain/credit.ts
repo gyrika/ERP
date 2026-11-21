@@ -38,6 +38,12 @@ export type CreditEvent =
 
 export const CREDIT_EVENT_TYPES = ['credit.limit_set', 'credit.paid', 'credit.paid_undone'] as const satisfies readonly CreditEvent['type'][];
 
+/**
+ * Every customer on the list has credit up to Rs 100,000 until the owner says otherwise (owner,
+ * 2026-11-21): no event needed. His own choice for a customer (a limit, no limit, or Off) replaces it.
+ */
+export const DEFAULT_CREDIT: CreditSetting = { limit: 10_000_000 };
+
 /** Rs 10,00,000: higher than any tab a pizza shop would run, so a slip of the keyboard is caught. */
 export const MAX_LIMIT: Cents = 100_000_000;
 /** The To do speaks up when nothing was paid back for this long. */
@@ -83,8 +89,10 @@ export interface CreditPayment { id: string; at: number; amount: Cents; tender: 
 
 export interface CreditAccount {
   customerId: string;
-  /** null: credit is off (never turned on, or turned off). */
+  /** null: the owner turned credit off. Never set: DEFAULT_CREDIT (`isDefault`). */
   setting: CreditSetting | null;
+  /** The owner never set this customer's credit: the shop's default applies. */
+  isDefault: boolean;
   bills: CreditBill[];
   payments: CreditPayment[];
   owes: Cents;
@@ -94,7 +102,7 @@ export interface CreditAccount {
 }
 
 const emptyAccount = (customerId: string): CreditAccount =>
-  ({ customerId, setting: null, bills: [], payments: [], owes: 0, oldestOpenAt: null, lastPaidAt: null });
+  ({ customerId, setting: DEFAULT_CREDIT, isDefault: true, bills: [], payments: [], owes: 0, oldestOpenAt: null, lastPaidAt: null });
 
 /**
  * Every customer's credit, from the log. A bill on credit is the payment that still stands (an
@@ -128,7 +136,7 @@ export const creditFromEvents = (events: readonly SyncEvent[]): Map<string, Cred
 
   const out = new Map<string, CreditAccount>();
   const of = (id: string) => out.get(id) ?? (out.set(id, emptyAccount(id)), out.get(id)!);
-  for (const [id, setting] of settings) of(id).setting = setting;
+  for (const [id, setting] of settings) Object.assign(of(id), { setting, isDefault: false });
   for (const { customerId, bill } of bills) of(customerId).bills.push({ ...bill, open: bill.amount });
   for (const { customerId, payment } of paid.values()) of(customerId).payments.push(payment);
   for (const a of out.values()) {

@@ -22,24 +22,27 @@ afterEach(() => { cleanup(); });
 const open = (isOwner = true, onSaved = vi.fn()) =>
   render(<CreditPanel customerId={ID} name="Dilani" events={readAll()} now={Date.now()} isOwner={isOwner} onSaved={onSaved} />);
 
-test('the owner turns credit on with a limit; Undo turns it off again', async () => {
+test('the owner changes the default limit; Undo puts the default back', async () => {
   const onSaved = vi.fn();
   const user = userEvent.setup();
   open(true, onSaved);
-  expect(screen.getByRole('radio', { name: 'Off' }).getAttribute('aria-checked')).toBe('true');
-  await user.click(screen.getByRole('radio', { name: 'With a limit' }));
+  // Every customer starts with the shop's default: Rs 100,000.
+  expect(screen.getByRole('radio', { name: 'With a limit' }).getAttribute('aria-checked')).toBe('true');
+  expect(screen.getByText('limit · the shop default')).toBeTruthy();
+  expect(screen.getByLabelText('Limit, Rs')).toHaveProperty('value', '100000');
+  await user.clear(screen.getByLabelText('Limit, Rs'));
   await user.type(screen.getByLabelText('Limit, Rs'), '20,000');
   await user.click(screen.getByRole('button', { name: 'Save' }));
   expect(creditOf(readAll(), ID).setting).toEqual({ limit: 2_000_000 });
   expect(onSaved.mock.calls[0][0].message).toBe('Dilani: credit on, limit Rs 20,000.');
   await onSaved.mock.calls[0][0].undo();
-  expect(creditOf(readAll(), ID).setting).toBeNull();
+  expect(creditOf(readAll(), ID).setting).toEqual({ limit: 10_000_000 });
 });
 
 test('changing the limit, no limit, and off; a limit that is not a number is not saved', async () => {
   const user = userEvent.setup();
   const { unmount } = open();
-  await user.click(screen.getByRole('radio', { name: 'With a limit' }));
+  await user.clear(screen.getByLabelText('Limit, Rs'));
   await user.type(screen.getByLabelText('Limit, Rs'), 'abc');
   await user.click(screen.getByRole('button', { name: 'Save' }));
   expect(screen.getByRole('alert').textContent).toContain('Type the limit');

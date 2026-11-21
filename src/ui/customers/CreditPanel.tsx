@@ -49,7 +49,7 @@ export function CreditPanel({ customerId, name, events, now, isOwner, onSaved }:
       <h3>Credit</h3>
       <ul className="crm-tiles" aria-label="Their credit">
         <li><b className="num">{account.owes > 0 ? `Rs ${fmt(account.owes)}` : account.owes < 0 ? `Rs ${fmt(-account.owes)} ahead` : '–'}</b><span>owes</span></li>
-        <li><b className="num">{settingLabel(account.setting).replace(/^Limit /, '')}</b><span>{account.setting ? 'limit' : 'credit'}</span></li>
+        <li><b className="num">{settingLabel(account.setting).replace(/^Limit /, '')}</b><span>{!account.setting ? 'credit' : account.isDefault ? 'limit · the shop default' : 'limit'}</span></li>
         <li><b>{account.oldestOpenAt ? `${daysSince(account.oldestOpenAt, now)} days` : '–'}</b><span>oldest unpaid bill</span></li>
         <li><b>{account.lastPaidAt ? shortDate(account.lastPaidAt) : 'Never'}</b><span>last paid back</span></li>
       </ul>
