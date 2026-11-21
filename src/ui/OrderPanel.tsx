@@ -1,3 +1,4 @@
+import type { CreditAccount } from '../domain/credit.ts';
 import { useState, type ReactNode } from 'react';
 import { label } from './labels.ts';
 import { NumberInput } from './NumberInput.tsx';
@@ -45,7 +46,7 @@ function OrderBadge({ number, quiet = false }: { number: number; quiet?: boolean
 }
 
 export const COOK_LABEL = { waiting: 'Waiting', cooking: 'Cooking', done: 'Done' } as const;
-export const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats' };
+export const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', credit: 'On credit', uber: 'Uber Eats' };
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** Void reasons for a sent line (owner rule: a reason is required). Keys 1-3 pick them. */
@@ -207,11 +208,14 @@ interface Props {
   customerBar?: ReactNode;
   /** Present while Pay is open: the panel becomes the payment, in place of a sheet. */
   paying?: {
-    onPay: (tender: Tender, tendered: Cents, customerId?: string, unlinked?: boolean) => void;
+    onPay: (tender: Tender, tendered: Cents, customerId?: string, unlinked?: boolean, payBack?: Cents) => void;
     /** Split bill: one person's part (split.ts). */
     onPayPart?: (tender: Tender, tendered: Cents, pick: UnitPick, customerId?: string, unlinked?: boolean) => void;
     onClose: () => void;
     customers?: boolean;
+    /** Credit (credit.ts): a customer's credit, and whether manager mode is on (past the limit). */
+    creditOf?: (customerId: string) => Pick<CreditAccount, 'setting' | 'owes'>;
+    managerOn?: boolean;
   } | null;
   /** Present while an item's extras are open (adding or changing a line): they take the panel, in place of a pop-up. */
   extras?: ReactNode;
@@ -259,7 +263,9 @@ export function OrderPanel({
   if (paying && paid && due > 0) {
     return (
       <aside className={`${panelClass} panel--paying`} aria-label="Current order">
-        <PayPanel number={paid.number} total={due} lines={<PayLines order={paid} />} onPay={paying.onPay} onClose={paying.onClose} />
+        <PayPanel number={paid.number} total={due} lines={<PayLines order={paid} />} onPay={paying.onPay} onClose={paying.onClose}
+          // A bill on credit: what it costs more can go on the same credit (credit.ts); other bills, as they were paid.
+          {...(paid.tender === 'credit' && paid.customer ? { customers: paying.customers, customer: paid.customer, creditOf: paying.creditOf, managerOn: paying.managerOn } : {})} />
       </aside>
     );
   }
@@ -267,7 +273,7 @@ export function OrderPanel({
     return (
       <aside className={`${panelClass} panel--paying`} aria-label="Current order">
         <PayPanel number={order.number} total={amountLeft(order)} lines={<PayLines order={order} />} order={order} onPayPart={paying.onPayPart} onPay={paying.onPay}
-          onClose={paying.onClose} customers={paying.customers} customer={order.customer} />
+          onClose={paying.onClose} customers={paying.customers} customer={order.customer} creditOf={paying.creditOf} managerOn={paying.managerOn} />
       </aside>
     );
   }

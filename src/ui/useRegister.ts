@@ -649,7 +649,8 @@ export function useRegister() {
       fireTicket(ticket, holds);
     }
     // Money back: cash from the drawer, or by bank to a customer who paid by transfer.
-    const how: Tender = amount < 0 ? (tender === 'transfer' ? 'transfer' : 'cash') : tender;
+    // A bill on credit: what comes off it comes off their credit, never cash from the drawer (credit.ts).
+    const how: Tender = amount < 0 ? (p.tender === 'credit' ? 'credit' : tender === 'transfer' ? 'transfer' : 'cash') : tender;
     const given = amount < 0 ? -amount : Math.max(tendered, amount);
     seal();
     setHistory([]);

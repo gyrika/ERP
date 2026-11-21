@@ -15,6 +15,7 @@ import type { WarehouseInfo } from './warehouses.ts';
 import type { ShopEvent } from './freshStart.ts';
 import type { ModuleEvent } from './modules.ts';
 import type { CampaignEvent } from './campaigns.ts';
+import type { CreditEvent } from './credit.ts';
 
 /**
  * The sync contract between devices and the server (SCRUM-59, 60, 29, 30).
@@ -195,7 +196,7 @@ export interface GrnLine { itemId: string; ordered: number; received: number; ac
   warehouseId?: string }
 
 /** Everything that syncs. Menu changes: src/domain/menuEdits.ts; shorthand misses: shorthandMisses.ts; tables and cameras: tables.ts; starting fresh: freshStart.ts; modules: modules.ts. */
-export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent | ShorthandEvent | TableEvent | VisionEvent | MoneyEvent | ValueEvent | ShopEvent | ModuleEvent | CampaignEvent | BillEvent;
+export type SyncEvent = OrderEvent | KitchenEvent | StockEvent | PrepEvent | MenuEvent | RecipeEvent | ShorthandEvent | TableEvent | VisionEvent | MoneyEvent | ValueEvent | ShopEvent | ModuleEvent | CampaignEvent | BillEvent | CreditEvent;
 
 /** An event before the log gives it an id and stamps the shop. */
 export type NewSyncEvent = SyncEvent extends infer E ? (E extends SyncEvent ? Omit<E, 'id' | 'shopId'> : never) : never;

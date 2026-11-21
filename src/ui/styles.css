@@ -406,6 +406,11 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .cust__usual { min-height: 72px; padding: 12px 16px; border-radius: 14px; box-shadow: inset 0 0 0 2px var(--primary); display: flex; align-items: center; justify-content: space-between; gap: 12px;
   text-align: left; color: var(--ink); }
 .cust__usual:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+/* On credit (credit.ts): what they owe, and Take payment beside it. */
+.cust__owes { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 0 4px 0 14px; border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--line); font-size: var(--fs-s); color: var(--ink-2); }
+.cust__owes b { font-weight: 600; color: var(--ink); }
+.cust__repay { min-height: 40px; padding: 0 14px; border-radius: 9px; background: var(--primary); color: var(--on-primary); font-size: var(--fs-s); font-weight: 600; }
 .cust__who { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .cust__who b { font-size: var(--fs-b); font-weight: 600; }
 .cust__who span { font-size: var(--fs-s); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -610,6 +615,18 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .paykey--cash small { font-size: var(--fs-s); font-weight: 500; letter-spacing: 0; color: var(--ok-ink); }
 .panel--paying .pay__other .paykey { min-height: clamp(48px, 8vh, 64px); font-size: var(--fs-l); }
 .paykey--solid { background: var(--chip); box-shadow: none; font-size: var(--fs-b); }
+/* Credit (credit.ts): the fourth key; Bank, Card, QR and Credit share one row of four. */
+.pay__other:has(.paykey--credit) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.paykey--credit { flex-direction: column; gap: 0; line-height: 1.15; }
+.paykey--credit small { font-size: 11px; font-weight: 500; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.paykey:disabled { opacity: 0.45; cursor: default; }
+/* They owe on credit: one quiet row, a tap adds it to this payment. */
+.paycredit { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: var(--tap); padding: 0 14px; border-radius: 12px;
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font-size: var(--fs-s); color: var(--ink-2); text-align: left;
+  transition: background-color 150ms var(--ease), box-shadow 150ms var(--ease); }
+.paycredit b { font-weight: 600; color: var(--ink); }
+.paycredit--on { box-shadow: inset 0 0 0 2px var(--ink); }
+.paycredit--on b { color: var(--ok-ink); }
 .paykey kbd { font: inherit; font-size: 11px; font-weight: 500; color: var(--ink-3); }
 .payfield { display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 6px 0 16px; border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
 .payfield:focus-within, .payfield--on { box-shadow: inset 0 0 0 2px var(--ink); }
@@ -622,6 +639,15 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .payfield__optional { font-weight: 400; color: var(--ink-3); }
 .paymobile__who { padding: 0 4px; font-size: var(--fs-s); color: var(--ink-2); }
 .paymobile__who--known { color: var(--ok-ink); font-weight: 500; }
+/* Search for a customer, and + New customer beside it (the cashier adds one on purpose). */
+.payfield--search { padding-left: 12px; }
+.payfield__find { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; cursor: text; }
+.payfield__icon { flex: none; color: var(--ink-3); }
+.payfield__new { flex: none; color: var(--ink); font-weight: 600; }
+.paynew { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-2); padding: var(--sp-2); border-radius: 14px; background: var(--chip); animation: rise 180ms var(--ease); }
+.paynew__add { grid-column: 1 / -1; min-height: var(--tap); background: var(--primary); color: var(--on-primary); font-weight: 600; }
+.paynew__add kbd { color: inherit; opacity: 0.7; }
+.paynew__why { grid-column: 1 / -1; color: var(--bad); }
 /* The bottom never moves: the amount to read, then the one button, where Charge was. */
 .pay .panel__foot { margin-top: auto; gap: var(--sp-3); }
 .payfoot__note { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: var(--fs-m); color: var(--ink-2); }
@@ -2398,6 +2424,15 @@ button.glance__card:disabled { cursor: default; }
 .crm-profile__messages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 16px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
 .crm-profile__messages p { margin: 0; font-size: 15px; color: var(--ink-2); }
 .crm-profile__messages .setup__error { flex-basis: 100%; }
+/* Credit on a customer's page (credit.ts): their numbers, the owner's three choices, then every bill and payment. */
+.crm-credit { display: flex; flex-direction: column; gap: 12px; }
+.crm-credit h3 { margin: 8px 0 0; }
+.crm-credit p { margin: 0; }
+.crm-credit__set { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; padding: 16px 20px; border-radius: 16px; background: var(--surface); box-shadow: var(--card-shadow); }
+.crm-credit__set .setup__error { flex-basis: 100%; margin: 0; }
+.crm-credit__limit { width: 180px; }
+.crm-credit__in { color: var(--ok-ink); }
+.crm-list__owes { font-weight: 600; }
 .crm-profile__remove { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 0; font-size: 13px; }
 .crm-danger { color: var(--bad); font-weight: 600; }
 

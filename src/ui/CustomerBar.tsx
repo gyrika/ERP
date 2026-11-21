@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { toLkMobile } from '../domain/phone.ts';
-import type { OrderCustomer } from '../domain/types.ts';
+import { fmt } from '../domain/money.ts';
+import type { Cents, OrderCustomer } from '../domain/types.ts';
 import type { Usual } from '../domain/usualOrder.ts';
 import { crmClient, rememberName, type Greeting } from '../services/crmClient.ts';
 import { NameMatches, useNameSearch } from './useNameSearch.tsx';
@@ -19,6 +20,10 @@ interface Props {
   onUsual: () => void;
   /** What "the usual" holds, in a few words. */
   describeUsual: (u: Usual) => string;
+  /** What this customer owes on credit (credit.ts, from the log); 0 for none. */
+  owes?: (id: string) => Cents;
+  /** They came to pay their credit back: Charge opens for it. */
+  onTakePayment?: (customer: OrderCustomer) => void;
 }
 
 type Who =
@@ -36,7 +41,7 @@ const ordinal = (n: number): string => {
  * becomes a customer with Enter, a name if they give one. The customer list stays on the shop PC
  * (crmClient); this screen is told only the id and the first name. No customer is fine: Esc.
  */
-export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, visits, usual, onUsual, describeUsual }: Props) {
+export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, visits, usual, onUsual, describeUsual, owes = () => 0, onTakePayment }: Props) {
   const phoneRef = useRef<HTMLInputElement>(null);
   const usualRef = useRef<HTMLButtonElement>(null);
   const [name, setName] = useState('');
@@ -119,7 +124,7 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
           <button type="button" className="cust__pick" onClick={() => void attach()}>
             <span className="cust__who">
               <b>{who.customer.name ?? 'On the list'}</b>
-              <span className="num">{visits(who.customer.id) ? `${visits(who.customer.id)} ${visits(who.customer.id) === 1 ? 'visit' : 'visits'}` : 'No visits yet'}</span>
+              <span className="num">{visits(who.customer.id) ? `${visits(who.customer.id)} ${visits(who.customer.id) === 1 ? 'visit' : 'visits'}` : 'No visits yet'}{owes(who.customer.id) > 0 ? ` · owes ${fmt(owes(who.customer.id))}` : ''}</span>
             </span>
             <kbd>Enter</kbd>
           </button>
@@ -145,6 +150,7 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
 
   if (customer) {
     const n = visits(customer.id);
+    const due = owes(customer.id);
     return (
       <div className="cust">
         <div className="cust__on">
@@ -154,6 +160,13 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
           </button>
           <button type="button" className="cust__off" onClick={onRemove} aria-label="Take the customer off">×</button>
         </div>
+        {due > 0 && (
+          // On credit (credit.ts): what they owe is in sight before more goes on it; one tap takes it back.
+          <div className="cust__owes">
+            <span className="num">Owes <b>{fmt(due)}</b> on credit</span>
+            {onTakePayment && <button type="button" className="cust__repay" onClick={() => onTakePayment(customer)}>Take payment</button>}
+          </div>
+        )}
         {usual && (
           <button type="button" ref={usualRef} className="cust__usual" onClick={onUsual}>
             <span className="cust__who">
