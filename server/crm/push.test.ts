@@ -310,3 +310,30 @@ test('by hand: managers and the owner add a customer; only the owner removes one
   assert.equal((await s.post('/customers/restore', s.owner.id, { customer: { id: 'x' } })).status, 400);
   await s.stop();
 });
+
+test('Gone quiet: regulars away twice their usual gap get their own campaign; every reach at once; a customer\'s last offer', async () => {
+  const s = await shop();
+  const mk = async (phone: string, days: number[]) => {
+    const { customer } = await s.customers.ensure(SHOP, phone, 'pos', 'x', T0 - 100 * DAY);
+    await s.customers.addSub(SHOP, customer.id, await phoneSub(Number(phone.slice(-2))), T0);
+    for (const d of days) await s.sale(customer.id, T0 - d * DAY);
+    return customer.id;
+  };
+  const quiet = await mk('+94770000031', [40, 35, 30, 25, 20]); // every 5 days, away 20
+  await mk('+94770000032', [30, 20, 3]); // came 3 days ago
+
+  const all = (await s.post('/campaigns/reach-all', s.owner.id, {})).body.reach as Record<string, { customers: number; reachable: number }>;
+  assert.deepEqual(all.quiet, { customers: 1, reachable: 1 });
+  assert.deepEqual(all.all, { customers: 2, reachable: 2 });
+  assert.equal('test' in all, false);
+  assert.equal((await s.post('/campaigns/reach-all', s.manager.id, {})).status, 403);
+
+  assert.equal((await s.post('/customers/messages', s.manager.id, { id: quiet })).body.last, null, 'nothing sent yet');
+  const sent = await s.post('/campaigns/send', s.owner.id, { audience: 'quiet', title: 'Your Friday pizza?', body: 'Garlic bread on us this week.' });
+  assert.equal(((sent.body.events as CampaignEvent[])[0] as { audience: string; delivered: number }).delivered, 1);
+  s.clock.now = T0 + 3 * DAY;
+  await s.sale(quiet, T0 + 2 * DAY);
+  assert.deepEqual((await s.post('/customers/messages', s.manager.id, { id: quiet })).body.last, { title: 'Your Friday pizza?', at: T0, cameAt: T0 + 2 * DAY });
+  assert.equal((await s.post('/customers/messages', s.cashier.id, { id: quiet })).status, 403);
+  await s.stop();
+});

@@ -6,7 +6,7 @@ import { useShopEvents } from '../../services/ownerData.ts';
 import { signedIn, subscribeAuth } from '../../services/serverAuth.ts';
 import { OwnerNav } from '../OwnerNav.tsx';
 import { CampaignsPanel } from './CampaignsPanel.tsx';
-import { CustomerList } from './CustomerList.tsx';
+import { CustomerList, type ListFilter } from './CustomerList.tsx';
 import { CustomerProfile } from './CustomerProfile.tsx';
 import { ImportPanel } from './ImportPanel.tsx';
 
@@ -16,13 +16,19 @@ import { ImportPanel } from './ImportPanel.tsx';
  * customer), Import (the owner's spreadsheet), Campaigns (push messages, the owner's).
  * Who a customer is comes from the shop server; what they bought from the events, folded here.
  */
-export type CustomersPlace = { at: 'list'; owes?: true } | { at: 'import' } | { at: 'campaigns' } | { at: 'customer'; id: string };
+export type CustomersPlace = { at: 'list'; show?: ListFilter } | { at: 'import' } | { at: 'campaigns'; to?: 'quiet' } | { at: 'customer'; id: string };
+
+const SHOWS: readonly ListFilter[] = ['new', 'regular', 'vip', 'inactive', 'quiet', 'owes'];
 
 export const placeOf = (hash: string): CustomersPlace => {
   if (hash === '#customers/import') return { at: 'import' };
   if (hash === '#customers/campaigns') return { at: 'campaigns' };
-  // The owner's To do opens the list at Owes (credit.ts).
-  if (hash === '#customers/owes') return { at: 'list', owes: true };
+  // The Gone quiet card opens Campaigns with that audience picked.
+  if (hash === '#customers/campaigns?to=quiet') return { at: 'campaigns', to: 'quiet' };
+  // The owner's To do opens the list at Owes (credit.ts); a card at New.
+  if (hash === '#customers/owes') return { at: 'list', show: 'owes' };
+  const show = /^#customers\?show=(\w+)$/.exec(hash)?.[1] as ListFilter | undefined;
+  if (show && SHOWS.includes(show)) return { at: 'list', show };
   const m = /^#customers\/c\/(cus-[0-9a-f]{16})$/.exec(hash);
   return m ? { at: 'customer', id: m[1] } : { at: 'list' };
 };
@@ -83,8 +89,8 @@ export default function CustomersView({ hash, onRegister }: { hash: string; onRe
       <OwnerNav current="customers" onRegister={onRegister} />
       <div className="inv-page__head">
         <h1 className="supplier-heading">Customers</h1>
-        <nav className="cats" aria-label="Customers">
-          {TABS.map((t) => <a key={t.at} className="pill" href={t.href} aria-pressed={tab === t.at}>{t.label}</a>)}
+        <nav className="crm-tabs" aria-label="Customers">
+          {TABS.map((t) => <a key={t.at} href={t.href} aria-current={tab === t.at ? 'page' : undefined}>{t.label}</a>)}
         </nav>
       </div>
       <div className="inv-scroll" ref={scroller}>
@@ -96,14 +102,14 @@ export default function CustomersView({ hash, onRegister }: { hash: string; onRe
               {notice.undo && <button type="button" onClick={() => { const u = notice.undo!; setNotice(null); void u().then(load, (e: unknown) => setError(e instanceof Error ? e.message : String(e))); }}>Undo</button>}
             </div>
           )}
-          {place.at === 'list' && <CustomerList key={place.owes ? 'owes' : 'all'} owes={place.owes} data={data} events={events ?? []} now={at} onAdded={async (n) => { await load(); setNotice(n); }} />}
+          {place.at === 'list' && <CustomerList key={place.show ?? 'all'} show={place.show} data={data} events={events ?? []} now={at} onAdded={async (n) => { await load(); setNotice(n); }} />}
           {place.at === 'customer' && (
-            <CustomerProfile id={place.id} data={data} events={events ?? []} now={at} isOwner={role === 'owner'} onChanged={load}
+            <CustomerProfile id={place.id} onRegister={onRegister} data={data} events={events ?? []} now={at} isOwner={role === 'owner'} onChanged={load}
               onRemoved={async (n) => { await load(); setNotice(n); location.hash = '#customers'; }}
               onEdited={async (n) => { await load(); setNotice(n); }} onCredit={setNotice} />
           )}
           {place.at === 'import' && <ImportPanel count={data?.customers.length ?? null} onSaved={load} />}
-          {place.at === 'campaigns' && <CampaignsPanel isOwner={role === 'owner'} data={data} events={events ?? []} now={at} />}
+          {place.at === 'campaigns' && <CampaignsPanel to={place.to} isOwner={role === 'owner'} data={data} events={events ?? []} now={at} />}
         </div>
       </div>
     </div>

@@ -1,5 +1,7 @@
 # Customers redesign: implementation plan
 
+**Status (2026-11-21):** phases 1 to 4 built on branch `customers-redesign`; tests and build pass. Not yet looked at in the running app (needs the shop's PIN and Customers on). The cloud must be deployed before the owner sends to Gone quiet (it checks a campaign's audience). "We miss you" shows how many times it was sent, not a came-in rate: automatic sends keep no comparison group yet.
+
 Accepted design (2026-11-21): https://claude.ai/artifact/1Xr6PB1uBQNzSBUPxx96zU (three screens: Customers, One customer, Campaigns; light and dark).
 
 **Mind served:** the owner (and managers) on the shop PC. What they know: their regulars by face. The one next thing: who to bring back, who owes, who to message, and whether it worked.

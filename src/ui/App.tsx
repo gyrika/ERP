@@ -8,6 +8,7 @@ import { balanceDue, bareLine, orderTotal, unsentLines } from '../domain/order.t
 import type { MenuItem, OrderCustomer, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
 import { creditFromEvents, DEFAULT_CREDIT, type CreditTender } from '../domain/credit.ts';
 import { payCreditBack } from '../services/creditStore.ts';
+import { takeOrderFor } from '../services/orderFor.ts';
 import { PayPanel } from './PayPanel.tsx';
 import { currentCashier } from '../services/auth.ts';
 import { useFlyToRail } from './flyToRail.ts';
@@ -454,6 +455,14 @@ export function App({
     />
   ) : null;
   useEffect(() => { if (paying && listing) setSheet(null); }, [paying, listing]);
+  // "Start an order" on a customer's page: a new bill with them on it; the bill on screen is held (Undo).
+  useEffect(() => {
+    if (!crmOn) return;
+    const c = takeOrderFor();
+    if (!c) return;
+    if (reg.paid || reg.order.lines.length) reg.startNew();
+    reg.setCustomer(c);
+  }, [crmOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const quickAdd = (item: MenuItem, size?: SizeId) => {
     // The menu stays live while paying or in extras: the customer remembered a drink, so it goes on and the order is back.

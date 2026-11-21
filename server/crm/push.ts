@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Actor } from '../../src/domain/auth.ts';
 import { campaignResult, type CampaignResult } from '../../src/domain/campaignResults.ts';
-import { campaignsFromEvents, checkMessage, isPushSubscription, winbackFromEvents, type Audience, type CampaignEvent, type Message } from '../../src/domain/campaigns.ts';
+import { AUDIENCES, campaignsFromEvents, checkMessage, isPushSubscription, winbackFromEvents, type Audience, type CampaignEvent, type Message } from '../../src/domain/campaigns.ts';
+import { isGoneQuiet } from '../../src/domain/customerInsights.ts';
 import { DEFAULT_SEGMENT_RULES, segmentsOf, visitsFromEvents, type Customer } from '../../src/domain/customers.ts';
 import { toLkMobile } from '../../src/domain/phone.ts';
 import type { SyncEvent } from '../../src/domain/sync.ts';
@@ -48,6 +49,9 @@ export function createPush(o: PushOptions) {
       if (!picked.length) throw new PushError('that number has not signed up for offers in the app');
     } else if (who === 'all') {
       picked = list;
+    } else if (who === 'quiet') {
+      const visits = visitsFromEvents(await o.history(tenantId));
+      picked = list.filter((c) => isGoneQuiet(visits.get(c.id) ?? [], now()));
     } else {
       const segments = segmentsOf(list, visitsFromEvents(await o.history(tenantId)), DEFAULT_SEGMENT_RULES, now());
       picked = list.filter((c) => segments.get(c.id) === who);
@@ -112,6 +116,32 @@ export function createPush(o: PushOptions) {
       return record(device, actor, {
         audience: who, kind: 'campaign', ...m, customers: a.picked.length, reachable: a.reachable.length, delivered, failed,
       }, id);
+    },
+
+    /** Every audience's reach at once (the Campaigns page's chips), tests left out. */
+    async reachAll(tenantId: string): Promise<Record<Exclude<Audience, 'test'>, Reach>> {
+      const out = {} as Record<Exclude<Audience, 'test'>, Reach>;
+      for (const who of AUDIENCES) {
+        if (who === 'test') continue;
+        const a = await audience(tenantId, who);
+        out[who] = { customers: a.picked.length, reachable: a.reachable.length };
+      }
+      return out;
+    },
+
+    /**
+     * The last campaign that reached one customer, and when they next came in (their page, on the
+     * shop PC only). Null when no campaign with results reached them.
+     */
+    async lastReached(tenantId: string, customerId: string): Promise<{ title: string; at: number; cameAt: number | null } | null> {
+      const events = await o.history(tenantId);
+      for (const c of campaignsFromEvents(events)) {
+        if (c.kind !== 'campaign') continue;
+        if (!(await o.customers.logged(tenantId, `campaign:${c.id}:`)).includes(customerId)) continue;
+        const after = (visitsFromEvents(events).get(customerId) ?? []).filter((v) => v.at > c.at).map((v) => v.at);
+        return { title: c.title, at: c.at, cameAt: after.length ? Math.min(...after) : null };
+      }
+      return null;
     },
 
     /**

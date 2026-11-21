@@ -20,7 +20,7 @@ vi.mock('../services/serverAuth.ts', async (real) => ({
   ...(await real<typeof import('../services/serverAuth.ts')>()),
   signedIn: () => ({ id: 'o', name: 'Owner', role: shop.role }),
 }));
-const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn(), setReceipt: vi.fn(), edit: vi.fn() }));
+const crm = vi.hoisted(() => ({ list: vi.fn(), optOut: vi.fn(), add: vi.fn(), remove: vi.fn(), restore: vi.fn(), preview: vi.fn(), save: vi.fn(), reach: vi.fn(), send: vi.fn(), setAuto: vi.fn(), results: vi.fn(), setReceipt: vi.fn(), edit: vi.fn(), messages: vi.fn(), reachAll: vi.fn() }));
 vi.mock('../services/crmClient.ts', () => ({ crmClient: crm, CrmFailed: Error }));
 
 const { default: CustomersView } = await import('./customers/CustomersView.tsx');
@@ -69,6 +69,11 @@ beforeEach(() => {
     audience, kind: 'campaign', title, body, customers: 1, reachable: 1, delivered: 1, failed: 0,
   }] }));
   crm.results.mockResolvedValue({ results: {} });
+  crm.messages.mockResolvedValue({ last: { title: 'Weekend offer', at: NOW - 7 * DAY, cameAt: NOW - 2 * DAY } });
+  crm.reachAll.mockResolvedValue({ reach: {
+    all: { customers: 3, reachable: 1 }, new: { customers: 0, reachable: 0 }, regular: { customers: 0, reachable: 0 },
+    vip: { customers: 1, reachable: 1 }, inactive: { customers: 3, reachable: 1 }, quiet: { customers: 0, reachable: 0 },
+  } });
   crm.setAuto.mockImplementation(async (on: boolean, title: string, body: string) => ({ events: [{
     id: 'a1', shopId: 's', at: NOW, orderNumber: 0, actor: { id: 'o', name: 'Owner', role: 'owner' }, type: 'crm.auto_set', on, title, body,
   }] }));
@@ -83,27 +88,40 @@ test('off: the sidebar has no Customers, and the page says it is not on', async 
   expect(crm.list).not.toHaveBeenCalled();
 });
 
-test('the list: the shop at a glance, segments to narrow it, search by name or number', async () => {
+test('the list: who they are, whether they come back, segments to narrow it, search by name or number', async () => {
   const user = userEvent.setup();
   render(<CustomersView hash="#customers" onRegister={() => {}} />);
-  const tiles = within(await screen.findByRole('list', { name: 'Customers at a glance' }));
-  expect(tiles.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-    '3customers', '0new this month', '1active', '2inactive (30+ days)', '50%came back', '1get offers',
+  expect((await screen.findByText(/get offers on the app/)).textContent).toBe('3 people · 1 get offers on the app');
+  const who = within(screen.getByRole('region', { name: 'Who they are' }));
+  expect(who.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+    'New0first visit in 30 days', 'Regular0come back', 'VIP1top spend, 90 days', 'Inactive230+ days away',
   ]);
+  expect(within(screen.getByRole('region', { name: 'Coming back' })).getByText(/of named orders this week/).textContent)
+    .toBe('100% of named orders this week came from people who had been before.');
   const rows = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
-  expect(rows()).toEqual([
-    ['Kasun Perera', '077 000 0001', 'VIP', '2', 'Rs 21,900', '9 Nov 2026'],
-    ['නිමලි ප්‍රනාන්දු', '077 000 0002', 'Inactive', '1', 'Rs 1,500', '2 Oct 2026'],
-    ['No name', '077 000 0003', 'Inactive', '0', '–', 'Never'],
+  const all = rows();
+  expect(all.map((r) => r.slice(1))).toEqual([
+    ['VIP', '', '2', '2 days ago', 'Rs 21,900', '–'],
+    ['Inactive', '', '1', '40 days ago', 'Rs 1,500', '–'],
+    ['Inactive', '', '0', 'Never', '–', '–'],
   ]);
-  await user.click(screen.getByRole('button', { name: /^VIP/ }));
-  expect(rows().map((r) => r[0])).toEqual(['Kasun Perera']);
-  await user.click(screen.getByRole('button', { name: /^All/ }));
+  expect(all[0][0]).toBe('KPKasun Perera077 000 0001');
+  expect(all[1][0]).toMatch(/නිමලි ප්‍රනාන්දු077 000 0002$/);
+  expect(all[2][0]).toBe('#No name077 000 0003');
+  expect(screen.getByRole('img', { name: 'Came in 2 of the last 12 weeks' })).toBeTruthy();
+  // A part of the bar narrows the list, like the VIP pill.
+  await user.click(who.getByRole('button', { name: 'VIP: 1' }));
+  expect(rows().map((r) => r[0])).toEqual(['KPKasun Perera077 000 0001']);
+  const show = within(screen.getByRole('group', { name: 'Show' }));
+  await user.click(show.getByRole('button', { name: /^All/ }));
+  await user.click(show.getByRole('button', { name: /^VIP/ }));
+  expect(rows().map((r) => r[0])).toEqual(['KPKasun Perera077 000 0001']);
+  await user.click(show.getByRole('button', { name: /^All/ }));
   await user.type(screen.getByRole('searchbox', { name: 'Search customers' }), '0002');
-  expect(rows().map((r) => r[0])).toEqual(['නිමලි ප්‍රනාන්දු']);
+  expect(rows().map((r) => r[0]?.endsWith('077 000 0002'))).toEqual([true]);
   await user.clear(screen.getByRole('searchbox', { name: 'Search customers' }));
   await user.type(screen.getByRole('searchbox', { name: 'Search customers' }), 'kasun');
-  expect(rows().map((r) => r[0])).toEqual(['Kasun Perera']);
+  expect(rows().map((r) => r[0])).toEqual(['KPKasun Perera077 000 0001']);
   expect(within(screen.getByRole('table')).getByRole('link', { name: 'Kasun Perera' }).getAttribute('href')).toBe(`#customers/c/${KASUN.id}`);
 });
 
@@ -113,11 +131,24 @@ test('a customer: what they bought, and no messages with one tap', async () => {
   const page = within(await screen.findByRole('article', { name: 'Kasun Perera' }));
   expect(page.getByText('077 000 0001')).toBeTruthy();
   expect(page.getByText('VIP')).toBeTruthy();
-  expect(within(page.getByRole('list', { name: 'This customer' })).getAllByRole('listitem').map((li) => li.textContent))
-    .toEqual(['2orders', 'Rs 21,900spent', '22 Sept 2026first visit', '9 Nov 2026last visit']);
+  expect(page.getByText('Gets offers')).toBeTruthy();
+  expect(within(page.getByRole('list', { name: 'This customer' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+    'Orders2since 22 Sept 2026', 'SpentRs 21,900Rs 19,000 this month', 'Average billRs 10,950shop average Rs 7,800', 'Usually–no usual time yet',
+  ]);
+  // Two visits: no rhythm yet; the timeline still shows them.
+  const rhythm = within(page.getByRole('region', { name: 'Rhythm' }));
+  expect(rhythm.getByText('Too early to tell')).toBeTruthy();
+  expect(rhythm.getByRole('img', { name: '2 visits in the last 26 weeks' })).toBeTruthy();
+  const buys = within(page.getByRole('region', { name: 'What they buy' }));
+  expect(buys.getByText('What Kasun buys')).toBeTruthy();
+  expect(buys.getByRole('listitem').textContent).toBe('Devilled Chicken, Large2');
   const bought = within(page.getByRole('table')).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
-  expect(bought.map((r) => [r[1], r[2], r[3]])).toEqual([['1002', '1 × Devilled Chicken Large', 'Rs 19,000'], ['1001', '1 × Devilled Chicken Large', 'Rs 2,900']]);
+  expect(bought.map((r) => r.slice(1))).toEqual([
+    ['ORDER 1002', '1 × Devilled Chicken Large', 'Cash', 'Rs 19,000'],
+    ['ORDER 1001', '1 × Devilled Chicken Large', 'Cash', 'Rs 2,900'],
+  ]);
   expect(page.getByText('Signed up for offers: campaigns can reach them.')).toBeTruthy();
+  expect(await page.findByText(/Last: “Weekend offer” on 4 Nov, came in 5 days later\./)).toBeTruthy();
 
   await user.click(page.getByRole('button', { name: 'No messages for this customer' }));
   expect(crm.optOut).toHaveBeenCalledWith(KASUN.id, true);
@@ -149,18 +180,23 @@ test('Campaigns: the owner picks who, sees the reach, writes two lines and sends
   render(<CustomersView hash="#customers/campaigns" onRegister={() => {}} />);
   expect(await screen.findByText('Reaches 1 of 3 inactive customers.')).toBeTruthy();
   const send = () => screen.getByRole('button', { name: /^Send( to \d+)?$/ }) as HTMLButtonElement;
-  await user.click(screen.getByRole('button', { name: 'VIP' }));
+  // Each group says how many it reaches, from one ask.
+  const to = within(screen.getByRole('group', { name: 'Send to' }));
+  expect(to.getAllByRole('button').map((b) => b.textContent)).toEqual(['Everyone1', 'New0', 'Regular0', 'VIP1', 'Inactive1', 'Gone quiet0']);
+  await user.click(to.getByRole('button', { name: /^VIP/ }));
   expect(await screen.findByText('Reaches 1 of 1 vip customers.')).toBeTruthy();
   expect(send().disabled, 'nothing written yet').toBe(true);
   const compose = within(screen.getByRole('region', { name: 'New campaign' }));
   await user.type(compose.getByRole('textbox', { name: /^Title/ }), 'Thank you');
   await user.type(compose.getByRole('textbox', { name: /^Message/ }), 'A free garlic bread with your next pizza.');
+  // The phone shows it as they will see it.
+  expect(screen.getByRole('img', { name: 'The notification: Thank you. A free garlic bread with your next pizza.' })).toBeTruthy();
   await user.click(send());
   expect(crm.send).toHaveBeenCalledWith('vip', 'Thank you', 'A free garlic bread with your next pizza.', undefined);
   expect((await screen.findByRole('status')).textContent).toBe('Sent: reached 1 of 1.');
-  expect(within(screen.getByRole('region', { name: 'Sent' })).getByText('Thank you')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'What they brought' })).getByText('Thank you')).toBeTruthy();
 
-  await user.click(screen.getByRole('button', { name: 'Turn on' }));
+  await user.click(screen.getByRole('switch', { name: 'We miss you, sent by itself' }));
   expect(crm.setAuto).toHaveBeenCalledWith(true, 'We miss you at CheesyBeez', 'It has been a while. Come by for a hot pizza this week.');
   expect(await screen.findByText('“We miss you” is on.')).toBeTruthy();
 });
@@ -201,8 +237,9 @@ test('Sent: each campaign says what it brought in that week, beside the others i
   } as SyncEvent];
   crm.results.mockResolvedValue({ results: { c9: { reached: 10, cameIn: 3, spent: 1_250_000, compared: 20, comparedCameIn: 2, final: false } } });
   render(<CustomersView hash="#customers/campaigns" onRegister={() => {}} />);
-  const sent = within(screen.getByRole('region', { name: 'Sent' }));
+  const sent = within(screen.getByRole('region', { name: 'What they brought' }));
   expect(await sent.findByText(/3 of 10 came in so far · Rs 12,500/)).toBeTruthy();
+  expect(sent.getByRole('img', { name: '30% came in, others 10%' })).toBeTruthy();
   expect(sent.getByText('Others in it: 2 of 20 (10%) vs 30%')).toBeTruthy();
   expect(sent.getByRole('columnheader', { name: 'Came in (7 days)' })).toBeTruthy();
 });
@@ -285,4 +322,28 @@ test('Change name or mobile: saved in place, a number someone else has says whos
   await user.click(within(notice).getByRole('button', { name: 'Undo' }));
   expect(crm.edit).toHaveBeenLastCalledWith(KASUN.id, KASUN.phone, 'Kasun Perera');
   expect(await screen.findByRole('heading', { name: 'Kasun Perera' })).toBeTruthy();
+});
+
+test('Start an order: back to the Register with the customer handed over for a new bill', async () => {
+  const user = userEvent.setup();
+  const onRegister = vi.fn();
+  render(<CustomersView hash={`#customers/c/${KASUN.id}`} onRegister={onRegister} />);
+  await user.click(await screen.findByRole('button', { name: 'Start an order →' }));
+  expect(onRegister).toHaveBeenCalledOnce();
+  const { takeOrderFor } = await import('../services/orderFor.ts');
+  expect(takeOrderFor()).toEqual({ id: KASUN.id, name: 'Kasun Perera' });
+  expect(takeOrderFor(), 'handed over once').toBeNull();
+});
+
+test('the Gone quiet card opens Campaigns with that group picked', async () => {
+  render(<CustomersView hash="#customers/campaigns?to=quiet" onRegister={() => {}} />);
+  expect(await screen.findByText('Reaches nobody yet: none of the 0 gone quiet customers have signed up for offers.')).toBeTruthy();
+  expect(within(screen.getByRole('group', { name: 'Send to' })).getByRole('button', { name: /^Gone quiet/ }).getAttribute('aria-pressed')).toBe('true');
+});
+
+test('a card opens the list at its filter: New, Gone quiet, Owes', async () => {
+  render(<CustomersView hash="#customers?show=inactive" onRegister={() => {}} />);
+  const show = within(await screen.findByRole('group', { name: 'Show' }));
+  expect(show.getByRole('button', { name: /^Inactive/ }).getAttribute('aria-pressed')).toBe('true');
+  expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(3);
 });

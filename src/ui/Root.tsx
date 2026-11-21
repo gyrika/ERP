@@ -271,7 +271,7 @@ export function Root() {
   }
   // What the shop paid (SCRUM-105): owners and managers; a cashier records cash out from the Register.
   if (hash === '#money' && seesOwner) return <MoneyOutView onRegister={() => go('')} />;
-  if ((hash === '#customers' || hash.startsWith('#customers/')) && seesOwner) {
+  if ((hash === '#customers' || hash.startsWith('#customers/') || hash.startsWith('#customers?')) && seesOwner) {
     return <Suspense fallback={<div className="inv-page" aria-busy="true" />}><CustomersView hash={hash} onRegister={() => go('')} /></Suspense>;
   }
   if (hash === TABLES && seesFloor) {
