@@ -101,6 +101,10 @@ export const statsOf = (customerId: string, visits: readonly Visit[]): CustomerS
     lastVisitAt: Math.max(...visits.map((v) => v.at)),
   } : null;
 
+/** Every payment that still stands, named or not: when and how much (the shop's average bill). */
+export const paidTotals = (events: readonly SyncEvent[]): { at: number; total: Cents }[] =>
+  standingSales(events).map(({ paid }) => ({ at: paid.at, total: paid.total }));
+
 /** Total spent, order count, first and last visit, for every customer who has bought anything. */
 export const customerStatsFromEvents = (events: readonly SyncEvent[]): Map<string, CustomerStats> => {
   const out = new Map<string, CustomerStats>();

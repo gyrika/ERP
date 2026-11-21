@@ -83,27 +83,40 @@ test('off: the sidebar has no Customers, and the page says it is not on', async 
   expect(crm.list).not.toHaveBeenCalled();
 });
 
-test('the list: the shop at a glance, segments to narrow it, search by name or number', async () => {
+test('the list: who they are, whether they come back, segments to narrow it, search by name or number', async () => {
   const user = userEvent.setup();
   render(<CustomersView hash="#customers" onRegister={() => {}} />);
-  const tiles = within(await screen.findByRole('list', { name: 'Customers at a glance' }));
-  expect(tiles.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-    '3customers', '0new this month', '1active', '2inactive (30+ days)', '50%came back', '1get offers',
+  expect((await screen.findByText(/get offers on the app/)).textContent).toBe('3 people · 1 get offers on the app');
+  const who = within(screen.getByRole('region', { name: 'Who they are' }));
+  expect(who.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+    'New0first visit in 30 days', 'Regular0come back', 'VIP1top spend, 90 days', 'Inactive230+ days away',
   ]);
+  expect(within(screen.getByRole('region', { name: 'Coming back' })).getByText(/of named orders this week/).textContent)
+    .toBe('100% of named orders this week came from people who had been before.');
   const rows = () => within(screen.getByRole('table')).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent));
-  expect(rows()).toEqual([
-    ['Kasun Perera', '077 000 0001', 'VIP', '2', 'Rs 21,900', '9 Nov 2026'],
-    ['නිමලි ප්‍රනාන්දු', '077 000 0002', 'Inactive', '1', 'Rs 1,500', '2 Oct 2026'],
-    ['No name', '077 000 0003', 'Inactive', '0', '–', 'Never'],
+  const all = rows();
+  expect(all.map((r) => r.slice(1))).toEqual([
+    ['VIP', '', '2', '2 days ago', 'Rs 21,900', '–'],
+    ['Inactive', '', '1', '40 days ago', 'Rs 1,500', '–'],
+    ['Inactive', '', '0', 'Never', '–', '–'],
   ]);
-  await user.click(screen.getByRole('button', { name: /^VIP/ }));
-  expect(rows().map((r) => r[0])).toEqual(['Kasun Perera']);
-  await user.click(screen.getByRole('button', { name: /^All/ }));
+  expect(all[0][0]).toBe('KPKasun Perera077 000 0001');
+  expect(all[1][0]).toMatch(/නිමලි ප්‍රනාන්දු077 000 0002$/);
+  expect(all[2][0]).toBe('#No name077 000 0003');
+  expect(screen.getByRole('img', { name: 'Came in 2 of the last 12 weeks' })).toBeTruthy();
+  // A part of the bar narrows the list, like the VIP pill.
+  await user.click(who.getByRole('button', { name: 'VIP: 1' }));
+  expect(rows().map((r) => r[0])).toEqual(['KPKasun Perera077 000 0001']);
+  const show = within(screen.getByRole('group', { name: 'Show' }));
+  await user.click(show.getByRole('button', { name: /^All/ }));
+  await user.click(show.getByRole('button', { name: /^VIP/ }));
+  expect(rows().map((r) => r[0])).toEqual(['KPKasun Perera077 000 0001']);
+  await user.click(show.getByRole('button', { name: /^All/ }));
   await user.type(screen.getByRole('searchbox', { name: 'Search customers' }), '0002');
-  expect(rows().map((r) => r[0])).toEqual(['නිමලි ප්‍රනාන්දු']);
+  expect(rows().map((r) => r[0]?.endsWith('077 000 0002'))).toEqual([true]);
   await user.clear(screen.getByRole('searchbox', { name: 'Search customers' }));
   await user.type(screen.getByRole('searchbox', { name: 'Search customers' }), 'kasun');
-  expect(rows().map((r) => r[0])).toEqual(['Kasun Perera']);
+  expect(rows().map((r) => r[0])).toEqual(['KPKasun Perera077 000 0001']);
   expect(within(screen.getByRole('table')).getByRole('link', { name: 'Kasun Perera' }).getAttribute('href')).toBe(`#customers/c/${KASUN.id}`);
 });
 

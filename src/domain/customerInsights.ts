@@ -1,4 +1,4 @@
-import { DEFAULT_SEGMENT_RULES, visitsFromEvents } from './customers.ts';
+import { DEFAULT_SEGMENT_RULES, visitsFromEvents, type Visit } from './customers.ts';
 import type { Insight } from './insights.ts';
 import { fmt } from './money.ts';
 import { modulesFromEvents } from './modules.ts';
@@ -25,20 +25,46 @@ export const QUIET_SHOW = 2;
 
 export interface QuietRegular { visits: number; spent: number; usualDays: number; awayDays: number }
 
+/**
+ * A regular's rhythm: how far apart their visits usually are (the mean gap, first to last visit),
+ * when they last came, when they are next likely back, and from when they count as gone quiet.
+ * Null under REGULAR_VISITS visits: too early to tell.
+ */
+export interface Rhythm { visits: number; usual: number; usualDays: number; lastAt: number; nextAt: number; quietFrom: number }
+
+export function rhythmOf(visits: readonly Pick<Visit, 'at'>[]): Rhythm | null {
+  if (visits.length < REGULAR_VISITS) return null;
+  const times = visits.map((v) => v.at).sort((a, b) => a - b);
+  const lastAt = times[times.length - 1];
+  const usual = (lastAt - times[0]) / (times.length - 1);
+  return {
+    visits: times.length,
+    usual,
+    usualDays: Math.max(1, Math.round(usual / DAY_MS)),
+    lastAt,
+    nextAt: lastAt + usual,
+    quietFrom: lastAt + Math.max(QUIET_FACTOR * usual, QUIET_MIN_DAYS * DAY_MS),
+  };
+}
+
+/** Gone quiet: a regular away more than twice their usual gap and two weeks or more, not yet Inactive (30 days). */
+export function isGoneQuiet(visits: readonly Pick<Visit, 'at'>[], now: number): boolean {
+  const r = rhythmOf(visits);
+  if (!r) return false;
+  const away = now - r.lastAt;
+  return away >= QUIET_MIN_DAYS * DAY_MS && away < DEFAULT_SEGMENT_RULES.inactiveDays * DAY_MS && away > QUIET_FACTOR * r.usual;
+}
+
 export function quietRegulars(events: readonly SyncEvent[], now: number): QuietRegular[] {
   const out: QuietRegular[] = [];
   for (const list of visitsFromEvents(events).values()) {
-    if (list.length < REGULAR_VISITS) continue;
-    const times = list.map((v) => v.at).sort((a, b) => a - b);
-    const usual = (times[times.length - 1] - times[0]) / (times.length - 1);
-    const away = now - times[times.length - 1];
-    if (away < QUIET_MIN_DAYS * DAY_MS || away >= DEFAULT_SEGMENT_RULES.inactiveDays * DAY_MS) continue;
-    if (away <= QUIET_FACTOR * usual) continue;
+    if (!isGoneQuiet(list, now)) continue;
+    const r = rhythmOf(list)!;
     out.push({
       visits: list.length,
       spent: list.reduce((s, v) => s + v.total, 0),
-      usualDays: Math.max(1, Math.round(usual / DAY_MS)),
-      awayDays: Math.floor(away / DAY_MS),
+      usualDays: r.usualDays,
+      awayDays: Math.floor((now - r.lastAt) / DAY_MS),
     });
   }
   // The ones worth most to the shop first.
