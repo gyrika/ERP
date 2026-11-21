@@ -1,4 +1,5 @@
-import { changeBlocks, changedBill, escpos, partSlip, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
+import { changeBlocks, changedBill, creditSlip, escpos, partSlip, opensDrawer, receipt, type ReceiptLine } from '../domain/receipt.ts';
+import { creditOf } from '../domain/credit.ts';
 import type { PaidOrder } from '../domain/types.ts';
 import { receiptOfferFromEvents, type ReceiptOffer } from '../domain/campaigns.ts';
 import { billLineOf, madeInMinutes } from '../domain/billExtras.ts';
@@ -33,7 +34,10 @@ export async function printReceipt(paid: PaidOrder, cashier: string, { reprint =
   const events = readAll();
   // How fast the kitchen made it, when it has (SCRUM-256), and the owner's line of the day.
   const extras = { madeIn: madeInMinutes(events, paid.number, Date.now()), billLine: billLineOf(events) };
-  return send(escpos(receipt(paid, { cashier, copy: reprint, offers: receiptOffers(), ...extras }), { openDrawer: !reprint && opensDrawer(paid) }));
+  // On credit: whose, and what they owe now (this bill is already in the log).
+  const onCredit = paid.customer && (paid.tender === 'credit' || paid.parts?.some((p) => p.tender === 'credit'));
+  const credit = onCredit && paid.customer ? { name: paid.customer.name, owes: creditOf(events, paid.customer.id).owes } : null;
+  return send(escpos(receipt(paid, { cashier, copy: reprint, offers: receiptOffers(), credit, ...extras }), { openDrawer: !reprint && opensDrawer(paid) }));
 }
 
 /** While the CRM is on, the receipt carries the offers QR code under the owner's words (receipt.ts). */
@@ -70,3 +74,7 @@ export const printChangedBill = (paid: PaidOrder, cashier: string, { reprint = f
 /** One part of a split bill: that person's slip, and the drawer opens for cash. */
 export const printPartSlip = (o: Parameters<typeof partSlip>[0], cashier: string): Promise<PrintResult> =>
   send(escpos(partSlip(o, { at: Date.now(), cashier }), { openDrawer: o.tender === 'cash' }));
+
+/** Credit paid back (credit.ts): the customer's slip; the drawer opens for cash unless it already did with this sale. */
+export const printCreditSlip = (o: Parameters<typeof creditSlip>[0], cashier: string, { drawer = true } = {}): Promise<PrintResult> =>
+  send(escpos(creditSlip(o, { at: Date.now(), cashier }), { openDrawer: drawer && o.tender === 'cash' }));

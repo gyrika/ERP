@@ -4,6 +4,7 @@ import { fmt } from '../../domain/money.ts';
 import { formatLkMobile } from '../../domain/phone.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
 import { crmClient } from '../../services/crmClient.ts';
+import { creditFromEvents, daysSince, settingLabel } from '../../domain/credit.ts';
 import type { CrmData, Notice } from './CustomersView.tsx';
 
 /**
@@ -51,8 +52,13 @@ function AddCustomer({ onAdded }: { onAdded: (n: Notice) => Promise<void> }) {
   );
 }
 
-export function CustomerList({ data, events, now, onAdded }: { data: CrmData | null; events: readonly SyncEvent[]; now: number; onAdded: (n: Notice) => Promise<void> }) {
-  const [segment, setSegment] = useState<Segment | 'all'>('all');
+export function CustomerList({ data, events, now, onAdded, owes: startOwes = false }: {
+  data: CrmData | null; events: readonly SyncEvent[]; now: number; onAdded: (n: Notice) => Promise<void>;
+  /** Open at Owes: who owes on credit, most first (the owner's To do, credit.ts). */
+  owes?: boolean;
+}) {
+  const [segment, setSegment] = useState<Segment | 'all' | 'owes'>(startOwes ? 'owes' : 'all');
+  const credit = useMemo(() => creditFromEvents(events), [events]);
   const [query, setQuery] = useState('');
   const visits = useMemo(() => visitsFromEvents(events), [events]);
   const rows = useMemo(() => {
@@ -75,7 +81,9 @@ export function CustomerList({ data, events, now, onAdded }: { data: CrmData | n
 
   const q = query.trim().toLowerCase();
   const qDigits = digits(q);
-  const matches = rows.filter((r) => (segment === 'all' || r.segment === segment) && (!q
+  const owing = (id: string) => credit.get(id)?.owes ?? 0;
+  const owingCount = rows.filter((r) => owing(r.c.id) > 0).length;
+  const matches = rows.filter((r) => (segment === 'all' || (segment === 'owes' ? owing(r.c.id) > 0 : r.segment === segment)) && (!q
     || (r.c.name ?? '').toLowerCase().includes(q)
     || (qDigits.length >= 3 && (digits(formatLkMobile(r.c.phone)).includes(qDigits) || digits(r.c.phone).includes(qDigits)))));
   const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n * 100)}%`);
@@ -109,10 +117,38 @@ export function CustomerList({ data, events, now, onAdded }: { data: CrmData | n
             </button>
           ))}
         </div>
+        {(owingCount > 0 || segment === 'owes') && (
+          // Credit: who owes, most first (credit.ts).
+          <button type="button" className="pill" aria-pressed={segment === 'owes'} onClick={() => setSegment('owes')}>
+            Owes <span className="num crm-filter__n">{owingCount}</span>
+          </button>
+        )}
         <input type="search" className="crm-filter__search" placeholder="Name or mobile" aria-label="Search customers" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
       <AddCustomer onAdded={onAdded} />
 
+      {segment === 'owes' ? (
+        // Who owes on credit, most first: what, against which limit, and how long since they paid.
+        <table className="crm-list" aria-label="Owes on credit">
+          <thead><tr><th scope="col">Name</th><th scope="col">Mobile</th><th scope="col" className="crm-list__n">Owes</th><th scope="col">Credit</th><th scope="col">Last paid back</th><th scope="col">Oldest unpaid</th></tr></thead>
+          <tbody>
+            {[...matches].sort((a, b) => owing(b.c.id) - owing(a.c.id)).map(({ c }) => {
+              const a = credit.get(c.id)!;
+              return (
+                <tr key={c.id}>
+                  <td><a href={`#customers/c/${c.id}`}>{c.name ?? <span className="crm__muted">No name</span>}</a></td>
+                  <td className="num">{formatLkMobile(c.phone)}</td>
+                  <td className="num crm-list__n crm-list__owes">Rs {fmt(a.owes)}</td>
+                  <td>{settingLabel(a.setting)}</td>
+                  <td>{a.lastPaidAt ? shortDate(a.lastPaidAt) : <span className="crm__muted">Never</span>}</td>
+                  <td>{a.oldestOpenAt ? `${daysSince(a.oldestOpenAt, now)} days` : '–'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot><tr><th scope="row" colSpan={2}>In all</th><td className="num crm-list__n crm-list__owes">Rs {fmt(matches.reduce((n, r) => n + owing(r.c.id), 0))}</td><td colSpan={3} /></tr></tfoot>
+        </table>
+      ) : (
       <table className="crm-list">
         <thead><tr><th scope="col">Name</th><th scope="col">Mobile</th><th scope="col">Segment</th><th scope="col" className="crm-list__n">Orders</th><th scope="col" className="crm-list__n">Spent</th><th scope="col">Last visit</th></tr></thead>
         <tbody>
@@ -128,6 +164,7 @@ export function CustomerList({ data, events, now, onAdded }: { data: CrmData | n
           ))}
         </tbody>
       </table>
+      )}
       <p className="crm__muted crm__count" aria-live="polite">
         {matches.length === 0 ? 'Nobody matches.' : matches.length > SHOWN ? `Showing ${SHOWN} of ${matches.length}: search to narrow.` : `${matches.length} shown.`}
       </p>

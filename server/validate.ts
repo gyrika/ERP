@@ -18,6 +18,7 @@ import { SHOP_EVENT_TYPES } from '../src/domain/freshStart.ts';
 import { BILL_EVENT_TYPES, checkBillLine } from '../src/domain/billExtras.ts';
 import { checkModuleEvent, MODULE_EVENT_TYPES } from '../src/domain/modules.ts';
 import { CAMPAIGN_EVENT_TYPES, checkCampaignEvent } from '../src/domain/campaigns.ts';
+import { checkCreditEvent, CREDIT_EVENT_TYPES } from '../src/domain/credit.ts';
 import { isCustomerId } from '../src/domain/customers.ts';
 import { checkSection, checkSectionOrder, isCustomSection, PRINTED_SECTIONS, SECTION_ID } from '../src/domain/sections.ts';
 import { checkNewItem, checkOverride, MENU_EVENT_TYPES, NEW_ITEM_ID, type ItemOverride, type NewItem } from '../src/domain/menuEdits.ts';
@@ -30,7 +31,7 @@ import {
 
 const TYPES = new Set<string>([
   ...ORDER_EVENT_TYPES, ...KITCHEN_EVENT_TYPES, ...STOCK_EVENT_TYPES, ...PREP_EVENT_TYPES, ...MENU_EVENT_TYPES, ...RECIPE_EVENT_TYPES, ...SHORTHAND_EVENT_TYPES,
-  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES, ...MODULE_EVENT_TYPES, ...CAMPAIGN_EVENT_TYPES, ...BILL_EVENT_TYPES,
+  ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES, ...MODULE_EVENT_TYPES, ...CAMPAIGN_EVENT_TYPES, ...BILL_EVENT_TYPES, ...CREDIT_EVENT_TYPES,
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
@@ -93,7 +94,7 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     if (!Number.isSafeInteger(e.at)) return { reason: `event ${e.id} has no time` };
     if (e.shopId !== tenantId) return { reason: `event ${e.id} belongs to another shop`, wrongShop: true };
     if (e.type.startsWith('order.') || e.type.startsWith('stock.') || e.type.startsWith('prep.') || e.type.startsWith('menu.') || e.type.startsWith('recipe.') || e.type.startsWith('shorthand.')
-      || e.type.startsWith('table.') || e.type.startsWith('vision.') || e.type.startsWith('money.') || e.type.startsWith('value.') || e.type.startsWith('shop.') || e.type.startsWith('crm.')) {
+      || e.type.startsWith('table.') || e.type.startsWith('vision.') || e.type.startsWith('money.') || e.type.startsWith('value.') || e.type.startsWith('shop.') || e.type.startsWith('crm.') || e.type.startsWith('credit.')) {
       const a = e.actor;
       if (!isObj(a) || !shortString(a.id) || !shortString(a.name, 80) || !shortString(a.role, 16)) {
         return { reason: `event ${e.id} does not say who did it` };
@@ -109,6 +110,13 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
     // The customer a payment was for (CRM): an opaque id, never a number or a name.
     if (e.type === 'order.paid' && e.customerId !== undefined && !isCustomerId(e.customerId)) {
       return { reason: `event ${e.id} has an invalid customer` };
+    }
+    // Credit (credit.ts): a bill on credit names whose credit it is; paying back is checked whole.
+    const onCredit = e.type === 'order.paid' && (e.tender === 'credit' || (Array.isArray(e.parts) && e.parts.some((p) => isObj(p) && p.tender === 'credit')));
+    if (onCredit && !isCustomerId(e.customerId)) return { reason: `event ${e.id} puts a bill on credit without a customer` };
+    if (e.type.startsWith('credit.')) {
+      const why = checkCreditEvent(e);
+      if (why) return { reason: `event ${e.id}: ${why}` };
     }
     // A counter delivery's fee (Order.delivery): whole cents, never below zero.
     if (e.type === 'order.paid' && e.deliveryFee !== undefined && (!Number.isSafeInteger(e.deliveryFee) || (e.deliveryFee as number) < 0)) {

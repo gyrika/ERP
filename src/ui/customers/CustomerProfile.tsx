@@ -5,6 +5,7 @@ import { formatLkMobile } from '../../domain/phone.ts';
 import type { SyncEvent } from '../../domain/sync.ts';
 import { crmClient } from '../../services/crmClient.ts';
 import { SEGMENT_LABEL, shortDate } from './CustomerList.tsx';
+import { CreditPanel } from './CreditPanel.tsx';
 import type { CrmData, Notice } from './CustomersView.tsx';
 
 /**
@@ -49,9 +50,11 @@ function EditForm({ c, onDone, onSaved }: { c: Customer; onDone: () => void; onS
   );
 }
 
-export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onRemoved, onEdited }: {
+export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onRemoved, onEdited, onCredit }: {
   id: string; data: CrmData | null; events: readonly SyncEvent[]; now: number; isOwner: boolean;
   onChanged: () => Promise<void>; onRemoved: (n: Notice) => Promise<void>; onEdited: (n: Notice) => Promise<void>;
+  /** A credit change (credit.ts), said once with its Undo. */
+  onCredit: (n: Notice) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -115,6 +118,8 @@ export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onR
         </button>
         {error && <p className="setup__error" role="alert">{error}</p>}
       </section>
+      <CreditPanel key={c.id} customerId={c.id} name={c.name ?? formatLkMobile(c.phone)} events={events} now={now} isOwner={isOwner} onSaved={onCredit} />
+
       {isOwner && (
         <p className="crm-profile__remove">
           <button type="button" className="linkbtn crm-danger" disabled={busy} onClick={() => void remove()}>Remove customer</button>

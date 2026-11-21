@@ -138,9 +138,10 @@ export interface OrderInterpreter {
 
 /**
  * 'comp' = the order was made free by a manager; nothing is collected. A delivery app's id
- * (platforms.ts) = the app pays the shop later, nothing is collected at the counter.
+ * (platforms.ts) = the app pays the shop later, nothing is collected at the counter. 'credit' = put on
+ * the customer's credit (credit.ts): they pay back later, at the counter; the payment names them.
  */
-export type Tender = 'cash' | 'transfer' | 'card' | 'qr' | 'comp' | PlatformId;
+export type Tender = 'cash' | 'transfer' | 'card' | 'qr' | 'comp' | 'credit' | PlatformId;
 
 /** Manager discount on the whole order. Percentages round once, at the order level. */
 export type Discount = { kind: 'percent'; pct: number } | { kind: 'comp' };

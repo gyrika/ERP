@@ -117,6 +117,10 @@ export const mayRecord = (role: Role, type: string, remake = false): boolean => 
   if (type === 'shop.started_fresh') return role === 'owner';
   // The owner's line on the bill (SCRUM-256).
   if (type === 'shop.bill_line_set') return role === 'owner';
+  // Credit (credit.ts): who may eat on credit, and how much, is the owner's; taking the money back
+  // (and its Undo) is whoever works the counter.
+  if (type === 'credit.limit_set') return role === 'owner';
+  if (type === 'credit.paid' || type === 'credit.paid_undone') return role !== 'kitchen';
   return false;
 };
 

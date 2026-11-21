@@ -61,7 +61,7 @@ export const OFFERS_URL = 'https://cheesybeez.com/#offers';
 export const APP_URL = 'https://cheesybeez.com/#app';
 
 const TENDER_LABEL: Record<Tender, string> = {
-  cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats',
+  cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', credit: 'On credit', uber: 'Uber Eats',
 };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -113,9 +113,11 @@ export function receipt(
     madeIn?: number | null;
     /** The owner's line of the day (Settings › Printer). */
     billLine?: string;
+    /** Put on the customer's credit (credit.ts): whose, and what they owe now, this bill included. */
+    credit?: { name: string | null; owes: Cents } | null;
   },
 ): ReceiptLine[] {
-  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = null, madeIn = null, billLine = '' } = opts;
+  const { cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH, copy = false, offers = null, madeIn = null, billLine = '', credit = null } = opts;
   const boxes = boxesIn(paid.lines);
   const out: ReceiptLine[] = [
     ...billTop(shop),
@@ -144,6 +146,12 @@ export function receipt(
   }
   for (const box of boxes.values()) {
     if (box.saved > 0) out.push({ text: `You saved Rs ${fmt(box.saved)} with the ${box.name}` });
+  }
+  if (credit) {
+    out.push(
+      { text: credit.name ? `ON CREDIT - ${credit.name}` : 'ON CREDIT', bold: true },
+      { text: twoCols('Owes now', `Rs ${fmt(credit.owes)}`, width), bold: true },
+    );
   }
   out.push(rule(width));
   // What people talk about (SCRUM-256): how fast it was made, and the owner's line of the day.
@@ -349,7 +357,7 @@ export function changedBill(
   if (now) {
     const back = now.amount < 0;
     out.push({ text: twoCols(back ? 'GIVEN BACK' : 'PAID NOW', `Rs ${fmt(Math.abs(now.amount))}`, width / 2), bold: true, big: true });
-    if (back) out.push({ text: now.tender === 'transfer' ? 'By bank transfer' : 'Cash from the drawer' });
+    if (back) out.push({ text: now.tender === 'transfer' ? 'By bank transfer' : now.tender === 'credit' ? 'Taken off their credit' : 'Cash from the drawer' });
     else {
       out.push({ text: twoCols(TENDER_LABEL[now.tender], fmt(now.tendered), width) });
       if (now.tender === 'cash' && now.tendered > now.amount) out.push({ text: twoCols('Change', fmt(now.tendered - now.amount), width), bold: true });
@@ -486,5 +494,33 @@ export function partSlip(
   ];
   if (o.tender === 'cash' && o.tendered > o.amount) out.push({ text: twoCols('Change', fmt(o.tendered - o.amount), width), bold: true });
   out.push({ text: twoCols('Still to pay on the order', fmt(o.left), width) }, rule(width), { text: shop.footer, center: true });
+  return out;
+}
+
+/**
+ * Credit paid back (credit.ts): the customer's slip, with what they still owe. Not a sale, so no
+ * items and no order number; the drawer opens for cash.
+ */
+export function creditSlip(
+  o: { name: string | null; amount: Cents; tender: Tender; tendered: Cents; owesAfter: Cents },
+  opts: { at: number; cashier: string; shop?: ShopHeader; width?: number },
+): ReceiptLine[] {
+  const { at, cashier, shop = SHOP_HEADER, width = RECEIPT_WIDTH } = opts;
+  const out: ReceiptLine[] = [
+    { text: shop.name, center: true, bold: true, big: true },
+    { text: 'CREDIT PAID BACK', center: true, bold: true },
+    rule(width),
+    { text: twoCols(o.name ?? 'Customer', receiptTime(at), width) },
+    { text: `Cashier ${cashier}` },
+    rule(width),
+    { text: twoCols('PAID', `Rs ${fmt(o.amount)}`, width / 2), bold: true, big: true },
+    { text: twoCols(TENDER_LABEL[o.tender], fmt(o.tendered), width) },
+  ];
+  if (o.tender === 'cash' && o.tendered > o.amount) out.push({ text: twoCols('Change', fmt(o.tendered - o.amount), width), bold: true });
+  out.push(
+    { text: o.owesAfter > 0 ? twoCols('Still owes', `Rs ${fmt(o.owesAfter)}`, width) : 'All paid. Thank you!', bold: true },
+    rule(width),
+    { text: shop.footer, center: true },
+  );
   return out;
 }

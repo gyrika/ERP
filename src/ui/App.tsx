@@ -5,11 +5,14 @@ import { comboById, itemById, menuItems } from '../domain/menu.ts';
 import { boxLines, nextShownLine } from '../domain/combos.ts';
 import { lineCookState } from '../domain/kitchen.ts';
 import { balanceDue, bareLine, orderTotal, unsentLines } from '../domain/order.ts';
-import type { MenuItem, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
+import type { MenuItem, OrderCustomer, OrderLine, PaidOrder, SizeId, Tender } from '../domain/types.ts';
+import { creditFromEvents, type CreditTender } from '../domain/credit.ts';
+import { payCreditBack } from '../services/creditStore.ts';
+import { PayPanel } from './PayPanel.tsx';
 import { currentCashier } from '../services/auth.ts';
 import { useFlyToRail } from './flyToRail.ts';
 import { KeyHints } from './KeyHints.tsx';
-import { canPrint, printChangedBill, printDeliveryBill, printPartSlip, printReceipt } from '../services/printer.ts';
+import { canPrint, printChangedBill, printCreditSlip, printDeliveryBill, printPartSlip, printReceipt } from '../services/printer.ts';
 import { deliveryBill } from '../domain/receipt.ts';
 import { lineGross } from '../domain/totals.ts';
 import { fmt } from '../domain/money.ts';
@@ -56,6 +59,8 @@ type Sheet =
   | { kind: 'extras'; item: MenuItem; size?: SizeId }
   | { kind: 'edit'; line: OrderLine }
   | { kind: 'pay' }
+  /** A customer pays their credit back (credit.ts), from their name on the order. */
+  | { kind: 'repay'; customer: OrderCustomer }
   /** `voidLine`: the PIN was asked by VOID on a sent line; once given, that line's reasons show. */
   | { kind: 'pin'; voidLine?: string }
   | { kind: 'online' }
@@ -154,13 +159,33 @@ export function App({
     const done = reg.settle(tender, tendered, !kitchenOn);
     if (done && canPrint()) void printChangedBill(done.paid, currentCashier().name);
   }, [reg, kitchenOn]);
-  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean) => {
+  const pay = useCallback((tender: Tender, tendered: number, customerId?: string, unlinked?: boolean, payBack?: number) => {
     // Made and waiting: whoever pays for it is taking it (SCRUM-240). No kitchen screen: nothing to
     // wait for, so it goes with the payment and is handed over at once.
-    const paid = reg.pay(tender, tendered, customerId, unlinked, false, !kitchenOn);
+    // Their credit paid back with it (credit.ts): `tendered` covers both, the bill first.
+    const forBill = payBack ? Math.max(0, tendered - payBack) : tendered;
+    const paid = reg.pay(tender, forBill, customerId, unlinked, false, !kitchenOn);
     // A delivery app's order: the app gives the customer its receipt, and nothing goes in the drawer.
     if (paid && !isPlatformId(tender)) print(paid);
+    const who = paid?.customer;
+    if (paid && payBack && who && tender !== 'comp' && tender !== 'credit' && !isPlatformId(tender)) {
+      const back = payCreditBack(who.id, tender as CreditTender, tender === 'cash' ? tendered - paid.total : payBack, currentCashier(), payBack);
+      if (back) {
+        setNoted({ id: Date.now(), message: `Paid ${fmt(paid.total)} · credit ${fmt(back.amount)} paid back`, undo: () => { back.undo(); reg.undo(); } });
+        // The bill's receipt opened the drawer already for cash.
+        if (canPrint()) void printCreditSlip({ name: who.name, amount: back.amount, tender, tendered: back.amount, owesAfter: back.owesAfter }, currentCashier().name, { drawer: false });
+      }
+    }
   }, [reg, print, tickets, kitchenOn]);
+
+  /** Credit paid back on its own (credit.ts): the customer came only to pay. */
+  const repay = useCallback((customer: OrderCustomer, tender: Tender, tendered: number) => {
+    if (tender === 'comp' || tender === 'credit' || isPlatformId(tender)) return;
+    const back = payCreditBack(customer.id, tender, tendered, currentCashier());
+    if (!back) return;
+    setNoted({ id: Date.now(), message: `${customer.name ?? 'Customer'} paid back ${fmt(back.amount)}${back.owesAfter > 0 ? ` · owes ${fmt(back.owesAfter)}` : ' · all paid'}`, undo: back.undo });
+    if (canPrint()) void printCreditSlip({ name: customer.name, amount: back.amount, tender, tendered: back.tendered, owesAfter: back.owesAfter }, currentCashier().name);
+  }, []);
   const total = orderTotal(reg.order);
   const hasNew = unsentLines(reg.order).length > 0;
   /** Something to pay on screen: Pay works at any step, sent or not (SCRUM-239). */
@@ -286,7 +311,7 @@ export function App({
   const anySent = reg.order.lines.some((l) => l.sent);
   const payAction: BarAction = reg.paid
     ? due > 0 ? { id: 'pay', text: `Pay ${fmt(due)} more`, run: () => setSheet({ kind: 'pay' }), disabled: false }
-      : due < 0 ? { id: 'pay', text: `Give back ${fmt(-due)}`, run: () => settle('cash', 0), disabled: false }
+      : due < 0 ? { id: 'pay', text: reg.paid.tender === 'credit' ? `Take ${fmt(-due)} off credit` : `Give back ${fmt(-due)}`, run: () => settle('cash', 0), disabled: false }
         : { id: 'pay', run: () => {}, disabled: true }
     : comped ? { id: 'pay', text: 'Close · Free', run: () => pay('comp', 0), disabled: listing }
       : reg.order.platform
@@ -401,6 +426,12 @@ export function App({
     () => (crmOn ? visitsFromEvents(readAll()) : new Map<string, unknown[]>()),
     [crmOn, custTyping !== null, customer?.id, reg.paidToday.length], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // Credit (credit.ts): from the log, read again when a payment or a pay-back may have changed it.
+  const credit = useMemo(
+    () => (crmOn ? creditFromEvents(readAll()) : null),
+    [crmOn, custTyping !== null, customer?.id, reg.paidToday.length, sheet?.kind, noted?.id], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const creditOf = useCallback((id: string) => credit?.get(id) ?? { setting: null, owes: 0 }, [credit]);
   const usual = useMemo(() => {
     if (!crmOn || !customer || reg.order.lines.length || reg.order.sentAt !== undefined) return null;
     return usualOrder(customerOrders(readAll(), customer.id), (id) => menuItems().find((m) => m.id === id));
@@ -418,6 +449,8 @@ export function App({
       usual={usual}
       onUsual={() => { if (usual) reg.addSpecs(usual.lines, usual.kind === 'usual' ? 'Added the usual' : 'Added the same as last time'); }}
       describeUsual={(u) => orderSummary(u.lines)}
+      owes={(id) => credit?.get(id)?.owes ?? 0}
+      onTakePayment={(c) => setSheet({ kind: 'repay', customer: c })}
     />
   ) : null;
   useEffect(() => { if (paying && listing) setSheet(null); }, [paying, listing]);
@@ -439,6 +472,18 @@ export function App({
 
   /** An item's extras, in the order panel (no pop-up): adding from the menu, or changing a line. */
   const extrasPanel = (() => {
+    if (sheet?.kind === 'repay') {
+      const owes = credit?.get(sheet.customer.id)?.owes ?? 0;
+      const c = sheet.customer;
+      return (
+        <PayPanel
+          key={`repay-${c.id}`} number={0} total={owes} repay={{ title: c.name ?? 'Customer' }}
+          lines={<p className="pay__summary num">{c.name ?? 'Customer'} owes {fmt(owes)} on credit. Type less to pay part of it.</p>}
+          onPay={(tender, tendered) => { repay(c, tender, tendered); closeSheet(); }}
+          onClose={closeSheet}
+        />
+      );
+    }
     if (sheet?.kind === 'extras') {
       return (
         <ExtrasPanel
@@ -684,8 +729,8 @@ export function App({
           onReprint={canPrint() ? () => { if (reg.paid) print(reg.paid, true); } : undefined}
           customerBar={customerBar}
           paying={paying ? {
-            onPay: (tender, tendered, customerId, unlinked) => {
-              if (reg.paid) settle(tender, tendered); else pay(tender, tendered, customerId, unlinked);
+            onPay: (tender, tendered, customerId, unlinked, payBack) => {
+              if (reg.paid) settle(tender, tendered); else pay(tender, tendered, customerId, unlinked, payBack);
               closeSheet();
             },
             onPayPart: (tender, tendered, pick, customerId, unlinked) => {
@@ -698,6 +743,7 @@ export function App({
             },
             onClose: closeSheet,
             customers: crmOn,
+            ...(crmOn ? { creditOf, managerOn: Boolean(manager) } : {}),
           } : null}
           extras={extrasPanel}
         />

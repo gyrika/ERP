@@ -1,5 +1,6 @@
 import { AUDIENCE_LABEL, campaignsFromEvents } from './campaigns.ts';
 import { regularsGoneQuiet } from './customerInsights.ts';
+import { creditInsights } from './creditInsights.ts';
 import { gapCases, shortStreaks, toCheck, weekLoss, type GapCase } from './gapReview.ts';
 import { costsToAnswer, marginsFell, soldWithoutRecipe } from './costInsights.ts';
 import { inventoryFromEvents, isLowStock, isOutOfStock } from './inventory.ts';
@@ -588,6 +589,7 @@ export const rulesSuggestions: SuggestionsService = {
       bestSeller(events, now),
       campaignReach(events, now),
       regularsGoneQuiet(events, now),
+      ...creditInsights(events, now),
     ].filter((x): x is Insight => x !== null).sort((a, b) => ORDER[a.tone] - ORDER[b.tone]);
   },
 };

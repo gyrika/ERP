@@ -1,3 +1,4 @@
+import { creditDay } from './credit.ts';
 import { answersFromEvents, menuCost, type CostContext } from './costing.ts';
 import { PLATFORMS } from './platforms.ts';
 import { salesFrom, ticketTimes, type Insight, type ShopData } from './insights.ts';
@@ -77,7 +78,7 @@ const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 ? 'am' : 'pm'}`;
 const clock = (t: number) => { const d = new Date(t); return `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'am' : 'pm'}`; };
 const rs = (c: Cents) => `Rs ${fmt(Math.round(c / 100) * 100)}`;
 const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
-const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', uber: 'Uber Eats' };
+const TENDER: Record<Tender, string> = { cash: 'Cash', transfer: 'Bank transfer', card: 'Card', qr: 'QR', comp: 'Free', credit: 'On credit', uber: 'Uber Eats' };
 
 /**
  * Today's deliveries (SCRUM-193) sent to the kitchen and not paid yet: the rider still has the food
@@ -229,13 +230,18 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
   const paidOut = moneyOutFromEvents(events);
   const drawerOut = drawerOutToday(paidOut, now);
   const thisMonth = moneyMonth(paidOut, monthOf(now));
+  // Credit (credit.ts): eaten today and owed, and paid back today (not a sale: the sale was the day they ate).
+  const credit = creditDay(events, today, now);
   const money: Station = {
     id: 'money', label: 'Money', value: rs(total), tone: overdue.length ? 'warn' : 'ok', badge: overdue.length, href: '#money',
     explain: [
       `Money: ${rs(total)} taken today.`,
       ...[...byTender].filter(([, c]) => c > 0).map(([t, c]) => `${TENDER[t]}: ${rs(c)}`),
       ...(drawerOut ? [`Paid out of the drawer today: ${rs(drawerOut)}.`] : []),
-      ...(byTender.get('cash') ? [`The drawer should hold the cash plus the opening float${drawerOut ? ', less what was paid out' : ''}.`] : []),
+      ...(credit.paidBack ? [`Paid back on credit today: ${rs(credit.paidBack)}${credit.paidBackCash && credit.paidBackCash !== credit.paidBack ? `, ${rs(credit.paidBackCash)} of it in cash` : ''}. Not a sale: it was counted the day they ate.`] : []),
+      ...(byTender.get('cash') || credit.paidBackCash ? [`The drawer should hold the cash${credit.paidBackCash ? ' and the credit paid back in cash' : ''} plus the opening float${drawerOut ? ', less what was paid out' : ''}.`] : []),
+      ...(byTender.get('credit') ? ['On credit is not in the drawer: those customers pay it back later.'] : []),
+      ...(credit.owed > 0 ? [`Owed on credit in all: ${rs(credit.owed)} by ${plural(credit.customersOwing, 'customer')}.`] : []),
       ...PLATFORMS.filter((p) => byTender.get(p.id)).map((p) => `${p.name} pays the shop later, less its commission: not in the drawer.`),
       ...(unpaid.length ? [`About ${rs(owed)} still to come from ${plural(unpaid.length, 'delivery', 'deliveries')}, paid when the rider is back.`] : []),
       ...overdue.map((d) => `Delivery ${d.number} was ready at ${clock(d.readyBy)} and is not paid yet.`),

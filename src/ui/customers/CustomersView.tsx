@@ -16,11 +16,13 @@ import { ImportPanel } from './ImportPanel.tsx';
  * customer), Import (the owner's spreadsheet), Campaigns (push messages, the owner's).
  * Who a customer is comes from the shop server; what they bought from the events, folded here.
  */
-export type CustomersPlace = { at: 'list' } | { at: 'import' } | { at: 'campaigns' } | { at: 'customer'; id: string };
+export type CustomersPlace = { at: 'list'; owes?: true } | { at: 'import' } | { at: 'campaigns' } | { at: 'customer'; id: string };
 
 export const placeOf = (hash: string): CustomersPlace => {
   if (hash === '#customers/import') return { at: 'import' };
   if (hash === '#customers/campaigns') return { at: 'campaigns' };
+  // The owner's To do opens the list at Owes (credit.ts).
+  if (hash === '#customers/owes') return { at: 'list', owes: true };
   const m = /^#customers\/c\/(cus-[0-9a-f]{16})$/.exec(hash);
   return m ? { at: 'customer', id: m[1] } : { at: 'list' };
 };
@@ -94,11 +96,11 @@ export default function CustomersView({ hash, onRegister }: { hash: string; onRe
               {notice.undo && <button type="button" onClick={() => { const u = notice.undo!; setNotice(null); void u().then(load, (e: unknown) => setError(e instanceof Error ? e.message : String(e))); }}>Undo</button>}
             </div>
           )}
-          {place.at === 'list' && <CustomerList data={data} events={events ?? []} now={at} onAdded={async (n) => { await load(); setNotice(n); }} />}
+          {place.at === 'list' && <CustomerList key={place.owes ? 'owes' : 'all'} owes={place.owes} data={data} events={events ?? []} now={at} onAdded={async (n) => { await load(); setNotice(n); }} />}
           {place.at === 'customer' && (
             <CustomerProfile id={place.id} data={data} events={events ?? []} now={at} isOwner={role === 'owner'} onChanged={load}
               onRemoved={async (n) => { await load(); setNotice(n); location.hash = '#customers'; }}
-              onEdited={async (n) => { await load(); setNotice(n); }} />
+              onEdited={async (n) => { await load(); setNotice(n); }} onCredit={setNotice} />
           )}
           {place.at === 'import' && <ImportPanel count={data?.customers.length ?? null} onSaved={load} />}
           {place.at === 'campaigns' && <CampaignsPanel isOwner={role === 'owner'} data={data} events={events ?? []} now={at} />}
