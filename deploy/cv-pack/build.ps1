@@ -28,7 +28,16 @@ $Pins = @(
      Url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-25-13-00/ffmpeg-n8.1.3-24-g92611900bb-win64-lgpl-8.1.zip' },
   @{ Name = 'yolox_nano.onnx'
      Sha256 = 'c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d'
-     Url = 'https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx' }
+     Url = 'https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_nano.onnx' },
+  # ONNX Runtime's MIT licence and the notices for what its DLLs contain. The npm package carries neither, and
+  # github.com/microsoft/onnxruntime answers 404 since 2026-11-21: these are the two files of the
+  # Microsoft.ML.OnnxRuntime 1.30.0 NuGet package (same release), kept in cv-deps.
+  @{ Name = "onnxruntime-$OrtVersion-LICENSE.txt"
+     Sha256 = 'c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674'
+     Url = "https://raw.githubusercontent.com/microsoft/onnxruntime/v$OrtVersion/LICENSE" },
+  @{ Name = "onnxruntime-$OrtVersion-ThirdPartyNotices.txt"
+     Sha256 = 'c53a76501ef60db6f865f20599f220761201ac4057683acefdab37d861b86622'
+     Url = "https://raw.githubusercontent.com/microsoft/onnxruntime/v$OrtVersion/ThirdPartyNotices.txt" }
 )
 $MirrorTag = 'cv-deps'
 $MirrorBase = "https://github.com/gyrika/ERP/releases/download/$MirrorTag"
@@ -111,13 +120,9 @@ $bins = Join-Path $pack 'node_modules/onnxruntime-node/bin'
 (Get-ChildItem $bins -Directory -Recurse) | Where-Object { $_.Parent.Name -like 'napi-v*' -and $_.Name -ne 'win32' } | Remove-Item -Recurse -Force
 (Get-ChildItem $bins -Directory -Recurse) | Where-Object { $_.Parent.Name -eq 'win32' -and $_.Name -ne 'x64' } | Remove-Item -Recurse -Force
 if (-not (Get-ChildItem $bins -Recurse -Filter onnxruntime_binding.node | Where-Object FullName -match 'win32\\x64')) { throw 'onnxruntime-node has no win32/x64 binding' }
-# The npm package carries no licence file: ONNX Runtime's MIT licence and the notices for what its DLLs contain,
-# from the same release tag.
-foreach ($f in 'LICENSE', 'ThirdPartyNotices.txt') {
-  $url = "https://raw.githubusercontent.com/microsoft/onnxruntime/v$OrtVersion/$f"
-  & curl.exe -fsSL --retry 3 -o (Join-Path $pack "LICENSES/onnxruntime-$f$(if ($f -eq 'LICENSE') { '.txt' })") $url
-  if ($LASTEXITCODE) { throw "could not fetch $url" }
-}
+# The npm package carries no licence file: ONNX Runtime's, pinned above (from the same release).
+Copy-Item (Get-Pinned $Pins[2]) (Join-Path $pack 'LICENSES/onnxruntime-LICENSE.txt')
+Copy-Item (Get-Pinned $Pins[3]) (Join-Path $pack 'LICENSES/onnxruntime-ThirdPartyNotices.txt')
 
 # The manifest: every file's sha256, which the server checks before it uses the pack.
 $files = Get-ChildItem $pack -Recurse -File | Sort-Object FullName | ForEach-Object {
