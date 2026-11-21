@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { NameMatch } from '../domain/customers.ts';
 import { crmClient } from '../services/crmClient.ts';
 
@@ -45,7 +45,11 @@ export function useNameSearch(text: string, on: boolean) {
 }
 
 /** The customers a name may be: a tap (or Enter on the highlighted one) takes one. */
-export function NameMatches({ matches, sel, onPick, keyLabel = 'Enter' }: { matches: NameMatch[]; sel: number; onPick: (m: NameMatch) => void; keyLabel?: string }) {
+export function NameMatches({ matches, sel, onPick, keyLabel = 'Enter', extra }: {
+  matches: NameMatch[]; sel: number; onPick: (m: NameMatch) => void; keyLabel?: string;
+  /** Beside a match: e.g. Take payment for someone who owes credit (CustomerBar). */
+  extra?: (m: NameMatch) => ReactNode;
+}) {
   if (!matches.length) return null;
   return (
     <ul className="namematches" aria-label="Customers by that name">
@@ -58,6 +62,7 @@ export function NameMatches({ matches, sel, onPick, keyLabel = 'Enter' }: { matc
             <span className="cust__who"><b>{m.name}</b><span className="num">…{m.ends}</span></span>
             {i === sel && <kbd>{keyLabel}</kbd>}
           </button>
+          {extra?.(m)}
         </li>
       ))}
     </ul>
