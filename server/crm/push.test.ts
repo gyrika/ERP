@@ -6,7 +6,7 @@ import type { ModuleEvent } from '../../src/domain/modules.ts';
 import type { SyncEvent } from '../../src/domain/sync.ts';
 import { createApp } from '../app.ts';
 import { memoryStore } from '../store.ts';
-import { startCrmJobs } from './jobs.ts';
+import { AUTOMATIC, startCrmJobs } from './jobs.ts';
 import { crmApi } from './routes.ts';
 import { memoryCustomers, type PushSub } from './store.ts';
 import { newVapidJson, vapidFromJson } from './webpush.ts';
@@ -190,11 +190,21 @@ test('campaign results: who it reached and came in within a week, beside those i
   const mid = (await s.post('/campaigns/results', s.manager.id, {})).body.results as Record<string, unknown>;
   assert.deepEqual(Object.keys(mid), [id]);
   assert.deepEqual(mid[id], { reached: 2, cameIn: 1, spent: 500000, compared: 2, comparedCameIn: 1, final: false });
+  assert.deepEqual(await s.crm.push!.writeResults(s.counter.device, AUTOMATIC), [], 'no result while its week is still running');
   s.clock.now = T0 + 10 * DAY;
   await s.sale(back, T0 + 9 * DAY, 999999); // after the week: not the campaign
   const end = (await s.post('/campaigns/results', s.owner.id, {})).body.results as Record<string, { spent: number; final: boolean }>;
   assert.equal(end[id].spent, 500000);
   assert.equal(end[id].final, true);
+  // The week is over: the shop server writes the result once, counts only, for Today and the phone.
+  const written = await s.crm.push!.writeResults(s.counter.device, AUTOMATIC);
+  assert.deepEqual(written.map((e) => ({ ...e, id: undefined, at: undefined, actor: undefined })), [{
+    id: undefined, at: undefined, actor: undefined, shopId: SHOP, orderNumber: 0, type: 'crm.campaign_result',
+    campaignId: id, reached: 2, cameIn: 1, spent: 500000, compared: 2, comparedCameIn: 1,
+  }]);
+  assert.equal((await s.recorded()).filter((e) => e.type === 'crm.campaign_result').length, 1, "it went through the shop server's checks");
+  assert.deepEqual(await s.crm.push!.writeResults(s.counter.device, AUTOMATIC), [], 'once only');
+  assert.doesNotMatch(JSON.stringify(written), /cus-|\+94/);
   // Erased: gone from the results too (the send log goes with the customer).
   await s.customers.remove(SHOP, back);
   const after = (await s.post('/campaigns/results', s.owner.id, {})).body.results as Record<string, { reached: number; cameIn: number }>;

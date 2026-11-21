@@ -48,9 +48,19 @@ export type CampaignEvent =
     headline: string;
     /** A second line, e.g. what scanning gets them; '' for none. */
     line: string;
+  }
+  | {
+    id: string; shopId: string; at: number; orderNumber: 0; actor: Actor;
+    type: 'crm.campaign_result';
+    /**
+     * What a campaign brought in once its week is over (campaignResults.ts), written once by the shop
+     * server: counts only, so the owner's Today and phone can say it without knowing who.
+     */
+    campaignId: string;
+    reached: number; cameIn: number; spent: number; compared: number; comparedCameIn: number;
   };
 
-export const CAMPAIGN_EVENT_TYPES = ['crm.campaign_sent', 'crm.auto_set', 'crm.receipt_set'] as const satisfies readonly CampaignEvent['type'][];
+export const CAMPAIGN_EVENT_TYPES = ['crm.campaign_sent', 'crm.auto_set', 'crm.receipt_set', 'crm.campaign_result'] as const satisfies readonly CampaignEvent['type'][];
 
 /** Receipt lines are 48 characters on 80 mm paper; the headline prints bold, so it stays a little shorter. */
 export const MAX_RECEIPT_HEADLINE = 40;
@@ -97,6 +107,12 @@ const count = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
 export const checkCampaignEvent = (e: Record<string, unknown>): string | null => {
   if (e.orderNumber !== 0) return 'a campaign is not about an order';
   if (e.type === 'crm.receipt_set') return checkReceiptOffer(e);
+  if (e.type === 'crm.campaign_result') {
+    if (typeof e.campaignId !== 'string' || !/^[\w-]{1,64}$/.test(e.campaignId)) return 'which campaign';
+    if (!['reached', 'cameIn', 'spent', 'compared', 'comparedCameIn'].every((k) => count(e[k]))) return 'counts are whole numbers';
+    if ((e.cameIn as number) > (e.reached as number) || (e.comparedCameIn as number) > (e.compared as number)) return 'more came in than it reached';
+    return null;
+  }
   const message = checkMessage(e);
   if (e.type === 'crm.auto_set') return typeof e.on !== 'boolean' ? 'on or off' : message;
   if (!isAudience(e.audience)) return 'unknown audience';
@@ -123,6 +139,15 @@ export type SentCampaign = Extract<CampaignEvent, { type: 'crm.campaign_sent' }>
 /** Campaigns sent, newest first (tests to the owner's own number left out unless asked). */
 export const campaignsFromEvents = (events: readonly SyncEvent[], withTests = false): SentCampaign[] =>
   events.filter((e): e is SentCampaign => e.type === 'crm.campaign_sent' && (withTests || e.audience !== 'test')).reverse();
+
+export type CampaignResultEvent = Extract<CampaignEvent, { type: 'crm.campaign_result' }>;
+
+/** Each campaign's final result by campaign id (the first one written wins: it is written once). */
+export const campaignResultsFromEvents = (events: readonly SyncEvent[]): Map<string, CampaignResultEvent> => {
+  const out = new Map<string, CampaignResultEvent>();
+  for (const e of events) if (e.type === 'crm.campaign_result' && !out.has(e.campaignId)) out.set(e.campaignId, e);
+  return out;
+};
 
 export const AUDIENCE_LABEL: Record<Audience, string> = {
   all: 'Everyone', new: 'New', regular: 'Regular', vip: 'VIP', inactive: 'Inactive', quiet: 'Gone quiet', test: 'Test to my number',

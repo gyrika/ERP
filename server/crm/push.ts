@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Actor } from '../../src/domain/auth.ts';
-import { campaignResult, type CampaignResult } from '../../src/domain/campaignResults.ts';
-import { AUDIENCES, campaignsFromEvents, checkMessage, isPushSubscription, winbackFromEvents, type Audience, type CampaignEvent, type Message } from '../../src/domain/campaigns.ts';
+import { RESULT_DAYS, campaignResult, type CampaignResult } from '../../src/domain/campaignResults.ts';
+import { AUDIENCES, campaignResultsFromEvents, campaignsFromEvents, checkMessage, isPushSubscription, winbackFromEvents, type Audience, type CampaignEvent, type Message } from '../../src/domain/campaigns.ts';
 import { isGoneQuiet } from '../../src/domain/customerInsights.ts';
 import { DEFAULT_SEGMENT_RULES, segmentsOf, visitsFromEvents, type Customer } from '../../src/domain/customers.ts';
 import { toLkMobile } from '../../src/domain/phone.ts';
@@ -161,6 +161,33 @@ export function createPush(o: PushOptions) {
         if (!reached.length && !compared.length) continue;
         out[c.id] = campaignResult(c.at, reached, compared, visits, now());
       }
+      return out;
+    },
+
+    /**
+     * Each campaign's final result as one counts-only event (crm.campaign_result), written once its
+     * week is over (hourly, jobs.ts), so the owner's To do and phone can say what it brought in.
+     * Campaigns with nothing logged (sent before results were kept) get none.
+     */
+    async writeResults(device: Device, actor: Actor): Promise<CampaignEvent[]> {
+      const events = await o.history(device.tenantId);
+      const done = campaignResultsFromEvents(events);
+      const due = campaignsFromEvents(events).filter((c) => c.kind === 'campaign' && !done.has(c.id) && now() >= c.at + RESULT_DAYS * DAY);
+      if (!due.length) return [];
+      const visits = visitsFromEvents(events);
+      const out: CampaignEvent[] = [];
+      for (const c of due) {
+        const [reached, compared] = await Promise.all([
+          o.customers.logged(device.tenantId, `campaign:${c.id}:`), o.customers.logged(device.tenantId, `compare:${c.id}:`),
+        ]);
+        if (!reached.length && !compared.length) continue;
+        const r = campaignResult(c.at, reached, compared, visits, now());
+        out.push({
+          id: `result-${c.id}`.slice(0, 64), shopId: device.tenantId, at: now(), orderNumber: 0, actor, type: 'crm.campaign_result',
+          campaignId: c.id, reached: r.reached, cameIn: r.cameIn, spent: r.spent, compared: r.compared, comparedCameIn: r.comparedCameIn,
+        });
+      }
+      if (out.length) await o.ingest(device, out);
       return out;
     },
 

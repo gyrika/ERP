@@ -33,7 +33,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const panel = () => within(screen.getByRole('complementary', { name: 'Current order' }));
 const putOnDilani = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.keyboard('0771234567');
-  await panel().findByRole('button', { name: /Dilani/ });
+  await panel().findByRole('button', { name: /^Dilani/ });
   await user.keyboard('{Enter}');
 };
 

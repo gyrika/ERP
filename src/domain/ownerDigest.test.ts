@@ -75,3 +75,23 @@ test('suppliers: draft and suggestions come through, with no phone number', () =
   assert.ok(prima.draft[0].name.length > 0);
   assert.ok(!('phone' in prima));
 });
+
+test('Customers: gone quiet and credit go to ChatGPT as counts and amounts, never a customer id or phone number', () => {
+  const DAY = 86_400_000;
+  const cust = (k: number) => `cus-${String(k).padStart(16, '0')}`;
+  let n = 0;
+  const sale = (k: number, daysAgo: number, tender = 'cash') => ({
+    id: `cp${++n}`, shopId: 'demo', at: NOW - daysAgo * DAY, orderNumber: 9000 + n, actor: person,
+    type: 'order.paid', total: 300000, tender, tendered: 300000, customerId: cust(k),
+  });
+  const events = [
+    { ...stockBase, id: 'crm-on', at: 1, type: 'shop.module_set', module: 'crm', on: true, codeId: '0123456789abcdef' },
+    ...[40, 35, 30, 25, 20].map((d) => sale(1, d)), ...[50, 44, 38, 32, 18].map((d) => sale(2, d)),
+    sale(3, 45, 'credit'), // on credit, nothing paid back for 45 days
+  ] as unknown as SyncEvent[];
+  const digest = buildOwnerDigest(events, NOW);
+  const ids = digest.attention.map((c) => c.title);
+  assert.ok(ids.includes('2 regulars have gone quiet'), ids.join(' | '));
+  assert.ok(ids.some((t) => /nothing paid for 30\+ days/.test(t)), ids.join(' | '));
+  assert.doesNotMatch(JSON.stringify(digest), /cus-|\+94|07\d{8}/);
+});

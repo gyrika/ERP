@@ -43,15 +43,18 @@ const ordinal = (n: number): string => {
  */
 export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, visits, usual, onUsual, describeUsual, owes = () => 0, onTakePayment }: Props) {
   const phoneRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const usualRef = useRef<HTMLButtonElement>(null);
   const [name, setName] = useState('');
   const [who, setWho] = useState<Who>({ at: 'none' });
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** + New (the cashier adds someone on purpose): the mobile, then the name, both in sight at once. */
+  const [adding, setAdding] = useState(false);
 
   const text = typing ?? '';
   // Letters: a name, so the list is searched by name and Enter (or a tap) puts the match on.
-  const search = useNameSearch(text, typing !== null);
+  const search = useNameSearch(text, typing !== null && !adding);
   const check = typing !== null && !search.byName ? toLkMobile(text) : null;
   const phone = check && 'phone' in check ? check.phone : null;
 
@@ -66,7 +69,7 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
     return () => { live = false; };
   }, [phone]);
 
-  useEffect(() => { if (typing === null) { setName(''); setFailed(false); } }, [typing]);
+  useEffect(() => { if (typing === null) { setName(''); setFailed(false); setAdding(false); } }, [typing]);
 
   // Just put on an empty order: "the usual" takes Enter.
   const offered = Boolean(customer && usual);
@@ -89,6 +92,18 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
   };
 
   const pickByName = (m: Greeting) => { rememberName(m); onAttach({ id: m.id, name: m.name }); onTyping(null); };
+  /** Came only to pay their credit back: Charge opens for it from the search, no bill needed, the bill on screen untouched. */
+  const repay = (c: Greeting) => { rememberName(c); onTakePayment?.({ id: c.id, name: c.name }); onTyping(null); };
+  const repayButton = (c: Greeting) => {
+    const due = owes(c.id);
+    if (!onTakePayment || due <= 0) return null;
+    return (
+      <button type="button" className="cust__repay cust__repay--find" onMouseDown={(e) => e.preventDefault()} onClick={() => repay(c)}
+        aria-label={`Take payment from ${c.name ?? 'this customer'}, owes ${fmt(due)}`}>
+        Owes {fmt(due)} · Take payment
+      </button>
+    );
+  };
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onTyping(null); return; }
@@ -98,11 +113,16 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
       if (search.matches.length) pickByName(search.matches[search.sel]);
       return;
     }
-    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); void attach(); }
+    if (e.key === 'Enter') {
+      e.preventDefault(); e.stopPropagation();
+      // + New: Enter on the mobile goes on to the name (as at Charge); Enter on the name adds them.
+      if (adding && e.target === phoneRef.current && who.at === 'new' && !name.trim()) { nameRef.current?.focus(); return; }
+      void attach();
+    }
   };
 
   if (typing !== null) {
-    const hint = !text.trim() ? 'Their mobile, like 077 123 4567, or their name'
+    const hint = !text.trim() ? (adding ? 'Their mobile, like 077 123 4567' : 'Their mobile, like 077 123 4567, or their name')
       : search.byName ? (search.found.at === 'found' ? (search.matches.length ? null : 'No one by that name: type their mobile')
         : search.found.at === 'away' ? 'The customer list is not answering. Esc to go on without'
           : search.found.at === 'looking' ? 'Looking…' : 'Keep typing the name')
@@ -110,40 +130,49 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
         : who.at === 'checking' ? 'Looking…'
           : who.at === 'away' ? 'The customer list is not answering. Esc to go on without'
             : failed ? 'Not saved: the shop PC did not answer. Enter to try again'
-              : null;
+              : adding && who.at === 'known' ? 'Already on the list'
+                : null;
     return (
       <div className="cust cust--open" onKeyDown={onKeyDown}>
-        <label className="cust__label" htmlFor="cust-phone">Customer</label>
+        <label className="cust__label" htmlFor="cust-phone">{adding ? 'New customer: mobile' : 'Customer'}</label>
         <input
           id="cust-phone" ref={phoneRef} className="cust__phone num" autoComplete="off" autoFocus
-          value={text} placeholder="077 123 4567 or a name" onChange={(e) => onTyping(e.target.value)}
+          inputMode={adding ? 'tel' : undefined}
+          value={text} placeholder={adding ? '077 123 4567' : '077 123 4567 or a name'} onChange={(e) => onTyping(e.target.value)}
         />
         {hint && <span className="cust__hint" aria-live="polite">{hint}</span>}
-        {search.byName && <NameMatches matches={search.matches} sel={search.sel} onPick={pickByName} />}
+        {search.byName && <NameMatches matches={search.matches} sel={search.sel} onPick={pickByName} extra={repayButton} />}
         {who.at === 'known' && (
-          <button type="button" className="cust__pick" onClick={() => void attach()}>
-            <span className="cust__who">
-              <b>{who.customer.name ?? 'On the list'}</b>
-              <span className="num">{visits(who.customer.id) ? `${visits(who.customer.id)} ${visits(who.customer.id) === 1 ? 'visit' : 'visits'}` : 'No visits yet'}{owes(who.customer.id) > 0 ? ` · owes ${fmt(owes(who.customer.id))}` : ''}</span>
-            </span>
-            <kbd>Enter</kbd>
-          </button>
+          <div className="cust__found">
+            <button type="button" className="cust__pick" onClick={() => void attach()}>
+              <span className="cust__who">
+                <b>{who.customer.name ?? 'On the list'}</b>
+                <span className="num">{visits(who.customer.id) ? `${visits(who.customer.id)} ${visits(who.customer.id) === 1 ? 'visit' : 'visits'}` : 'No visits yet'}</span>
+              </span>
+              <kbd>Enter</kbd>
+            </button>
+            {repayButton(who.customer)}
+          </div>
+        )}
+        {(who.at === 'new' || (adding && who.at !== 'known')) && (
+          <>
+            {/* Straight after the number, so Tab goes to the name. */}
+            <label className="cust__label" htmlFor="cust-name">{adding ? 'Name' : 'Name, if they give it'}</label>
+            <input
+              id="cust-name" ref={nameRef} className="cust__name" autoComplete="off" maxLength={60} value={name}
+              placeholder={adding ? 'Their name' : 'Tab, then the name'} onChange={(e) => setName(e.target.value)}
+            />
+          </>
         )}
         {who.at === 'new' && (
           <>
-            {/* Straight after the number, so Tab goes to the name. */}
-            <label className="cust__label" htmlFor="cust-name">Name, if they give it</label>
-            <input
-              id="cust-name" className="cust__name" autoComplete="off" maxLength={60} value={name}
-              placeholder="Tab, then the name" onChange={(e) => setName(e.target.value)}
-            />
             <button type="button" className="cust__pick" onClick={() => void attach()} disabled={saving}>
               <span className="cust__who"><b>{name.trim() ? `New customer: ${name.trim()}` : 'New customer'}</b><span className="num">{text.trim()}</span></span>
               <kbd>Enter</kbd>
             </button>
           </>
         )}
-        <span className="cust__keys">Enter put on the order · Esc no customer</span>
+        <span className="cust__keys">{adding ? 'Enter add them to the order · Esc cancel' : 'Enter put on the order · Esc no customer'}</span>
       </div>
     );
   }
@@ -180,7 +209,23 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
     );
   }
 
-  // No customer yet: nothing on screen (owner, 2026-11-16). The mobile is asked at Charge; 0 on the
-  // Register still opens this for someone who wants "the usual" before ordering.
-  return null;
+  // No customer yet: one row, always in sight on an unpaid bill (Anton, 2026-11-21, replacing the
+  // owner's "nothing on screen" of 2026-11-16): find someone (0 on the Register opens it too), or
+  // + New to add someone on purpose. Searching is also how a customer who only came to pay credit
+  // back is found: their row says what they owe, with Take payment.
+  return (
+    <div className="cust">
+      <div className="cust__idle">
+        <button type="button" className="cust__find" onClick={() => onTyping('')}>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path d="M16 16l4.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <span>Customer <span className="cust__soft">mobile or name</span></span>
+          <kbd aria-hidden="true">0</kbd>
+        </button>
+        <button type="button" className="cust__new" onClick={() => { setAdding(true); onTyping(''); }}>+ New</button>
+      </div>
+    </div>
+  );
 }
