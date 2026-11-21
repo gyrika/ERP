@@ -109,7 +109,7 @@ export default function CustomersView({ hash, onRegister }: { hash: string; onRe
               onEdited={async (n) => { await load(); setNotice(n); }} onCredit={setNotice} />
           )}
           {place.at === 'import' && <ImportPanel count={data?.customers.length ?? null} onSaved={load} />}
-          {place.at === 'campaigns' && <CampaignsPanel isOwner={role === 'owner'} data={data} events={events ?? []} now={at} />}
+          {place.at === 'campaigns' && <CampaignsPanel to={place.to} isOwner={role === 'owner'} data={data} events={events ?? []} now={at} />}
         </div>
       </div>
     </div>

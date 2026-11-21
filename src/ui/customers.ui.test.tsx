@@ -180,18 +180,23 @@ test('Campaigns: the owner picks who, sees the reach, writes two lines and sends
   render(<CustomersView hash="#customers/campaigns" onRegister={() => {}} />);
   expect(await screen.findByText('Reaches 1 of 3 inactive customers.')).toBeTruthy();
   const send = () => screen.getByRole('button', { name: /^Send( to \d+)?$/ }) as HTMLButtonElement;
-  await user.click(screen.getByRole('button', { name: 'VIP' }));
+  // Each group says how many it reaches, from one ask.
+  const to = within(screen.getByRole('group', { name: 'Send to' }));
+  expect(to.getAllByRole('button').map((b) => b.textContent)).toEqual(['Everyone1', 'New0', 'Regular0', 'VIP1', 'Inactive1', 'Gone quiet0']);
+  await user.click(to.getByRole('button', { name: /^VIP/ }));
   expect(await screen.findByText('Reaches 1 of 1 vip customers.')).toBeTruthy();
   expect(send().disabled, 'nothing written yet').toBe(true);
   const compose = within(screen.getByRole('region', { name: 'New campaign' }));
   await user.type(compose.getByRole('textbox', { name: /^Title/ }), 'Thank you');
   await user.type(compose.getByRole('textbox', { name: /^Message/ }), 'A free garlic bread with your next pizza.');
+  // The phone shows it as they will see it.
+  expect(screen.getByRole('img', { name: 'The notification: Thank you. A free garlic bread with your next pizza.' })).toBeTruthy();
   await user.click(send());
   expect(crm.send).toHaveBeenCalledWith('vip', 'Thank you', 'A free garlic bread with your next pizza.', undefined);
   expect((await screen.findByRole('status')).textContent).toBe('Sent: reached 1 of 1.');
-  expect(within(screen.getByRole('region', { name: 'Sent' })).getByText('Thank you')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'What they brought' })).getByText('Thank you')).toBeTruthy();
 
-  await user.click(screen.getByRole('button', { name: 'Turn on' }));
+  await user.click(screen.getByRole('switch', { name: 'We miss you, sent by itself' }));
   expect(crm.setAuto).toHaveBeenCalledWith(true, 'We miss you at CheesyBeez', 'It has been a while. Come by for a hot pizza this week.');
   expect(await screen.findByText('“We miss you” is on.')).toBeTruthy();
 });
@@ -232,8 +237,9 @@ test('Sent: each campaign says what it brought in that week, beside the others i
   } as SyncEvent];
   crm.results.mockResolvedValue({ results: { c9: { reached: 10, cameIn: 3, spent: 1_250_000, compared: 20, comparedCameIn: 2, final: false } } });
   render(<CustomersView hash="#customers/campaigns" onRegister={() => {}} />);
-  const sent = within(screen.getByRole('region', { name: 'Sent' }));
+  const sent = within(screen.getByRole('region', { name: 'What they brought' }));
   expect(await sent.findByText(/3 of 10 came in so far · Rs 12,500/)).toBeTruthy();
+  expect(sent.getByRole('img', { name: '30% came in, others 10%' })).toBeTruthy();
   expect(sent.getByText('Others in it: 2 of 20 (10%) vs 30%')).toBeTruthy();
   expect(sent.getByRole('columnheader', { name: 'Came in (7 days)' })).toBeTruthy();
 });
@@ -327,6 +333,12 @@ test('Start an order: back to the Register with the customer handed over for a n
   const { takeOrderFor } = await import('../services/orderFor.ts');
   expect(takeOrderFor()).toEqual({ id: KASUN.id, name: 'Kasun Perera' });
   expect(takeOrderFor(), 'handed over once').toBeNull();
+});
+
+test('the Gone quiet card opens Campaigns with that group picked', async () => {
+  render(<CustomersView hash="#customers/campaigns?to=quiet" onRegister={() => {}} />);
+  expect(await screen.findByText('Reaches nobody yet: none of the 0 gone quiet customers have signed up for offers.')).toBeTruthy();
+  expect(within(screen.getByRole('group', { name: 'Send to' })).getByRole('button', { name: /^Gone quiet/ }).getAttribute('aria-pressed')).toBe('true');
 });
 
 test('a card opens the list at its filter: New, Gone quiet, Owes', async () => {
