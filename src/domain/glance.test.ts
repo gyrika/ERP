@@ -106,3 +106,23 @@ test('Money says what was paid: the drawer today, the bills this month, and supp
   assert.match(money.explain, /Paid out of the drawer today: Rs 9,500\./);
   assert.match(money.explain, /Bills and other costs this month: Rs 2,500\.\nGas: Rs 2,500/);
 });
+
+test('Counter with Customers on: customers on today\'s bills, new ones, and regulars back after going quiet; counts only', () => {
+  const crmOn: SyncEvent = { id: 'crm', shopId: 's', at: 1, orderNumber: 0, actor: { id: 'd', name: 'Developers', role: 'owner' }, type: 'shop.module_set', module: 'crm', on: true, codeId: '0123456789abcdef' } as SyncEvent;
+  const forCustomer = (who: string, when: number): SyncEvent => ({ ...paid(when, 1000), customerId: `cus-${who.padStart(16, '0')}` } as SyncEvent);
+  const events = [
+    crmOn,
+    ...[60, 55, 50, 45].map((d) => forCustomer('1', at(d, 12))), forCustomer('1', at(0, 12)), // every 5 days, away 45: back
+    ...[9, 6, 3].map((d) => forCustomer('2', at(d, 12))), forCustomer('2', at(0, 13)), // on their rhythm
+    forCustomer('3', at(0, 14)), forCustomer('3', at(0, 15)), // new today, twice
+    paid(at(0, 16), 500), // no customer
+  ];
+  const g = glance(events);
+  const counter = g.stations.find((s) => s.id === 'counter')!;
+  assert.match(counter.explain, /A customer on 4 of 5 bills \(3 people\)\.\n1 new, 2 been before\.\n1 regular came back after going quiet\./);
+  assert.match(g.summary, /A regular who had gone quiet came back today\./);
+  assert.doesNotMatch(counter.explain + g.summary, /cus-/);
+  // Customers off: Counter says nothing about them.
+  const off = glance(events.slice(1)).stations.find((s) => s.id === 'counter')!;
+  assert.doesNotMatch(off.explain, /customer/i);
+});

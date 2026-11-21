@@ -50,3 +50,21 @@ test('quiet: CRM off, or only one regular drifting, says nothing', () => {
   assert.equal(regularsGoneQuiet([...shop, { ...crm(false), id: 'm-off', at: 2 }], NOW), null);
   assert.equal(regularsGoneQuiet([crm(true), ...visits('9', [40, 35, 30, 25, 20])], NOW), null);
 });
+
+test('an offer\'s result: on the To do for the week after its own week, counts only, beside the ones it could not reach', () => {
+  const owner = { id: 'o', name: 'Owner', role: 'owner' as const };
+  const sentAt = NOW - 9 * DAY;
+  const sent = { id: 'camp-1', shopId: 's', at: sentAt, orderNumber: 0, actor: owner, type: 'crm.campaign_sent', audience: 'inactive', kind: 'campaign', title: 'We kept your table', body: 'x', customers: 40, reachable: 20, delivered: 20, failed: 0 } as SyncEvent;
+  const result = { id: 'result-camp-1', shopId: 's', at: sentAt + 7 * DAY, orderNumber: 0, actor: owner, type: 'crm.campaign_result', campaignId: 'camp-1', reached: 20, cameIn: 4, spent: 620000, compared: 20, comparedCameIn: 1 } as SyncEvent;
+  const card = (events: SyncEvent[], now = NOW) => suggestions.insights({ events: [crm(true), ...events], now }).find((i) => i.id === 'campaign-result');
+  const c = card([sent, result])!;
+  assert.equal(c.title, '“We kept your table” brought in 4 of 20, Rs 6,200');
+  assert.equal(c.tone, 'good');
+  assert.match(c.detail, /Of the 20 in the same group it could not reach, 1 came in \(5% against 20%\)\./);
+  assert.equal(c.action.go, '#customers/campaigns');
+  assert.equal(card([sent]), undefined, 'no result written yet');
+  assert.equal(card([sent, result], sentAt + 15 * DAY), undefined, 'gone a week after its week');
+  const none = card([sent, { ...result, cameIn: 0, spent: 0 } as SyncEvent])!;
+  assert.equal(none.title, '“We kept your table” brought nobody in');
+  assert.equal(none.tone, 'info');
+});

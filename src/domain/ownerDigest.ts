@@ -106,6 +106,13 @@ const CARDS: Readonly<Record<string, 'list' | 'words'>> = {
   'stock-value-rose': 'words',
   'visit-length': 'words',
   'table-use': 'words',
+  // Customers (CRM): counts and amounts only, no names or numbers (customerInsights.ts, creditInsights.ts).
+  'regulars-quiet': 'list',
+  'credit-overdue': 'list',
+  'credit-near-limit': 'list',
+  'credit-month': 'words',
+  'campaign-reach': 'words',
+  'campaign-result': 'list',
 };
 
 /** Everyone the events name, longest first so "Ann Marie" goes before "Ann". */

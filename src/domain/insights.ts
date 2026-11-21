@@ -1,4 +1,5 @@
-import { AUDIENCE_LABEL, campaignsFromEvents } from './campaigns.ts';
+import { AUDIENCE_LABEL, campaignResultsFromEvents, campaignsFromEvents } from './campaigns.ts';
+import { RESULT_DAYS } from './campaignResults.ts';
 import { regularsGoneQuiet } from './customerInsights.ts';
 import { creditInsights } from './creditInsights.ts';
 import { gapCases, shortStreaks, toCheck, weekLoss, type GapCase } from './gapReview.ts';
@@ -486,6 +487,38 @@ const campaignReach = (events: readonly SyncEvent[], now: number): Insight | nul
 };
 
 /**
+ * What an offer brought in (CRM, campaignResults.ts), for a week after its own week is over: the
+ * reach card says it went out, this one says whether it worked. Counts only, from the
+ * crm.campaign_result the shop server writes; beside it, the customers it could not reach.
+ */
+const campaignResultCard = (events: readonly SyncEvent[], now: number): Insight | null => {
+  const results = campaignResultsFromEvents(events);
+  const shown = campaignsFromEvents(events)
+    .filter((c) => results.has(c.id) && now >= c.at + RESULT_DAYS * DAY_MS && now < c.at + 2 * RESULT_DAYS * DAY_MS);
+  if (!shown.length) return null;
+  const line = (c: (typeof shown)[number]) => {
+    const r = results.get(c.id)!;
+    return { c, r, text: `${r.cameIn} of ${r.reached} came in${r.spent ? ` · Rs ${fmt(r.spent)}` : ''}` };
+  };
+  const [last] = shown.map(line);
+  const pct = (n: number, of: number) => Math.round((n / of) * 100);
+  return {
+    id: 'campaign-result',
+    tone: last.r.cameIn > 0 ? 'good' : 'info',
+    title: last.r.cameIn > 0
+      ? `“${last.c.title}” brought in ${last.r.cameIn} of ${last.r.reached}${last.r.spent ? `, Rs ${fmt(last.r.spent)}` : ''}`
+      : `“${last.c.title}” brought nobody in`,
+    detail: [
+      `In the week after it was sent, ${last.r.cameIn} of the ${last.r.reached} it reached paid for something.`,
+      last.r.compared && last.r.reached
+        ? `Of the ${last.r.compared} in the same group it could not reach, ${last.r.comparedCameIn} came in (${pct(last.r.comparedCameIn, last.r.compared)}% against ${pct(last.r.cameIn, last.r.reached)}%).`
+        : '',
+    ].filter(Boolean).join(' '),
+    action: { label: 'Campaigns', go: '#customers/campaigns', items: shown.map(line).map((l) => ({ primary: l.c.title, secondary: l.text, amount: l.r.spent })) },
+  };
+};
+
+/**
  * Deliveries a manager approved today (short, extra or at another price) and GRNs undone today:
  * the decision is made at the shop, and the owner is told who made it.
  */
@@ -588,6 +621,7 @@ export const rulesSuggestions: SuggestionsService = {
       notSelling(events, sales, now),
       bestSeller(events, now),
       campaignReach(events, now),
+      campaignResultCard(events, now),
       regularsGoneQuiet(events, now),
       ...creditInsights(events, now),
     ].filter((x): x is Insight => x !== null).sort((a, b) => ORDER[a.tone] - ORDER[b.tone]);

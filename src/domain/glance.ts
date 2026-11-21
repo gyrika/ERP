@@ -1,4 +1,7 @@
 import { creditDay } from './credit.ts';
+import { rhythmOf } from './customerInsights.ts';
+import { visitsFromEvents } from './customers.ts';
+import { modulesFromEvents } from './modules.ts';
 import { answersFromEvents, menuCost, type CostContext } from './costing.ts';
 import { PLATFORMS } from './platforms.ts';
 import { salesFrom, ticketTimes, type Insight, type ShopData } from './insights.ts';
@@ -97,6 +100,27 @@ export const unpaidDeliveries = (events: readonly SyncEvent[], today: number, no
     } else if (e.type === 'order.paid') out.delete(e.orderNumber);
   }
   return [...out.values()];
+};
+
+/**
+ * Customers on today's bills: bills with a customer, how many people, new today (first visit ever
+ * today), and regulars back after going quiet (their first visit today came after customerInsights.ts
+ * quietFrom: away twice their usual gap and two weeks or more, Inactive ones too). Counts only.
+ */
+export const customersToday = (events: readonly SyncEvent[], today: number, now: number) => {
+  let bills = 0, people = 0, fresh = 0, back = 0;
+  for (const visits of visitsFromEvents(events).values()) {
+    const sorted = [...visits].sort((a, b) => a.at - b.at);
+    const todays = sorted.filter((v) => v.at >= today && v.at <= now);
+    if (!todays.length) continue;
+    bills += todays.length;
+    people++;
+    const before = sorted.filter((v) => v.at < today);
+    if (!before.length) { fresh++; continue; }
+    const r = rhythmOf(before);
+    if (r && todays[0].at >= r.quietFrom) back++;
+  }
+  return { bills, people, fresh, back };
 };
 
 /** The shop at a glance, now. `insights`: the To do list, so the summary names the first. */
@@ -206,12 +230,19 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
   const voids = insights.find((i) => i.id === 'voids');
   const discounts = insights.find((i) => i.id === 'discounts');
   const voidCount = events.filter((e) => (e.type === 'order.item_cancelled' || e.type === 'order.line_removed') && e.at >= today && e.at <= now).length;
+  // Customers on today's bills (CRM, only while it is on): how many, new, and regulars back after going quiet.
+  const crm = modulesFromEvents(events).crm ? customersToday(events, today, now) : null;
   const counter: Station = {
     id: 'counter', label: 'Counter', value: String(todays.length), tone: voids || discounts ? 'warn' : 'ok', badge: voids ? voidCount : discounts ? 1 : 0, href: null,
     explain: [
       todays.length ? `Counter: ${plural(todays.length, 'order')} paid, ${rs(total / todays.length)} each on average.` : 'Counter: no orders paid yet today.',
       `${plural(voidCount, 'void')} today.${voids ? ` ${voids.detail}` : ''}`,
       ...(discounts ? [`${discounts.title}. ${discounts.detail}`] : []),
+      ...(crm && todays.length ? [
+        `A customer on ${crm.bills} of ${plural(todays.length, 'bill')}${crm.people !== crm.bills ? ` (${plural(crm.people, 'person', 'people')})` : ''}.`,
+        ...(crm.people ? [`${crm.fresh} new, ${crm.people - crm.fresh} been before.`] : []),
+        ...(crm.back ? [`${plural(crm.back, 'regular')} came back after going quiet.`] : []),
+      ] : []),
     ].join('\n'),
   };
 
@@ -302,6 +333,7 @@ export const glanceOf = (events: readonly SyncEvent[], shop: NonNullable<ShopDat
   const summary = [
     `${greeting} ${pace}`,
     ...(peak ? [`Busiest hour: ${peak.label} (${rs(peak.today ?? 0)}).`] : []),
+    ...(crm?.back ? [`${crm.back === 1 ? 'A regular' : `${crm.back} regulars`} who had gone quiet came back today.`] : []),
     attention.length === 0 ? 'Nothing needs you right now.'
       : attention.length === 1 ? `Needs you: ${attention[0].title}.` : `${attention.length} things need you, first: ${attention[0].title}.`,
   ].join('\n');

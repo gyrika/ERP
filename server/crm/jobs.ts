@@ -8,7 +8,8 @@ import type { CrmApi } from './routes.ts';
  * - every minute, with the cloud linked: hands the cloud this shop's push key (the app needs it to
  *   sign up) and takes the app's sign-ups and stops that the cloud kept for it (cloud/src/push.ts),
  *   which the cloud then deletes;
- * - every hour: the automatic "we miss you" (push.ts winback: 10:00-19:59, once per quiet spell).
+ * - every hour: the automatic "we miss you" (push.ts winback: 10:00-19:59, once per quiet spell),
+ *   and each campaign's result once its week is over (push.ts writeResults: counts only).
  * Both are quiet when they fail (no internet): the next run tries again.
  */
 export interface CrmJobsOptions {
@@ -55,6 +56,12 @@ export function startCrmJobs(o: CrmJobsOptions) {
     await o.crm.push.winback(await o.device(tenant), AUTOMATIC);
   };
 
+  const results = async () => {
+    const tenant = o.tenantId();
+    if (!tenant || !(await o.crm.isOn(tenant)) || !o.crm.push) return;
+    await o.crm.push.writeResults(await o.device(tenant), AUTOMATIC);
+  };
+
   const quietly = (job: () => Promise<void>, name: string) => () => {
     if (stopped) return;
     job().catch((e: unknown) => console.error(`crm ${name}:`, e instanceof Error ? e.message : e));
@@ -62,13 +69,14 @@ export function startCrmJobs(o: CrmJobsOptions) {
   const timers = [
     setInterval(quietly(inbox, 'sign-ups'), o.inboxEveryMs ?? 60_000),
     setInterval(quietly(winback, 'we miss you'), o.winbackEveryMs ?? 60 * 60_000),
+    setInterval(quietly(results, 'campaign results'), o.winbackEveryMs ?? 60 * 60_000),
   ];
   for (const t of timers) t.unref?.();
   setTimeout(quietly(inbox, 'sign-ups'), 5_000).unref?.();
 
   return {
     /** For tests and Settings: run now. */
-    inbox, winback,
+    inbox, winback, results,
     stop() { stopped = true; for (const t of timers) clearInterval(t); },
   };
 }
