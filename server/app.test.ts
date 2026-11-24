@@ -213,6 +213,15 @@ test('login: the PIN finds the person; wrong PINs are slowed down', async () => 
   await s.stop();
 });
 
+test('login: wrong PINs sent all at once still lock the device (QA BUG-06)', async () => {
+  const s = await staffed();
+  const guesses = await Promise.all(Array.from({ length: 20 }, (_, i) => s.login(String(1000 + i * 7).padStart(4, '0').replace('1111', '1112'))));
+  assert.ok(guesses.every((r) => r.status === 401 || r.status === 429));
+  assert.ok(guesses.filter((r) => r.status === 401).length <= 5, 'no more than 5 guesses are checked');
+  assert.equal((await s.login('1111')).status, 429, 'even the right PIN waits');
+  await s.stop();
+});
+
 test('the server checks roles: a cashier cannot discount, even by sending the event itself', async () => {
   const s = await staffed();
   await s.login('1111');

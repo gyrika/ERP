@@ -33,6 +33,8 @@ const TYPES = new Set<string>([
   ...TABLE_EVENT_TYPES, ...VISION_EVENT_TYPES, ...MONEY_EVENT_TYPES, ...VALUE_EVENT_TYPES, ...SHOP_EVENT_TYPES, ...MODULE_EVENT_TYPES, ...CAMPAIGN_EVENT_TYPES, ...BILL_EVENT_TYPES,
 ]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isDiscount = (v: unknown): boolean => isObj(v) && (v.kind === 'comp' ||
+  (v.kind === 'percent' && Number.isInteger(v.pct) && (v.pct as number) >= 1 && (v.pct as number) <= 100));
 const shortString = (v: unknown, max = 64): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 /** What a held batch waits for, by name: a short list of item names. */
 const names = (v: unknown): boolean => Array.isArray(v) && v.length <= 40 && v.every((n) => shortString(n, 120));
@@ -129,6 +131,8 @@ export const validatePush = (body: unknown, tenantId: string): { events: SyncEve
       const why = checkModuleEvent(e);
       if (why) return { reason: `event ${e.id}: ${why}` };
     }
+    // A discount takes 1-100% off or makes the order Free; a negative percent would raise the bill (QA BUG-01).
+    if (e.type === 'order.discount_set' && !(e.after === null || isDiscount(e.after))) return { reason: `event ${e.id} has an invalid discount` };
     if (e.type === 'order.sent' && e.held !== undefined && e.held !== true) return { reason: `event ${e.id} has an invalid hold` };
     if (e.type === 'order.released' && !shortString(e.ticketId)) return { reason: `event ${e.id} has no ticket` };
     if (e.type === 'order.sent' && e.platform !== undefined && !isPlatformMark(e.platform)) {
