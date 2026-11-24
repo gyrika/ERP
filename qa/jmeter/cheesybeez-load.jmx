@@ -4,7 +4,7 @@
 <jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
   <hashTree>
     <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="CheesyBeez POS sync server load test">
-      <boolProperty name="TestPlan.functional_mode">false</boolProperty>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
       <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments">
         <collectionProp name="Arguments.arguments"/>
       </elementProp>
@@ -29,7 +29,7 @@
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Concurrent devices">
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController">
-          <boolProperty name="LoopController.continue_forever">false</boolProperty>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
           <stringProp name="LoopController.loops">${__P(loops,40)}</stringProp>
         </elementProp>
         <stringProp name="ThreadGroup.num_threads">${__P(users,50)}</stringProp>
@@ -39,7 +39,7 @@
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="GET /api/v1/health">
           <stringProp name="HTTPSampler.path">/api/v1/health</stringProp>
           <stringProp name="HTTPSampler.method">GET</stringProp>
-          <boolProperty name="HTTPSampler.use_keepalive">true</boolProperty>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments"><collectionProp name="Arguments.arguments"/></elementProp>
         </HTTPSamplerProxy>
         <hashTree>
@@ -53,7 +53,7 @@
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="GET /api/v1/events (pull)">
           <stringProp name="HTTPSampler.path">/api/v1/events?after=0&amp;limit=200</stringProp>
           <stringProp name="HTTPSampler.method">GET</stringProp>
-          <boolProperty name="HTTPSampler.use_keepalive">true</boolProperty>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments"><collectionProp name="Arguments.arguments"/></elementProp>
         </HTTPSamplerProxy>
         <hashTree>
@@ -67,11 +67,11 @@
         <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST /api/v1/events (kitchen bump)">
           <stringProp name="HTTPSampler.path">/api/v1/events</stringProp>
           <stringProp name="HTTPSampler.method">POST</stringProp>
-          <boolProperty name="HTTPSampler.postBodyRaw">true</boolProperty>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
             <collectionProp name="Arguments.arguments">
               <elementProp name="" elementType="HTTPArgument">
-                <boolProperty name="HTTPArgument.always_encode">false</boolProperty>
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
                 <stringProp name="Argument.value">{"deviceId":"jmeter","events":[{"id":"jm-${__threadNum}-${__counter(FALSE,)}-${__time()}","shopId":"shop-qa","at":${__time()},"orderNumber":${__Random(1001,1999)},"ticketId":"t-${__threadNum}","type":"kitchen.seen"}]}</stringProp>
                 <stringProp name="Argument.metadata">=</stringProp>
               </elementProp>

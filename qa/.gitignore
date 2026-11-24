@@ -3,3 +3,5 @@ postman/env.json
 node_modules/
 evidence/jmeter-report/
 evidence/*.jtl
+evidence/jmeter-stress/
+evidence/coverage/ui/lcov-report/

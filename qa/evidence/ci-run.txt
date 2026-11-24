@@ -1,0 +1,23 @@
+$ gh run view 45414643720
+
+✓ SCRUM-qa-ec4206 QA tests gyrika/ERP#207 · 45414643720
+Triggered via push about 24 minutes ago
+
+JOBS
+✓ QA suites (black/white-box, BDD, API, Selenium) in 1m25s (ID 138517456220)
+✓ Unit tests + coverage in 2m21s (ID 138517456653)
+
+ANNOTATIONS
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+QA suites (black/white-box, BDD, API, Selenium): .github#8
+
+! Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Unit tests + coverage: .github#2
+
+
+ARTIFACTS
+coverage
+qa-evidence
+
+For more information about a job, try: gh run view --job=<job-id>
+View this run on GitHub: https://github.com/gyrika/ERP/actions/runs/45414643720

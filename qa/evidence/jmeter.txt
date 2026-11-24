@@ -1,0 +1,12 @@
+$ jmeter -n -t jmeter/cheesybeez-load.jmx -Jusers=50 -Jramp=10 -Jloops=40 -l evidence/load.jtl -e -o evidence/jmeter-report
+WARN StatusConsoleListener The use of package scanning to locate plugins is deprecated and will be removed in a future release
+WARN StatusConsoleListener The use of package scanning to locate plugins is deprecated and will be removed in a future release
+WARN StatusConsoleListener The use of package scanning to locate plugins is deprecated and will be removed in a future release
+WARN StatusConsoleListener The use of package scanning to locate plugins is deprecated and will be removed in a future release
+Creating summariser <summary>
+Created the tree successfully using jmeter/cheesybeez-load.jmx
+Starting standalone test @ 2026 Nov 24 20:00:48 IST (1795530648351)
+Waiting for possible Shutdown/StopTestNow/HeapDump/ThreadDump message on port 4445
+summary =   6000 in 00:00:10 =  605.2/s Avg:     0 Min:     0 Max:    23 Err:     0 (0.00%)
+Tidying up ...    @ 2026 Nov 24 20:00:58 IST (1795530658320)
+... end of run
