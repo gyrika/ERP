@@ -1,0 +1,50 @@
+/home/gyrikacroos/Documents/sem 5/ERP final/ERP/src/domain/money.ts
+   8:26  warning  Arrow function has a complexity of 2. Maximum allowed is 0  complexity
+  10:33  warning  Arrow function has a complexity of 3. Maximum allowed is 0  complexity
+  10:68  warning  Arrow function has a complexity of 1. Maximum allowed is 0  complexity
+  14:26  warning  Arrow function has a complexity of 1. Maximum allowed is 0  complexity
+  17:20  warning  Arrow function has a complexity of 2. Maximum allowed is 0  complexity
+  25:25  warning  Arrow function has a complexity of 1. Maximum allowed is 0  complexity
+  28:25  warning  Arrow function has a complexity of 4. Maximum allowed is 0  complexity
+  36:26  warning  Arrow function has a complexity of 1. Maximum allowed is 0  complexity
+  41:33  warning  Arrow function has a complexity of 3. Maximum allowed is 0  complexity
+  43:52  warning  Arrow function has a complexity of 1. Maximum allowed is 0  complexity
+  46:28  warning  Arrow function has a complexity of 1. Maximum allowed is 0  complexity
+/home/gyrikacroos/Documents/sem 5/ERP final/ERP/src/domain/parser.ts
+   28:14  warning  Constructor has a complexity of 1. Maximum allowed is 0             complexity
+   31:16  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   31:90  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   32:13  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   33:41  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   33:62  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   34:34  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   36:15  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   37:12  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   38:17  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   39:48  warning  Arrow function has a complexity of 3. Maximum allowed is 0          complexity
+   47:12  warning  Method 'interpret' has a complexity of 7. Maximum allowed is 0      complexity
+   55:87  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   67:22  warning  Method 'parseHalves' has a complexity of 16. Maximum allowed is 0   complexity
+   78:44  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   79:40  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   79:87  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+   81:55  warning  Arrow function has a complexity of 2. Maximum allowed is 0          complexity
+   86:23  warning  Method 'parseSegment' has a complexity of 27. Maximum allowed is 0  complexity
+  112:9   warning  Arrow function has a complexity of 3. Maximum allowed is 0          complexity
+  122:41  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+  123:52  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+  131:19  warning  Arrow function has a complexity of 9. Maximum allowed is 0          complexity
+  143:30  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+  144:17  warning  Arrow function has a complexity of 1. Maximum allowed is 0          complexity
+  144:35  warning  Arrow function has a complexity of 2. Maximum allowed is 0          complexity
+/home/gyrikacroos/Documents/sem 5/ERP final/ERP/src/domain/totals.ts
+  23:26  warning  Arrow function has a complexity of 2. Maximum allowed is 0   complexity
+  26:31  warning  Arrow function has a complexity of 4. Maximum allowed is 0   complexity
+  29:24  warning  Arrow function has a complexity of 1. Maximum allowed is 0   complexity
+  32:26  warning  Arrow function has a complexity of 1. Maximum allowed is 0   complexity
+  34:31  warning  Arrow function has a complexity of 3. Maximum allowed is 0   complexity
+  37:23  warning  Arrow function has a complexity of 10. Maximum allowed is 0  complexity
+  38:39  warning  Arrow function has a complexity of 1. Maximum allowed is 0   complexity
+  39:41  warning  Arrow function has a complexity of 1. Maximum allowed is 0   complexity
+  45:30  warning  Arrow function has a complexity of 2. Maximum allowed is 0   complexity
+✖ 46 problems (0 errors, 46 warnings)

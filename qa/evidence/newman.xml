@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="CheesyBeez POS sync API (EC4206)" tests="14" time="0.225">
+  <testsuite name="API-01 health needs no token" id="ef1f2191-97ea-431d-98c7-11877744e86c" timestamp="2026-11-24T14:15:33.922Z" tests="3" failures="0" errors="0" time="0.021">
+    <testcase name="status is 200" time="0.021" classname="Api01HealthNeedsNoToken"/>
+    <testcase name="responds under 500 ms" time="0.021" classname="Api01HealthNeedsNoToken"/>
+    <testcase name="ok is true" time="0.021" classname="Api01HealthNeedsNoToken"/>
+  </testsuite>
+  <testsuite name="API-02 events without a token are refused" id="ce66f674-c28c-482f-b275-4e3a01f677d3" timestamp="2026-11-24T14:15:33.922Z" tests="2" failures="0" errors="0" time="0.003">
+    <testcase name="status is 401" time="0.003" classname="Api02EventsWithoutATokenAreRefused"/>
+    <testcase name="error unauthorized" time="0.003" classname="Api02EventsWithoutATokenAreRefused"/>
+  </testsuite>
+  <testsuite name="API-03 events with a forged token are refused" id="72238ca6-1bee-4e5d-91c4-cd9710760f23" timestamp="2026-11-24T14:15:33.922Z" tests="1" failures="0" errors="0" time="0.002">
+    <testcase name="status is 401" time="0.002" classname="Api03EventsWithAForgedTokenAreRefused"/>
+  </testsuite>
+  <testsuite name="API-04 cashier logs in with the right PIN" id="5eec12ef-91de-4ead-9727-b86c3dca1282" timestamp="2026-11-24T14:15:33.922Z" tests="4" failures="0" errors="0" time="0.046">
+    <testcase name="status is 200" time="0.046" classname="Api04CashierLogsInWithTheRightPin"/>
+    <testcase name="responds under 500 ms" time="0.046" classname="Api04CashierLogsInWithTheRightPin"/>
+    <testcase name="actor is the cashier" time="0.046" classname="Api04CashierLogsInWithTheRightPin"/>
+    <testcase name="PIN hash never returned" time="0.046" classname="Api04CashierLogsInWithTheRightPin"/>
+  </testsuite>
+  <testsuite name="API-05 cashier PIN is not a manager PIN" id="6f98eb03-ec31-470b-bd86-28cfab44bee3" timestamp="2026-11-24T14:15:33.922Z" tests="2" failures="0" errors="0" time="0.035">
+    <testcase name="status is 401" time="0.035" classname="Api05CashierPinIsNotAManagerPin"/>
+    <testcase name="wrong_pin, says nothing about who exists" time="0.035" classname="Api05CashierPinIsNotAManagerPin"/>
+  </testsuite>
+  <testsuite name="API-06 SQL injection in the PIN is just a wrong PIN" id="4ad260bd-bbdd-4a69-ada0-5df19218ff39" timestamp="2026-11-24T14:15:33.922Z" tests="1" failures="0" errors="0" time="0.002">
+    <testcase name="status is 401" time="0.002" classname="Api06SqlInjectionInThePinIsJustAWrongPin"/>
+  </testsuite>
+  <testsuite name="API-07 manager logs in for manager mode" id="5e7e4d30-41de-4ad2-8939-3b28047aca8a" timestamp="2026-11-24T14:15:33.922Z" tests="1" failures="0" errors="0" time="0.076">
+    <testcase name="status is 200" time="0.076" classname="Api07ManagerLogsInForManagerMode"/>
+  </testsuite>
+  <testsuite name="API-08 pull events" id="37be6d08-ca79-4831-ac0c-5517e7127af2" timestamp="2026-11-24T14:15:33.922Z" tests="3" failures="0" errors="0" time="0.002">
+    <testcase name="status is 200" time="0.002" classname="Api08PullEvents"/>
+    <testcase name="responds under 500 ms" time="0.002" classname="Api08PullEvents"/>
+    <testcase name="has events array" time="0.002" classname="Api08PullEvents"/>
+  </testsuite>
+  <testsuite name="API-09 an event for another shop is refused" id="aae46e05-abb9-4b22-a024-ea2f25d58399" timestamp="2026-11-24T14:15:33.922Z" tests="2" failures="0" errors="0" time="0.004">
+    <testcase name="status is 403" time="0.004" classname="Api09AnEventForAnotherShopIsRefused"/>
+    <testcase name="wrong_shop" time="0.004" classname="Api09AnEventForAnotherShopIsRefused"/>
+  </testsuite>
+  <testsuite name="API-10 malformed JSON body gives 400, not a crash" id="c0c5889a-9a37-4661-8f31-190ca9f8d036" timestamp="2026-11-24T14:15:33.922Z" tests="1" failures="0" errors="0" time="0.002">
+    <testcase name="4xx client error" time="0.002" classname="Api10MalformedJsonBodyGives400NotACrash"/>
+  </testsuite>
+  <testsuite name="API-11 a 10% discount by a logged-in manager is accepted" id="5ce01fde-6fc2-47e1-b34e-325c5f51bc3e" timestamp="2026-11-24T14:15:33.922Z" tests="2" failures="0" errors="0" time="0.004">
+    <testcase name="status is 200" time="0.004" classname="Api11A10DiscountByALoggedInManagerIsAccepted"/>
+    <testcase name="accepted" time="0.004" classname="Api11A10DiscountByALoggedInManagerIsAccepted"/>
+  </testsuite>
+  <testsuite name="API-12 BUG-01 a negative discount (-50%) is refused" id="e842f323-80bd-419d-be89-1e40e403bc5b" timestamp="2026-11-24T14:15:33.922Z" tests="1" failures="0" errors="0" time="0.002">
+    <testcase name="BUG-01: negative percent must be refused with 400" time="0.002" classname="Api12Bug01ANegativeDiscount50IsRefused"/>
+  </testsuite>
+  <testsuite name="API-13 BUG-01 a discount over 100% is refused" id="b1ee49ae-15b9-4878-86c0-babc73d9c39b" timestamp="2026-11-24T14:15:33.922Z" tests="1" failures="0" errors="0" time="0.002">
+    <testcase name="percent above 100 must be refused with 400" time="0.002" classname="Api13Bug01ADiscountOver100IsRefused"/>
+  </testsuite>
+  <testsuite name="API-14 five wrong PINs lock the device (brute force)" id="3a31fb24-b188-40de-b2a3-89492dcbe691" timestamp="2026-11-24T14:15:33.922Z" tests="2" failures="0" errors="0" time="0.004">
+    <testcase name="status is 429" time="0.004" classname="Api14FiveWrongPiNsLockTheDeviceBruteForce"/>
+    <testcase name="even the right PIN waits" time="0.004" classname="Api14FiveWrongPiNsLockTheDeviceBruteForce"/>
+  </testsuite>
+</testsuites>

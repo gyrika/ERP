@@ -1,0 +1,41 @@
+$ node --test --experimental-test-coverage unit/whitebox.test.ts
+▶ WB parseSegment statement + branch coverage
+  ✔ WB-01 "burger": no modifier (D1F,D2F), name found (D17T,D18), no variants (D23F), no note (D26F) (2.370523ms)
+  ✔ WB-02 "2 L devilled chicken no onion": modifier (D1T,D2T), digit qty (D7T), size word (D13T), variant wanted (D24 left) (0.506397ms)
+  ✔ WB-03 "#5": menu-number token (D4T), no name (D17F), menuNo defined (D19F,D21F) (0.145546ms)
+  ✔ WB-04 "5 L": lone digit becomes menu number (D19T) (0.151035ms)
+  ✔ WB-05 "2 5 L": second digit is the menu number (D10T) (0.131574ms)
+  ✔ WB-06 "3x 5 L": "3x" quantity form (D5F,D6T) (0.086872ms)
+  ✔ WB-07 "two burgers": word quantity (D6F), plural alias (0.088971ms)
+  ✔ WB-08 "L": no name and no number -> item undefined (D21T), unresolved (D22T) (0.085045ms)
+  ✔ WB-09 "nothing here": name not on menu (D18 -> undefined, D22T) (0.08978ms)
+  ✔ WB-10 "margherita": pizza with no size -> Medium (D24 right, find M) (0.081004ms)
+  ✔ WB-11 "number 5": the word "number" is skipped (D15F) (0.077146ms)
+  ✔ WB-12 "L L margherita": second size word ignored (D13F: the extra size letter falls into the name) (0.085831ms)
+  ✔ WB-13 "margherita extra pineapple": unmatched modifier becomes a note (D26T) (0.13205ms)
+  ✔ WB-14 "2 3 4 margherita": a third number goes to the name (D7F,D10F) -> unresolved (0.114627ms)
+  ✔ WB-15 "coke 1l": item with no variants via the volume alias (0.108241ms)
+  ✔ WB-16 an owner section item with sizes x1/x2 and no M falls back to its first size (D25 right) (0.189027ms)
+✔ WB parseSegment statement + branch coverage (5.600636ms)
+ℹ tests 16
+ℹ suites 1
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 102.748801
+ℹ start of coverage report
+ℹ -------------------------------------------------------------
+ℹ file         | line % | branch % | funcs % | uncovered lines
+ℹ -------------------------------------------------------------
+ℹ ..           |        |          |         | 
+ℹ  src         |        |          |         | 
+ℹ   domain     |        |          |         | 
+ℹ    parser.ts |  96.64 |    85.26 |   81.48 | 74-78
+ℹ -------------------------------------------------------------
+ℹ all files    |  96.64 |    85.26 |   81.48 | 
+ℹ -------------------------------------------------------------
+ℹ end of coverage report
+
+parseSegment (parser.ts lines 86-131): statements 46/46 = 100%, branches 46/46 = 100%

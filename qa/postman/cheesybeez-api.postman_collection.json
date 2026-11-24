@@ -1,0 +1,637 @@
+{
+  "info": {
+    "name": "CheesyBeez POS sync API (EC4206)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "API-01 health needs no token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"responds under 500 ms\", () => pm.expect(pm.response.responseTime).to.be.below(500));",
+              "pm.test(\"ok is true\", () => pm.expect(pm.response.json().ok).to.eql(true));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/health",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "API-02 events without a token are refused",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 401\", () => pm.response.to.have.status(401));",
+              "pm.test(\"error unauthorized\", () => pm.expect(pm.response.json().error).to.eql(\"unauthorized\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/events",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "events"
+          ]
+        }
+      }
+    },
+    {
+      "name": "API-03 events with a forged token are refused",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 401\", () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer forged-token-0000"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/events",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "events"
+          ]
+        }
+      }
+    },
+    {
+      "name": "API-04 cashier logs in with the right PIN",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"responds under 500 ms\", () => pm.expect(pm.response.responseTime).to.be.below(500));",
+              "const j = pm.response.json(); pm.test(\"actor is the cashier\", () => pm.expect(j.actor.role).to.eql(\"cashier\")); pm.test(\"PIN hash never returned\", () => pm.expect(JSON.stringify(j)).to.not.include(\"hash\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/login",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"pin\":\"1111\"}"
+        }
+      }
+    },
+    {
+      "name": "API-05 cashier PIN is not a manager PIN",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 401\", () => pm.response.to.have.status(401));",
+              "pm.test(\"wrong_pin, says nothing about who exists\", () => pm.expect(pm.response.json().error).to.eql(\"wrong_pin\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/login",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"pin\":\"1111\",\"purpose\":\"manager\"}"
+        }
+      }
+    },
+    {
+      "name": "API-06 SQL injection in the PIN is just a wrong PIN",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 401\", () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/login",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"pin\":\"' OR '1'='1\"}"
+        }
+      }
+    },
+    {
+      "name": "API-07 manager logs in for manager mode",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+              "pm.collectionVariables.set(\"managerActor\", JSON.stringify(pm.response.json().actor));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/login",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"pin\":\"2580\",\"purpose\":\"manager\"}"
+        }
+      }
+    },
+    {
+      "name": "API-08 pull events",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"responds under 500 ms\", () => pm.expect(pm.response.responseTime).to.be.below(500));",
+              "pm.test(\"has events array\", () => pm.expect(pm.response.json().events).to.be.an(\"array\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/events?after=0&limit=10",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "events?after=0&limit=10"
+          ]
+        }
+      }
+    },
+    {
+      "name": "API-09 an event for another shop is refused",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 403\", () => pm.response.to.have.status(403));",
+              "pm.test(\"wrong_shop\", () => pm.expect(pm.response.json().error).to.eql(\"wrong_shop\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/events",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "events"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"deviceId\":\"qa\",\"events\":[{\"id\":\"x-1\",\"shopId\":\"shop-other\",\"at\":1,\"orderNumber\":1,\"ticketId\":\"t\",\"type\":\"kitchen.seen\"}]}"
+        }
+      }
+    },
+    {
+      "name": "API-10 malformed JSON body gives 400, not a crash",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"4xx client error\", () => pm.expect(pm.response.code).to.be.within(400, 499));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/events",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "events"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"events\": ["
+        }
+      }
+    },
+    {
+      "name": "API-11 a 10% discount by a logged-in manager is accepted",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set(\"now\", Date.now());",
+              "pm.collectionVariables.set(\"eid\", \"qa-\" + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"accepted\", () => pm.expect(pm.response.json().rejected).to.be.undefined);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/events",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "events"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deviceId\": \"qa\",\n  \"events\": [\n    {\n      \"id\": \"{{eid}}-ok\",\n      \"shopId\": \"{{shop}}\",\n      \"at\": {{now}},\n      \"orderNumber\": 42,\n      \"type\": \"order.discount_set\",\n      \"actor\": {{managerActor}},\n      \"totalBefore\": 190000,\n      \"totalAfter\": 0,\n      \"before\": null,\n      \"after\": {\n        \"kind\": \"percent\",\n        \"pct\": 10\n      }\n    }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "API-12 BUG-01 a negative discount (-50%) is refused",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set(\"now\", Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"BUG-01: negative percent must be refused with 400\", () => pm.response.to.have.status(400));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/events",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "events"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deviceId\": \"qa\",\n  \"events\": [\n    {\n      \"id\": \"{{eid}}-neg\",\n      \"shopId\": \"{{shop}}\",\n      \"at\": {{now}},\n      \"orderNumber\": 42,\n      \"type\": \"order.discount_set\",\n      \"actor\": {{managerActor}},\n      \"totalBefore\": 190000,\n      \"totalAfter\": 0,\n      \"before\": null,\n      \"after\": {\n        \"kind\": \"percent\",\n        \"pct\": -50\n      }\n    }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "API-13 BUG-01 a discount over 100% is refused",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set(\"now\", Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"percent above 100 must be refused with 400\", () => pm.response.to.have.status(400));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/events",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "events"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deviceId\": \"qa\",\n  \"events\": [\n    {\n      \"id\": \"{{eid}}-big\",\n      \"shopId\": \"{{shop}}\",\n      \"at\": {{now}},\n      \"orderNumber\": 42,\n      \"type\": \"order.discount_set\",\n      \"actor\": {{managerActor}},\n      \"totalBefore\": 190000,\n      \"totalAfter\": 0,\n      \"before\": null,\n      \"after\": {\n        \"kind\": \"percent\",\n        \"pct\": 250\n      }\n    }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "API-14 five wrong PINs lock the device (brute force)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const base = pm.environment.get(\"base\"), token = pm.environment.get(\"token\");",
+              "for (let i = 0; i < 5; i++) pm.sendRequest({ url: base + \"/api/v1/login\", method: \"POST\", header: { \"Content-Type\": \"application/json\", Authorization: \"Bearer \" + token }, body: { mode: \"raw\", raw: JSON.stringify({ pin: \"000\" + i }) } }, () => {});",
+              "setTimeout(() => {}, 1500);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"status is 429\", () => pm.response.to.have.status(429));",
+              "pm.test(\"even the right PIN waits\", () => pm.expect(pm.response.json().error).to.eql(\"too_many\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base}}/api/v1/login",
+          "host": [
+            "{{base}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\"pin\":\"1111\"}"
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "managerActor",
+      "value": ""
+    },
+    {
+      "key": "now",
+      "value": "0"
+    },
+    {
+      "key": "eid",
+      "value": ""
+    }
+  ]
+}

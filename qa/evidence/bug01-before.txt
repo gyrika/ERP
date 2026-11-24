@@ -1,0 +1,173 @@
+$ npm run test:unit   # before the fix
+▶ EP-1 cash amount field (parseLKR)
+  ✔ EP1-V1 "500" -> 50000 (0.633902ms)
+  ✔ EP1-V2 "1,250.25" -> 125025 (0.137615ms)
+  ✔ EP1-V3 "Rs 500" -> 50000 (0.083062ms)
+  ✔ EP1-I1 "" -> null (0.06706ms)
+  ✔ EP1-I2 "abc" -> null (0.060571ms)
+  ✔ EP1-I3 "-1" -> null (0.052938ms)
+  ✔ EP1-I4 "1.505" -> null (0.10242ms)
+  ✔ EP1-I5 "1,00" -> null (0.117813ms)
+  ✔ EP1-I6 "1e3" -> null (0.1585ms)
+✔ EP-1 cash amount field (parseLKR) (2.365799ms)
+▶ EP-2 typed order quantity (ShorthandInterpreter)
+  ✔ EP2-V1 digit quantity "2 margherita" -> qty 2 (1.10537ms)
+  ✔ EP2-V2 word quantity "two burgers" -> qty 2 (0.339201ms)
+  ✔ EP2-V3 no quantity "burger" -> qty 1 (0.088974ms)
+  ✔ EP2-I1 negative "-1 margherita" -> unresolved (0.54998ms)
+  ✖ EP2-I2 zero "0 margherita" is refused (BUG-03) (0.647357ms) # BUG-03: zero quantity silently becomes 1
+  ✖ EP2-I3 absurd "1000000000000000000000 burger" is refused (BUG-02) (0.189272ms) # BUG-02: no upper bound on typed quantity
+✔ EP-2 typed order quantity (ShorthandInterpreter) (3.766692ms)
+▶ EP-3 pizza size word
+  ✔ EP3-V1 "L margherita" -> L (0.151345ms)
+  ✔ EP3-V2 "large margherita" -> L (0.074224ms)
+  ✔ EP3-V3 no size -> M (default) (0.066753ms)
+  ✖ EP3-I1 unknown size "xl" is reported, not silently M (BUG-05) (2.871806ms) # BUG-05: unknown size word dropped silently
+✔ EP-3 pizza size word (3.264563ms)
+▶ BVA-1 order discount percent on Rs 100.00 (10000 cents), valid range 0..100
+  ✖ BVA1-01 pct -1 -> 0 cents off (0.2443ms)
+  ✔ BVA1-02 pct 0 -> 0 cents off (0.040742ms)
+  ✔ BVA1-03 pct 1 -> 100 cents off (0.035326ms)
+  ✔ BVA1-04 pct 50 -> 5000 cents off (0.032245ms)
+  ✔ BVA1-05 pct 99 -> 9900 cents off (0.03134ms)
+  ✔ BVA1-06 pct 100 -> 10000 cents off (0.031814ms)
+  ✔ BVA1-07 pct 101 -> 10000 cents off (0.038334ms)
+✖ BVA-1 order discount percent on Rs 100.00 (10000 cents), valid range 0..100 (0.574596ms)
+▶ BVA-2 percent rounding half-up at the cent boundary (10%)
+  ✔ BVA2-01 14 cents -> 1 (1.4 rounds down) (0.083532ms)
+  ✔ BVA2-02 15 cents -> 2 (1.5 rounds up) (0.072298ms)
+  ✔ BVA2-03 16 cents -> 2 (0.057257ms)
+✔ BVA-2 percent rounding half-up at the cent boundary (10%) (0.326306ms)
+▶ BVA-3 quick cash buttons around the Rs 100 note (10000 cents)
+  ✔ BVA3-01 total 0 -> no buttons (0.14234ms)
+  ✔ BVA3-02 total 1 -> exact + 100/500/1k/5k (0.121728ms)
+  ✔ BVA3-03 total 9999 -> 9999 first, then Rs 100 (0.097116ms)
+  ✔ BVA3-04 total 10000 -> exact is Rs 100, no duplicate (0.095397ms)
+  ✔ BVA3-05 total 10001 -> next Rs 100 step is 200 (0.114909ms)
+  ✔ BVA3-06 total 500000 -> exact and next Rs 5k (0.113531ms)
+✔ BVA-3 quick cash buttons around the Rs 100 note (10000 cents) (0.828322ms)
+▶ BVA-4 cash amount field size (safe integer cents)
+  ✔ BVA4-01 max safe "90071992547409.91" -> 9007199254740991 (0.104418ms)
+  ✔ BVA4-02 max safe + 1 cent -> null (0.077202ms)
+  ✔ BVA4-03 min "0" -> 0 (0.080517ms)
+  ✔ BVA4-04 min + 1 "0.01" -> 1 (0.085511ms)
+✔ BVA-4 cash amount field size (safe integer cents) (0.481979ms)
+✖ EP-4 negative amount display (BUG-04) (10.686535ms) # BUG-04: fmt(-150) prints "-2.-50"
+ℹ tests 40
+ℹ suites 7
+ℹ pass 35
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 4
+ℹ duration_ms 140.261119
+
+✖ failing tests:
+
+test at unit/blackbox.test.ts:36:3
+✖ EP2-I2 zero "0 margherita" is refused (BUG-03) (0.647357ms) # BUG-03: zero quantity silently becomes 1
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///home/gyrikacroos/Documents/sem%205/ERP%20final/ERP/qa/unit/blackbox.test.ts:37:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1047:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:744:18)
+      at Test.postRun (node:internal/test_runner/test:1173:19)
+      at Test.run (node:internal/test_runner/test:1101:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at unit/blackbox.test.ts:38:3
+✖ EP2-I3 absurd "1000000000000000000000 burger" is refused (BUG-02) (0.189272ms) # BUG-02: no upper bound on typed quantity
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///home/gyrikacroos/Documents/sem%205/ERP%20final/ERP/qa/unit/blackbox.test.ts:39:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1047:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:744:18)
+      at Test.postRun (node:internal/test_runner/test:1173:19)
+      at Test.run (node:internal/test_runner/test:1101:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at unit/blackbox.test.ts:46:3
+✖ EP3-I1 unknown size "xl" is reported, not silently M (BUG-05) (2.871806ms) # BUG-05: unknown size word dropped silently
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(first('margherita xl').note?.includes('xl'))
+  
+      at TestContext.<anonymous> (file:///home/gyrikacroos/Documents/sem%205/ERP%20final/ERP/qa/unit/blackbox.test.ts:47:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1047:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:744:18)
+      at Test.postRun (node:internal/test_runner/test:1173:19)
+      at Test.run (node:internal/test_runner/test:1101:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at unit/blackbox.test.ts:60:40
+✖ BVA1-01 pct -1 -> 0 cents off (0.2443ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  -100 !== 0
+  
+      at TestContext.<anonymous> (file:///home/gyrikacroos/Documents/sem%205/ERP%20final/ERP/qa/unit/blackbox.test.ts:61:12)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1047:25)
+      at Test.start (node:internal/test_runner/test:944:17)
+      at node:internal/test_runner/test:1440:71
+      at node:internal/per_context/primordials:466:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:435:3)
+      at node:internal/per_context/primordials:466:9
+      at Array.map (<anonymous>) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: -100,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at unit/blackbox.test.ts:86:1
+✖ EP-4 negative amount display (BUG-04) (10.686535ms) # BUG-04: fmt(-150) prints "-2.-50"
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  '-2.-50' !== '-1.50'
+  
+      at TestContext.<anonymous> (file:///home/gyrikacroos/Documents/sem%205/ERP%20final/ERP/qa/unit/blackbox.test.ts:86:107)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1047:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+      at Suite.postRun (node:internal/test_runner/test:1173:19)
+      at Suite.run (node:internal/test_runner/test:1457:10)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '-2.-50',
+    expected: '-1.50',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

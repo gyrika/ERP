@@ -1,0 +1,93 @@
+# EC4206 QA pipeline: every push and pull request runs the whole test pyramid.
+#   unit (node:test + Vitest, coverage) -> QA suites (black/white-box, BDD, Postman API, Selenium UI)
+# Evidence (coverage lcov, Cucumber HTML, Newman JUnit, Selenium screenshots) is attached to each run.
+name: QA tests
+
+on:
+  push:
+    paths: ['src/**', 'server/**', 'cloud/src/**', 'qa/**', '.github/workflows/qa.yml', 'package.json', 'package-lock.json']
+  pull_request:
+    paths: ['src/**', 'server/**', 'cloud/src/**', 'qa/**', '.github/workflows/qa.yml', 'package.json', 'package-lock.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests + coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Domain, server and cloud tests (node:test)
+        run: npm run test:domain
+      - name: UI tests (Vitest)
+        run: npm run test:ui
+      - name: Domain coverage (lcov for SonarQube)
+        run: >
+          node --test --test-timeout=60000 --test-force-exit --experimental-strip-types --no-warnings
+          --experimental-test-coverage --test-coverage-include='src/domain/**' --test-coverage-exclude='**/*.test.ts'
+          --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=lcov --test-reporter-destination=coverage-domain.info "src/domain/**/*.test.ts"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage-domain.info
+
+  qa:
+    name: QA suites (black/white-box, BDD, API, Selenium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            qa/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: qa
+      - name: Black-box, decision table and white-box tests
+        working-directory: qa
+        run: npm run test:unit
+      - name: BDD (Cucumber)
+        working-directory: qa
+        run: npm run test:bdd
+      - name: Start the sync server under test
+        working-directory: qa
+        run: |
+          npm run server > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8095/api/v1/health && break; sleep 1; done
+      - name: API tests (Postman / Newman)
+        working-directory: qa
+        run: npm run test:api
+      - name: Start the app
+        run: |
+          npx vite --port 5179 --strictPort > vite.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs http://localhost:5179/ > /dev/null && break; sleep 1; done
+      - name: UI tests (Selenium, headless Chrome)
+        working-directory: qa
+        env:
+          APP_URL: http://localhost:5179/
+        run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qa-evidence
+          path: |
+            qa/evidence/cucumber-report.html
+            qa/evidence/newman.xml
+            qa/evidence/shots/ui-*.png

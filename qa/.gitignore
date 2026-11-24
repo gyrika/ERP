@@ -1,0 +1,5 @@
+.env.json
+postman/env.json
+node_modules/
+evidence/jmeter-report/
+evidence/*.jtl

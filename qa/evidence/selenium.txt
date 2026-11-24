@@ -1,0 +1,13 @@
+$ npm run test:ui   # Selenium WebDriver 4.27 + headless Chrome 144
+✔ UI-01 the Register opens with an empty bill and PAY greyed, not hidden (706.512438ms)
+✔ UI-02 tapping Margherita M adds Rs 1,450 to the bill (591.105969ms)
+✔ UI-03 typed shorthand adds 2 L Devilled Chicken (no onion) and a burger (1436.02212ms)
+✔ UI-04 F2 then Enter pays exact cash and the bill moves to Paid today (1651.131246ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4561.472173

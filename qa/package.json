@@ -1,0 +1,22 @@
+{
+  "name": "cheesybeez-qa",
+  "private": true,
+  "type": "module",
+  "description": "EC4206 Software Testing & QA: black/white-box, BDD, Selenium, Postman, JMeter for the CheesyBeez POS",
+  "scripts": {
+    "server": "node --experimental-strip-types --no-warnings server/testServer.ts",
+    "test:unit": "node --test --experimental-strip-types --no-warnings \"unit/**/*.test.ts\"",
+    "test:coverage": "node --test --experimental-strip-types --no-warnings --experimental-test-coverage --test-coverage-include=../src/domain/** --test-coverage-exclude=**/*.test.ts --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=evidence/lcov-qa.info \"unit/**/*.test.ts\"",
+    "test:bdd": "NODE_OPTIONS=\"--experimental-strip-types --no-warnings\" cucumber-js",
+    "test:api": "newman run postman/cheesybeez-api.postman_collection.json -e postman/env.json --reporters cli,junit --reporter-junit-export evidence/newman.xml",
+    "test:ui": "node --test --test-timeout=120000 selenium/register.test.mjs"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "11.3.0",
+    "@cucumber/pretty-formatter": "^1.0.1",
+    "eslint": "^9.17.0",
+    "newman": "6.2.1",
+    "selenium-webdriver": "4.27.0",
+    "typescript-eslint": "^8.18.1"
+  }
+}

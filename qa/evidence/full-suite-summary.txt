@@ -1,0 +1,13 @@
+$ npm test   # whole project: domain + server + cloud (node:test) and UI (Vitest)
+# tests 957
+# suites 0
+# pass 950
+# fail 0
+# cancelled 0
+# skipped 7
+# todo 0
+# duration_ms 11828.420115
+ Test Files  62 passed (62)
+      Tests  450 passed (450)
+   Duration  77.78s (tests 75%, environment 17%, import 6%, transform 2%)
+exit=0
