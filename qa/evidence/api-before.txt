@@ -1,0 +1,119 @@
+$ npm run test:api   # before the fix
+newman
+
+CheesyBeez POS sync API (EC4206)
+
+→ API-01 health needs no token
+  GET http://127.0.0.1:8095/api/v1/health [200 OK, 226B, 21ms]
+  ✓  status is 200
+  ✓  responds under 500 ms
+  ✓  ok is true
+
+→ API-02 events without a token are refused
+  GET http://127.0.0.1:8095/api/v1/events [401 Unauthorized, 255B, 3ms]
+  ✓  status is 401
+  ✓  error unauthorized
+
+→ API-03 events with a forged token are refused
+  GET http://127.0.0.1:8095/api/v1/events [401 Unauthorized, 255B, 1ms]
+  ✓  status is 401
+
+→ API-04 cashier logs in with the right PIN
+  POST http://127.0.0.1:8095/api/v1/login [200 OK, 314B, 38ms]
+  ✓  status is 200
+  ✓  responds under 500 ms
+  ✓  actor is the cashier
+  ✓  PIN hash never returned
+
+→ API-05 cashier PIN is not a manager PIN
+  POST http://127.0.0.1:8095/api/v1/login [401 Unauthorized, 241B, 47ms]
+  ✓  status is 401
+  ✓  wrong_pin, says nothing about who exists
+
+→ API-06 SQL injection in the PIN is just a wrong PIN
+  POST http://127.0.0.1:8095/api/v1/login [401 Unauthorized, 241B, 2ms]
+  ✓  status is 401
+
+→ API-07 manager logs in for manager mode
+  POST http://127.0.0.1:8095/api/v1/login [200 OK, 313B, 88ms]
+  ✓  status is 200
+
+→ API-08 pull events
+  GET http://127.0.0.1:8095/api/v1/events?after=0&limit=10 [200 OK, 253B, 3ms]
+  ✓  status is 200
+  ✓  responds under 500 ms
+  ✓  has events array
+
+→ API-09 an event for another shop is refused
+  POST http://127.0.0.1:8095/api/v1/events [403 Forbidden, 263B, 10ms]
+  ✓  status is 403
+  ✓  wrong_shop
+
+→ API-10 malformed JSON body gives 400, not a crash
+  POST http://127.0.0.1:8095/api/v1/events [400 Bad Request, 251B, 4ms]
+  ✓  4xx client error
+
+→ API-11 a 10% discount by a logged-in manager is accepted
+  POST http://127.0.0.1:8095/api/v1/events [200 OK, 266B, 5ms]
+  ✓  status is 200
+  ✓  accepted
+
+→ API-12 BUG-01 a negative discount (-50%) is refused
+  POST http://127.0.0.1:8095/api/v1/events [200 OK, 267B, 4ms]
+  1. BUG-01: negative percent must be refused with 400
+
+→ API-13 BUG-01 a discount over 100% is refused
+  POST http://127.0.0.1:8095/api/v1/events [200 OK, 267B, 3ms]
+  2. percent above 100 must be refused with 400
+
+→ API-14 five wrong PINs lock the device (brute force)
+  POST http://127.0.0.1:8095/api/v1/login   POST http://127.0.0.1:8095/api/v1/login   POST http://127.0.0.1:8095/api/v1/login   POST http://127.0.0.1:8095/api/v1/login   POST http://127.0.0.1:8095/api/v1/login [401 Unauthorized, 241B, 153ms]
+[401 Unauthorized, 241B, 173ms]
+[401 Unauthorized, 241B, 199ms]
+[401 Unauthorized, 241B, 213ms]
+[401 Unauthorized, 241B, 227ms]
+  POST http://127.0.0.1:8095/api/v1/login [200 OK, 314B, 50ms]
+  3. status is 429
+  4. even the right PIN waits
+
+┌─────────────────────────┬───────────────────┬──────────────────┐
+│                         │          executed │           failed │
+├─────────────────────────┼───────────────────┼──────────────────┤
+│              iterations │                 1 │                0 │
+├─────────────────────────┼───────────────────┼──────────────────┤
+│                requests │                19 │                0 │
+├─────────────────────────┼───────────────────┼──────────────────┤
+│            test-scripts │                14 │                0 │
+├─────────────────────────┼───────────────────┼──────────────────┤
+│      prerequest-scripts │                 4 │                0 │
+├─────────────────────────┼───────────────────┼──────────────────┤
+│              assertions │                26 │                4 │
+├─────────────────────────┴───────────────────┴──────────────────┤
+│ total run duration: 2s                                         │
+├────────────────────────────────────────────────────────────────┤
+│ total data received: 1.25kB (approx)                           │
+├────────────────────────────────────────────────────────────────┤
+│ average response time: 65ms [min: 1ms, max: 227ms, s.d.: 80ms] │
+└────────────────────────────────────────────────────────────────┘
+
+  #  failure         detail                                                        
+                                                                                   
+ 1.  AssertionError  BUG-01: negative percent must be refused with 400             
+                     expected response to have status code 400 but got 200         
+                     at assertion:0 in test-script                                 
+                     inside "API-12 BUG-01 a negative discount (-50%) is refused"  
+                                                                                   
+ 2.  AssertionError  percent above 100 must be refused with 400                    
+                     expected response to have status code 400 but got 200         
+                     at assertion:0 in test-script                                 
+                     inside "API-13 BUG-01 a discount over 100% is refused"        
+                                                                                   
+ 3.  AssertionError  status is 429                                                 
+                     expected response to have status code 429 but got 200         
+                     at assertion:0 in test-script                                 
+                     inside "API-14 five wrong PINs lock the device (brute force)" 
+                                                                                   
+ 4.  AssertionError  even the right PIN waits                                      
+                     expected undefined to deeply equal 'too_many'                 
+                     at assertion:1 in test-script                                 
+                     inside "API-14 five wrong PINs lock the device (brute force)" 

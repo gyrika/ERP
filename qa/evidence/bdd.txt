@@ -1,0 +1,60 @@
+$ npm run test:bdd
+Feature: Manager discounts never lose or invent money # features/discount.feature:1
+
+  As the owner
+  I want every discount rounded once, in whole cents
+  So that the drawer always balances and no bill can be raised by a "discount"
+
+  Scenario: A 10% discount on a Rs 1,900 bill # features/discount.feature:10
+    Given an empty bill
+    And I type "margherita, burger"
+    When the manager gives 10% off
+    Then the net amount is Rs 1,710.00
+    And the discount line shows Rs 190.00
+
+  Scenario: Free order on a delivery waives the fee # features/discount.feature:15
+    Given an empty bill
+    And I type "margherita, burger"
+    Given the order is a delivery with a fee of Rs 150.00
+    When the manager makes the order Free
+    Then the net amount is Rs 0.00
+
+  Scenario: A negative percent can never raise the bill (BUG-01) # features/discount.feature:20
+    Given an empty bill
+    And I type "margherita, burger"
+    When the manager gives -50% off
+    Then the net amount is Rs 1,900.00
+    And the sync server refuses the discount
+
+Feature: Typed shorthand order at the counter # features/typed_order.feature:1
+
+  As a cashier with a customer waiting
+  I want to type an order in shorthand
+  So that I never have to hunt through the menu
+
+  Scenario: Two pizzas with a leave-out and a burger # features/typed_order.feature:9
+    Given an empty bill
+    When I type "2 L devilled chicken no onion, burger"
+    Then the bill has 2 lines
+    And line 1 is 2 x "devilled-chicken" size "L" without "no-onion"
+    And line 2 is 1 x "chicken-burger"
+    And the net amount is Rs 5,450.00
+
+  Scenario Outline: Quantity and size words # features/typed_order.feature:16
+    Given an empty bill
+    When I type "margherita"
+    Then line 1 is 1 x "margherita" size "M"
+
+  Scenario Outline: Quantity and size words # features/typed_order.feature:16
+    Given an empty bill
+    When I type "2l margherita"
+    Then line 1 is 2 x "margherita" size "L"
+
+  Scenario Outline: Quantity and size words # features/typed_order.feature:16
+    Given an empty bill
+    When I type "three large bbq chicken"
+    Then line 1 is 3 x "bbq-chicken" size "L"
+
+7 scenarios (7 passed)
+30 steps (30 passed)
+0m00.031s (executing steps: 0m00.006s)

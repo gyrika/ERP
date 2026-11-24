@@ -264,15 +264,19 @@ export function createApp({ store, staticDir, printer, onStored, online, cloudSt
       const device = await authenticate(req, url);
       const t = now();
       const w = wrong.get(device.id);
-      if (w && w.until > t) throw new HttpError(429, 'too_many', 'too many wrong PINs: wait a moment');
+      if (w && (w.until > t || w.count >= MAX_WRONG)) throw new HttpError(429, 'too_many', 'too many wrong PINs: wait a moment');
+      // Count this guess before any await: guesses sent all at once would otherwise all read the
+      // same old count and never lock the device (QA BUG-06). A right PIN clears it below.
+      const tries = { count: (w?.count ?? 0) + 1, until: 0 };
+      wrong.set(device.id, tries);
       const body = await readBody(req) as { pin?: unknown; purpose?: unknown };
       const purpose = body?.purpose === 'manager' ? 'manager' : 'shift';
       const staff = isPin(body?.pin) ? await store.staffByPin(device.tenantId, body.pin) : null;
       // A cashier's own PIN in the manager box is simply a wrong PIN: it says nothing about who exists.
       // The same on the manager's phone: it opens for managers and owners only (SCRUM-94).
       if (!staff || !isStaffRole(staff.role) || ((purpose === 'manager' || device.kind === 'manager') && !managesRole(staff.role))) {
-        const count = (w?.count ?? 0) + 1;
-        wrong.set(device.id, count >= MAX_WRONG ? { count: 0, until: t + WRONG_WAIT_MS } : { count, until: 0 });
+        const latest = wrong.get(device.id);
+        if (latest && latest.count >= MAX_WRONG) wrong.set(device.id, { count: 0, until: now() + WRONG_WAIT_MS });
         throw new HttpError(401, 'wrong_pin', 'wrong PIN');
       }
       wrong.delete(device.id);

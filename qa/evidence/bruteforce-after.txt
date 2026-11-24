@@ -1,0 +1,6 @@
+$ ./tools/bruteforce.sh   # after the fix
+== 5 wrong PINs one after another, then the right PIN ==
+401 401 401 401 401  -> right PIN: 429 
+(waiting 31 s for the lockout to expire)
+== 20 wrong PINs all at once, then the right PIN ==
+429 429 429 429 429 429 429 429 429 429 429 429 429 429 429 401 401 401 401 401  -> right PIN: 429 

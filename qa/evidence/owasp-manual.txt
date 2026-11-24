@@ -1,0 +1,16 @@
+$ curl -si $BASE/api/v1/health    # A05: which security headers come back?
+HTTP/1.1 200 OK
+content-type: application/json
+cache-control: no-store
+Date: Tue, 24 Nov 2026 14:34:31 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+{"ok":true,"serverTime":1795530871965}
+
+$ curl -s -o /dev/null -w "%{http_code}" "$BASE/api/v1/events?token=<device token>"   # A09: token accepted in the URL?
+200
+$ curl -s "$BASE/%2e%2e/%2e%2e/etc/passwd"   # A01: path traversal on static files
+404
+404

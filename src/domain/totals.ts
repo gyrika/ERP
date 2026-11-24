@@ -32,7 +32,7 @@ export const lineNet = (order: Order, l: OrderLine): Cents => lineGross(l) - lin
 export const percentOf = (cents: Cents, pct: number): Cents => Math.floor((cents * pct + 50) / 100);
 
 export const discountAmount = (afterLines: Cents, d: Discount | undefined): Cents =>
-  !d ? 0 : d.kind === 'comp' ? afterLines : Math.min(afterLines, percentOf(afterLines, d.pct));
+  !d ? 0 : d.kind === 'comp' ? afterLines : Math.min(afterLines, Math.max(0, percentOf(afterLines, d.pct)));
 
 export const totals = (order: Order): Totals => {
   const subtotal = order.lines.reduce((s, l) => s + lineGross(l), 0);

@@ -35,6 +35,11 @@ test('each discount chip gives the exact cent total', () => {
   }
 });
 
+test('a discount never raises the bill, whatever percent arrives (QA BUG-01)', () => {
+  assert.equal(discountAmount(10000, { kind: 'percent', pct: -10 }), 0);
+  assert.equal(discountAmount(10000, { kind: 'percent', pct: 250 }), 10000);
+});
+
 test('discounts round once, at order level, and are never off by a cent', () => {
   // Reference: exact rational arithmetic in BigInt, round half up.
   const ref = (cents: number, pct: number) => Number((BigInt(cents) * BigInt(pct) * 2n + 100n) / 200n);

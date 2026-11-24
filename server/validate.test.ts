@@ -472,3 +472,13 @@ test("the owner's line on the bill (SCRUM-256): plain letters pass; too long, Si
     assert.ok('reason' in validatePush({ deviceId: 'device-1', events: [bad] }, 'shop-1'), JSON.stringify(bad.text));
   }
 });
+
+test('a discount is 1-100% or Free: a negative or oversized percent is refused (QA BUG-01)', () => {
+  const ev = (after: unknown) => ({ ...base, shopId: 'shop-1', type: 'order.discount_set', totalBefore: 190000, totalAfter: 171000, before: null, after });
+  for (const after of [null, { kind: 'comp' }, { kind: 'percent', pct: 1 }, { kind: 'percent', pct: 10 }, { kind: 'percent', pct: 100 }]) {
+    assert.ok(!('reason' in validatePush({ events: [ev(after)] }, 'shop-1')), JSON.stringify(after));
+  }
+  for (const after of [{ kind: 'percent', pct: -50 }, { kind: 'percent', pct: 0 }, { kind: 'percent', pct: 101 }, { kind: 'percent', pct: 2.5 }, { kind: 'percent' }, { kind: 'free' }, 'comp']) {
+    assert.ok('reason' in validatePush({ events: [ev(after)] }, 'shop-1'), JSON.stringify(after));
+  }
+});

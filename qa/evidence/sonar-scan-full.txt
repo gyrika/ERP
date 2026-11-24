@@ -1,0 +1,137 @@
+[INFO]  Bootstrapper: Retrieving info from "package.json" file
+[INFO]  Bootstrapper: Platform: linux x64
+[INFO]  Bootstrapper: Server URL: http://localhost:9000
+[INFO]  Bootstrapper: Version: 4.3.0
+[INFO]  Bootstrapper: SonarQube server version: 24.12.0
+[INFO]  Bootstrapper: JRE provisioning is supported
+[INFO]  Bootstrapper: No Cache found for JRE
+[INFO]  Bootstrapper: Download starting...
+[INFO]  Bootstrapper: Download complete
+[INFO]  Bootstrapper: Downloaded JRE to /home/gyrikacroos/.sonar/cache/bcb1b7b8ad68c93093f09b591b7cb17161d39891f7d29d33a586f5a328603707/OpenJDK17U-jre_x64_linux_hotspot_17.0.11_9.tar.gz
+[INFO]  Bootstrapper: No Cache found for SonarScanner Engine
+[INFO]  Bootstrapper: Download starting...
+[INFO]  Bootstrapper: Download complete
+[INFO]  Bootstrapper: Downloaded SonarScanner Engine to /home/gyrikacroos/.sonar/cache/1d1657eba37bc01a7d3e6c857a59e390b4f0634e66e0406149c43363935080d4/sonar-scanner-engine-shaded-24.12.0.100206-all.jar
+[INFO]  ScannerEngine: Starting SonarScanner Engine...
+[INFO]  ScannerEngine: Java 17.0.11 Eclipse Adoptium (64-bit)
+[INFO]  ScannerEngine: Load global settings
+[INFO]  ScannerEngine: Load global settings (done) | time=78ms
+[INFO]  ScannerEngine: Server id: 147B411E-AaIOAIOTosoPUs51--uQ
+[INFO]  ScannerEngine: Loading required plugins
+[INFO]  ScannerEngine: Load plugins index
+[INFO]  ScannerEngine: Load plugins index (done) | time=31ms
+[INFO]  ScannerEngine: Load/download plugins
+[INFO]  ScannerEngine: Load/download plugins (done) | time=271ms
+[INFO]  ScannerEngine: Process project properties
+[INFO]  ScannerEngine: Process project properties (done) | time=8ms
+[INFO]  ScannerEngine: Project key: cheesybeez-pos
+[INFO]  ScannerEngine: Base dir: /home/gyrikacroos/Documents/sem 5/ERP final/ERP
+[INFO]  ScannerEngine: Working dir: /home/gyrikacroos/Documents/sem 5/ERP final/ERP/.scannerwork
+[INFO]  ScannerEngine: Load project settings for component key: 'cheesybeez-pos'
+[INFO]  ScannerEngine: Load project settings for component key: 'cheesybeez-pos' (done) | time=21ms
+[INFO]  ScannerEngine: Load quality profiles
+[INFO]  ScannerEngine: Load quality profiles (done) | time=85ms
+[INFO]  ScannerEngine: Load active rules
+[INFO]  ScannerEngine: Load active rules (done) | time=4530ms
+[INFO]  ScannerEngine: Load analysis cache
+[INFO]  ScannerEngine: Load analysis cache (404) | time=10ms
+[INFO]  ScannerEngine: Preprocessing files...
+[INFO]  ScannerEngine: 3 languages detected in 515 preprocessed files
+[INFO]  ScannerEngine: 527 files ignored because of inclusion/exclusion patterns
+[INFO]  ScannerEngine: 4 files ignored because of scm ignore settings
+[INFO]  ScannerEngine: Loading plugins for detected languages
+[INFO]  ScannerEngine: Load/download plugins
+[INFO]  ScannerEngine: Load/download plugins (done) | time=583ms
+[INFO]  ScannerEngine: Load project repositories
+[INFO]  ScannerEngine: Load project repositories (done) | time=17ms
+[INFO]  ScannerEngine: Indexing files...
+[INFO]  ScannerEngine: Project configuration:
+[INFO]  ScannerEngine:   Excluded sources: **/*.test.ts, **/*.test.tsx, **/node_modules/**, src/fake/**, server/cv/models/**, **/*.test.ts, **/*.test.tsx
+[INFO]  ScannerEngine:   Included tests: **/*.test.ts, **/*.test.tsx
+[WARN]  ScannerEngine: Invalid character encountered in file /home/gyrikacroos/Documents/sem 5/ERP final/ERP/src/domain/customerImport.ts at line 173 for encoding UTF-8. Please fix file content or configure the encoding to be used using property 'sonar.sourceEncoding'.
+[WARN]  ScannerEngine: Invalid character encountered in file /home/gyrikacroos/Documents/sem 5/ERP final/ERP/server/crm/importFile.ts at line 8 for encoding UTF-8. Please fix file content or configure the encoding to be used using property 'sonar.sourceEncoding'.
+[WARN]  ScannerEngine: Invalid character encountered in file /home/gyrikacroos/Documents/sem 5/ERP final/ERP/src/domain/customerImport.test.ts at line 133 for encoding UTF-8. Please fix file content or configure the encoding to be used using property 'sonar.sourceEncoding'.
+[WARN]  ScannerEngine: Invalid character encountered in file /home/gyrikacroos/Documents/sem 5/ERP final/ERP/server/crm/importFile.test.ts at line 77 for encoding UTF-8. Please fix file content or configure the encoding to be used using property 'sonar.sourceEncoding'.
+[INFO]  ScannerEngine: 515 files indexed
+[INFO]  ScannerEngine: Quality profile for css: Sonar way
+[INFO]  ScannerEngine: Quality profile for js: Sonar way
+[INFO]  ScannerEngine: Quality profile for ts: Sonar way
+[INFO]  ScannerEngine: ------------- Run sensors on module CheesyBeez POS
+[INFO]  ScannerEngine: Load metrics repository
+[INFO]  ScannerEngine: Load metrics repository (done) | time=23ms
+[INFO]  ScannerEngine: Sensor JaCoCo XML Report Importer [jacoco]
+[INFO]  ScannerEngine: 'sonar.coverage.jacoco.xmlReportPaths' is not defined. Using default locations: target/site/jacoco/jacoco.xml,target/site/jacoco-it/jacoco.xml,build/reports/jacoco/test/jacocoTestReport.xml
+[INFO]  ScannerEngine: No report imported, no coverage information will be imported by JaCoCo XML Report Importer
+[INFO]  ScannerEngine: Sensor JaCoCo XML Report Importer [jacoco] (done) | time=2ms
+[INFO]  ScannerEngine: Sensor Java Config Sensor [iac]
+[INFO]  ScannerEngine: 0 source files to be analyzed
+[INFO]  ScannerEngine: 0/0 source files have been analyzed
+[INFO]  ScannerEngine: Sensor Java Config Sensor [iac] (done) | time=25ms
+[INFO]  ScannerEngine: Sensor HTML [web]
+[INFO]  ScannerEngine: Sensor HTML [web] (done) | time=3ms
+[INFO]  ScannerEngine: Sensor JavaScript/TypeScript analysis [javascript]
+[INFO]  ScannerEngine: Detected os: Linux arch: amd64 alpine: false. Platform: LINUX_X64
+[INFO]  ScannerEngine: Deploy location /home/gyrikacroos/.sonar/js/node-runtime, tagetRuntime: /home/gyrikacroos/.sonar/js/node-runtime/node,  version: /home/gyrikacroos/.sonar/js/node-runtime/version.txt
+[INFO]  ScannerEngine: Using embedded Node.js runtime.
+[INFO]  ScannerEngine: Using Node.js executable: '/home/gyrikacroos/.sonar/js/node-runtime/node'.
+[INFO]  ScannerEngine: Memory configuration: OS (31836 MB), Node.js (4144 MB).
+[WARN]  ScannerEngine: Access to the multi-values/property set property 'sonar.javascript.file.suffixes' should be made using 'getStringArray' method. The SonarQube plugin using this property should be updated.
+[WARN]  ScannerEngine: Access to the multi-values/property set property 'sonar.typescript.file.suffixes' should be made using 'getStringArray' method. The SonarQube plugin using this property should be updated.
+[INFO]  ScannerEngine: Found 1 tsconfig.json file(s): [/home/gyrikacroos/Documents/sem 5/ERP final/ERP/tsconfig.json]
+[INFO]  ScannerEngine: Creating TypeScript program
+[INFO]  ScannerEngine: TypeScript configuration file /home/gyrikacroos/Documents/sem 5/ERP final/ERP/tsconfig.json
+[INFO]  ScannerEngine: 467 source files to be analyzed
+[INFO]  ScannerEngine: Starting analysis with current program
+[INFO]  ScannerEngine: 57/467 files analyzed, current file: src/services/photos.ts
+[INFO]  ScannerEngine: 132/467 files analyzed, current file: src/ui/useRegister.ts
+[INFO]  ScannerEngine: 188/467 files analyzed, current file: src/ui/visualFlow/VisualFlowView.tsx
+[INFO]  ScannerEngine: 360/467 files analyzed, current file: server/online.ts
+[INFO]  ScannerEngine: Analyzed 466 file(s) with current program
+[INFO]  ScannerEngine: Found 1 file(s) not part of any tsconfig.json: they will be analyzed without type information
+[INFO]  ScannerEngine: 467/467 source files have been analyzed
+[INFO]  ScannerEngine: Hit the cache for 0 out of 467
+[INFO]  ScannerEngine: Miss the cache for 467 out of 467: ANALYSIS_MODE_INELIGIBLE [467/467]
+[INFO]  ScannerEngine: Sensor JavaScript/TypeScript analysis [javascript] (done) | time=52603ms
+[INFO]  ScannerEngine: Sensor CSS Rules [javascript]
+[INFO]  ScannerEngine: 7 source files to be analyzed
+[INFO]  ScannerEngine: 7/7 source files have been analyzed
+[INFO]  ScannerEngine: Hit the cache for 0 out of 0
+[INFO]  ScannerEngine: Miss the cache for 0 out of 0
+[INFO]  ScannerEngine: Sensor CSS Rules [javascript] (done) | time=444ms
+[INFO]  ScannerEngine: Sensor JavaScript/TypeScript Coverage [javascript]
+[INFO]  ScannerEngine: Analysing [/home/gyrikacroos/Documents/sem 5/ERP final/ERP/qa/evidence/coverage/lcov-node.info, /home/gyrikacroos/Documents/sem 5/ERP final/ERP/qa/evidence/coverage/ui/lcov.info]
+[WARN]  ScannerEngine: Could not resolve 3 file paths in [/home/gyrikacroos/Documents/sem 5/ERP final/ERP/qa/evidence/coverage/lcov-node.info, /home/gyrikacroos/Documents/sem 5/ERP final/ERP/qa/evidence/coverage/ui/lcov.info]
+[WARN]  ScannerEngine: First unresolved path: src/fake/data.ts (Run in DEBUG mode to get full list of unresolved paths)
+[INFO]  ScannerEngine: Sensor JavaScript/TypeScript Coverage [javascript] (done) | time=187ms
+[INFO]  ScannerEngine: Sensor CSS Metrics [javascript]
+[INFO]  ScannerEngine: Sensor CSS Metrics [javascript] (done) | time=363ms
+[INFO]  ScannerEngine: Sensor IaC Docker Sensor [iac]
+[INFO]  ScannerEngine: 0 source files to be analyzed
+[INFO]  ScannerEngine: 0/0 source files have been analyzed
+[INFO]  ScannerEngine: Sensor IaC Docker Sensor [iac] (done) | time=61ms
+[INFO]  ScannerEngine: Sensor TextAndSecretsSensor [text]
+[INFO]  ScannerEngine: Available processors: 8
+[INFO]  ScannerEngine: Using 8 threads for analysis.
+[INFO]  ScannerEngine: Using git CLI to retrieve untracked files
+[INFO]  ScannerEngine: Analyzing language associated files and files included via "sonar.text.inclusions" that are tracked by git
+[INFO]  ScannerEngine: 475 source files to be analyzed
+[INFO]  ScannerEngine: 475/475 source files have been analyzed
+[INFO]  ScannerEngine: Sensor TextAndSecretsSensor [text] (done) | time=1108ms
+[INFO]  ScannerEngine: ------------- Run sensors on project
+[INFO]  ScannerEngine: Sensor Zero Coverage Sensor
+[INFO]  ScannerEngine: Sensor Zero Coverage Sensor (done) | time=6ms
+[INFO]  ScannerEngine: SCM Publisher SCM provider for this project is: git
+[INFO]  ScannerEngine: SCM Publisher 474 source files to be analyzed
+[INFO]  ScannerEngine: SCM Publisher 474/474 source files have been analyzed (done) | time=2284ms
+[INFO]  ScannerEngine: CPD Executor 11 files had no CPD blocks
+[INFO]  ScannerEngine: CPD Executor Calculating CPD for 282 files
+[INFO]  ScannerEngine: CPD Executor CPD calculation finished (done) | time=121ms
+[INFO]  ScannerEngine: SCM revision ID '3994fc9b46fe675ea08083d144ec132dd6bbbde6'
+[INFO]  ScannerEngine: Analysis report generated in 374ms, dir size=12.2 MB
+[INFO]  ScannerEngine: Analysis report compressed in 1742ms, zip size=6.5 MB
+[INFO]  ScannerEngine: Analysis report uploaded in 93ms
+[INFO]  ScannerEngine: ANALYSIS SUCCESSFUL, you can find the results at: http://localhost:9000/dashboard?id=cheesybeez-pos
+[INFO]  ScannerEngine: Note that you will be able to access the updated dashboard once the server has processed the submitted analysis report
+[INFO]  ScannerEngine: More about the report processing at http://localhost:9000/api/ce/task?id=63bb40f3-c101-4286-9466-b3a18ac494a8
+[INFO]  ScannerEngine: Analysis total time: 1:07.032 s
+[INFO]  ScannerEngine: SonarScanner Engine completed successfully

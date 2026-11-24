@@ -1,0 +1,5 @@
+npm error code ETARGET
+npm error notarget No matching version found for @sonar/scan@4.2.6.
+npm error notarget In most cases you or one of your dependencies are requesting
+npm error notarget a package version that doesn't exist.
+npm error A complete log of this run can be found in: /home/gyrikacroos/.npm/_logs/2026-11-24T14_46_41_243Z-debug-0.log

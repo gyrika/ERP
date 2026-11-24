@@ -1,0 +1,12 @@
+$ jmeter -n -t jmeter/cheesybeez-load.jmx -Jusers=200 -Jramp=5 -Jloops=100 -l evidence/stress.jtl -e -o evidence/jmeter-stress
+Creating summariser <summary>
+Created the tree successfully using jmeter/cheesybeez-load.jmx
+Starting standalone test @ 2026 Nov 24 20:01:15 IST (1795530675570)
+Waiting for possible Shutdown/StopTestNow/HeapDump/ThreadDump message on port 4445
+summary +  21288 in 00:00:14 = 1480.6/s Avg:   109 Min:     0 Max:   517 Err:     0 (0.00%) Active: 200 Started: 200 Finished: 0
+summary +  30904 in 00:00:30 = 1030.1/s Avg:   186 Min:     0 Max:   735 Err:     0 (0.00%) Active: 167 Started: 200 Finished: 33
+summary =  52192 in 00:00:44 = 1176.1/s Avg:   155 Min:     0 Max:   735 Err:     0 (0.00%)
+summary +   7808 in 00:00:11 =  720.8/s Avg:   177 Min:     0 Max:   707 Err:     0 (0.00%) Active: 0 Started: 200 Finished: 200
+summary =  60000 in 00:00:55 = 1086.8/s Avg:   158 Min:     0 Max:   735 Err:     0 (0.00%)
+Tidying up ...    @ 2026 Nov 24 20:02:10 IST (1795530730832)
+... end of run
