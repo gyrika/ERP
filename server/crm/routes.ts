@@ -90,8 +90,14 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
     if (!('phone' in check)) throw new CrmError(400, 'invalid_event', check.reason);
     return check.phone;
   };
-  /** At the counter only the first name is shown: what the cashier says to the customer. */
-  const greeting = (c: { id: string; name: string | null }) => ({ id: c.id, name: c.name?.split(' ')[0] ?? null });
+  /**
+   * At the counter: the full name and the nickname, so two customers with the same first name are
+   * told apart (owner, 2026-11-25). Never the number: the cashier typed it.
+   */
+  const greeting = (c: { id: string; name: string | null; nickname?: string | null }) =>
+    ({ id: c.id, name: c.name ?? null, nickname: c.nickname ?? null });
+  /** A nickname as given: cleaned like a name; empty or missing is none. */
+  const nick = (v: unknown): string | null => cleanName(typeof v === 'string' ? v : null).name;
   const pushing = (): Push => {
     if (!push) throw new CrmError(503, 'unavailable', 'push is not set up on this server');
     return push;
@@ -127,7 +133,7 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
     },
 
     /** One customer typed in by hand (managers and the owner): a number not on the list yet, a name if given. */
-    async add(device: Device, staffId: unknown, body: { phone?: unknown; name?: unknown }) {
+    async add(device: Device, staffId: unknown, body: { phone?: unknown; name?: unknown; nickname?: unknown }) {
       const actor = await who(device, staffId, 'manager');
       const phone = mobile(body.phone);
       const { name } = cleanName(typeof body.name === 'string' ? body.name : null);
@@ -135,14 +141,16 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       if (had) throw new CrmError(409, 'invalid_event', `already on the list${had.name ? ` as ${had.name}` : ''}`);
       const { customer } = await customers.ensure(device.tenantId, phone, 'manual', actor.id, now());
       if (name) await customers.importRows(device.tenantId, [{ row: 0, kind: 'fill_name', phone, name, id: customer.id, notes: [] }], actor, now());
-      return { customer: { ...customer, name } };
+      const nickname = nick(body.nickname);
+      if (nickname) await customers.setNickname(device.tenantId, customer.id, nickname, actor.id, now());
+      return { customer: { ...customer, name, nickname } };
     },
 
     /**
-     * A manager or the owner corrects a customer's mobile and name. Their id stays, so their sales
+     * A manager or the owner corrects a customer's mobile, name and nickname (left out: unchanged). Their id stays, so their sales
      * and offers stay theirs. Returns how they were, so the screen can offer Undo.
      */
-    async edit(device: Device, staffId: unknown, body: { id?: unknown; phone?: unknown; name?: unknown }) {
+    async edit(device: Device, staffId: unknown, body: { id?: unknown; phone?: unknown; name?: unknown; nickname?: unknown }) {
       const actor = await who(device, staffId, 'manager');
       if (!isCustomerId(body.id)) throw new CrmError(400, 'invalid_event', 'which customer?');
       const phone = mobile(body.phone);
@@ -155,7 +163,9 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
         const other = await customers.byPhone(device.tenantId, phone);
         throw new CrmError(409, 'invalid_event', `that number is on the list already${other?.name ? ` as ${other.name}` : ''}`);
       }
-      return { customer: { ...before, phone, name }, before };
+      const nickname = body.nickname === undefined ? before.nickname ?? null : nick(body.nickname);
+      if (nickname !== (before.nickname ?? null)) await customers.setNickname(device.tenantId, before.id, nickname, actor.id, now());
+      return { customer: { ...before, phone, name, nickname }, before };
     },
 
     /** Erased (the owner's, PDPA): gone from the list; returned so the screen can offer Undo. */
@@ -173,10 +183,11 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       const c = body.customer as Partial<Customer> | undefined;
       const phone = toLkMobile(c?.phone);
       if (!c || !isCustomerId(c.id) || !('phone' in phone) || !['pos', 'import', 'manual', 'app'].includes(String(c.source))
-        || typeof c.optedOut !== 'boolean' || !Number.isSafeInteger(c.createdAt) || (c.name !== null && typeof c.name !== 'string')) {
+        || typeof c.optedOut !== 'boolean' || !Number.isSafeInteger(c.createdAt) || (c.name !== null && typeof c.name !== 'string')
+        || (c.nickname != null && typeof c.nickname !== 'string')) {
         throw new CrmError(400, 'invalid_event', 'not a removed customer');
       }
-      const back = { id: c.id, phone: phone.phone, name: c.name === null ? null : cleanName(c.name).name, source: c.source as Customer['source'], optedOut: c.optedOut, createdAt: c.createdAt as number };
+      const back = { id: c.id, phone: phone.phone, name: c.name === null ? null : cleanName(c.name).name, nickname: nick(c.nickname), source: c.source as Customer['source'], optedOut: c.optedOut, createdAt: c.createdAt as number };
       if (!(await customers.restore(device.tenantId, back, actor.id, now()))) throw new CrmError(409, 'invalid_event', 'that number is on the list again already');
       return { customer: back };
     },
@@ -188,7 +199,7 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
       return { customer: c ? greeting(c) : null };
     },
 
-    /** At Charge or on the order, a name typed instead of a mobile: who it may be (first names, last 3 digits). */
+    /** At Charge or on the order, a name typed instead of a mobile: who it may be (full name, nickname, last 3 digits). */
     async search(device: Device, staffId: unknown, body: { q?: unknown }) {
       await who(device, staffId, 'counter');
       const q = typeof body.q === 'string' ? body.q.slice(0, 60) : '';
@@ -198,16 +209,25 @@ export function crmApi({ events, customers, vapid, ingest, fetch, now = Date.now
     /**
      * At the counter (put on an order, or at Charge): the customer, made if new. A name, if the
      * customer gave one, is kept only when the list has none for them: the counter never renames anyone.
+     * A nickname (+ New at the counter) the same: kept only for someone who has none.
      */
     /** `source: 'app'`: an online order from a customer signed in on cheesybeez.com (the counter accepting it). */
-    async ensure(device: Device, staffId: unknown, body: { phone?: unknown; name?: unknown; source?: unknown }) {
+    async ensure(device: Device, staffId: unknown, body: { phone?: unknown; name?: unknown; nickname?: unknown; source?: unknown }) {
       const actor = await who(device, staffId, 'counter');
       const phone = mobile(body.phone);
       const { name } = cleanName(typeof body.name === 'string' ? body.name : null);
+      const nickname = nick(body.nickname);
       const { customer, created } = await customers.ensure(device.tenantId, phone, body.source === 'app' ? 'app' : 'pos', actor.id, now());
-      if (!name || customer.name) return { customer: greeting(customer), created };
-      await customers.importRows(device.tenantId, [{ row: 0, kind: 'fill_name', phone, name, id: customer.id, notes: [] }], actor, now());
-      return { customer: greeting({ ...customer, name }), created };
+      let c = customer;
+      if (name && !c.name) {
+        await customers.importRows(device.tenantId, [{ row: 0, kind: 'fill_name', phone, name, id: c.id, notes: [] }], actor, now());
+        c = { ...c, name };
+      }
+      if (nickname && !c.nickname) {
+        await customers.setNickname(device.tenantId, c.id, nickname, actor.id, now());
+        c = { ...c, nickname };
+      }
+      return { customer: greeting(c), created };
     },
 
     async preview(device: Device, staffId: unknown, name: string, bytes: Buffer, renameExisting: boolean) {

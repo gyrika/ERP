@@ -156,18 +156,34 @@ test('summary: totals, new this month by first purchase, repeat rate, top spende
   assert.equal(crmSummary([], new Map(), DEFAULT_SEGMENT_RULES, NOW).repeatRate, null);
 });
 
-test('a name finds customers: every word starts a word of the name, starts-with first, first name and last 3 digits only', () => {
+test('a name finds customers: every word starts a word of the name, starts-with first, full name and last 3 digits', () => {
   const c = (id: string, name: string | null, phone: string) => ({ id, name, phone, source: 'pos' as const, optedOut: false, createdAt: 0 });
   const list = [
     c('cus-1', 'Nimal Kasun', '+94770000001'), c('cus-2', 'Kasun Perera', '+94771234567'), c('cus-3', 'Kasuni Silva', '+94770000333'),
     c('cus-4', null, '+94770000004'), c('cus-5', 'Dilani', '+94770000005'),
   ];
   assert.deepEqual(searchCustomers(list, 'kas'), [
-    { id: 'cus-2', name: 'Kasun', ends: '567' }, { id: 'cus-3', name: 'Kasuni', ends: '333' }, { id: 'cus-1', name: 'Nimal', ends: '001' },
+    { id: 'cus-2', name: 'Kasun Perera', nickname: null, ends: '567' },
+    { id: 'cus-3', name: 'Kasuni Silva', nickname: null, ends: '333' },
+    { id: 'cus-1', name: 'Nimal Kasun', nickname: null, ends: '001' },
   ]);
   assert.deepEqual(searchCustomers(list, ' kas per ').map((m) => m.id), ['cus-2']);
   assert.deepEqual(searchCustomers(list, 'k'), [], 'one letter is too few');
   assert.deepEqual(searchCustomers(list, '0770'), [], 'a number is not a name');
   assert.deepEqual(searchCustomers(list, 'zz'), []);
   assert.equal(searchCustomers(list, 'kas', 2).length, 2);
+});
+
+test('a nickname finds the customer too, and is shown beside the full name (owner, 2026-11-25)', () => {
+  const c = (id: string, name: string | null, nickname: string | null, phone: string) =>
+    ({ id, name, nickname, phone, source: 'pos' as const, optedOut: false, createdAt: 0 });
+  const list = [
+    c('cus-1', 'Kasun Perera', 'Malli', '+94771234567'), c('cus-2', 'Kasun Silva', null, '+94770000222'),
+    c('cus-3', null, 'Bappa', '+94770000333'), c('cus-4', 'Amali Fernando', 'Kasu', '+94770000444'),
+  ];
+  assert.deepEqual(searchCustomers(list, 'mal'), [{ id: 'cus-1', name: 'Kasun Perera', nickname: 'Malli', ends: '567' }]);
+  assert.deepEqual(searchCustomers(list, 'bap'), [{ id: 'cus-3', name: 'Bappa', nickname: null, ends: '333' }], 'a nickname alone is their name');
+  assert.deepEqual(searchCustomers(list, 'kas').map((m) => m.id), ['cus-4', 'cus-1', 'cus-2'], 'a name or nickname starting with it first, then A to Z');
+  assert.deepEqual(searchCustomers(list, 'kasun malli').map((m) => m.id), ['cus-1'], 'name and nickname words together');
+  assert.deepEqual(searchCustomers(list, 'per').map((m) => m.nickname), ['Malli']);
 });

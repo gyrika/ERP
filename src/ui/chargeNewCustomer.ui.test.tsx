@@ -40,11 +40,21 @@ test('+ New customer: mobile and name, Enter, Enter adds them; the payment is th
   await user.keyboard('0771234567{Enter}');
   expect(document.activeElement).toBe(form().getByLabelText('Name'));
   await user.keyboard('Ruwan Silva{Enter}');
-  expect(crm.ensure).toHaveBeenCalledWith('+94771234567', 'Ruwan Silva');
+  expect(crm.ensure).toHaveBeenCalledWith('+94771234567', 'Ruwan Silva', undefined, undefined);
   expect(await screen.findByText('Ruwan · added')).toBeTruthy();
   expect(screen.queryByRole('group', { name: 'New customer' })).toBeNull();
   await user.keyboard('{Enter}');
   expect(onPay).toHaveBeenCalledWith('cash', 290000, RUWAN.id);
+});
+
+test('+ New customer: a nickname too, by Tab from the name; Enter adds them with it', async () => {
+  crm.ensure.mockResolvedValue({ customer: { ...RUWAN, name: 'Ruwan Silva', nickname: 'Ruwa' }, created: true });
+  charge();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: '+ New customer' }));
+  await user.keyboard('0771234567{Enter}Ruwan Silva{Tab}Ruwa{Enter}');
+  expect(crm.ensure).toHaveBeenCalledWith('+94771234567', 'Ruwan Silva', undefined, 'Ruwa');
+  expect(await screen.findByText('Ruwan Silva “Ruwa” · added')).toBeTruthy();
 });
 
 test('what was typed comes along: a name typed in search fills the Name', async () => {

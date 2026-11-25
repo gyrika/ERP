@@ -257,7 +257,7 @@ test('Add customer: the mobile first, a name if known; a number already on the l
   await user.type(form.getByRole('textbox', { name: /^Name/ }), 'Test customer');
   await user.click(form.getByRole('button', { name: 'Add' }));
   expect((await screen.findByRole('status')).textContent).toBe('Added Test customer.');
-  expect(crm.add).toHaveBeenLastCalledWith('077 000 0056', 'Test customer');
+  expect(crm.add).toHaveBeenLastCalledWith('077 000 0056', 'Test customer', '');
   expect(within(screen.getByRole('table')).getByRole('link', { name: 'Test customer' })).toBeTruthy();
   expect(screen.queryByRole('form', { name: 'Add customer' })).toBeNull();
 });
@@ -313,14 +313,14 @@ test('Change name or mobile: saved in place, a number someone else has says whos
   await user.type(form.getByRole('textbox', { name: 'Mobile' }), '077 555 1234');
   await user.clear(form.getByRole('textbox', { name: 'Name' }));
   await user.type(form.getByRole('textbox', { name: 'Name' }), 'Kasun Silva{Enter}');
-  expect(crm.edit).toHaveBeenLastCalledWith(KASUN.id, '077 555 1234', 'Kasun Silva');
+  expect(crm.edit).toHaveBeenLastCalledWith(KASUN.id, '077 555 1234', 'Kasun Silva', '');
   const notice = await screen.findByRole('status');
   expect(notice.textContent).toMatch(/^Saved Kasun Silva\./);
   expect(screen.getByRole('heading', { name: 'Kasun Silva' })).toBeTruthy();
   expect(screen.getByText('077 555 1234')).toBeTruthy();
 
   await user.click(within(notice).getByRole('button', { name: 'Undo' }));
-  expect(crm.edit).toHaveBeenLastCalledWith(KASUN.id, KASUN.phone, 'Kasun Perera');
+  expect(crm.edit).toHaveBeenLastCalledWith(KASUN.id, KASUN.phone, 'Kasun Perera', '');
   expect(await screen.findByRole('heading', { name: 'Kasun Perera' })).toBeTruthy();
 });
 
@@ -331,7 +331,7 @@ test('Start an order: back to the Register with the customer handed over for a n
   await user.click(await screen.findByRole('button', { name: 'Start an order →' }));
   expect(onRegister).toHaveBeenCalledOnce();
   const { takeOrderFor } = await import('../services/orderFor.ts');
-  expect(takeOrderFor()).toEqual({ id: KASUN.id, name: 'Kasun Perera' });
+  expect(takeOrderFor()).toEqual({ id: KASUN.id, name: 'Kasun Perera', nickname: null });
   expect(takeOrderFor(), 'handed over once').toBeNull();
 });
 

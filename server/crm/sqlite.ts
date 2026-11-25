@@ -3,8 +3,8 @@ import type { Customer, CustomerSource } from '../../src/domain/customers.ts';
 import type { CrmCrypto } from './crypto.ts';
 import { newCustomerId, type CustomerStore, type PushSub } from './store.ts';
 
-interface Row { id: string; phone_enc: string; name_enc: string | null; source: CustomerSource; opted_out: number; created_at: number }
-const COLUMNS = 'id, phone_enc, name_enc, source, opted_out, created_at';
+interface Row { id: string; phone_enc: string; name_enc: string | null; nickname_enc: string | null; source: CustomerSource; opted_out: number; created_at: number }
+const COLUMNS = 'id, phone_enc, name_enc, nickname_enc, source, opted_out, created_at';
 
 /** The customer list in the shop's built-in database (server/sqlite/003-crm.sql, 004-crm-push.sql), sealed by `crypto`. */
 export function sqliteCustomers(db: DatabaseSync, crypto: CrmCrypto): CustomerStore {
@@ -17,6 +17,7 @@ export function sqliteCustomers(db: DatabaseSync, crypto: CrmCrypto): CustomerSt
     if (phone === null) return null; // sealed with another key: a restore without its crm.key
     return {
       id: r.id, phone, name: r.name_enc === null ? null : crypto.open(r.name_enc),
+      nickname: r.nickname_enc === null ? null : crypto.open(r.nickname_enc),
       source: r.source, optedOut: Boolean(r.opted_out), createdAt: Number(r.created_at),
     };
   };
@@ -42,7 +43,7 @@ export function sqliteCustomers(db: DatabaseSync, crypto: CrmCrypto): CustomerSt
         db.prepare(`INSERT INTO crm_customers
           (id, tenant_id, phone_hash, phone_enc, name_enc, source, created_by, created_at, updated_by, updated_at)
           VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`).run(id, tenantId, crypto.phoneHash(phone), crypto.seal(phone), source, by, at, by, at);
-        return { customer: { id, phone, name: null, source, optedOut: false, createdAt: at }, created: true };
+        return { customer: { id, phone, name: null, nickname: null, source, optedOut: false, createdAt: at }, created: true };
       });
     },
 
@@ -84,9 +85,9 @@ export function sqliteCustomers(db: DatabaseSync, crypto: CrmCrypto): CustomerSt
 
     async restore(tenantId, c, by, at) {
       return Number(db.prepare(`INSERT OR IGNORE INTO crm_customers
-        (id, tenant_id, phone_hash, phone_enc, name_enc, source, opted_out, opted_out_at, created_by, created_at, updated_by, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(c.id, tenantId, crypto.phoneHash(c.phone), crypto.seal(c.phone),
-        c.name === null ? null : crypto.seal(c.name), c.source, c.optedOut ? 1 : 0, c.optedOut ? at : null, by, c.createdAt, by, at).changes) > 0;
+        (id, tenant_id, phone_hash, phone_enc, name_enc, nickname_enc, source, opted_out, opted_out_at, created_by, created_at, updated_by, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(c.id, tenantId, crypto.phoneHash(c.phone), crypto.seal(c.phone),
+        c.name === null ? null : crypto.seal(c.name), c.nickname ? crypto.seal(c.nickname) : null, c.source, c.optedOut ? 1 : 0, c.optedOut ? at : null, by, c.createdAt, by, at).changes) > 0;
     },
 
     async update(tenantId, id, phone, name, by, at) {
@@ -97,6 +98,11 @@ export function sqliteCustomers(db: DatabaseSync, crypto: CrmCrypto): CustomerSt
           WHERE tenant_id = ? AND id = ?`).run(crypto.phoneHash(phone), crypto.seal(phone), name === null ? null : crypto.seal(name), by, at, tenantId, id).changes);
         return changed ? 'ok' as const : 'missing' as const;
       });
+    },
+
+    async setNickname(tenantId, id, nickname, by, at) {
+      return Number(db.prepare(`UPDATE crm_customers SET nickname_enc = ?, updated_by = ?, updated_at = ?
+        WHERE tenant_id = ? AND id = ?`).run(nickname === null ? null : crypto.seal(nickname), by, at, tenantId, id).changes) > 0;
     },
 
     async setOptOut(tenantId, id, optedOut, by, at) {

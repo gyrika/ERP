@@ -77,7 +77,7 @@ test('a new number: Tab for the name, Enter makes the customer on the shop PC an
   expect(document.activeElement).toBe(panel().getByRole('textbox', { name: 'Name, if they give it' }));
   await user.keyboard('Ruwan{Enter}');
 
-  expect(crm.ensure).toHaveBeenCalledWith('+94771234567', 'Ruwan');
+  expect(crm.ensure).toHaveBeenCalledWith('+94771234567', 'Ruwan', undefined, undefined);
   expect(await panel().findByRole('button', { name: 'Customer Ruwan: change' })).toBeTruthy();
 });
 
@@ -116,6 +116,23 @@ test('a name instead of the mobile: 0, then the name, Enter puts the suggested c
   expect(panel().getByRole('button', { name: 'Customer Dilani: change' })).toBeTruthy();
   expect(crm.lookup).not.toHaveBeenCalled();
   expect(crm.ensure).not.toHaveBeenCalled();
+});
+
+test('two customers with the same first name: the full name and the nickname tell them apart, and the nickname goes on the order', async () => {
+  crm.search.mockResolvedValue({ matches: [
+    { id: 'cus-00000000000000b1', name: 'Kasun Perera', nickname: 'Malli', ends: '567' },
+    { id: 'cus-00000000000000b2', name: 'Kasun Silva', nickname: null, ends: '222' },
+  ] });
+  const user = userEvent.setup();
+  render(<App />);
+  await user.keyboard('0mal');
+  const malli = await panel().findByRole('button', { name: 'Kasun Perera, known as Malli, mobile ending 567' });
+  expect(malli.textContent).toContain('Kasun Perera');
+  expect(malli.textContent).toContain('“Malli”');
+  expect(panel().getByRole('button', { name: 'Kasun Silva, mobile ending 222' })).toBeTruthy();
+  await user.keyboard('{Enter}');
+  const chip = panel().getByRole('button', { name: 'Customer Kasun Perera: change' });
+  expect(chip.textContent).toContain('“Malli”');
 });
 
 test('Esc: no customer, and Charge still offers Mobile; × takes a customer off again', async () => {

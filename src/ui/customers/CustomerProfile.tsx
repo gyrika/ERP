@@ -32,23 +32,24 @@ const TIMELINE_WEEKS = 26;
 const BILLS_SHOWN = 10;
 
 /**
- * The name and mobile, corrected in place (a manager or the owner): Save or Enter, Esc to leave.
+ * The name, nickname and mobile, corrected in place (a manager or the owner): Save or Enter, Esc to leave.
  * The id stays, so their sales stay theirs; Undo on the notice puts them back.
  */
 function EditForm({ c, onDone, onSaved }: { c: Customer; onDone: () => void; onSaved: (n: Notice) => Promise<void> }) {
   const [phone, setPhone] = useState(formatLkMobile(c.phone));
   const [name, setName] = useState(c.name ?? '');
+  const [nickname, setNickname] = useState(c.nickname ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const save = async () => {
     setBusy(true);
     setError('');
     try {
-      const { customer, before } = await crmClient.edit(c.id, phone, name);
+      const { customer, before } = await crmClient.edit(c.id, phone, name, nickname);
       onDone();
       await onSaved({
         message: `Saved ${customer.name ?? formatLkMobile(customer.phone)}.`,
-        undo: async () => { await crmClient.edit(before.id, before.phone, before.name ?? ''); },
+        undo: async () => { await crmClient.edit(before.id, before.phone, before.name ?? '', before.nickname ?? ''); },
       });
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   };
@@ -57,6 +58,8 @@ function EditForm({ c, onDone, onSaved }: { c: Customer; onDone: () => void; onS
       onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onDone(); } }}>
       <label className="setup__field"><span>Name</span>
         <input autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="No name" /></label>
+      <label className="setup__field"><span>Nickname <span className="crm__muted">what the counter calls them</span></span>
+        <input value={nickname} maxLength={40} onChange={(e) => setNickname(e.target.value)} placeholder="None" /></label>
       <label className="setup__field"><span>Mobile</span>
         <input className="num" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="077 123 4567" /></label>
       <button type="submit" className="inv-page__primary" disabled={busy || !phone.trim()}>Save</button>
@@ -135,7 +138,7 @@ export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onR
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
   };
 
-  const startOrder = () => { startOrderFor({ id: c.id, name: c.name }); onRegister(); };
+  const startOrder = () => { startOrderFor({ id: c.id, name: c.name, nickname: c.nickname ?? null }); onRegister(); };
 
   return (
     <article className="crm-profile" aria-label={c.name ?? formatLkMobile(c.phone)}>
@@ -146,7 +149,8 @@ export function CustomerProfile({ id, data, events, now, isOwner, onChanged, onR
             <span className="crm-avatar crm-avatar--big" aria-hidden="true">{initials(c.name)}</span>
             <div>
               <div className="crm-profile__line">
-                <h2>{c.name ?? 'No name'}</h2>
+                <h2>{c.name ?? c.nickname ?? 'No name'}</h2>
+                {c.name && c.nickname && <span className="crm-profile__nick">“{c.nickname}”</span>}
                 <span className="crm-chip"><i className={`crm-dot crm-dot--${segment}`} />{SEGMENT_LABEL[segment]}</span>
                 {offers === 'yes' && <span className="crm-chip crm-chip--ok">Gets offers</span>}
                 {offers === 'no' && <span className="crm-chip">No messages</span>}

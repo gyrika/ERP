@@ -64,7 +64,7 @@ test('+ New: mobile, Enter, name, Enter adds them and puts them on the bill', as
   await user.keyboard('{Enter}');
   expect(document.activeElement).toBe(panel().getByRole('textbox', { name: 'Name' }));
   await user.keyboard('Ruwan{Enter}');
-  expect(crm.ensure).toHaveBeenCalledWith('+94771234567', 'Ruwan');
+  expect(crm.ensure).toHaveBeenCalledWith('+94771234567', 'Ruwan', undefined, undefined);
   expect(await panel().findByRole('button', { name: /Customer Ruwan: change/ })).toBeTruthy();
 });
 

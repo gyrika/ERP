@@ -196,7 +196,8 @@ export interface Order {
 /** The counter's order type toggle (`Order.dineIn` / `Order.delivery`). */
 export type OrderType = 'takeAway' | 'dineIn' | 'delivery';
 
-export interface OrderCustomer { id: string; name: string | null }
+/** `nickname`: what the counter knows them by, shown beside the full name (stays on the counter, like the name). */
+export interface OrderCustomer { id: string; name: string | null; nickname?: string | null }
 
 /**
  * An online order's mark, carried by the order, its kitchen ticket and its send event.
