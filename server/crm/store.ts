@@ -36,6 +36,8 @@ export interface CustomerStore {
    * customer has that mobile; 'missing': no such customer. Their id, and so their sales, stay.
    */
   update(tenantId: string, id: string, phone: string, name: string | null, by: string, at: number): Promise<'ok' | 'taken' | 'missing'>;
+  /** A manager or the owner gives a customer a nickname (null: none). False: no such customer. */
+  setNickname(tenantId: string, id: string, nickname: string | null, by: string, at: number): Promise<boolean>;
   /** Asked for no messages (or changed their mind). False: no such customer. */
   setOptOut(tenantId: string, id: string, optedOut: boolean, by: string, at: number): Promise<boolean>;
 
@@ -71,7 +73,7 @@ export function memoryCustomers(): CustomerStore {
     async ensure(tenantId, phone, source, _by, at) {
       const had = find(tenantId, phone);
       if (had) return { customer: open(had), created: false };
-      const c = { id: newCustomerId(), tenantId, phone, name: null, source, optedOut: false, createdAt: at };
+      const c = { id: newCustomerId(), tenantId, phone, name: null, nickname: null, source, optedOut: false, createdAt: at };
       rows.set(c.id, c);
       return { customer: open(c), created: true };
     },
@@ -113,6 +115,12 @@ export function memoryCustomers(): CustomerStore {
       if (other && other.id !== id) return 'taken';
       rows.set(id, { ...c, phone, name });
       return 'ok';
+    },
+    async setNickname(tenantId, id, nickname) {
+      const c = rows.get(id);
+      if (!c || c.tenantId !== tenantId) return false;
+      rows.set(id, { ...c, nickname });
+      return true;
     },
     async setOptOut(tenantId, id, optedOut) {
       const c = rows.get(id);

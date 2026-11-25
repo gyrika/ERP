@@ -36,11 +36,11 @@ const upload = (step: 'preview' | 'save', file: File, rename: boolean) => {
   return { path: `/import/${step}?${q}`, init: { method: 'POST', body: file, headers: { 'content-type': 'application/octet-stream' } } };
 };
 
-/** What the counter is told about a customer: the first name to greet them by. */
-export interface Greeting { id: string; name: string | null }
+/** What the counter is told about a customer: the full name, and the nickname the shop knows them by. */
+export interface Greeting { id: string; name: string | null; nickname?: string | null }
 
 /**
- * The first names this screen was told (lookup, ensure), by id, for this session only: so an order
+ * The names this screen was told (lookup, ensure), by id, for this session only: so an order
  * paid by a customer given at Charge shows who it was on the list and the bill. Never stored.
  */
 const told = new Map<string, string | null>();
@@ -53,19 +53,21 @@ export const crmClient = {
   /** The list, and which customers have the app (for campaigns). */
   list: () => call<{ customers: Customer[]; withApp: string[] }>('/customers'),
   optOut: (id: string, optedOut: boolean) => post<{ optedOut: boolean }>('/customers/opt-out', { id, optedOut }),
-  add: (phone: string, name: string) => post<{ customer: Customer }>('/customers/add', { phone, name }),
-  /** A manager's or the owner's correction of the mobile and name (`before` is for Undo). */
-  edit: (id: string, phone: string, name: string) => post<{ customer: Customer; before: Customer }>('/customers/edit', { id, phone, name }),
+  add: (phone: string, name: string, nickname = '') => post<{ customer: Customer }>('/customers/add', { phone, name, nickname }),
+  /** A manager's or the owner's correction of the mobile, name and nickname (`before` is for Undo). */
+  edit: (id: string, phone: string, name: string, nickname = '') =>
+    post<{ customer: Customer; before: Customer }>('/customers/edit', { id, phone, name, nickname }),
   /** The owner's: erased from the list (returned for Undo). */
   remove: (id: string) => post<{ removed: Customer }>('/customers/remove', { id }),
   restore: (customer: Customer) => post<{ customer: Customer }>('/customers/restore', { customer }),
   /** At Charge, while typing: quick, and it never waits long (the sale never waits on it). */
   lookup: (phone: string) => post<{ customer: Greeting | null }>('/lookup', { phone }, 2_000).then(remembering),
-  /** A name typed instead of a mobile: who it may be (up to 5, first names and the last 3 digits). */
+  /** A name typed instead of a mobile: who it may be (up to 5: full name, nickname, last 3 digits). */
   search: (q: string) => post<{ matches: NameMatch[] }>('/search', { q }, 2_000),
-  /** The customer, made if new; `name` is kept only for someone the list has no name for. */
-  ensure: (phone: string, name?: string, source?: 'app') =>
-    post<{ customer: Greeting; created: boolean }>('/ensure', { phone, ...(name ? { name } : {}), ...(source ? { source } : {}) }, 2_000).then(remembering),
+  /** The customer, made if new; `name` and `nickname` are kept only for someone the list has none for. */
+  ensure: (phone: string, name?: string, source?: 'app', nickname?: string) =>
+    post<{ customer: Greeting; created: boolean }>('/ensure',
+      { phone, ...(name ? { name } : {}), ...(source ? { source } : {}), ...(nickname ? { nickname } : {}) }, 2_000).then(remembering),
   preview: (file: File, rename: boolean) => {
     const u = upload('preview', file, rename);
     return call<{ plan: ImportPlan }>(u.path, u.init);

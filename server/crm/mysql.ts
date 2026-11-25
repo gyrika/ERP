@@ -3,8 +3,8 @@ import type { Customer, CustomerSource } from '../../src/domain/customers.ts';
 import type { CrmCrypto } from './crypto.ts';
 import { newCustomerId, type CustomerStore, type PushSub } from './store.ts';
 
-interface Row extends RowDataPacket { id: string; phone_enc: string; name_enc: string | null; source: CustomerSource; opted_out: number; created_at: number | string }
-const COLUMNS = 'id, phone_enc, name_enc, source, opted_out, created_at';
+interface Row extends RowDataPacket { id: string; phone_enc: string; name_enc: string | null; nickname_enc: string | null; source: CustomerSource; opted_out: number; created_at: number | string }
+const COLUMNS = 'id, phone_enc, name_enc, nickname_enc, source, opted_out, created_at';
 
 /** The customer list in MySQL (server/migrations/004-crm.sql, 005-crm-push.sql): the same rules as ./sqlite.ts. */
 export function mysqlCustomers(pool: Pool, crypto: CrmCrypto): CustomerStore {
@@ -13,6 +13,7 @@ export function mysqlCustomers(pool: Pool, crypto: CrmCrypto): CustomerStore {
     if (phone === null) return null;
     return {
       id: r.id, phone, name: r.name_enc === null ? null : crypto.open(r.name_enc),
+      nickname: r.nickname_enc === null ? null : crypto.open(r.nickname_enc),
       source: r.source, optedOut: Boolean(r.opted_out), createdAt: Number(r.created_at),
     };
   };
@@ -34,7 +35,7 @@ export function mysqlCustomers(pool: Pool, crypto: CrmCrypto): CustomerStore {
       const [res] = await pool.query<ResultSetHeader>(`INSERT IGNORE INTO crm_customers
         (id, tenant_id, phone_hash, phone_enc, name_enc, source, created_by, created_at, updated_by, updated_at)
         VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`, [id, tenantId, crypto.phoneHash(phone), crypto.seal(phone), source, by, at, by, at]);
-      if (res.affectedRows) return { customer: { id, phone, name: null, source, optedOut: false, createdAt: at }, created: true };
+      if (res.affectedRows) return { customer: { id, phone, name: null, nickname: null, source, optedOut: false, createdAt: at }, created: true };
       const had = await byPhone(tenantId, phone);
       if (!had) throw new Error('the customer could not be found or made');
       return { customer: had, created: false };
@@ -81,9 +82,9 @@ export function mysqlCustomers(pool: Pool, crypto: CrmCrypto): CustomerStore {
 
     async restore(tenantId, c, by, at) {
       const [res] = await pool.query<ResultSetHeader>(`INSERT IGNORE INTO crm_customers
-        (id, tenant_id, phone_hash, phone_enc, name_enc, source, opted_out, opted_out_at, created_by, created_at, updated_by, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [c.id, tenantId, crypto.phoneHash(c.phone), crypto.seal(c.phone),
-        c.name === null ? null : crypto.seal(c.name), c.source, c.optedOut ? 1 : 0, c.optedOut ? at : null, by, c.createdAt, by, at]);
+        (id, tenant_id, phone_hash, phone_enc, name_enc, nickname_enc, source, opted_out, opted_out_at, created_by, created_at, updated_by, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [c.id, tenantId, crypto.phoneHash(c.phone), crypto.seal(c.phone),
+        c.name === null ? null : crypto.seal(c.name), c.nickname ? crypto.seal(c.nickname) : null, c.source, c.optedOut ? 1 : 0, c.optedOut ? at : null, by, c.createdAt, by, at]);
       return res.affectedRows > 0;
     },
 
@@ -100,6 +101,12 @@ export function mysqlCustomers(pool: Pool, crypto: CrmCrypto): CustomerStore {
         throw e;
       }
       return 'ok';
+    },
+
+    async setNickname(tenantId, id, nickname, by, at) {
+      const [res] = await pool.query<ResultSetHeader>(`UPDATE crm_customers SET nickname_enc = ?, updated_by = ?, updated_at = ?
+        WHERE tenant_id = ? AND id = ?`, [nickname === null ? null : crypto.seal(nickname), by, at, tenantId, id]);
+      return res.affectedRows > 0;
     },
 
     async setOptOut(tenantId, id, optedOut, by, at) {

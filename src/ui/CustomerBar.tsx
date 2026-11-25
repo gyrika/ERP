@@ -4,7 +4,7 @@ import { fmt } from '../domain/money.ts';
 import type { Cents, OrderCustomer } from '../domain/types.ts';
 import type { Usual } from '../domain/usualOrder.ts';
 import { crmClient, rememberName, type Greeting } from '../services/crmClient.ts';
-import { NameMatches, useNameSearch } from './useNameSearch.tsx';
+import { CustomerName, NameMatches, useNameSearch } from './useNameSearch.tsx';
 
 interface Props {
   customer?: OrderCustomer;
@@ -39,13 +39,14 @@ const ordinal = (n: number): string => {
  * The customer on the order (CRM), in the order panel under the order number. The cashier types the
  * mobile (or just presses 0 on the Register): a number the list knows is greeted by name, a new one
  * becomes a customer with Enter, a name if they give one. The customer list stays on the shop PC
- * (crmClient); this screen is told only the id and the first name. No customer is fine: Esc.
+ * (crmClient); this screen is told only the id, the full name and the nickname. No customer is fine: Esc.
  */
 export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, visits, usual, onUsual, describeUsual, owes = () => 0, onTakePayment }: Props) {
   const phoneRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const usualRef = useRef<HTMLButtonElement>(null);
   const [name, setName] = useState('');
+  const [nickname, setNickname] = useState('');
   const [who, setWho] = useState<Who>({ at: 'none' });
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -69,7 +70,7 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
     return () => { live = false; };
   }, [phone]);
 
-  useEffect(() => { if (typing === null) { setName(''); setFailed(false); setAdding(false); } }, [typing]);
+  useEffect(() => { if (typing === null) { setName(''); setNickname(''); setFailed(false); setAdding(false); } }, [typing]);
 
   // Just put on an empty order: "the usual" takes Enter.
   const offered = Boolean(customer && usual);
@@ -81,7 +82,7 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
     if (who.at !== 'new' || who.phone !== phone) return;
     setSaving(true);
     try {
-      const r = await crmClient.ensure(phone, name.trim() || undefined);
+      const r = await crmClient.ensure(phone, name.trim() || undefined, undefined, nickname.trim() || undefined);
       onAttach(r.customer);
       onTyping(null);
     } catch {
@@ -91,9 +92,9 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
     }
   };
 
-  const pickByName = (m: Greeting) => { rememberName(m); onAttach({ id: m.id, name: m.name }); onTyping(null); };
+  const pickByName = (m: Greeting) => { rememberName(m); onAttach({ id: m.id, name: m.name, nickname: m.nickname ?? null }); onTyping(null); };
   /** Came only to pay their credit back: Charge opens for it from the search, no bill needed, the bill on screen untouched. */
-  const repay = (c: Greeting) => { rememberName(c); onTakePayment?.({ id: c.id, name: c.name }); onTyping(null); };
+  const repay = (c: Greeting) => { rememberName(c); onTakePayment?.({ id: c.id, name: c.name, nickname: c.nickname ?? null }); onTyping(null); };
   const repayButton = (c: Greeting) => {
     const due = owes(c.id);
     if (!onTakePayment || due <= 0) return null;
@@ -146,7 +147,7 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
           <div className="cust__found">
             <button type="button" className="cust__pick" onClick={() => void attach()}>
               <span className="cust__who">
-                <b>{who.customer.name ?? 'On the list'}</b>
+                <span className="cust__names"><CustomerName name={who.customer.name} nickname={who.customer.nickname} fallback="On the list" /></span>
                 <span className="num">{visits(who.customer.id) ? `${visits(who.customer.id)} ${visits(who.customer.id) === 1 ? 'visit' : 'visits'}` : 'No visits yet'}</span>
               </span>
               <kbd>Enter</kbd>
@@ -162,12 +163,18 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
               id="cust-name" ref={nameRef} className="cust__name" autoComplete="off" maxLength={60} value={name}
               placeholder={adding ? 'Their name' : 'Tab, then the name'} onChange={(e) => setName(e.target.value)}
             />
+            {/* What the shop calls them: the counter finds them by it next time (2026-11-25). */}
+            <label className="cust__label" htmlFor="cust-nick">Nickname, if any</label>
+            <input
+              id="cust-nick" className="cust__name" autoComplete="off" maxLength={40} value={nickname}
+              placeholder="What you call them" onChange={(e) => setNickname(e.target.value)}
+            />
           </>
         )}
         {who.at === 'new' && (
           <>
             <button type="button" className="cust__pick" onClick={() => void attach()} disabled={saving}>
-              <span className="cust__who"><b>{name.trim() ? `New customer: ${name.trim()}` : 'New customer'}</b><span className="num">{text.trim()}</span></span>
+              <span className="cust__who"><b>{name.trim() || nickname.trim() ? `New customer: ${[name.trim(), nickname.trim() && `“${nickname.trim()}”`].filter(Boolean).join(' ')}` : 'New customer'}</b><span className="num">{text.trim()}</span></span>
               <kbd>Enter</kbd>
             </button>
           </>
@@ -184,7 +191,7 @@ export function CustomerBar({ customer, typing, onTyping, onAttach, onRemove, vi
       <div className="cust">
         <div className="cust__on">
           <button type="button" className="cust__chip" onClick={() => onTyping('')} aria-label={`Customer ${customer.name ?? ''}: change`}>
-            <b>{customer.name ?? 'Customer'}</b>
+            <span className="cust__names"><CustomerName name={customer.name} nickname={customer.nickname} /></span>
             <span className="num">{n ? `${ordinal(n + 1)} visit` : 'First visit'}</span>
           </button>
           <button type="button" className="cust__off" onClick={onRemove} aria-label="Take the customer off">×</button>

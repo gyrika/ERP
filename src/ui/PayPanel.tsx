@@ -98,7 +98,9 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
   const search = useNameSearch(phoneTyped, customers);
   const [chosen, setChosen] = useState<Greeting | null>(null);
   const typePhone = (t: string) => { setPhoneTyped(t); setChosen(null); setAddedNote(null); };
-  const pickByName = (m: Greeting) => { rememberName(m); setChosen({ id: m.id, name: m.name }); field.current?.focus(); };
+  const pickByName = (m: Greeting) => { rememberName(m); setChosen({ id: m.id, name: m.name, nickname: m.nickname ?? null }); field.current?.focus(); };
+  /** Full name, and the nickname beside it: Kasun Perera “Kasu”. */
+  const called = (c: Greeting): string | null => (c.name && c.nickname ? `${c.name} “${c.nickname}”` : c.name ?? c.nickname ?? null);
   // Who this number is, looked up as soon as it is a whole mobile number. Nothing is made yet.
   const mobileCheck = customers && !search.byName ? toLkMobile(phoneTyped) : null;
   const phone = mobileCheck && 'phone' in mobileCheck ? mobileCheck.phone : null;
@@ -116,14 +118,15 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
   const isNew = who.at === 'new' && who.phone === phone;
 
   // New customer, on purpose (the cashier's + New): mobile and name, added now; the payment is then theirs.
-  const [adder, setAdder] = useState<{ phone: string; name: string; state: 'typing' | 'saving' | string } | null>(null);
+  const [adder, setAdder] = useState<{ phone: string; name: string; nickname: string; state: 'typing' | 'saving' | string } | null>(null);
   const newMobile = useRef<HTMLInputElement>(null);
   const newName = useRef<HTMLInputElement>(null);
+  const newNick = useRef<HTMLInputElement>(null);
   /** Opens the form with what was typed: digits are the mobile, letters the name. */
   const openAdder = () => {
     const t = phoneTyped.trim();
     const letters = /\p{L}/u.test(t);
-    setAdder({ phone: letters ? '' : t, name: letters ? t : '', state: 'typing' });
+    setAdder({ phone: letters ? '' : t, name: letters ? t : '', nickname: '', state: 'typing' });
     setTimeout(() => (letters || !t ? newMobile : newName).current?.focus(), 0);
   };
   const addNew = async () => {
@@ -132,9 +135,9 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
     if (!('phone' in m)) { setAdder({ ...adder, state: adder.phone.trim() ? m.reason : 'Type their mobile, like 077 123 4567' }); newMobile.current?.focus(); return; }
     setAdder({ ...adder, state: 'saving' });
     try {
-      const r = await crmClient.ensure(m.phone, adder.name.trim() || undefined);
+      const r = await crmClient.ensure(m.phone, adder.name.trim() || undefined, undefined, adder.nickname.trim() || undefined);
       setPhoneTyped(adder.phone.trim());
-      setChosen({ id: r.customer.id, name: r.customer.name });
+      setChosen({ id: r.customer.id, name: r.customer.name, nickname: r.customer.nickname ?? null });
       setAddedNote(r.created ? 'added' : 'already on the list');
       setAdder(null);
       field.current?.focus();
@@ -193,7 +196,7 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
       const inName = customers && e.target === nameField.current;
       const inMobile = customers && (e.target === mobile.current || inName);
       // The New customer form types its own keys; Enter adds, Esc closes it.
-      if (adder && (e.target === newMobile.current || e.target === newName.current)) {
+      if (adder && (e.target === newMobile.current || e.target === newName.current || e.target === newNick.current)) {
         if (e.key === 'Enter') { e.preventDefault(); if (e.target === newMobile.current && !adder.name) newName.current?.focus(); else void addNew(); }
         if (e.key === 'Escape') { e.preventDefault(); setAdder(null); mobile.current?.focus(); }
         return;
@@ -281,13 +284,13 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
     : enough ? { label: 'Change', big: fmt(change), tone: ' payfoot__note--change' }
     : { label: 'Short', big: fmt(due - amount), tone: ' payfoot__note--short' };
   const hint = !customers || !phoneTyped.trim() || adder ? null
-    : chosen && addedNote ? `${chosen.name ?? 'Customer'} · ${addedNote}`
-    : search.byName ? (chosen ? `${chosen.name ?? 'Customer'} · on the list`
+    : chosen && addedNote ? `${called(chosen) ?? 'Customer'} · ${addedNote}`
+    : search.byName ? (chosen ? `${called(chosen) ?? 'Customer'} · on the list`
       : search.found.at === 'found' ? (search.matches.length ? null : 'No one by that name: type their mobile')
         : search.found.at === 'away' ? 'The list is not answering: the sale still goes in'
           : search.found.at === 'looking' ? 'Looking…' : 'Keep typing the name')
     : !phone ? (mobileCheck && 'reason' in mobileCheck && phoneTyped.replace(/\D/g, '').length >= 9 ? mobileCheck.reason : 'like 077 123 4567')
-      : who.at === 'known' ? (who.customer.name ? `${who.customer.name} · on the list` : 'On the list')
+      : who.at === 'known' ? (called(who.customer) ? `${called(who.customer)} · on the list` : 'On the list')
         : who.at === 'new' ? (nameTyped.trim() ? `New customer: ${nameTyped.trim()}, added as they pay` : 'New customer: added as they pay')
           : who.at === 'away' ? 'The list is not answering: the sale still goes in' : 'Looking…';
 
@@ -372,6 +375,11 @@ export function PayPanel({ number, total, lines, onPay, onClose, customers: crmO
                     <span className="payfield__label">Name</span>
                     <input ref={newName} className="payfield__input" autoComplete="off" maxLength={60} value={adder.name} placeholder="Their name"
                       onChange={(e) => setAdder({ ...adder, name: e.target.value, state: 'typing' })} />
+                  </label>
+                  <label className="payfield">
+                    <span className="payfield__label">Nickname <span className="payfield__optional">if any</span></span>
+                    <input ref={newNick} className="payfield__input" autoComplete="off" maxLength={40} value={adder.nickname} placeholder="What you call them"
+                      onChange={(e) => setAdder({ ...adder, nickname: e.target.value, state: 'typing' })} />
                   </label>
                   <button type="button" className="paykey paykey--solid paynew__add" disabled={adder.state === 'saving'} onClick={() => void addNew()}>
                     {adder.state === 'saving' ? 'Adding…' : 'Add customer'} <kbd aria-hidden="true">Enter</kbd>

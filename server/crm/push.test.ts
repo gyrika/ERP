@@ -83,22 +83,38 @@ test('at Charge: anyone at the counter finds a customer by number; a new number 
   const id = (made.body.customer as { id: string }).id;
   assert.match(id, /^cus-[0-9a-f]{16}$/);
   const again = await s.post('/ensure', s.cashier.id, { phone: '+94 77 000 0001' });
-  assert.deepEqual(again.body, { customer: { id, name: null }, created: false }, 'the same number, written another way');
-  assert.deepEqual((await s.post('/lookup', s.cashier.id, { phone: '770000001' })).body, { customer: { id, name: null } });
+  assert.deepEqual(again.body, { customer: { id, name: null, nickname: null }, created: false }, 'the same number, written another way');
+  assert.deepEqual((await s.post('/lookup', s.cashier.id, { phone: '770000001' })).body, { customer: { id, name: null, nickname: null } });
   assert.equal((await s.post('/lookup', s.cashier.id, { phone: '011 234 5678' })).status, 400, 'a landline');
-  // Only the first name at the counter.
+  // The full name at the counter, so two Kasuns are told apart (owner, 2026-11-25).
   await s.customers.importRows(SHOP, [{ row: 2, kind: 'fill_name', phone: '+94770000001', name: 'Kasun Perera', id, notes: [] }], { id: 'x', name: 'x', role: 'owner' }, T0);
-  assert.deepEqual((await s.post('/lookup', s.cashier.id, { phone: '0770000001' })).body, { customer: { id, name: 'Kasun' } });
-  // A name typed instead of the number: first names and the last 3 digits only.
-  assert.deepEqual((await s.post('/search', s.cashier.id, { q: 'kas per' })).body, { matches: [{ id, name: 'Kasun', ends: '001' }] });
+  assert.deepEqual((await s.post('/lookup', s.cashier.id, { phone: '0770000001' })).body, { customer: { id, name: 'Kasun Perera', nickname: null } });
+  // A name typed instead of the number: the full name, the nickname and the last 3 digits.
+  assert.deepEqual((await s.post('/search', s.cashier.id, { q: 'kas per' })).body, { matches: [{ id, name: 'Kasun Perera', nickname: null, ends: '001' }] });
+  // A manager gives him a nickname: the counter finds him by it and sees it beside his name; the cashier cannot give one.
+  assert.equal((await s.post('/customers/edit', s.cashier.id, { id, phone: '0770000001', name: 'Kasun Perera', nickname: 'Malli' })).status, 403);
+  const nicked = await s.post('/customers/edit', s.manager.id, { id, phone: '0770000001', name: 'Kasun Perera', nickname: '  Malli ' });
+  assert.equal((nicked.body.customer as { nickname: string }).nickname, 'Malli');
+  assert.equal((nicked.body.before as { nickname: null }).nickname, null, 'before, for Undo');
+  assert.deepEqual((await s.post('/search', s.cashier.id, { q: 'mal' })).body, { matches: [{ id, name: 'Kasun Perera', nickname: 'Malli', ends: '001' }] });
+  assert.deepEqual((await s.post('/lookup', s.cashier.id, { phone: '0770000001' })).body, { customer: { id, name: 'Kasun Perera', nickname: 'Malli' } });
+  await s.post('/customers/edit', s.manager.id, { id, phone: '0770000001', name: 'Kasun Perera' });
+  assert.equal((await s.customers.byPhone(SHOP, '+94770000001'))?.nickname, 'Malli', 'left out: unchanged');
+  await s.post('/customers/edit', s.manager.id, { id, phone: '0770000001', name: 'Kasun Perera', nickname: '' });
+  assert.equal((await s.customers.byPhone(SHOP, '+94770000001'))?.nickname, null, 'emptied: none');
   assert.deepEqual((await s.post('/search', s.cashier.id, { q: 'k' })).body, { matches: [] });
   // A name given at the counter is kept for someone new, never over a name the list already has.
   const named = await s.post('/ensure', s.cashier.id, { phone: '0770000002', name: '  Dilani   Silva ' });
-  assert.deepEqual((named.body.customer as { name: string }).name, 'Dilani');
+  assert.deepEqual((named.body.customer as { name: string }).name, 'Dilani Silva');
   assert.equal((await s.customers.byPhone(SHOP, '+94770000002'))?.name, 'Dilani Silva');
-  assert.equal(((await s.post('/ensure', s.cashier.id, { phone: '0770000001', name: 'Someone Else' })).body.customer as { name: string }).name, 'Kasun');
+  assert.equal(((await s.post('/ensure', s.cashier.id, { phone: '0770000001', name: 'Someone Else' })).body.customer as { name: string }).name, 'Kasun Perera');
   assert.equal((await s.customers.byPhone(SHOP, '+94770000001'))?.name, 'Kasun Perera');
   assert.equal(((await s.post('/ensure', s.cashier.id, { phone: '0770000003', name: '---' })).body.customer as { name: null }).name, null, 'no letters: no name');
+  // + New at the counter: a nickname too, kept for someone who has none, never over one they have.
+  const newNick = await s.post('/ensure', s.cashier.id, { phone: '0770000006', name: 'Amali Fernando', nickname: ' Ami ' });
+  assert.deepEqual((newNick.body.customer as { name: string; nickname: string }), { id: (newNick.body.customer as { id: string }).id, name: 'Amali Fernando', nickname: 'Ami' });
+  await s.post('/ensure', s.cashier.id, { phone: '0770000006', nickname: 'Someone' });
+  assert.equal((await s.customers.byPhone(SHOP, '+94770000006'))?.nickname, 'Ami');
   // An online order from a signed-in customer (cheesybeez.com account) comes from the app; anything else is the counter's.
   await s.post('/ensure', s.cashier.id, { phone: '0770000004', name: 'Ama', source: 'app' });
   await s.post('/ensure', s.cashier.id, { phone: '0770000005', source: 'web-hack' });
@@ -106,7 +122,7 @@ test('at Charge: anyone at the counter finds a customer by number; a new number 
   // The list is for managers and the owner.
   assert.equal((await s.get('/customers', s.cashier.id)).status, 403);
   const list = await s.get('/customers', s.manager.id);
-  assert.equal((list.body.customers as unknown[]).length, 5);
+  assert.equal((list.body.customers as unknown[]).length, 6);
   assert.equal((await s.get('/customers', s.manager.id)).body.withApp instanceof Array, true);
   await s.stop();
 });

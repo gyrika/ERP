@@ -137,6 +137,27 @@ test('SQLite: remove takes the customer, their phones and send log; restore brin
   rmSync(dir, { recursive: true, force: true });
 });
 
+test('SQLite: a nickname is sealed like the name, kept through an erase and its Undo, and can be taken off', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cb-crm-nick-'));
+  const events = sqliteStore(join(dir, 'pos.sqlite'));
+  await events.addDevice('shop-a', 'A', 'counter');
+  const store = sqliteCustomers(events.db, crmCrypto(dir));
+  const { customer } = await store.ensure('shop-a', '+94770000057', 'pos', 'o', AT);
+  assert.equal(customer.nickname, null);
+  assert.equal(await store.setNickname('shop-a', customer.id, 'Malli', 'm', AT + 1), true);
+  assert.equal(await store.setNickname('shop-b', customer.id, 'Other shop', 'm', AT + 1), false, 'from another shop');
+  const row = events.db.prepare('SELECT nickname_enc FROM crm_customers WHERE id = ?').get(customer.id) as { nickname_enc: string };
+  assert.ok(!row.nickname_enc.includes('Malli'), 'sealed, not plain');
+  assert.equal((await store.byPhone('shop-a', '+94770000057'))?.nickname, 'Malli');
+  const removed = await store.remove('shop-a', customer.id);
+  assert.equal(await store.restore('shop-a', removed!, 'o', AT + 2), true);
+  assert.equal((await store.list('shop-a'))[0].nickname, 'Malli', 'back with the Undo');
+  await store.setNickname('shop-a', customer.id, null, 'm', AT + 3);
+  assert.equal((await store.byPhone('shop-a', '+94770000057'))?.nickname, null);
+  await events.close();
+  rmSync(dir, { recursive: true, force: true });
+});
+
 /** Campaign results read the send log back by key: this campaign's rows only, this shop's only. */
 const loggedStory = async (store: CustomerStore) => {
   await store.logOnce('shop-a', 'campaign:abc:cus-1', 'cus-1', AT);

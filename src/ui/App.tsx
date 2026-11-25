@@ -444,7 +444,7 @@ export function App({
       customer={customer}
       typing={custTyping}
       onTyping={setCustTyping}
-      onAttach={(c) => reg.setCustomer({ id: c.id, name: c.name })}
+      onAttach={(c) => reg.setCustomer({ id: c.id, name: c.name, nickname: c.nickname ?? null })}
       onRemove={() => reg.setCustomer(null)}
       visits={(id) => visits.get(id)?.length ?? 0}
       usual={usual}

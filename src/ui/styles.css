@@ -414,6 +414,13 @@ kbd { font: inherit; font-size: 11px; font-weight: 600; line-height: 1; padding:
 .cust__who { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .cust__who b { font-size: var(--fs-b); font-weight: 600; }
 .cust__who span { font-size: var(--fs-s); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Full name, then the nickname the shop knows them by (2026-11-25): two Kasuns are told apart. */
+/* Always the whole name: a long one wraps onto a second line, never cut with "…" (owner, 2026-11-25). */
+.cust__who .cust__names, .cust__names { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; min-width: 0;
+  font-size: inherit; color: inherit; white-space: normal; overflow: visible; }
+.cust__names b { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.cust__chip .cust__names { flex: 0 1 auto; font-size: inherit; color: inherit; }
+.cust__who .cust__nick, .cust__nick { flex: none; font-size: var(--fs-s); color: var(--ink-2); font-style: italic; }
 .cust__label { font-size: var(--fs-xs); font-weight: 500; color: var(--ink-2); }
 .cust__phone { height: 56px; padding: 0 16px; border-radius: 14px; border: 2px solid var(--primary); background: var(--surface); font: inherit; font-size: 22px; font-weight: 500; letter-spacing: 0.5px; color: var(--ink); outline: none; }
 .cust__name { height: 48px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font: inherit; font-size: var(--fs-b); color: var(--ink); }
@@ -2826,6 +2833,7 @@ button.glance__card:disabled { cursor: default; }
 .crm-profile__who { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .crm-avatar--big { width: 56px; height: 56px; background: var(--ink); color: var(--on-primary); font-size: 18px; }
 .crm-profile__line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.crm-profile__nick { color: var(--ink-2); font-style: italic; }
 .crm-profile__meta { margin: 6px 0 0; font-size: 14px; color: var(--ink-2); }
 .crm-profile__phone { color: var(--ink); font-weight: 500; }
 .crm-profile__actions { display: flex; flex-wrap: wrap; gap: 10px; }

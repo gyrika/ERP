@@ -38,6 +38,7 @@ function AddCustomer({ onAdded }: { onAdded: (n: Notice) => Promise<void> }) {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [nickname, setNickname] = useState('');
   const [error, setError] = useState('');
   if (!open) {
     return (
@@ -51,8 +52,8 @@ function AddCustomer({ onAdded }: { onAdded: (n: Notice) => Promise<void> }) {
     setBusy(true);
     setError('');
     try {
-      const { customer } = await crmClient.add(phone, name);
-      setPhone(''); setName(''); setOpen(false);
+      const { customer } = await crmClient.add(phone, name, nickname);
+      setPhone(''); setName(''); setNickname(''); setOpen(false);
       await onAdded({ message: `Added ${customer.name ?? formatLkMobile(customer.phone)}.` });
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     setBusy(false);
@@ -63,6 +64,8 @@ function AddCustomer({ onAdded }: { onAdded: (n: Notice) => Promise<void> }) {
         <input className="num" inputMode="tel" autoFocus value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="077 123 4567" /></label>
       <label className="setup__field"><span>Name <span className="crm__muted">if known</span></span>
         <input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} /></label>
+      <label className="setup__field"><span>Nickname <span className="crm__muted">if any</span></span>
+        <input value={nickname} maxLength={40} onChange={(e) => setNickname(e.target.value)} /></label>
       <button type="submit" className="inv-page__primary" disabled={busy || !phone.trim()}>Add</button>
       <button type="button" className="linkbtn" onClick={() => { setOpen(false); setError(''); }}>Cancel</button>
       {error && <p className="setup__error" role="alert">{error}</p>}
@@ -114,6 +117,7 @@ export function CustomerList({ data, events, now, onAdded, show = 'all' }: {
   };
   const matches = rows.filter((r) => (filter === 'all' || (filter === 'owes' ? owing(r.c.id) > 0 : filter === 'quiet' ? r.quiet : r.segment === filter)) && (!q
     || (r.c.name ?? '').toLowerCase().includes(q)
+    || (r.c.nickname ?? '').toLowerCase().includes(q)
     || (qDigits.length >= 3 && (digits(formatLkMobile(r.c.phone)).includes(qDigits) || digits(r.c.phone).includes(qDigits)))));
   const filters: ListFilter[] = ['all', 'new', 'regular', 'vip', 'inactive', ...(counts.quiet || filter === 'quiet' ? ['quiet' as const] : []), ...(counts.owes || filter === 'owes' ? ['owes' as const] : [])];
   const pick = (f: ListFilter) => setFilter((was) => (was === f && f !== 'all' ? 'all' : f));
@@ -134,7 +138,7 @@ export function CustomerList({ data, events, now, onAdded, show = 'all' }: {
 
       <section className="crm-card crm-table" aria-label="All customers">
         <div className="crm-filter">
-          <input type="search" className="crm-filter__search" placeholder="Name, or last digits of mobile" aria-label="Search customers" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" className="crm-filter__search" placeholder="Name, nickname, or last digits of mobile" aria-label="Search customers" value={query} onChange={(e) => setQuery(e.target.value)} />
           <div className="cats" role="group" aria-label="Show">
             {filters.map((f) => (
               <button key={f} type="button" className="pill" aria-pressed={filter === f} onClick={() => pick(f)}>

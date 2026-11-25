@@ -26,6 +26,8 @@ export interface Customer {
   /** +947XXXXXXXX (phone.ts). */
   phone: string;
   name: string | null;
+  /** What the counter knows them by ("Kasu", "Malli"), if a manager gave one: shown and searched beside the name. */
+  nickname?: string | null;
   source: CustomerSource;
   /** Asked for no messages: respected by every campaign and automatic message. */
   optedOut: boolean;
@@ -230,24 +232,32 @@ export const crmSummary = (
   };
 };
 
-/** A customer found by name at the counter: the first name to greet them by, and the end of their number to tell two apart. */
-export interface NameMatch { id: string; name: string; ends: string }
+/**
+ * A customer found by name at the counter: the full name (two Kasuns are told apart by it), the
+ * nickname the shop knows them by if they have one, and the end of their number.
+ */
+export interface NameMatch { id: string; name: string; nickname: string | null; ends: string }
+
+const wordsOf = (s: string | null | undefined): string[] => (s ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean);
 
 /**
  * Typed a name instead of a mobile (at Charge, or on the order): who on the list it may be. Every
- * word typed starts a word of their name ("kas per" finds Kasun Perera); names that start with what
- * was typed come first, then A to Z. Two letters at least, and letters, not a number. The counter is
- * told the first name only, as for a number (server/crm/routes.ts), and the last 3 digits.
+ * word typed starts a word of their name or of their nickname ("kas per" finds Kasun Perera, "kasu"
+ * finds him by his nickname); a name or nickname that starts with what was typed comes first, then
+ * A to Z. Two letters at least, and letters, not a number. The counter is shown the full name, the
+ * nickname and the last 3 digits (owner, 2026-11-25: a first name alone could be anyone).
  */
 export const searchCustomers = (list: readonly Customer[], q: string, limit = 5): NameMatch[] => {
   const typed = q.trim().toLowerCase();
   if (typed.length < 2 || !/\p{L}/u.test(typed)) return [];
   const words = typed.split(/\s+/);
+  const hits = (parts: string[]) => parts.length > 0 && words.every((w) => parts.some((p) => p.startsWith(w)));
   return list
-    .filter((c): c is Customer & { name: string } => Boolean(c.name?.trim()))
-    .map((c) => ({ c, n: c.name.trim().toLowerCase() }))
-    .filter(({ n }) => { const parts = n.split(/\s+/); return words.every((w) => parts.some((p) => p.startsWith(w))); })
-    .sort((a, b) => Number(b.n.startsWith(typed)) - Number(a.n.startsWith(typed)) || a.n.localeCompare(b.n))
+    .map((c) => ({ c, name: c.name?.trim() || null, nick: c.nickname?.trim() || null }))
+    .filter((x) => x.name || x.nick)
+    .filter(({ name, nick }) => hits(wordsOf(name)) || hits(wordsOf(nick)) || hits([...wordsOf(name), ...wordsOf(nick)]))
+    .map((x) => ({ ...x, key: (x.name ?? x.nick ?? '').toLowerCase(), starts: [x.name, x.nick].some((n) => n?.toLowerCase().startsWith(typed)) }))
+    .sort((a, b) => Number(b.starts) - Number(a.starts) || a.key.localeCompare(b.key))
     .slice(0, limit)
-    .map(({ c }) => ({ id: c.id, name: c.name.trim().split(/\s+/)[0], ends: c.phone.slice(-3) }));
+    .map(({ c, name, nick }) => ({ id: c.id, name: (name ?? nick)!, nickname: name ? nick : null, ends: c.phone.slice(-3) }));
 };
