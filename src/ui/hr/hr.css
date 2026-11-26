@@ -1,0 +1,91 @@
+.hr-form {
+  max-width: 760px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+}
+
+.hr-form > p {
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+.hr-form fieldset {
+  min-width: 0;
+  margin: 24px 0;
+  padding: 0;
+  border: 0;
+}
+
+.hr-form legend {
+  margin-bottom: 16px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.hr-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.hr-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hr-form label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.hr-form input {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+}
+
+.hr-form input[aria-invalid='true'] {
+  border-color: var(--bad);
+}
+
+.hr-form .hr-form__error {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.hr-form__error::before {
+  content: '! ';
+  color: var(--bad);
+  font-weight: 700;
+}
+
+.hr-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+
+.hr-form button:disabled {
+  opacity: 0.6;
+}
+
+@media (max-width: 600px) {
+  .hr-form {
+    padding: 16px;
+  }
+
+  .hr-form__grid {
+    grid-template-columns: 1fr;
+  }
+}
